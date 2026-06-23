@@ -8,7 +8,6 @@ import { useScrollSync } from "../../hooks/useScrollSync";
 import { registerEditor, unregisterEditor } from "../../lib/activeEditor";
 import { ensureInlineProvider } from "../../lib/ai/inlineCompletions";
 import { attachSelectionToolbar } from "../../lib/ai/selectionToolbar";
-import { attachAiLoader } from "../../lib/ai/inlineLoader";
 import { aiContinue, aiSummarize, aiFixGrammar, aiGenerateTitle, aiFixMermaid } from "../../lib/ai/actions";
 import { aiActivity } from "../../lib/ai/activity";
 import { MarkdownToolbar, applyFormat, detectActiveFormats, type FormatAction } from "./MarkdownToolbar";
@@ -126,12 +125,12 @@ export const MonacoMarkdownEditor = React.memo(
             }
           });
 
-          // Floating AI quick-actions toolbar on text selection.
+          // Floating AI quick-actions toolbar on text selection. (The AI busy
+          // indicator lives in the app status bar — see StatusBar.tsx — so the
+          // main editor doesn't attach the corner overlay chip.)
           const detachSelToolbar = attachSelectionToolbar(editor, monaco);
-          const detachAiLoader = attachAiLoader(editor, monaco);
           editor.onDidDispose(() => {
             detachSelToolbar();
-            detachAiLoader();
           });
 
           // ── F1: disable Monaco's own palette ─────────────────────────────

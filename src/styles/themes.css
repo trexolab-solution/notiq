@@ -238,27 +238,62 @@
   --color-editor-text:  #DCD7BA;
 }
 
-/* ── AI inline shimmer (Cursor/Copilot-style ghost-text placeholder) ───────
-   Painted over an injected-text decoration sitting exactly at the caret. The
-   injected characters are made transparent; the moving gradient reads as a
-   "ghost text is generating here" skeleton. */
-.ai-shimmer-inline {
-  color: transparent !important;
-  border-radius: 3px;
-  background-image: linear-gradient(
-    90deg,
-    color-mix(in srgb, var(--color-text-muted) 20%, transparent) 0%,
-    color-mix(in srgb, var(--color-primary) 60%, transparent) 50%,
-    color-mix(in srgb, var(--color-text-muted) 20%, transparent) 100%
-  );
-  background-size: 200% 100%;
-  animation: ai-shimmer-sweep 1.25s ease-in-out infinite;
+/* ── AI status chip (floating "thinking" indicator, editor bottom-right) ─────
+   A calm, professional cue that the AI is working. Rendered as a Monaco overlay
+   widget pinned to the bottom-right corner (see src/lib/ai/inlineLoader.ts), so
+   it floats over the editor and never shifts the text. Shown via `.is-visible`;
+   appearance is delayed in JS so fast suggestions never flash it. */
+.ai-status-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0 14px 14px 0;            /* inset from the editor's corner */
+  padding: 5px 11px 5px 9px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+  color: var(--color-text);
+  background: color-mix(in srgb, var(--color-bg-secondary) 90%, transparent);
+  border: 1px solid var(--color-border);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.10), 0 6px 20px rgba(0, 0, 0, 0.18);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  user-select: none;
+  pointer-events: none;             /* never intercept clicks on the editor */
+  /* Hidden by default; the chip is always mounted and fades/slides in. */
+  opacity: 0;
+  transform: translateY(6px) scale(0.96);
+  transition: opacity 180ms ease, transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.ai-status-chip.is-visible {
+  opacity: 1;
+  transform: translateY(0) scale(1);
 }
 
-@keyframes ai-shimmer-sweep {
-  0%   { background-position: 200% 0; opacity: 0.6; }
-  50%  { opacity: 1; }
-  100% { background-position: -200% 0; opacity: 0.6; }
+.ai-status-chip__spinner {
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  border: 2px solid color-mix(in srgb, var(--color-primary) 26%, transparent);
+  border-top-color: var(--color-primary);
+  animation: ai-chip-spin 0.7s linear infinite;
+}
+.ai-status-chip__label {
+  color: var(--color-text-muted);
+  letter-spacing: 0.01em;
+}
+
+@keyframes ai-chip-spin { to { transform: rotate(360deg); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .ai-status-chip {
+    transition: opacity 180ms ease;
+    transform: none;
+  }
+  .ai-status-chip.is-visible { transform: none; }
+  .ai-status-chip__spinner { animation-duration: 1.4s; }
 }
 
 /* ── AI inline edit review (Accept / Reject / Retry) ────────────────────────── */

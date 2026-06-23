@@ -1,8 +1,17 @@
-import React, { useMemo } from "react";
-import { HardDrive, SquareTerminal } from "lucide-react";
+import React, { useEffect, useMemo, useState } from "react";
+import { HardDrive, SquareTerminal, Loader2 } from "lucide-react";
 import { useAppStore } from "../../store";
 import { Tooltip } from "../ui/Tooltip";
+import { subscribeBusyDelayed } from "../../lib/ai/activity";
 import { APP_NAME, APP_VERSION } from "../../config/app";
+
+/** True while AI work is in flight, with delayed-show timing so quick
+ *  autocomplete responses never flash the indicator. */
+function useAiBusy(): boolean {
+  const [busy, setBusy] = useState(false);
+  useEffect(() => subscribeBusyDelayed(setBusy), []);
+  return busy;
+}
 
 const MODE_LABEL: Record<string, string> = {
   markdown: "Source",
@@ -23,6 +32,7 @@ export const StatusBar = React.memo(function StatusBar({
   const activeTabId = useAppStore((s) => s.activeTabId);
   const themeId     = useAppStore((s) => s.themeId);
   const activeTab   = tabs.find((t) => t.id === activeTabId);
+  const aiBusy      = useAiBusy();
 
   const { words, chars } = useMemo(() => {
     if (!activeTab || activeTab.kind === "whiteboard") return { words: 0, chars: 0 };
@@ -69,8 +79,14 @@ export const StatusBar = React.memo(function StatusBar({
         )}
       </div>
 
-      {/* Right: save state + mode + theme */}
+      {/* Right: AI activity + save state + mode + theme */}
       <div className="status-group">
+        {aiBusy && (
+          <span className="status-item status-ai-indicator" aria-live="polite">
+            <Loader2 size={11} />
+            Thinking…
+          </span>
+        )}
         {activeTab && (
           <>
             {activeTab.kind === "whiteboard" ? (

@@ -63,3 +63,56 @@ export const aiActivity = {
     return true;
   },
 };
+
+/**
+ * Subscribe to the AI-busy state with "professional" timing so indicators never
+ * flicker. `onChange(true)` fires only once a request has been pending past
+ * `showDelayMs` (fast work finishes first and never flashes anything), and once
+ * shown it stays at least `minVisibleMs` before `onChange(false)` so it fades in
+ * and out smoothly instead of blinking. Returns an unsubscribe fn.
+ *
+ * Shared by the editor overlay chip (inlineLoader) and the status-bar item so
+ * both behave identically.
+ */
+export function subscribeBusyDelayed(
+  onChange: (visible: boolean) => void,
+  opts: { showDelayMs?: number; minVisibleMs?: number } = {},
+): () => void {
+  const showDelayMs = opts.showDelayMs ?? 180;
+  const minVisibleMs = opts.minVisibleMs ?? 320;
+  let visible = false;
+  let shownAt = 0;
+  let showTimer: ReturnType<typeof setTimeout> | null = null;
+  let hideTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const clearTimers = () => {
+    if (showTimer) { clearTimeout(showTimer); showTimer = null; }
+    if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; }
+  };
+
+  const onBusy = (busy: boolean) => {
+    if (busy) {
+      if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; }
+      if (visible || showTimer) return;
+      showTimer = setTimeout(() => {
+        showTimer = null;
+        visible = true;
+        shownAt = Date.now();
+        onChange(true);
+      }, showDelayMs);
+    } else {
+      if (showTimer) { clearTimeout(showTimer); showTimer = null; }
+      if (!visible) return;
+      const wait = Math.max(0, minVisibleMs - (Date.now() - shownAt));
+      if (hideTimer) clearTimeout(hideTimer);
+      hideTimer = setTimeout(() => {
+        hideTimer = null;
+        visible = false;
+        onChange(false);
+      }, wait);
+    }
+  };
+
+  const unsub = aiActivity.subscribe(onBusy);
+  return () => { clearTimers(); unsub(); };
+}

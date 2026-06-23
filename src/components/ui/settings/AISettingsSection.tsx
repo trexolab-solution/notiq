@@ -1,12 +1,11 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { RefreshCw, Zap, Save, Trash2, ExternalLink, Wand2, Sparkles } from "lucide-react";
+import { RefreshCw, Zap, Save, Trash2, ExternalLink, Wand2, Sparkles, Eye, EyeOff } from "lucide-react";
 import { useAIPreferences } from "../../../store/selectors";
 import { SettingRow } from "../SettingRow";
 import { Toggle } from "../Toggle";
 import { Select } from "../Select";
 import { Slider } from "../Slider";
 import { SegmentedControl } from "../SegmentedControl";
-import { Input } from "../Input";
 import { Button } from "../Button";
 import { ConfirmDialog } from "../ConfirmDialog";
 import { SubHeading } from "./SubHeading";
@@ -40,6 +39,7 @@ export const AISettingsSection = React.memo(function AISettingsSection({ onRunSe
   const [keyInput, setKeyInput] = useState("");
   const [keyPresent, setKeyPresent] = useState(false);
   const [savingKey, setSavingKey] = useState(false);
+  const [showKey, setShowKey] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   const [models, setModels] = useState<string[]>([]);
@@ -79,6 +79,7 @@ export const AISettingsSection = React.memo(function AISettingsSection({ onRunSe
       await setApiKey(keyInput.trim());
       setKeyPresent(true);
       setKeyInput("");
+      setShowKey(false);
       toast.success("API key saved");
     } catch (e) {
       toast.error(mapAiError(e));
@@ -180,24 +181,48 @@ export const AISettingsSection = React.memo(function AISettingsSection({ onRunSe
               description={keyPresent ? "A key is saved (stored locally, never shown)." : "Paste your ollama.com API key."}
               help="Your ollama.com API key. It's stored locally on this device and sent only to Ollama to authorize requests. It is never shown again after saving."
             >
-              <div className="flex items-center justify-end gap-1.5 w-[290px]">
-                <Input
-                  type="password"
+              {/* Joined input group: field + reveal toggle + a single flush action
+                  (Save/Update while typing, else Delete when a key exists). */}
+              <div className="flex items-stretch w-[290px] rounded-md border border-[var(--color-border)] bg-[var(--color-bg-tertiary)] overflow-hidden transition-colors focus-within:border-[var(--color-primary)] focus-within:ring-2 focus-within:ring-[var(--color-primary)]/40">
+                <input
+                  type={showKey ? "text" : "password"}
                   value={keyInput}
                   onChange={(e) => setKeyInput(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter" && keyInput.trim() && !savingKey) saveKey(); }}
                   placeholder={keyPresent ? "•••••••• (saved)" : "Paste API key"}
                   aria-label="API key"
-                  style={{ flex: 1, minWidth: 0 }}
+                  className="flex-1 min-w-0 bg-transparent border-0 outline-none px-2 py-1 text-sm text-[var(--color-text)] placeholder:text-[var(--color-text-muted)]"
                 />
-                {/* Single action slot: Save/Update while typing, else Delete (when a key exists). */}
+                {/* Reveal toggle — only meaningful while there is text to show. */}
+                {keyInput && (
+                  <button
+                    type="button"
+                    onClick={() => setShowKey((v) => !v)}
+                    aria-label={showKey ? "Hide API key" : "Show API key"}
+                    title={showKey ? "Hide" : "Show"}
+                    className="flex items-center px-2 cursor-pointer text-[var(--color-text-muted)] hover:text-[var(--color-text)] transition-colors"
+                  >
+                    {showKey ? <EyeOff size={14} /> : <Eye size={14} />}
+                  </button>
+                )}
                 {keyInput.trim() ? (
-                  <Button variant="primary" size="sm" icon={<Save size={13} />} onClick={saveKey} disabled={savingKey}>
-                    {keyPresent ? "Update" : "Save"}
-                  </Button>
+                  <button
+                    type="button"
+                    onClick={saveKey}
+                    disabled={savingKey}
+                    className="flex items-center gap-1 px-2.5 text-xs font-semibold cursor-pointer border-l border-[var(--color-border)] bg-[var(--color-primary)] text-[var(--color-bg)] hover:bg-[var(--color-primary-hover)] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    <Save size={13} /> {keyPresent ? "Update" : "Save"}
+                  </button>
                 ) : keyPresent ? (
-                  <Button variant="danger" size="sm" icon={<Trash2 size={13} />} onClick={() => setConfirmDelete(true)}>
-                    Delete
-                  </Button>
+                  <button
+                    type="button"
+                    onClick={() => setConfirmDelete(true)}
+                    aria-label="Delete API key"
+                    className="flex items-center gap-1 px-2.5 text-xs font-medium cursor-pointer border-l border-[var(--color-border)] text-[var(--color-danger)] hover:bg-[var(--color-danger)]/10 transition-colors"
+                  >
+                    <Trash2 size={13} /> Delete
+                  </button>
                 ) : null}
               </div>
             </SettingRow>
