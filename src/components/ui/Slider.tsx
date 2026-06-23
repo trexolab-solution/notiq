@@ -153,10 +153,7 @@ export const Slider = React.memo(function Slider({
       </div>
 
       {showValue && (
-        <span
-          className="tabular-nums text-sm font-medium"
-          style={{ color: "var(--color-primary)", minWidth: 32, textAlign: "right" }}
-        >
+        <span className="tabular-nums text-sm font-medium text-[var(--color-primary)] min-w-[32px] text-right">
           {displayValue}
         </span>
       )}

@@ -32,25 +32,17 @@ export class ErrorBoundary extends React.Component<Props, State> {
   render() {
     if (this.state.hasError) {
       return this.props.fallback ?? (
-        <div style={{
-          display: "flex", alignItems: "center", justifyContent: "center",
-          height: "100%", padding: 24, color: "var(--color-text-muted)",
-          fontSize: 13, textAlign: "center",
-        }}>
+        <div className="flex items-center justify-center h-full p-6 text-[var(--color-text-muted)] text-[13px] text-center">
           <div>
-            <p style={{ fontWeight: 600, marginBottom: 8, color: "var(--color-danger)" }}>
+            <p className="font-semibold mb-2 text-[var(--color-danger)]">
               Something went wrong
             </p>
-            <p style={{ opacity: 0.7, fontSize: 12 }}>
+            <p className="opacity-70 text-[12px]">
               {this.state.error?.message ?? "An unexpected error occurred."}
             </p>
             <button
               onClick={() => this.setState({ hasError: false, error: null })}
-              style={{
-                marginTop: 12, padding: "4px 12px", borderRadius: 4, fontSize: 12,
-                cursor: "pointer", background: "var(--color-bg-tertiary)",
-                color: "var(--color-text)", border: "1px solid var(--color-border)",
-              }}
+              className="mt-3 py-1 px-3 rounded text-[12px] cursor-pointer bg-[var(--color-bg-tertiary)] text-[var(--color-text)] border border-[var(--color-border)]"
             >
               Try again
             </button>

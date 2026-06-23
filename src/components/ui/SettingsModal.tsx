@@ -57,11 +57,9 @@ export function SettingsModal({ onClose, initialSection = "general", onRunAIOnbo
       >
         {/* ── Left nav ── */}
         <div
-          className="flex flex-col gap-0.5 p-3 shrink-0"
-          style={{ width: 160, background: "var(--color-bg)", borderRight: "1px solid var(--color-border)" }}
+          className="flex flex-col gap-0.5 p-3 shrink-0 w-40 bg-[var(--color-bg)] border-r border-[var(--color-border)]"
         >
-          <p className="text-xs font-bold uppercase tracking-wider px-2 py-1.5 select-none"
-            style={{ color: "var(--color-text-muted)" }}>
+          <p className="text-xs font-bold uppercase tracking-wider px-2 py-1.5 select-none text-[var(--color-text-muted)]">
             Settings
           </p>
           {SECTIONS.map((s) => (
@@ -98,7 +96,7 @@ export function SettingsModal({ onClose, initialSection = "general", onRunAIOnbo
         </div>
 
         {/* ── Content ── */}
-        <div className="flex-1 overflow-y-auto p-6" style={{ color: "var(--color-text)" }}>
+        <div className="flex-1 overflow-y-auto p-6 text-[var(--color-text)]">
           {section === "general"    && <GeneralSection />}
           {section === "editor"     && <EditorSettingsSection />}
           {section === "ai"         && <AISettingsSection onRunSetup={onRunAIOnboarding} />}

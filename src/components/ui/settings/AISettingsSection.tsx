@@ -132,7 +132,7 @@ export const AISettingsSection = React.memo(function AISettingsSection({ onRunSe
   return (
     <div className="flex flex-col gap-5">
       <div className="flex items-center justify-between gap-3">
-        <h2 className="text-base font-semibold" style={{ color: "var(--color-text)" }}>AI / Autocomplete</h2>
+        <h2 className="text-base font-semibold text-[var(--color-text)]">AI / Autocomplete</h2>
         {onRunSetup && (
           <Button variant="ghost" size="sm" icon={<Wand2 size={13} />} onClick={runSetupAgain}>
             Run setup again
@@ -149,14 +149,11 @@ export const AISettingsSection = React.memo(function AISettingsSection({ onRunSe
       </SettingRow>
 
       {!aiEnabled ? (
-        <div
-          className="flex items-start gap-2.5 text-xs p-3 rounded-lg"
-          style={{ background: "var(--color-bg-tertiary)", color: "var(--color-text-muted)" }}
-        >
-          <Sparkles size={26} style={{ color: "var(--color-primary)", flexShrink: 0 }} />
+        <div className="flex items-start gap-2.5 text-xs p-3 rounded-lg bg-[var(--color-bg-tertiary)] text-[var(--color-text-muted)]">
+          <Sparkles size={26} className="text-[var(--color-primary)] shrink-0" />
           <span>
             Turn on AI to configure your provider, API key, model, and autocomplete behaviour.
-            Prefer a guided walkthrough? Use <b style={{ color: "var(--color-text)" }}>Run setup again</b> above.
+            Prefer a guided walkthrough? Use <b className="text-[var(--color-text)]">Run setup again</b> above.
           </span>
         </div>
       ) : (
@@ -183,7 +180,7 @@ export const AISettingsSection = React.memo(function AISettingsSection({ onRunSe
               description={keyPresent ? "A key is saved (stored locally, never shown)." : "Paste your ollama.com API key."}
               help="Your ollama.com API key. It's stored locally on this device and sent only to Ollama to authorize requests. It is never shown again after saving."
             >
-              <div className="flex items-center justify-end gap-1.5" style={{ width: 290 }}>
+              <div className="flex items-center justify-end gap-1.5 w-[290px]">
                 <Input
                   type="password"
                   value={keyInput}
@@ -210,7 +207,7 @@ export const AISettingsSection = React.memo(function AISettingsSection({ onRunSe
               description="No key needed. Make sure Ollama is running (ollama serve)."
               help="Notiq connects to Ollama on your machine. Start it with 'ollama serve' and pull a model first, e.g. 'ollama pull qwen2.5-coder'."
             >
-              <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>{baseUrlFor("local")}</span>
+              <span className="text-xs text-[var(--color-text-muted)]">{baseUrlFor("local")}</span>
             </SettingRow>
           )}
 
@@ -225,7 +222,7 @@ export const AISettingsSection = React.memo(function AISettingsSection({ onRunSe
             }
             help="The model used for autocomplete and AI actions. Coder models are best for code & Mermaid; larger models are smarter but slower. Use Test to verify it responds."
           >
-            <div className="flex items-center justify-end gap-1.5" style={{ width: 290 }}>
+            <div className="flex items-center justify-end gap-1.5 w-[290px]">
               <Select
                 value={aiModel}
                 onChange={setAiModel}
@@ -247,12 +244,11 @@ export const AISettingsSection = React.memo(function AISettingsSection({ onRunSe
                 href="https://ollama.com/settings/keys"
                 target="_blank"
                 rel="noreferrer"
-                className="inline-flex items-center gap-1.5 text-xs w-fit"
-                style={{ color: "var(--color-primary)" }}
+                className="inline-flex items-center gap-1.5 text-xs w-fit text-[var(--color-primary)]"
               >
                 <ExternalLink size={12} /> Get an Ollama API key
               </a>
-              <p className="text-xs leading-relaxed" style={{ color: "var(--color-text-muted)" }}>
+              <p className="text-xs leading-relaxed text-[var(--color-text-muted)]">
                 Cloud uses a free daily tier with limits; heavy/large models may need credits. On a
                 credit error, switch to a free model or use Local Ollama.
               </p>

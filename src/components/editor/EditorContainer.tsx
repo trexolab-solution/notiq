@@ -105,10 +105,7 @@ export const EditorContainer = React.memo(function EditorContainer() {
   // ── Empty state ───────────────────────────────────────────────────────────
   if (!activeTab) {
     return (
-      <div
-        className="flex-1 flex flex-col items-center justify-center gap-5 select-none"
-        style={{ background: "var(--color-editor-bg)" }}
-      >
+      <div className="flex-1 flex flex-col items-center justify-center gap-5 select-none bg-[var(--color-editor-bg)]">
         <div
           className="flex items-center justify-center w-14 h-14 rounded-2xl"
           style={{
@@ -120,10 +117,10 @@ export const EditorContainer = React.memo(function EditorContainer() {
         </div>
 
         <div className="text-center">
-          <p className="text-sm font-semibold mb-1" style={{ color: "var(--color-text)" }}>
+          <p className="text-sm font-semibold mb-1 text-[var(--color-text)]">
             No note open
           </p>
-          <p className="text-xs mb-4" style={{ color: "var(--color-text-muted)" }}>
+          <p className="text-xs mb-4 text-[var(--color-text-muted)]">
             Create a new note or open an existing file
           </p>
           <Button variant="primary" size="sm" icon={<Plus size={13} />} onClick={() => addTab()}>
@@ -131,20 +128,10 @@ export const EditorContainer = React.memo(function EditorContainer() {
           </Button>
         </div>
 
-        <div
-          className="grid grid-cols-3 gap-x-5 gap-y-1.5 text-xs mt-1"
-          style={{ color: "var(--color-text-muted)" }}
-        >
+        <div className="grid grid-cols-3 gap-x-5 gap-y-1.5 text-xs mt-1 text-[var(--color-text-muted)]">
           {[["Ctrl+N", "New"], ["Ctrl+O", "Open"], ["Ctrl+S", "Save"]].map(([k, l]) => (
             <span key={k} className="flex items-center gap-1.5">
-              <kbd
-                className="px-1.5 py-0.5 rounded font-mono"
-                style={{
-                  background: "var(--color-bg-secondary)",
-                  border: "1px solid var(--color-border)",
-                  fontSize: 10,
-                }}
-              >
+              <kbd className="px-1.5 py-0.5 rounded font-mono text-[10px] bg-[var(--color-bg-secondary)] border border-[var(--color-border)]">
                 {k}
               </kbd>
               {l}
@@ -162,10 +149,7 @@ export const EditorContainer = React.memo(function EditorContainer() {
 
   // Full-width Monaco pane (source mode)
   const MonacoPane = (
-    <div
-      className="flex-1 min-h-0 overflow-hidden"
-      style={{ background: "var(--color-editor-bg)", display: "flex", flexDirection: "column" }}
-    >
+    <div className="flex-1 min-h-0 overflow-hidden flex flex-col bg-[var(--color-editor-bg)]">
       <MonacoMarkdownEditor
         tabId={id} content={content} themeId={themeId}
         language={language} horizontalPadding showToolbar={!isMdNote}
@@ -204,10 +188,7 @@ export const EditorContainer = React.memo(function EditorContainer() {
               className="split-pane"
               style={{ width: `${splitPct}%`, height: "100%" }}
             >
-              <div
-                className="flex-1 min-h-0 overflow-hidden"
-                style={{ background: "var(--color-editor-bg)", display: "flex", flexDirection: "column" }}
-              >
+              <div className="flex-1 min-h-0 overflow-hidden flex flex-col bg-[var(--color-editor-bg)]">
                 <MonacoMarkdownEditor
                   ref={monacoHandleRef}
                   tabId={id} content={content} themeId={themeId}

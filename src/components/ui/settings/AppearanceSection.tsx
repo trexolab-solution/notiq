@@ -9,8 +9,8 @@ export const AppearanceSection = React.memo(function AppearanceSection() {
 
   return (
     <div className="flex flex-col gap-4">
-      <h2 className="text-base font-semibold" style={{ color: "var(--color-text)" }}>Appearance</h2>
-      <p className="text-xs" style={{ color: "var(--color-text-muted)" }}>
+      <h2 className="text-base font-semibold text-[var(--color-text)]">Appearance</h2>
+      <p className="text-xs text-[var(--color-text-muted)]">
         Choose a theme for the entire application.
       </p>
       <div className="grid grid-cols-2 gap-2">
@@ -47,7 +47,7 @@ export const AppearanceSection = React.memo(function AppearanceSection() {
                 </div>
               </div>
               {active && (
-                <span className="text-xs font-bold" style={{ color: "var(--color-primary)" }}>✓</span>
+                <span className="text-xs font-bold text-[var(--color-primary)]">✓</span>
               )}
             </button>
           );
