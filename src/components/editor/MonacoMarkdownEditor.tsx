@@ -479,6 +479,11 @@ export const MonacoMarkdownEditor = React.memo(
           )}
           <Editor
             height="100%"
+            // A unique path per tab makes @monaco-editor/react keep a separate
+            // model per tab and natively save/restore its scroll + cursor on
+            // switch (saveViewState defaults to true). Without it every tab
+            // shares one model and the value swap resets scroll to the top.
+            path={tabId}
             language={lang}
             value={content}
             theme={getMonacoTheme(themeId)}
