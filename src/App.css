@@ -236,6 +236,30 @@ html,
   color: var(--color-primary);
 }
 
+/* Topbar "update available" pill (Zed-style) — shown only when an update exists */
+.update-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-primary) 32%, transparent);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.12s, border-color 0.12s, opacity 0.12s;
+  -webkit-app-region: no-drag;
+}
+.update-pill:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-primary) 24%, transparent);
+}
+.update-pill:disabled { cursor: default; opacity: 0.8; }
+
 /* Mode slot — now a normal flex item inside .header-center */
 .titlebar-mode-slot {
   display: flex;

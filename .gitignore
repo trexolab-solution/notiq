@@ -38,3 +38,9 @@ nul
 
 # Build cache files
 .assoc-icon-hash
+
+# Updater signing keys — NEVER commit the private key
+# (public key lives in src-tauri/tauri.conf.json → plugins.updater.pubkey)
+*.key
+*.key.pub
+notiq-updater.key

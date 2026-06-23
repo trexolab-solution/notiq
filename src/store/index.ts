@@ -178,6 +178,10 @@ export interface AppState {
   aiOnboarded: boolean;
   setAiOnboarded: (v: boolean) => void;
 
+  // Updates
+  autoUpdateCheck: boolean;
+  setAutoUpdateCheck: (v: boolean) => void;
+
   /** Reset every editor + terminal preference back to its default value. */
   resetPreferences: () => void;
 
@@ -469,6 +473,7 @@ export const useAppStore = create<AppState>((set, get) => {
       | "aiDebounceMs" | "setAiDebounceMs"
       | "aiContextLines" | "setAiContextLines"
       | "aiOnboarded" | "setAiOnboarded"
+      | "autoUpdateCheck" | "setAutoUpdateCheck"
     >),
 
     resetPreferences() {

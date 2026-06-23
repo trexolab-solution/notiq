@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import {
-  X, Monitor, Type, Keyboard, Info, Terminal, RotateCcw, Sparkles, Settings as SettingsIcon,
+  X, Monitor, Type, Keyboard, Info, Terminal, RotateCcw, Sparkles, Download, Settings as SettingsIcon,
 } from "lucide-react";
 import { useAppStore } from "../../store";
 import { Modal } from "./Modal";
@@ -10,6 +10,7 @@ import { TerminalSettingsSection } from "./settings/TerminalSettingsSection";
 import { AppearanceSection }        from "./settings/AppearanceSection";
 import { AISettingsSection }        from "./settings/AISettingsSection";
 import { ShortcutsSection }         from "./settings/ShortcutsSection";
+import { UpdatesSection }           from "./settings/UpdatesSection";
 import { AboutSection }             from "./settings/AboutSection";
 
 interface SettingsModalProps {
@@ -19,7 +20,7 @@ interface SettingsModalProps {
   onRunAIOnboarding?: () => void;
 }
 
-type Section = "general" | "editor" | "ai" | "terminal" | "appearance" | "shortcuts" | "about";
+type Section = "general" | "editor" | "ai" | "terminal" | "appearance" | "shortcuts" | "updates" | "about";
 
 const SECTIONS: { id: Section; label: string; icon: React.ReactNode }[] = [
   { id: "general",    label: "General",    icon: <SettingsIcon size={15} /> },
@@ -28,6 +29,7 @@ const SECTIONS: { id: Section; label: string; icon: React.ReactNode }[] = [
   { id: "terminal",   label: "Terminal",   icon: <Terminal     size={15} /> },
   { id: "appearance", label: "Appearance", icon: <Monitor      size={15} /> },
   { id: "shortcuts",  label: "Shortcuts",  icon: <Keyboard     size={15} /> },
+  { id: "updates",    label: "Updates",    icon: <Download     size={15} /> },
   { id: "about",      label: "About",      icon: <Info         size={15} /> },
 ];
 
@@ -103,6 +105,7 @@ export function SettingsModal({ onClose, initialSection = "general", onRunAIOnbo
           {section === "terminal"   && <TerminalSettingsSection />}
           {section === "appearance" && <AppearanceSection />}
           {section === "shortcuts"  && <ShortcutsSection />}
+          {section === "updates"    && <UpdatesSection />}
           {section === "about"      && <AboutSection />}
         </div>
       </div>

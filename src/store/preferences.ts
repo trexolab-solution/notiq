@@ -71,6 +71,9 @@ const PREFERENCE_DEFS: PrefDef[] = [
   { stateKey: "aiDebounceMs",           storageKey: "pref:aiDebounceMs",           defaultValue: 400,                          coercion: "number" },
   { stateKey: "aiContextLines",         storageKey: "pref:aiContextLines",         defaultValue: 40,                           coercion: "number" },
   { stateKey: "aiOnboarded",            storageKey: "pref:aiOnboarded",            defaultValue: false,                        coercion: "bool-false" },
+
+  // Updates
+  { stateKey: "autoUpdateCheck",        storageKey: "pref:autoUpdateCheck",        defaultValue: true,                         coercion: "bool-true" },
 ];
 
 // ─── setter name helper ─────────────────────────────────────────────────────

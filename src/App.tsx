@@ -29,6 +29,7 @@ import { TitlebarModePicker }      from "./components/layout/TitlebarModePicker"
 import { TitlebarMenuBar }         from "./components/layout/TitlebarMenuBar";
 import { NoteActions }             from "./components/layout/NoteActions";
 import { WhiteboardActions }       from "./components/layout/WhiteboardActions";
+import { UpdateButton }            from "./components/layout/UpdateButton";
 import { TerminalPanel }           from "./components/terminal/TerminalPanel";
 
 import { EditorContainer }         from "./components/editor/EditorContainer";
@@ -38,6 +39,7 @@ import { CommandPalette, type Command } from "./components/ui/CommandPalette";
 import { THEMES }                  from "./lib/themes";
 import { getActiveEditor }         from "./lib/activeEditor";
 import { aiContinue, aiSummarize, aiFixGrammar, aiGenerateTitle } from "./lib/ai/actions";
+import { updater } from "./lib/updater";
 import {
   FileText as FileIcon, FilePlus, FolderOpen, Save, Settings as SettingsIcon,
   Network as NetworkIcon, Palette, MessageSquare as ChatIcon, SquarePen, PenLine, SpellCheck, Heading,
@@ -45,6 +47,7 @@ import {
 import { ContextMenu }             from "./components/ui/ContextMenu";
 import { ConfirmDialog }           from "./components/ui/ConfirmDialog";
 import { SettingsModal }           from "./components/ui/SettingsModal";
+import { UpdateDialog }            from "./components/ui/UpdateDialog";
 import { FileSelectionModal }      from "./components/ui/FileSelectionModal";
 import { ToastProvider }           from "./components/ui/Toast";
 import { Tooltip }                from "./components/ui/Tooltip";
@@ -92,6 +95,7 @@ export default function App() {
   const setAiEnabled    = useAppStore((s) => s.setAiEnabled);
   const setTheme        = useAppStore((s) => s.setTheme);
   const saveTabToFile   = useAppStore((s) => s.saveTabToFile);
+  const autoUpdateCheck = useAppStore((s) => s.autoUpdateCheck);
 
   // Header ✨ button: not set up → onboarding; set up → quick enable/disable toggle.
   const handleAIClick = useCallback(() => {
@@ -123,6 +127,14 @@ export default function App() {
 
   // Bootstrap auto-start on the very first launch of an installed build.
   useEffect(() => { bootstrapAutostart(); }, []);
+
+  // Auto-check for app updates shortly after startup (toggle in Settings →
+  // About). No-ops outside Tauri; if an update exists the topbar pill appears.
+  useEffect(() => {
+    if (!autoUpdateCheck) return;
+    const t = setTimeout(() => { void updater.check({ silent: true }); }, 3000);
+    return () => clearTimeout(t);
+  }, [autoUpdateCheck]);
 
   // AI chat panel resize (drag the left edge). Clamped 280–640px, persisted.
   const aiChatDraggingRef = useRef(false);
@@ -338,6 +350,7 @@ export default function App() {
         </div>
 
         <div className="header-right">
+          <UpdateButton />
           <Tooltip
             content={
               !aiOnboarded
@@ -562,6 +575,8 @@ export default function App() {
           />
         )
       )}
+
+      <UpdateDialog />
 
       <ToastProvider />
 

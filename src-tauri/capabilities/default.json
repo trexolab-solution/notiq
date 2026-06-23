@@ -21,6 +21,8 @@
     "core:webview:allow-create-webview-window",
     "window-state:default",
     "autostart:default",
+    "updater:default",
+    "process:default",
     "opener:default",
     "clipboard-manager:allow-read-text",
     "clipboard-manager:allow-write-text",
