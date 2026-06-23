@@ -1,0 +1,299 @@
+/* ═══════════════════════════════════════════════════
+   Notiq theme palette
+   13 premium themes · clean contrast · readable
+═══════════════════════════════════════════════════ */
+
+/* ── Dark (default) ────────────────────────────── */
+:root,
+[data-theme="dark"] {
+  --color-bg:           #0f172a;
+  --color-bg-secondary: #1e293b;
+  --color-bg-tertiary:  #334155;
+  --color-border:       #334155;
+  --color-text:         #e2e8f0;
+  --color-text-muted:   #64748b;
+  --color-primary:      #c9a84c;
+  --color-primary-hover:#e2bc5e;
+  --color-accent:       #38bdf8;
+  --color-success:      #4ade80;
+  --color-warning:      #fb923c;
+  --color-danger:       #f87171;
+  --color-editor-bg:    #0f172a;
+  --color-editor-text:  #e2e8f0;
+}
+
+/* ── Light ─────────────────────────────────────── */
+[data-theme="light"] {
+  --color-bg:           #f8fafc;
+  --color-bg-secondary: #f1f5f9;
+  --color-bg-tertiary:  #e2e8f0;
+  --color-border:       #cbd5e1;
+  --color-text:         #1e293b;
+  --color-text-muted:   #64748b;
+  --color-primary:      #b45309;
+  --color-primary-hover:#92400e;
+  --color-accent:       #0284c7;
+  --color-success:      #16a34a;
+  --color-warning:      #d97706;
+  --color-danger:       #dc2626;
+  --color-editor-bg:    #ffffff;
+  --color-editor-text:  #1e293b;
+}
+
+/* ── One Dark Pro ─────────────────────────────── */
+[data-theme="one-dark"] {
+  --color-bg:           #282c34;
+  --color-bg-secondary: #21252b;
+  --color-bg-tertiary:  #3a3f4b;
+  --color-border:       #3e4451;
+  --color-text:         #abb2bf;
+  --color-text-muted:   #5c6370;
+  --color-primary:      #61afef;
+  --color-primary-hover:#7bc0f7;
+  --color-accent:       #c678dd;
+  --color-success:      #98c379;
+  --color-warning:      #e5c07b;
+  --color-danger:       #e06c75;
+  --color-editor-bg:    #282c34;
+  --color-editor-text:  #abb2bf;
+}
+
+/* ── Nord ──────────────────────────────────────── */
+[data-theme="nord"] {
+  --color-bg:           #2e3440;
+  --color-bg-secondary: #3b4252;
+  --color-bg-tertiary:  #434c5e;
+  --color-border:       #4c566a;
+  --color-text:         #eceff4;
+  --color-text-muted:   #8892a4;
+  --color-primary:      #88c0d0;
+  --color-primary-hover:#8fbcbb;
+  --color-accent:       #81a1c1;
+  --color-success:      #a3be8c;
+  --color-warning:      #ebcb8b;
+  --color-danger:       #bf616a;
+  --color-editor-bg:    #2e3440;
+  --color-editor-text:  #eceff4;
+}
+
+/* ── Dracula ───────────────────────────────────── */
+[data-theme="dracula"] {
+  --color-bg:           #282a36;
+  --color-bg-secondary: #313244;
+  --color-bg-tertiary:  #44475a;
+  --color-border:       #6272a4;
+  --color-text:         #f8f8f2;
+  --color-text-muted:   #8b9cc8;
+  --color-primary:      #bd93f9;
+  --color-primary-hover:#caa9fa;
+  --color-accent:       #8be9fd;
+  --color-success:      #50fa7b;
+  --color-warning:      #f1fa8c;
+  --color-danger:       #ff5555;
+  --color-editor-bg:    #282a36;
+  --color-editor-text:  #f8f8f2;
+}
+
+/* ── Catppuccin Mocha ──────────────────────────── */
+[data-theme="catppuccin"] {
+  --color-bg:           #1e1e2e;
+  --color-bg-secondary: #181825;
+  --color-bg-tertiary:  #313244;
+  --color-border:       #45475a;
+  --color-text:         #cdd6f4;
+  --color-text-muted:   #6c7086;
+  --color-primary:      #cba6f7;
+  --color-primary-hover:#d5b8f8;
+  --color-accent:       #89dceb;
+  --color-success:      #a6e3a1;
+  --color-warning:      #f9e2af;
+  --color-danger:       #f38ba8;
+  --color-editor-bg:    #1e1e2e;
+  --color-editor-text:  #cdd6f4;
+}
+
+/* ── Tokyo Night ───────────────────────────────── */
+[data-theme="tokyo-night"] {
+  --color-bg:           #1a1b26;
+  --color-bg-secondary: #16161e;
+  --color-bg-tertiary:  #24283b;
+  --color-border:       #3b4261;
+  --color-text:         #c0caf5;
+  --color-text-muted:   #565f89;
+  --color-primary:      #7aa2f7;
+  --color-primary-hover:#89b4fa;
+  --color-accent:       #bb9af7;
+  --color-success:      #9ece6a;
+  --color-warning:      #e0af68;
+  --color-danger:       #f7768e;
+  --color-editor-bg:    #1a1b26;
+  --color-editor-text:  #c0caf5;
+}
+
+/* ── Rose Pine ─────────────────────────────────── */
+[data-theme="rose-pine"] {
+  --color-bg:           #191724;
+  --color-bg-secondary: #1f1d2e;
+  --color-bg-tertiary:  #26233a;
+  --color-border:       #403d52;
+  --color-text:         #e0def4;
+  --color-text-muted:   #6e6a86;
+  --color-primary:      #c4a7e7;
+  --color-primary-hover:#d4baef;
+  --color-accent:       #9ccfd8;
+  --color-success:      #31748f;
+  --color-warning:      #f6c177;
+  --color-danger:       #eb6f92;
+  --color-editor-bg:    #191724;
+  --color-editor-text:  #e0def4;
+}
+
+/* ── Gruvbox Dark ─────────────────────────────── */
+[data-theme="gruvbox"] {
+  --color-bg:           #282828;
+  --color-bg-secondary: #3c3836;
+  --color-bg-tertiary:  #504945;
+  --color-border:       #665c54;
+  --color-text:         #ebdbb2;
+  --color-text-muted:   #a89984;
+  --color-primary:      #fabd2f;
+  --color-primary-hover:#d79921;
+  --color-accent:       #fe8019;
+  --color-success:      #b8bb26;
+  --color-warning:      #fe8019;
+  --color-danger:       #fb4934;
+  --color-editor-bg:    #282828;
+  --color-editor-text:  #ebdbb2;
+}
+
+/* ── Solarized Dark ───────────────────────────── */
+[data-theme="solarized-dark"] {
+  --color-bg:           #002b36;
+  --color-bg-secondary: #073642;
+  --color-bg-tertiary:  #094655;
+  --color-border:       #586e75;
+  --color-text:         #839496;
+  --color-text-muted:   #657b83;
+  --color-primary:      #268bd2;
+  --color-primary-hover:#2aa198;
+  --color-accent:       #6c71c4;
+  --color-success:      #859900;
+  --color-warning:      #b58900;
+  --color-danger:       #dc322f;
+  --color-editor-bg:    #002b36;
+  --color-editor-text:  #839496;
+}
+
+/* ── GitHub Dark ──────────────────────────────── */
+[data-theme="github-dark"] {
+  --color-bg:           #24292e;
+  --color-bg-secondary: #1f2428;
+  --color-bg-tertiary:  #2f363d;
+  --color-border:       #1b1f23;
+  --color-text:         #e1e4e8;
+  --color-text-muted:   #959da5;
+  --color-primary:      #0366d6;
+  --color-primary-hover:#005cc5;
+  --color-accent:       #f9826c;
+  --color-success:      #28a745;
+  --color-warning:      #ffab70;
+  --color-danger:       #ea4a5a;
+  --color-editor-bg:    #24292e;
+  --color-editor-text:  #e1e4e8;
+}
+
+/* ── Monokai Pro ──────────────────────────────── */
+[data-theme="monokai"] {
+  --color-bg:           #2d2a2e;
+  --color-bg-secondary: #221f22;
+  --color-bg-tertiary:  #403e41;
+  --color-border:       #5b595c;
+  --color-text:         #fcfcfa;
+  --color-text-muted:   #939293;
+  --color-primary:      #ffd866;
+  --color-primary-hover:#fc9867;
+  --color-accent:       #78dce8;
+  --color-success:      #a9dc76;
+  --color-warning:      #fc9867;
+  --color-danger:       #ff6188;
+  --color-editor-bg:    #2d2a2e;
+  --color-editor-text:  #fcfcfa;
+}
+
+/* ── Kanagawa ─────────────────────────────────── */
+[data-theme="kanagawa"] {
+  --color-bg:           #1F1F28;
+  --color-bg-secondary: #2A2A37;
+  --color-bg-tertiary:  #363646;
+  --color-border:       #54546D;
+  --color-text:         #DCD7BA;
+  --color-text-muted:   #727169;
+  --color-primary:      #7E9CD8;
+  --color-primary-hover:#7FB4CA;
+  --color-accent:       #957FB8;
+  --color-success:      #98BB6C;
+  --color-warning:      #E6C384;
+  --color-danger:       #E46876;
+  --color-editor-bg:    #1F1F28;
+  --color-editor-text:  #DCD7BA;
+}
+
+/* ── AI inline shimmer (Cursor/Copilot-style ghost-text placeholder) ───────
+   Painted over an injected-text decoration sitting exactly at the caret. The
+   injected characters are made transparent; the moving gradient reads as a
+   "ghost text is generating here" skeleton. */
+.ai-shimmer-inline {
+  color: transparent !important;
+  border-radius: 3px;
+  background-image: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--color-text-muted) 20%, transparent) 0%,
+    color-mix(in srgb, var(--color-primary) 60%, transparent) 50%,
+    color-mix(in srgb, var(--color-text-muted) 20%, transparent) 100%
+  );
+  background-size: 200% 100%;
+  animation: ai-shimmer-sweep 1.25s ease-in-out infinite;
+}
+
+@keyframes ai-shimmer-sweep {
+  0%   { background-position: 200% 0; opacity: 0.6; }
+  50%  { opacity: 1; }
+  100% { background-position: -200% 0; opacity: 0.6; }
+}
+
+/* ── AI inline edit review (Accept / Reject / Retry) ────────────────────────── */
+.ai-review-range {
+  background: color-mix(in srgb, var(--color-success) 22%, transparent);
+  border-radius: 2px;
+}
+.ai-review {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  margin-bottom: 6px;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.32);
+  white-space: nowrap;
+  user-select: none;
+  animation: ai-sel-in 0.1s ease-out;
+}
+.ai-review__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 8px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--color-text);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.1s, color 0.1s;
+}
+.ai-review__btn.is-accept:hover { background: color-mix(in srgb, var(--color-success) 20%, transparent); color: var(--color-success); }
+.ai-review__btn.is-reject:hover { background: color-mix(in srgb, var(--color-danger) 20%, transparent); color: var(--color-danger); }
+.ai-review__btn.is-retry:hover  { background: color-mix(in srgb, var(--color-primary) 18%, transparent); color: var(--color-primary); }
+.ai-review__btn svg { flex-shrink: 0; }

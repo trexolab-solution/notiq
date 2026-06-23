@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/png" href="/favicon.png" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Notiq</title>
+    <!-- Prevent white flash: apply stored theme background before JS/CSS loads.
+         KEEP IN SYNC with src/lib/themes.ts — if you add a theme there, add its
+         bg/fg colors here too, otherwise the new theme will flash the dark default. -->
+    <style>
+      html, body { margin: 0; padding: 0; background: #0f172a; color: #e2e8f0; }
+    </style>
+    <script>
+      (function () {
+        var bg = { dark: '#0f172a', light: '#f8fafc', 'one-dark': '#282c34', nord: '#2e3440', dracula: '#282a36', catppuccin: '#1e1e2e', 'tokyo-night': '#1a1b26', 'rose-pine': '#191724', gruvbox: '#282828', 'solarized-dark': '#002b36', 'github-dark': '#24292e', monokai: '#2d2a2e', kanagawa: '#1F1F28' };
+        var fg = { dark: '#e2e8f0', light: '#1e293b', 'one-dark': '#abb2bf', nord: '#eceff4', dracula: '#f8f8f2', catppuccin: '#cdd6f4', 'tokyo-night': '#c0caf5', 'rose-pine': '#e0def4', gruvbox: '#ebdbb2', 'solarized-dark': '#839496', 'github-dark': '#e1e4e8', monokai: '#fcfcfa', kanagawa: '#DCD7BA' };
+        var id = localStorage.getItem('pref:theme') || 'dark';
+        if (!bg.hasOwnProperty(id)) id = 'dark';
+        document.documentElement.setAttribute('data-theme', id);
+        document.documentElement.style.background = bg[id] || '#0f172a';
+        document.documentElement.style.color = fg[id] || '#e2e8f0';
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

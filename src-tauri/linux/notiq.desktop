@@ -1,0 +1,9 @@
+[Desktop Entry]
+Categories=Utility;TextEditor;Office;
+Exec=notiq %F
+Icon=notiq
+MimeType=text/markdown;text/plain;application/x-notiq;
+Name=Notiq
+StartupWMClass=notiq
+Terminal=false
+Type=Application

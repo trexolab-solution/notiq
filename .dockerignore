@@ -1,0 +1,14 @@
+node_modules
+src-tauri/target
+dist
+dist-linux
+.git
+*.log
+.claude
+.icon-hash
+.assoc-icon-hash
+nul
+*.sw?
+*.swo
+.vscode
+.idea
