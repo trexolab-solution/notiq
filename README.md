@@ -13,6 +13,30 @@
   No cloud. No accounts. No telemetry. Everything lives on your machine.
 </p>
 
+<p align="center">
+  <img src="https://img.shields.io/badge/version-0.2.0-orange" alt="Version" />
+  <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue" alt="Platform" />
+  <img src="https://img.shields.io/badge/Tauri-v2-24C8DB?logo=tauri&logoColor=white" alt="Tauri v2" />
+  <img src="https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black" alt="React 18" />
+  <img src="https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white" alt="TypeScript" />
+  <img src="https://img.shields.io/badge/license-MIT-green" alt="License: MIT" />
+</p>
+
+---
+
+## Table of Contents
+
+- [Why Notiq?](#why-notiq)
+- [Features](#features)
+- [Getting Started](#getting-started)
+- [Keyboard Shortcuts](#keyboard-shortcuts)
+- [Tech Stack](#tech-stack)
+- [Project Structure](#project-structure)
+- [Architecture](#architecture)
+- [Data & Privacy](#data--privacy)
+- [Contributing](#contributing)
+- [License](#license)
+
 ---
 
 ## Why Notiq?
@@ -138,8 +162,8 @@ Extensive editor customization:
 ### Install
 
 ```bash
-git clone <repo-url>
-cd smart-note
+git clone https://github.com/trexolab-solution/notiq.git
+cd notiq
 bun install
 ```
 
@@ -261,7 +285,7 @@ Spins up a Docker container (defined in `docker/Dockerfile.linux`) that produces
 ## Project Structure
 
 ```
-smart-note/
+notiq/
 ├── src/                          # React frontend
 │   ├── main.tsx                  # Entry point — routes to main / sticky-note / list window
 │   ├── mainApp.tsx               # Main window bootstrap (theme hydration, show)
@@ -351,6 +375,21 @@ smart-note/
 
 ---
 
+## Contributing
+
+Contributions are welcome. To get started:
+
+1. Fork the repository and create a feature branch (`git checkout -b feature/my-change`).
+2. Make your changes and verify the app builds (`bun run tauri dev`).
+3. Keep commits focused and write a clear commit message.
+4. Open a pull request describing what you changed and why.
+
+For bugs and feature requests, please [open an issue](https://github.com/trexolab-solution/notiq/issues).
+
+---
+
 ## License
 
-MIT
+Released under the [MIT License](LICENSE).
+
+© TrexoLab
