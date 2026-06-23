@@ -41,7 +41,7 @@
 
 ## Why Notiq?
 
-Most note-taking apps either lock you into a cloud ecosystem or sacrifice power for simplicity. Notiq gives you the full Monaco editor (the same engine behind VS Code), an Excalidraw whiteboard, a 3D knowledge graph, and an embedded terminal — all in a single offline desktop app that starts in under a second. Your files stay on your disk as plain Markdown. Nothing leaves your machine.
+Most note-taking apps either lock you into a cloud ecosystem or sacrifice power for simplicity. Notiq gives you the full Monaco editor (the same engine behind VS Code), an Excalidraw whiteboard, a 3D knowledge graph, an embedded terminal, and an optional AI assistant — all in a single offline desktop app that starts in under a second. Your files stay on your disk as plain Markdown, and the AI is strictly opt-in: leave it off (the default) and nothing ever leaves your machine, or point it at a local [Ollama](https://ollama.com/) instance to keep even AI fully offline.
 
 ---
 
@@ -60,6 +60,18 @@ Most note-taking apps either lock you into a cloud ecosystem or sacrifice power 
 - **Admonitions** — GitHub-style alert blocks (`> [!NOTE]`, `> [!WARNING]`, etc.)
 - **Prettier auto-format** — clean up your Markdown structure with a single click
 - **Live word count** — character and word count displayed in the status bar
+
+### AI Assistant
+
+Optional, **opt-in and off by default**. Run your own local [Ollama](https://ollama.com/) instance for fully offline AI, or connect to Ollama Cloud with an API key. Works with any OpenAI-compatible Ollama model.
+
+- **Inline autocomplete** — Copilot-style grey ghost-text suggestions as you type; press `Tab` to accept, `Esc` to dismiss. Choose automatic (on pause) or manual (`Alt+\`) triggering, with a configurable debounce and context window
+- **AI actions** — continue writing, summarize the note, fix grammar, generate a title, and repair broken Mermaid diagrams — from the command palette (`Ctrl+Shift+P`) or the right-click menu
+- **Ask AI on a selection** — select text to explain it inline or replace it with an AI edit; replace-style edits get an inline **Accept / Reject / Retry** review before anything changes
+- **AI chat panel** — a dockable, resizable chat sidebar grounded in your current note, with streaming replies, conversation history, and per-message copy / insert / regenerate; code blocks add copy and "open as new file" actions
+- **Calm, cancellable feedback** — a subtle "Thinking…" indicator in the status bar that never flashes on quick replies; keep typing and the in-flight suggestion is cancelled instantly
+- **Secure key storage** — your Ollama Cloud API key lives in the OS keychain (Windows Credential Manager, macOS Keychain, Linux Secret Service), never in plain text and never exposed to the web layer
+- **Model picker** — list, select, and test models for the selected provider right from Settings
 
 ### Multi-Tab Workflow
 
@@ -147,6 +159,7 @@ Extensive editor customization:
 - **Editor** — word wrap, line numbers, minimap, bracket colorization, cursor style & blinking, auto-closing brackets, whitespace rendering, smooth scrolling, folding, format on paste
 - **Tab behavior** — tab size (2–8 spaces), default editor mode for new tabs
 - **Terminal** — font size, cursor style, cursor blinking, scrollback buffer size
+- **AI** — enable/disable AI, choose provider (Ollama Cloud or Local), manage your API key, select and test a model, and tune autocomplete (trigger mode, debounce, context lines)
 
 ---
 
@@ -208,6 +221,15 @@ Spins up a Docker container (defined in `docker/Dockerfile.linux`) that produces
 | `Ctrl+P` | Export PDF |
 | `Ctrl+3` | New whiteboard |
 | `Ctrl+,` | Open Settings |
+
+### AI & Command Palette
+
+| Shortcut | Action |
+|---|---|
+| `Ctrl+Shift+P` | Open command palette (tabs, actions, AI, themes) |
+| `Alt+\` | Trigger inline autocomplete |
+| `Tab` | Accept the current ghost-text suggestion |
+| `Esc` | Dismiss the suggestion / stop in-flight AI |
 
 ### Tabs
 
@@ -275,6 +297,8 @@ Spins up a Docker container (defined in `docker/Dockerfile.linux`) that produces
 | Whiteboard | [Excalidraw](https://excalidraw.com/) |
 | Knowledge graph | [3d-force-graph](https://github.com/vasturiano/3d-force-graph) (via [react-kapsule](https://github.com/vasturiano/react-kapsule)) + Three.js |
 | Terminal | [xterm.js](https://xtermjs.org/) + portable-pty (Rust) |
+| AI | [Ollama](https://ollama.com/) Cloud + Local (OpenAI-compatible) via Rust `reqwest` |
+| Secret storage | OS keychain via [keyring](https://crates.io/crates/keyring) (Rust) |
 | Drag & drop | [@dnd-kit](https://dndkit.com/) |
 | Session storage | IndexedDB via [idb](https://github.com/jakearchibald/idb) |
 | PDF export | [jsPDF](https://github.com/parallax/jsPDF) |
@@ -293,6 +317,7 @@ notiq/
 │   ├── App.css                   # Global styles and Tailwind theme tokens
 │   ├── assets/                   # App logo and static assets
 │   ├── components/
+│   │   ├── ai/                   # AI chat panel + onboarding wizard
 │   │   ├── editor/               # Monaco editor, preview, toolbar, split view
 │   │   ├── graph/                # 3D force-directed knowledge graph
 │   │   ├── layout/               # Sidebar, TabBar, StatusBar, titlebar, menus
@@ -302,12 +327,14 @@ notiq/
 │   │   └── ui/                   # Reusable components (Button, Modal, Toast, etc.)
 │   ├── store/                    # Zustand store (tabs, prefs, sticky notes)
 │   ├── lib/                      # Utilities (file I/O, session, themes, graph, PDF)
+│   │   └── ai/                   # AI client, prompts, actions, inline completions
 │   ├── hooks/                    # React hooks (shortcuts, session, scroll sync)
 │   ├── types/                    # TypeScript type definitions
 │   ├── config/                   # App metadata (name, version, identifier)
 │   └── styles/                   # Theme CSS variables
 ├── src-tauri/                    # Tauri backend (Rust)
 │   ├── src/lib.rs                # Commands, file associations, PTY, tray, plugins
+│   ├── src/ai.rs                 # AI backend — Ollama proxy + secure key storage
 │   ├── tauri.conf.json           # App config, window, bundling, file associations
 │   ├── capabilities/             # Permission scopes (main + sticky note windows)
 │   ├── nsis/                     # Windows installer hooks
@@ -363,6 +390,7 @@ notiq/
 - **Lazy-loaded views** — Whiteboard, Knowledge Graph, and Terminal are code-split and loaded on demand
 - **Session hydration before render** — the window stays hidden until IndexedDB restores the previous session, preventing visual flash
 - **Single instance** — Tauri enforces one running instance; opening a file externally sends it to the existing window
+- **AI proxied through Rust** — all Ollama requests go through the Rust backend, so the API key never touches the web layer and there are no CORS constraints; AI is disabled by default
 
 ---
 
@@ -371,7 +399,8 @@ notiq/
 - All note content is stored **locally** in IndexedDB inside the Tauri WebView
 - Whiteboard drawings are stored in **localStorage** keyed by tab ID
 - File saves write directly to your filesystem — allowed paths are `$HOME`, `$DESKTOP`, `$DOCUMENT`, and `$DOWNLOAD`
-- **No data is ever sent to any server.** No analytics, no crash reporting, no telemetry, no update checks
+- **No telemetry, ever** — no analytics, no crash reporting, no update checks, no accounts
+- **AI is opt-in and off by default.** When you enable it, only the text needed for a request is sent to the Ollama endpoint you configure — your own machine with local Ollama (fully offline), or Ollama Cloud if you provide an API key. Nothing is sent anywhere else, and nothing is sent at all while AI is disabled. Your API key is kept in the OS keychain, never in a plain-text file
 
 ---
 
