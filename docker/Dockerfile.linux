@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1
 # ── Stage 1: Base with system deps ───────────────────────────────────────────
 FROM ubuntu:22.04 AS base
 
@@ -61,10 +62,17 @@ COPY . .
 # Install Tauri CLI
 RUN cargo install tauri-cli --version "^2" --locked || cargo install tauri-cli --version "^2"
 
-# Run the build
-RUN cargo tauri build --bundles deb,appimage
+# Run the build. The updater needs signed artifacts (createUpdaterArtifacts), so
+# both the private key and its (optional) password are passed as BuildKit
+# secrets — mounted only for this RUN, never written into an image layer.
+RUN --mount=type=secret,id=signing_key \
+    --mount=type=secret,id=signing_key_password,required=false \
+    export TAURI_SIGNING_PRIVATE_KEY="$(cat /run/secrets/signing_key)" \
+    && export TAURI_SIGNING_PRIVATE_KEY_PASSWORD="$(cat /run/secrets/signing_key_password 2>/dev/null || true)" \
+    && cargo tauri build --bundles deb,appimage
 
-# ── Output: copy artifacts to /output ────────────────────────────────────────
+# ── Output: copy artifacts (+ the AppImage updater signature) to /output ─────
 RUN mkdir -p /output \
     && cp src-tauri/target/release/bundle/deb/*.deb /output/ 2>/dev/null || true \
-    && cp src-tauri/target/release/bundle/appimage/*.AppImage /output/ 2>/dev/null || true
+    && cp src-tauri/target/release/bundle/appimage/*.AppImage /output/ 2>/dev/null || true \
+    && cp src-tauri/target/release/bundle/appimage/*.AppImage.sig /output/ 2>/dev/null || true

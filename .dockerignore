@@ -12,3 +12,9 @@ nul
 *.swo
 .vscode
 .idea
+
+# Updater signing keys — must NEVER enter the build image (the key is injected
+# at build time via a BuildKit --secret instead; see scripts/build-linux.mjs)
+*.key
+*.key.pub
+notiq-updater.key

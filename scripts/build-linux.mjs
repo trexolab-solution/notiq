@@ -16,6 +16,20 @@ try {
   process.exit(1)
 }
 
+// ── Updater signing key (required — createUpdaterArtifacts is enabled) ────────
+// The key is passed into the build as a BuildKit secret (never copied into the
+// image or baked into a layer). Override the path with TAURI_SIGNING_PRIVATE_KEY_PATH.
+const KEY_FILE = process.env.TAURI_SIGNING_PRIVATE_KEY_PATH || 'notiq-updater.key'
+if (!existsSync(KEY_FILE)) {
+  console.error(
+    `[build-linux] Updater signing key not found: ${KEY_FILE}\n` +
+    `  Generate it once:  bun tauri signer generate -w notiq-updater.key\n` +
+    `  (or set TAURI_SIGNING_PRIVATE_KEY_PATH to point at your key file).`
+  )
+  process.exit(1)
+}
+const KEY_PASSWORD = process.env.TAURI_SIGNING_PRIVATE_KEY_PASSWORD ?? ''
+
 // Clean output directory
 if (existsSync(OUTPUT_DIR)) {
   rmSync(OUTPUT_DIR, { recursive: true })
@@ -25,9 +39,17 @@ mkdirSync(OUTPUT_DIR, { recursive: true })
 // Build Docker image
 console.log('[build-linux] Building Docker image (this may take a while on first run)...')
 try {
+  // Pass the key password only when set — as a BuildKit secret (never ARG/ENV).
+  // An empty (no-password) key needs no secret; the Dockerfile mount is optional.
+  const pwSecret = KEY_PASSWORD
+    ? `--secret id=signing_key_password,env=TAURI_SIGNING_PRIVATE_KEY_PASSWORD `
+    : ''
   execSync(
-    `docker build -f docker/Dockerfile.linux -t ${IMAGE_NAME} .`,
-    { stdio: 'inherit' }
+    `docker build -f docker/Dockerfile.linux ` +
+      `--secret id=signing_key,src="${KEY_FILE}" ` +
+      pwSecret +
+      `-t ${IMAGE_NAME} .`,
+    { stdio: 'inherit', env: { ...process.env, DOCKER_BUILDKIT: '1', TAURI_SIGNING_PRIVATE_KEY_PASSWORD: KEY_PASSWORD } }
   )
 } catch {
   console.error('[build-linux] Docker build failed.')
@@ -55,9 +77,10 @@ try {
 }
 
 // List results
-const artifacts = readdirSync(OUTPUT_DIR).filter(f => f.endsWith('.deb') || f.endsWith('.AppImage'))
+const artifacts = readdirSync(OUTPUT_DIR).filter(f => f.endsWith('.deb') || f.endsWith('.AppImage') || f.endsWith('.sig'))
+const installers = artifacts.filter(f => !f.endsWith('.sig'))
 
-if (artifacts.length === 0) {
+if (installers.length === 0) {
   console.error('[build-linux] No .deb or .AppImage files found. Build may have failed.')
   process.exit(1)
 }
