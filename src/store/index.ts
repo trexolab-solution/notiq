@@ -435,7 +435,7 @@ export const useAppStore = create<AppState>((set, get) => {
       localStorage.setItem("pref:theme", id);
       set({ themeId: id });
       persist();
-      emit("theme-changed", { themeId: id }).catch(() => {});
+      emit("theme-changed", { themeId: id }).catch((e) => console.warn("theme broadcast failed", e));
     },
 
     // ── preferences (generated from declarative registry) ─────

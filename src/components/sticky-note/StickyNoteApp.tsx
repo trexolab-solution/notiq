@@ -92,10 +92,10 @@ export default function StickyNoteApp() {
     const win = getCurrentWindow();
     requestAnimationFrame(() =>
       requestAnimationFrame(() => {
-        win.show().catch(() => { });
+        win.show().catch((e) => console.warn("sticky-note: show failed", e));
         // Re-enable shadow at runtime — must be off initially for transparency
         // to work on Windows, but we can turn it on after the first paint.
-        win.setShadow(true).catch(() => { });
+        win.setShadow(true).catch((e) => console.warn("sticky-note: setShadow failed", e));
       }),
     );
 
