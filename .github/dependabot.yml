@@ -1,16 +1,14 @@
 version: 2
+# npm is intentionally omitted: this project uses bun (bun.lock), which
+# Dependabot doesn't keep in sync — its npm PRs break `bun install --frozen-lockfile`.
+# Update npm deps locally with `bun update` + `bun run typecheck && bun run test`.
 updates:
-  - package-ecosystem: npm
-    directory: "/"
-    schedule:
-      interval: weekly
-    open-pull-requests-limit: 5
-  - package-ecosystem: cargo
-    directory: "/src-tauri"
-    schedule:
-      interval: weekly
-    open-pull-requests-limit: 5
   - package-ecosystem: github-actions
     directory: "/"
     schedule:
-      interval: weekly
+      interval: monthly
+  - package-ecosystem: cargo
+    directory: "/src-tauri"
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 3
