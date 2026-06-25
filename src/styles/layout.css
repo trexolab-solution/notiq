@@ -1,0 +1,911 @@
+/* ══════════════════════════════════════════════════════════════════════════════
+   APP SHELL
+══════════════════════════════════════════════════════════════════════════════ */
+.app-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+  background: var(--color-bg);
+  color: var(--color-text);
+  position: relative;
+}
+
+/* ── Drag-and-drop overlay ──────────────────────────────────────────────── */
+.drop-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--color-bg) 85%, transparent);
+  backdrop-filter: blur(6px);
+  border: 2px dashed var(--color-primary);
+  border-radius: 8px;
+  pointer-events: none;
+  animation: drop-fade-in 120ms ease;
+}
+.drop-overlay-label {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--color-primary);
+  letter-spacing: 0.02em;
+}
+@keyframes drop-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* ── Unified Header ──────────────────────────────────────────────────────── */
+.app-header {
+  display: flex;
+  align-items: stretch;
+  height: 34px;
+  flex-shrink: 0;
+  background: var(--color-bg);
+  border-bottom: 1px solid var(--color-border);
+}
+
+/* Left section: brand + menus/toolbar — never shrinks */
+.header-left {
+  display: flex;
+  align-items: stretch;
+  flex-shrink: 0;
+}
+
+/* Center section: takes remaining space, clips content so it never overlaps */
+.header-center {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  container-type: inline-size;
+}
+
+/* ── Titlebar menubar (File / View …) ───────────────────────────────────── */
+.titlebar-menubar {
+  display: flex;
+  align-items: stretch;
+  height: 100%;
+  flex-shrink: 0;
+  padding: 0 2px;
+}
+
+.titlebar-menu-btn {
+  display: inline-flex;
+  align-items: center;
+  height: 100%;
+  padding: 0 10px;
+  border: none;
+  background: transparent;
+  color: color-mix(in srgb, var(--color-text-muted) 80%, var(--color-text));
+  font-size: 11.5px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  border-radius: 5px;
+  transition: background 0.1s, color 0.1s;
+  user-select: none;
+  -webkit-app-region: no-drag;
+}
+.titlebar-menu-btn:hover {
+  background: color-mix(in srgb, var(--color-text) 7%, transparent);
+  color: var(--color-text);
+}
+.titlebar-menu-btn.is-open {
+  background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+  color: var(--color-primary);
+}
+
+/* ── Titlebar quick-action toolbar ──────────────────────────────────────── */
+.titlebar-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  height: 100%;
+  padding: 0 2px;
+}
+
+.titlebar-vsep {
+  width: 1px;
+  height: 14px;
+  background: var(--color-border);
+  flex-shrink: 0;
+  margin: 0 4px;
+  opacity: 0.7;
+}
+
+.titlebar-tool-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.1s, color 0.1s, opacity 0.1s;
+  -webkit-app-region: no-drag;
+}
+.titlebar-tool-btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-text) 8%, transparent);
+  color: var(--color-text);
+}
+.titlebar-tool-btn:disabled {
+  opacity: 0.28;
+  cursor: not-allowed;
+}
+.titlebar-tool-btn.is-dirty {
+  color: var(--color-primary);
+}
+.titlebar-tool-btn.is-dirty:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+  color: var(--color-primary);
+}
+
+/* Topbar "update available" pill (Zed-style) — shown only when an update exists */
+.update-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-primary) 32%, transparent);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.12s, border-color 0.12s, opacity 0.12s;
+  -webkit-app-region: no-drag;
+}
+.update-pill:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-primary) 24%, transparent);
+}
+.update-pill:disabled { cursor: default; opacity: 0.8; }
+
+/* Mode slot — now a normal flex item inside .header-center */
+.titlebar-mode-slot {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+/* Icon-only when center section is too narrow to show labels */
+@container (max-width: 140px) {
+  .mode-picker--titlebar .mode-btn span { display: none; }
+  .mode-picker--titlebar .mode-btn { padding: 0 7px; gap: 0; min-width: 26px; }
+}
+
+/* Brand badge */
+.app-brand {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 12px 0 10px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--color-border);
+  user-select: none;
+  cursor: default;
+}
+.app-brand-logo {
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  object-fit: cover;
+  display: block;
+  flex-shrink: 0;
+}
+.app-brand-name {
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  color: var(--color-text);
+  white-space: nowrap;
+  opacity: 0.88;
+}
+
+/* ── Tab Strip ──────────────────────────────────────────────────────────── */
+.tab-strip-wrapper {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: stretch;
+  position: relative;
+}
+.tab-strip {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: stretch;
+  overflow-x: auto;
+  overflow-y: hidden;
+  gap: 1px;
+  padding: 0 6px;
+  scroll-behavior: smooth;
+}
+.tab-strip::-webkit-scrollbar { height: 0; }
+.tab-strip { scrollbar-width: none; }
+
+.tab-scroll-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  flex-shrink: 0;
+  border: none;
+  cursor: pointer;
+  color: var(--color-text-muted);
+  background: var(--color-bg-secondary);
+  z-index: 2;
+  padding: 0;
+  transition: color 0.12s, background 0.12s;
+}
+.tab-scroll-btn:hover {
+  color: var(--color-text);
+  background: var(--color-bg-tertiary);
+}
+.tab-scroll-left {
+  border-right: 1px solid var(--color-border);
+}
+.tab-scroll-right {
+  border-left: 1px solid var(--color-border);
+}
+
+.tab-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 6px 0 10px;
+  min-width: 80px;
+  max-width: 156px;
+  flex-shrink: 0;
+  cursor: pointer;
+  user-select: none;
+  font-size: 12.5px;
+  font-weight: 400;
+  color: var(--color-text-muted);
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+
+.tab-item:hover:not(.is-active) {
+  background: color-mix(in srgb, var(--color-text) 6%, transparent);
+  color: var(--color-text);
+}
+
+.tab-item.is-active {
+  background: color-mix(in srgb, var(--color-primary) 7%, var(--color-bg-secondary));
+  border-bottom-color: var(--color-primary);
+  color: var(--color-text);
+  font-weight: 500;
+}
+
+.tab-item.is-dragging {
+  opacity: 0.45;
+  cursor: grabbing;
+}
+
+.tab-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--color-primary);
+}
+
+.tab-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tab-close-btn {
+  opacity: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  border: none;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.1s, opacity 0.1s, color 0.1s;
+  padding: 0;
+}
+.tab-item:hover .tab-close-btn,
+.tab-item.is-active .tab-close-btn { opacity: 0.6; }
+.tab-close-btn:hover {
+  background: color-mix(in srgb, var(--color-danger) 14%, var(--color-bg-tertiary)) !important;
+  color: var(--color-danger) !important;
+  opacity: 1 !important;
+}
+
+/* ── Pin button ──────────────────────────────────────────────────────────── */
+.tab-pin-btn {
+  opacity: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  border: none;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.1s, opacity 0.1s, color 0.1s;
+  padding: 0;
+}
+.tab-item:hover .tab-pin-btn,
+.tab-item.is-active .tab-pin-btn { opacity: 0.6; }
+.tab-pin-btn:hover {
+  background: color-mix(in srgb, var(--color-primary) 14%, var(--color-bg-tertiary)) !important;
+  color: var(--color-primary) !important;
+  opacity: 1 !important;
+}
+/* Pinned tab — pin icon always visible */
+.tab-pin-btn.is-pinned-icon {
+  opacity: 0.7;
+  color: var(--color-primary);
+}
+.tab-item.is-active .tab-pin-btn.is-pinned-icon { opacity: 1; }
+.tab-pin-btn.is-pinned-icon:hover {
+  color: var(--color-text-muted) !important;
+}
+
+/* ── Pinned tab visual ───────────────────────────────────────────────────── */
+.tab-item.is-pinned {
+  border-bottom-color: var(--color-primary);
+  max-width: 130px;
+}
+.tab-item.is-pinned::before {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--color-primary);
+  opacity: 0.6;
+}
+.tab-item.is-pinned.is-active::before { opacity: 1; }
+
+/* ── Context Menu ────────────────────────────────────────────────────────── */
+.tab-context-menu {
+  position: fixed;
+  z-index: 9999;
+  min-width: 160px;
+  padding: 4px;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.tab-ctx-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--color-text);
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: background 0.1s;
+  white-space: nowrap;
+}
+.tab-ctx-item:hover:not(.is-disabled) {
+  background: color-mix(in srgb, var(--color-text) 8%, transparent);
+}
+.tab-ctx-item.is-disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.tab-new-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  flex-shrink: 0;
+  border: none;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: color 0.1s, background 0.1s;
+  border-radius: 0;
+  align-self: center;
+  height: 24px;
+  border-radius: 4px;
+  margin: 0 2px;
+}
+.tab-new-btn:hover {
+  color: var(--color-text);
+  background: var(--color-bg-tertiary);
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   WINDOW CONTROLS  (custom frameless titlebar)
+══════════════════════════════════════════════════════════════════════════════ */
+.win-controls {
+  display: flex;
+  align-items: stretch;
+  height: 100%;
+  flex-shrink: 0;
+  margin-left: 2px;
+}
+
+.win-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 46px;
+  height: 100%;
+  border: none;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: background 0.1s, color 0.1s;
+  flex-shrink: 0;
+  border-radius: 0;
+}
+.win-btn:hover {
+  background: color-mix(in srgb, var(--color-text) 8%, transparent);
+  color: var(--color-text);
+}
+.win-btn--close:hover {
+  background: var(--color-danger);
+  color: #fff;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   TAB BAR ROW  (sits between titlebar and body)
+══════════════════════════════════════════════════════════════════════════════ */
+.tab-bar-row {
+  display: flex;
+  align-items: stretch;
+  height: 36px;
+  flex-shrink: 0;
+  background: var(--color-bg-secondary);
+  border-bottom: 1px solid var(--color-border);
+}
+
+/* Document actions pinned to the right of the tab bar */
+.tab-bar-actions {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0 8px;
+  flex-shrink: 0;
+  border-left: 1px solid var(--color-border);
+}
+
+/* View label (e.g. Knowledge Graph) pinned to the right */
+.tab-bar-view-label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 14px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-text-muted);
+  flex-shrink: 0;
+  border-left: 1px solid var(--color-border);
+  user-select: none;
+  letter-spacing: 0.01em;
+}
+
+/* ── Header Actions (right side) — kept for backward-compat selectors ──────── */
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0 8px;
+  flex-shrink: 0;
+  border-left: 1px solid var(--color-border);
+}
+
+.header-sep {
+  width: 1px;
+  height: 14px;
+  background: var(--color-border);
+  flex-shrink: 0;
+  margin: 0 3px;
+}
+
+.header-meta {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+  user-select: none;
+  padding: 0 3px;
+  white-space: nowrap;
+}
+
+
+
+.header-icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 5px;
+  border: none;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: background 0.1s, color 0.1s;
+  flex-shrink: 0;
+}
+.header-icon-btn:hover {
+  background: var(--color-bg-tertiary);
+  color: var(--color-text);
+}
+
+.header-icon-btn--with-label {
+  width: auto;
+  gap: 4px;
+  padding: 0 8px;
+}
+.header-icon-btn-label {
+  font-size: 11.5px;
+  max-width: 100px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.header-save-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 9px;
+  height: 26px;
+  border-radius: 5px;
+  border: 1px solid transparent;
+  font-size: 11.5px;
+  font-weight: 500;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+  color: var(--color-text-muted);
+  background: transparent;
+}
+.header-save-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+.header-save-btn.dirty {
+  color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 10%, transparent);
+  border-color: color-mix(in srgb, var(--color-primary) 28%, var(--color-border));
+}
+.header-save-btn.dirty:hover {
+  background: color-mix(in srgb, var(--color-primary) 16%, transparent);
+  border-color: color-mix(in srgb, var(--color-primary) 40%, var(--color-border));
+}
+.header-save-btn:not(.dirty):not(:disabled):hover {
+  background: var(--color-bg-tertiary);
+  color: var(--color-text);
+  border-color: var(--color-border);
+}
+
+/* ── Mode Picker (segmented control) ─────────────────────────────────────── */
+.mode-picker {
+  display: flex;
+  align-items: center;
+  background: var(--color-bg-tertiary);
+  border-radius: 6px;
+  padding: 2px;
+  gap: 1px;
+}
+
+.mode-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--color-text-muted);
+  transition: background 0.1s, color 0.1s;
+  white-space: nowrap;
+  height: 22px;
+}
+.mode-btn:hover:not(.is-active) {
+  color: var(--color-text);
+  background: color-mix(in srgb, var(--color-text) 6%, transparent);
+}
+.mode-btn.is-active {
+  background: var(--color-bg-secondary);
+  color: var(--color-primary);
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.18), 0 0 0 0.5px rgba(0,0,0,0.08);
+}
+
+/* Titlebar variant — refined for the 34px chrome row */
+.mode-picker--titlebar {
+  background: color-mix(in srgb, var(--color-text) 5%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-border) 70%, transparent);
+  border-radius: 7px;
+  padding: 2px;
+  gap: 2px;
+}
+.mode-picker--titlebar .mode-btn {
+  height: 20px;
+  padding: 0 9px;
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  border-radius: 5px;
+  color: color-mix(in srgb, var(--color-text-muted) 85%, var(--color-text));
+}
+.mode-picker--titlebar .mode-btn:hover:not(.is-active) {
+  color: var(--color-text);
+  background: color-mix(in srgb, var(--color-text) 7%, transparent);
+}
+.mode-picker--titlebar .mode-btn.is-active {
+  background: var(--color-bg);
+  color: var(--color-primary);
+  font-weight: 600;
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.10),
+    0 0 0 0.5px color-mix(in srgb, var(--color-primary) 22%, transparent);
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   APP BODY
+══════════════════════════════════════════════════════════════════════════════ */
+.app-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.app-content-column {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.app-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* Wraps <main> + terminal-section. Direction follows the user's terminal layout
+   preference: column = terminal at bottom, row = terminal on the right. */
+.app-main-row {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+  min-width: 0;
+}
+.app-main-row.horizontal { flex-direction: column; }
+.app-main-row.vertical   { flex-direction: row; }
+
+/* Vertical layout overrides — terminal sits to the right of the editor.
+   Switch terminal-section to row so the resize handle (first child) lives on the
+   left edge rather than the top. */
+.app-main-row.vertical .terminal-section {
+  flex-direction: row;
+  border-top: none;
+  border-left: 1px solid var(--color-border);
+}
+.app-main-row.vertical .terminal-resize-handle {
+  width: 3px;
+  height: auto;
+  cursor: ew-resize;
+}
+.app-main-row.vertical .terminal-resize-handle::before {
+  left: -9px;
+  right: -9px;
+  top: 0;
+  bottom: 0;
+  cursor: ew-resize;
+}
+
+/* Graph layer — always flex-column, hidden with display:none when inactive */
+.app-graph-layer {
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   ACTIVITY BAR & SIDEBAR PANEL
+══════════════════════════════════════════════════════════════════════════════ */
+.activity-bar {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 48px;
+  flex-shrink: 0;
+  background: var(--color-bg-secondary);
+  border-right: 1px solid var(--color-border);
+  padding: 8px 0 6px;
+  gap: 2px;
+}
+
+.activity-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+  color: var(--color-text-muted);
+  flex-shrink: 0;
+}
+.activity-btn:hover {
+  background: color-mix(in srgb, var(--color-text) 8%, transparent);
+  color: var(--color-text);
+}
+.activity-btn.is-active {
+  background: color-mix(in srgb, var(--color-primary) 13%, var(--color-bg-tertiary));
+  color: var(--color-primary);
+}
+
+.activity-divider {
+  width: 20px;
+  height: 1px;
+  background: var(--color-border);
+  margin: 3px 0;
+  flex-shrink: 0;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   COMMON UI UTILITIES (replaces duplicated inline mouseEnter/Leave handlers)
+══════════════════════════════════════════════════════════════════════════════ */
+/* Muted text that brightens to full text color on hover. */
+.btn-text-hover {
+  color: var(--color-text-muted);
+  transition: color 0.1s;
+  cursor: pointer;
+}
+.btn-text-hover:hover { color: var(--color-text); }
+
+/* Pill-shaped link card used in About section for Website / GitHub buttons. */
+.link-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11.5px;
+  font-weight: 500;
+  padding: 5px 14px;
+  border-radius: 6px;
+  background: var(--color-bg-tertiary);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+  text-decoration: none;
+  transition: border-color 0.12s, color 0.12s;
+}
+.link-pill:hover {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
+/* "TrexoLab"-style inline anchor — text → primary on hover. */
+.link-inline {
+  font-weight: 600;
+  color: var(--color-text);
+  text-decoration: none;
+  transition: color 0.1s;
+}
+.link-inline:hover { color: var(--color-primary); }
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   STATUS BAR
+══════════════════════════════════════════════════════════════════════════════ */
+.status-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 24px;
+  padding: 0 14px;
+  flex-shrink: 0;
+  background: var(--color-bg-secondary);
+  border-top: 1px solid var(--color-border);
+  font-size: 11px;
+  color: var(--color-text-muted);
+  user-select: none;
+}
+
+.status-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.status-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.status-item.unsaved { color: var(--color-warning); }
+.status-item.saved   { color: var(--color-success); }
+
+/* AI activity (autocomplete fetch / AI action in flight). A small spinner +
+   "Thinking…" pill; only the icon animates, so the status bar stays calm. */
+.status-item.status-ai-indicator {
+  color: var(--color-primary);
+  font-weight: 600;
+  padding: 1px 8px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--color-primary) 13%, transparent);
+}
+.status-item.status-ai-indicator svg { animation: status-ai-spin 0.8s linear infinite; }
+@keyframes status-ai-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .status-item.status-ai-indicator svg { animation-duration: 1.6s; }
+}
+.status-item.status-brand {
+  font-size: 10px;
+  opacity: 0.55;
+  letter-spacing: 0.02em;
+}
+.status-separator {
+  width: 1px;
+  height: 12px;
+  background: var(--color-border);
+  flex-shrink: 0;
+}
+
+.status-tag {
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  background: color-mix(in srgb, var(--color-primary) 10%, transparent);
+  color: var(--color-primary);
+}
