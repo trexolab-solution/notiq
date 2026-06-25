@@ -1,0 +1,688 @@
+/* ══════════════════════════════════════════════════════════════════════════════
+   STICKY NOTE WINDOW
+══════════════════════════════════════════════════════════════════════════════ */
+
+/* Make html/body/root transparent so the OS window surface shows through
+   when the shell's opacity drops on blur (true window transparency). */
+html.is-sticky-note,
+html.is-sticky-note body,
+html.is-sticky-note #root {
+  background: transparent !important;
+}
+
+.sticky-note-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+  background: var(--color-bg);
+  color: var(--color-text);
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--color-border) 60%, transparent);
+}
+
+/* ── Top bar — ultra-slim, blends with note ──────────────────────────── */
+.sn-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 28px;
+  flex-shrink: 0;
+  padding: 0 6px;
+  user-select: none;
+}
+
+.sn-bar-left,
+.sn-bar-right {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+}
+
+.sn-bar-side {
+  position: relative;
+}
+
+.sn-bar-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 22px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  padding: 0;
+  opacity: 0.5;
+  transition: background 0.12s, color 0.12s, opacity 0.12s;
+}
+.sn-bar-btn:hover,
+.sn-bar-btn.is-open {
+  opacity: 1;
+  background: color-mix(in srgb, var(--color-text) 8%, transparent);
+  color: var(--color-text);
+}
+.sn-pin-active {
+  opacity: 0.85;
+  color: var(--color-primary);
+}
+.sn-pin-active:hover {
+  color: var(--color-primary);
+}
+.sn-bar-close:hover {
+  background: var(--color-danger) !important;
+  color: #fff !important;
+  opacity: 1;
+}
+
+/* ── Menu popover ────────────────────────────────────────────────────── */
+.sn-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 1000;
+  width: 220px;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 4px;
+  box-shadow: 0 8px 28px rgba(0,0,0,0.28);
+}
+
+.sn-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--color-text);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+.sn-menu-item:hover {
+  background: color-mix(in srgb, var(--color-text) 7%, transparent);
+}
+.sn-menu-item svg {
+  color: var(--color-text-muted);
+  flex-shrink: 0;
+}
+
+.sn-menu-lang-badge {
+  flex: 1;
+}
+.sn-menu-chevron {
+  margin-left: auto;
+}
+
+.sn-menu-sep {
+  height: 1px;
+  background: var(--color-border);
+  margin: 4px 6px;
+}
+
+.sn-menu-section-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 4px 8px 2px;
+}
+
+/* ── Language sub-menu ───────────────────────────────────────────────── */
+.sn-submenu-wrap {
+  position: relative;
+}
+
+.sn-submenu {
+  position: absolute;
+  top: -4px;
+  left: 100%;
+  z-index: 1001;
+  width: 150px;
+  max-height: 300px;
+  overflow-y: auto;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 4px;
+  box-shadow: 0 8px 28px rgba(0,0,0,0.28);
+  margin-left: 4px;
+}
+
+.sn-submenu-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 5px 8px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--color-text);
+  font-size: 11.5px;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+.sn-submenu-item:hover {
+  background: color-mix(in srgb, var(--color-text) 7%, transparent);
+}
+.sn-submenu-item.is-active {
+  color: var(--color-primary);
+}
+.sn-submenu-item.is-active svg {
+  color: var(--color-primary);
+}
+
+/* ── Color swatches (inside menu) ────────────────────────────────────── */
+.sn-color-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+  padding: 4px 6px 6px;
+}
+
+.sn-color-swatch {
+  width: 24px;
+  height: 24px;
+  border-radius: 5px;
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition: border-color 0.1s, transform 0.1s;
+  padding: 0;
+}
+.sn-color-swatch:hover {
+  transform: scale(1.15);
+}
+.sn-color-swatch.is-active {
+  border-color: var(--color-primary);
+}
+
+.sn-color-reset,
+.sn-color-custom {
+  background: var(--color-bg-tertiary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.sn-color-reset span,
+.sn-color-custom span {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  line-height: 1;
+}
+.sn-color-reset span {
+  font-size: 7px;
+  text-transform: uppercase;
+}
+.sn-color-custom {
+  background: conic-gradient(
+    from 0deg,
+    #f66 0deg, #ff0 60deg, #0f0 120deg,
+    #0ff 180deg, #00f 240deg, #f0f 300deg, #f66 360deg
+  );
+}
+.sn-color-custom.is-active {
+  background: none;
+}
+.sn-color-input-hidden {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* ── Opacity slider (inside menu) ────────────────────────────────────── */
+.sn-opacity-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px 6px;
+}
+
+.sn-opacity-slider {
+  flex: 1;
+  height: 4px;
+  -webkit-appearance: none;
+  appearance: none;
+  background: var(--color-bg-tertiary);
+  border-radius: 2px;
+  outline: none;
+  cursor: pointer;
+}
+.sn-opacity-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--color-primary);
+  cursor: pointer;
+}
+
+.sn-opacity-value {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  min-width: 28px;
+  text-align: right;
+}
+
+/* ── Editor area ─────────────────────────────────────────────────────── */
+.sticky-note-editor {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  padding: 0 4px 4px;
+}
+
+/* Override Monaco background when a custom bg color is set on the shell */
+.sticky-note-shell[style*="background"] .monaco-editor,
+.sticky-note-shell[style*="background"] .monaco-editor-background,
+.sticky-note-shell[style*="background"] .monaco-editor .margin {
+  background-color: transparent !important;
+}
+
+/* ── Sticky Notes List Window ────────────────────────────────────────────── */
+/* Mirrors app-shell patterns: same font, same color-mix hover, same border-
+   radius, same button sizing. This window IS part of the app. */
+.snl {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--color-bg);
+  color: var(--color-text);
+  user-select: none;
+  font-family: "Inter", "Segoe UI Variable", "Segoe UI", system-ui, -apple-system, sans-serif;
+  font-size: 13px;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Header — mirrors .app-header (34px, border-bottom, bg) ── */
+.snl-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 34px;
+  flex-shrink: 0;
+  background: var(--color-bg);
+  border-bottom: 1px solid var(--color-border);
+  padding: 0 6px 0 0;
+}
+
+/* Brand — mirrors .app-brand exactly */
+.snl-brand {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 12px 0 10px;
+  height: 100%;
+  flex-shrink: 0;
+  border-right: 1px solid var(--color-border);
+  cursor: default;
+}
+.snl-brand__logo {
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  object-fit: cover;
+  display: block;
+  flex-shrink: 0;
+}
+.snl-brand__name {
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  color: var(--color-text);
+  white-space: nowrap;
+  opacity: 0.88;
+}
+
+/* Header actions — right side */
+.snl-header__actions {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+}
+
+/* Icon button — mirrors .titlebar-tool-btn exactly */
+.snl-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.1s, color 0.1s;
+}
+.snl-icon-btn:hover {
+  background: color-mix(in srgb, var(--color-text) 8%, transparent);
+  color: var(--color-text);
+}
+/* Close — mirrors .win-btn--close */
+.snl-icon-btn--close:hover {
+  background: var(--color-danger) !important;
+  color: #fff !important;
+}
+
+/* ── Search bar — sits in tab-bar-row area, 36px, bg-secondary ── */
+.snl-searchbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 10px;
+  flex-shrink: 0;
+  background: var(--color-bg-secondary);
+  border-bottom: 1px solid var(--color-border);
+}
+.snl-searchbar__icon {
+  color: var(--color-text-muted);
+  flex-shrink: 0;
+  opacity: 0.5;
+}
+.snl-searchbar__input {
+  flex: 1;
+  border: none;
+  background: transparent;
+  outline: none;
+  font-size: 12.5px;
+  font-family: inherit;
+  color: var(--color-text);
+  min-width: 0;
+}
+.snl-searchbar__input::placeholder {
+  color: var(--color-text-muted);
+  opacity: 0.6;
+}
+.snl-searchbar__clear {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  flex-shrink: 0;
+  padding: 0;
+  transition: background 0.1s, color 0.1s;
+}
+.snl-searchbar__clear:hover {
+  background: color-mix(in srgb, var(--color-text) 8%, transparent);
+  color: var(--color-text);
+}
+.snl-searchbar__count {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+  opacity: 0.55;
+  font-weight: 500;
+}
+
+/* ── Notes list ── */
+.snl-list {
+  flex: 1;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border) transparent;
+}
+.snl-list::-webkit-scrollbar       { width: 4px; }
+.snl-list::-webkit-scrollbar-track { background: transparent; }
+.snl-list::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 99px;
+}
+.snl-list::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-muted);
+}
+
+/* ── Note row — mirrors .tab-item hover patterns ── */
+.snl-row {
+  display: flex;
+  align-items: center;
+  padding: 0 10px 0 12px;
+  cursor: pointer;
+  transition: background 0.1s;
+  position: relative;
+}
+/* Separator — inset hairline like Apple Notes */
+.snl-row::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  left: 36px;
+  right: 10px;
+  height: 1px;
+  background: var(--color-border);
+  opacity: 0.45;
+}
+.snl-row:last-child::after { display: none; }
+
+/* Hover — matches app's color-mix(in srgb, var(--color-text) 6%, transparent) */
+.snl-row:hover {
+  background: color-mix(in srgb, var(--color-text) 5%, transparent);
+}
+/* Active/open note — matches .tab-item.is-active tint */
+.snl-row.is-active {
+  background: color-mix(in srgb, var(--color-primary) 7%, var(--color-bg-secondary));
+}
+.snl-row.is-active:hover {
+  background: color-mix(in srgb, var(--color-primary) 10%, var(--color-bg-secondary));
+}
+
+/* ── Color dot ── */
+.snl-row__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-text-muted);
+  opacity: 0.2;
+  flex-shrink: 0;
+  margin-right: 10px;
+  transition: opacity 0.1s, transform 0.1s;
+}
+.snl-row__dot[style] {
+  opacity: 0.75;
+}
+.snl-row:hover .snl-row__dot {
+  opacity: 0.4;
+  transform: scale(1.1);
+}
+.snl-row:hover .snl-row__dot[style] {
+  opacity: 1;
+  transform: scale(1.1);
+}
+
+/* ── Note body ── */
+.snl-row__body {
+  flex: 1;
+  min-width: 0;
+  padding: 9px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.snl-row__title {
+  font-size: 12.5px;
+  font-weight: 500;
+  line-height: 1.35;
+  color: var(--color-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Second line: date (fixed) + preview (fills rest) — Apple Notes style */
+.snl-row__sub {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+.snl-row__date {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  opacity: 0.7;
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.snl-row__preview {
+  flex: 1;
+  min-width: 0;
+  font-size: 11.5px;
+  line-height: 1.3;
+  color: var(--color-text-muted);
+  opacity: 0.5;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Row actions — mirrors .tab-close-btn hover pattern ── */
+.snl-row__actions {
+  flex-shrink: 0;
+  padding-left: 4px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.snl-row__open {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.1s, background 0.1s, color 0.1s;
+  padding: 0;
+}
+.snl-row:hover .snl-row__open { opacity: 0.5; }
+.snl-row:hover .snl-row__open:hover {
+  opacity: 1;
+  background: color-mix(in srgb, var(--color-primary) 14%, var(--color-bg-tertiary));
+  color: var(--color-primary);
+}
+.snl-row__delete {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.1s, background 0.1s, color 0.1s;
+  padding: 0;
+}
+.snl-row:hover .snl-row__delete { opacity: 0.5; }
+.snl-row:hover .snl-row__delete:hover {
+  opacity: 1;
+  background: color-mix(in srgb, var(--color-danger) 14%, var(--color-bg-tertiary));
+  color: var(--color-danger);
+}
+/* Delete icon — confirming state (icon swapped to checkmark) */
+.snl-row .snl-row__delete.is-confirming {
+  opacity: 1;
+  background: var(--color-danger);
+  color: #fff;
+}
+.snl-row .snl-row__delete.is-confirming:hover {
+  opacity: 0.85;
+}
+
+/* ── Empty state ── */
+.snl-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  height: 100%;
+  padding: 32px 20px;
+  text-align: center;
+}
+.snl-empty__icon {
+  color: var(--color-text-muted);
+  opacity: 0.14;
+  margin-bottom: 6px;
+}
+.snl-empty__title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text);
+  opacity: 0.65;
+}
+.snl-empty__desc {
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--color-text-muted);
+  opacity: 0.5;
+  max-width: 200px;
+  line-height: 1.4;
+}
+.snl-empty__cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 14px;
+  border: none;
+  border-radius: 6px;
+  background: var(--color-primary);
+  color: #fff;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  margin-top: 10px;
+  font-family: inherit;
+  transition: background 0.12s, transform 0.08s;
+}
+.snl-empty__cta:hover {
+  background: var(--color-primary-hover);
+}
+.snl-empty__cta:active { transform: scale(0.97); }
+
+/* ── Status bar — mirrors .status-bar exactly ── */
+.snl-status {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  height: 24px;
+  flex-shrink: 0;
+  background: var(--color-bg-secondary);
+  border-top: 1px solid var(--color-border);
+  font-size: 11px;
+  color: var(--color-text-muted);
+  opacity: 0.6;
+  font-variant-numeric: tabular-nums;
+}

@@ -93,8 +93,8 @@ export default function StickyNotesListApp() {
     const win = getCurrentWindow();
     requestAnimationFrame(() =>
       requestAnimationFrame(() => {
-        win.show().catch(() => {});
-        win.setShadow(true).catch(() => {});
+        win.show().catch((e) => console.warn("sticky-notes-list: show failed", e));
+        win.setShadow(true).catch((e) => console.warn("sticky-notes-list: setShadow failed", e));
       }),
     );
   }, []);

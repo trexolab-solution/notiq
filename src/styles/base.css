@@ -1,0 +1,83 @@
+@theme {
+  --color-bg:            var(--color-bg);
+  --color-bg-secondary:  var(--color-bg-secondary);
+  --color-bg-tertiary:   var(--color-bg-tertiary);
+  --color-border:        var(--color-border);
+  --color-text:          var(--color-text);
+  --color-text-muted:    var(--color-text-muted);
+  --color-primary:       var(--color-primary);
+  --color-primary-hover: var(--color-primary-hover);
+  --color-accent:        var(--color-accent);
+  --color-success:       var(--color-success);
+  --color-warning:       var(--color-warning);
+  --color-danger:        var(--color-danger);
+  --color-editor-bg:     var(--color-editor-bg);
+  --color-editor-text:   var(--color-editor-text);
+}
+
+/* ── Reset ────────────────────────────────────────────────────────────────── */
+* { box-sizing: border-box; }
+
+html, body, #root {
+  height: 100%;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: "Inter", "Segoe UI Variable", "Segoe UI", system-ui, -apple-system, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--color-primary) 28%, transparent);
+  color: inherit;
+}
+
+/* ── Scrollbars ───────────────────────────────────────────────────────────── */
+/* Firefox — scoped to app containers only, not Monaco (which manages its own) */
+html,
+.app-shell,
+.prose-scroll,
+.terminal-section {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border) transparent;
+}
+/* Webkit (Chrome, Edge, Tauri) */
+::-webkit-scrollbar       { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 99px;
+}
+::-webkit-scrollbar-thumb:hover { background: var(--color-text-muted); }
+
+/* ── Monaco background ────────────────────────────────────────────────────── */
+/* Force all Monaco surfaces to match the app's editor background token so the
+   gutter and canvas blend seamlessly with each theme. */
+.monaco-editor,
+.monaco-editor-background,
+.monaco-editor .margin {
+  background-color: var(--color-editor-bg) !important;
+}
+
+/* ── Monaco find widget — keep above app tooltips & fully clickable ──────── */
+.monaco-editor .find-widget {
+  z-index: 100000 !important;
+}
+/* Suppress app tooltips when the find widget is open — avoids visual flicker
+   on the close button that makes it feel unclickable. */
+.monaco-editor .find-widget ~ * .app-tooltip,
+.monaco-editor:has(.find-widget.visible) ~ .app-tooltip {
+  display: none !important;
+}
+
+/* ── Focus rings ──────────────────────────────────────────────────────────── */
+:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--color-primary) 55%, transparent);
+  outline-offset: 2px;
+}

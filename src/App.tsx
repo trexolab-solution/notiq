@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, lazy, Suspense } from "react";
+import { useState, useEffect, useCallback, lazy, Suspense } from "react";
 import { Network, NotepadText, List, Sparkles, MessageSquare } from "lucide-react";
 
 import { useSession }              from "./hooks/useSession";
@@ -7,6 +7,8 @@ import { useGlobalShortcuts }      from "./hooks/useGlobalShortcuts";
 import { useGlobalContextMenu }    from "./hooks/useGlobalContextMenu";
 import { useTerminalPanel }        from "./hooks/useTerminalPanel";
 import { useFileWatcher }          from "./hooks/useFileWatcher";
+import { useCommands }             from "./hooks/useCommands";
+import { useAiChatPanel }          from "./hooks/useAiChatPanel";
 
 import { useAppStore }             from "./store";
 import { isMarkdownLike }          from "./lib/language";
@@ -33,17 +35,8 @@ import { UpdateButton }            from "./components/layout/UpdateButton";
 import { TerminalPanel }           from "./components/terminal/TerminalPanel";
 
 import { EditorContainer }         from "./components/editor/EditorContainer";
-import { AIOnboarding }            from "./components/ai/AIOnboarding";
-import { AIChatPanel }            from "./components/ai/AIChatPanel";
-import { CommandPalette, type Command } from "./components/ui/CommandPalette";
-import { THEMES }                  from "./lib/themes";
-import { getActiveEditor }         from "./lib/activeEditor";
-import { aiContinue, aiSummarize, aiFixGrammar, aiGenerateTitle } from "./lib/ai/actions";
+import { CommandPalette }          from "./components/ui/CommandPalette";
 import { updater } from "./lib/updater";
-import {
-  FileText as FileIcon, FilePlus, FolderOpen, Save, Settings as SettingsIcon,
-  Network as NetworkIcon, Palette, MessageSquare as ChatIcon, SquarePen, PenLine, SpellCheck, Heading,
-} from "lucide-react";
 import { ContextMenu }             from "./components/ui/ContextMenu";
 import { ConfirmDialog }           from "./components/ui/ConfirmDialog";
 import { SettingsModal }           from "./components/ui/SettingsModal";
@@ -61,6 +54,12 @@ const KnowledgeGraph = lazy(() =>
 const Whiteboard = lazy(() =>
   import("./components/whiteboard/Whiteboard").then((m) => ({ default: m.Whiteboard }))
 );
+const AIChatPanel = lazy(() =>
+  import("./components/ai/AIChatPanel").then((m) => ({ default: m.AIChatPanel }))
+);
+const AIOnboarding = lazy(() =>
+  import("./components/ai/AIOnboarding").then((m) => ({ default: m.AIOnboarding }))
+);
 
 export default function App() {
   useSession();
@@ -73,15 +72,14 @@ export default function App() {
   const [showPalette,   setShowPalette]   = useState(false);
   const [aiChatOpen,    setAiChatOpen]    = useState(false);
   const [aiChatMounted, setAiChatMounted] = useState(false); // stays true after first open
-  const [aiChatWidth,   setAiChatWidth]   = useState(() => {
-    const saved = Number(localStorage.getItem("pref:aiChatWidth"));
-    return saved >= 280 && saved <= 640 ? saved : 360;
-  });
   const [fileSelection, setFileSelection] = useState<{ files: FileEntry[]; folderPath?: string } | null>(null);
   const [graphMounted,  setGraphMounted]  = useState(false);
 
   // Terminal panel — all state, drag/resize, window-clamp, and keyboard shortcuts.
   const term = useTerminalPanel();
+
+  // AI chat panel width + edge-drag resize (docked right, clamped 280–640px).
+  const { width: aiChatWidth, startResize: startAiChatResize } = useAiChatPanel();
 
   const tabs            = useAppStore((s) => s.tabs);
   const activeTabId     = useAppStore((s) => s.activeTabId);
@@ -135,36 +133,6 @@ export default function App() {
     const t = setTimeout(() => { void updater.check({ silent: true }); }, 3000);
     return () => clearTimeout(t);
   }, [autoUpdateCheck]);
-
-  // AI chat panel resize (drag the left edge). Clamped 280–640px, persisted.
-  const aiChatDraggingRef = useRef(false);
-  const startAiChatResize = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    aiChatDraggingRef.current = true;
-    document.body.style.cursor = "col-resize";
-    document.body.style.userSelect = "none";
-  }, []);
-  useEffect(() => {
-    const onMove = (e: MouseEvent) => {
-      if (!aiChatDraggingRef.current) return;
-      // Panel is docked on the right, so width grows as the cursor moves left.
-      const w = Math.min(640, Math.max(280, window.innerWidth - e.clientX));
-      setAiChatWidth(w);
-    };
-    const onUp = () => {
-      if (!aiChatDraggingRef.current) return;
-      aiChatDraggingRef.current = false;
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
-      localStorage.setItem("pref:aiChatWidth", String(aiChatWidth));
-    };
-    window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup", onUp);
-    return () => {
-      window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("mouseup", onUp);
-    };
-  }, [aiChatWidth]);
 
   // Window drag — manual startDragging because data-tauri-drag-region only
   // works on the element itself (not children), per Tauri docs.
@@ -244,58 +212,13 @@ export default function App() {
   }, []);
 
   // ── Command palette ─────────────────────────────────────────────────────────
-  const buildCommands = useCallback((): Command[] => {
-    const cmds: Command[] = [];
-
-    // Open tabs → switch
-    for (const t of tabs) {
-      cmds.push({
-        id: `tab:${t.id}`,
-        label: t.title || "Untitled",
-        group: "Tabs",
-        hint: t.filePath ? t.filePath.replace(/\\/g, "/").split("/").slice(-2).join("/") : undefined,
-        trailing: t.id === activeTabId ? "current" : undefined,
-        icon: <FileIcon size={14} />,
-        run: () => { setActiveView("editor"); setActiveTab(t.id); },
-      });
-    }
-
-    // App actions
-    cmds.push(
-      { id: "act:new-note", label: "New Note", group: "Actions", icon: <FilePlus size={14} />, trailing: "Ctrl+N", run: () => addTab() },
-      { id: "act:new-wb", label: "New Whiteboard", group: "Actions", icon: <SquarePen size={14} />, trailing: "Ctrl+3", run: handleNewWhiteboard },
-      { id: "act:open", label: "Open File(s)", group: "Actions", icon: <FolderOpen size={14} />, trailing: "Ctrl+O", run: handleOpenMultiple },
-      { id: "act:open-folder", label: "Open Folder", group: "Actions", icon: <FolderOpen size={14} />, run: handleOpenFolder },
-      { id: "act:save", label: "Save", group: "Actions", icon: <Save size={14} />, trailing: "Ctrl+S", run: () => { if (activeTabId) saveTabToFile(activeTabId); } },
-      { id: "act:graph", label: "Knowledge Graph", group: "Actions", icon: <NetworkIcon size={14} />, run: () => setActiveView("graph") },
-      { id: "act:editor", label: "Editor View", group: "Actions", icon: <FileIcon size={14} />, run: () => setActiveView("editor") },
-      { id: "act:chat", label: "Toggle AI Chat", group: "Actions", icon: <ChatIcon size={14} />, run: toggleAiChat },
-      { id: "act:settings", label: "Settings", group: "Actions", icon: <SettingsIcon size={14} />, trailing: "Ctrl+,", run: () => setShowSettings(true) },
-    );
-
-    // AI actions (only when an editor exists + AI is on)
-    if (aiEnabled && getActiveEditor()) {
-      cmds.push(
-        { id: "ai:continue", label: "AI: Continue Writing", group: "AI", icon: <PenLine size={14} />, run: () => { const e = getActiveEditor(); if (e) void aiContinue(e); } },
-        { id: "ai:summarize", label: "AI: Summarize Note", group: "AI", icon: <FileIcon size={14} />, run: () => { const e = getActiveEditor(); if (e) void aiSummarize(e); } },
-        { id: "ai:grammar", label: "AI: Fix Grammar", group: "AI", icon: <SpellCheck size={14} />, run: () => { const e = getActiveEditor(); if (e) void aiFixGrammar(e); } },
-        { id: "ai:title", label: "AI: Generate Title", group: "AI", icon: <Heading size={14} />, run: () => { const e = getActiveEditor(); if (e) void aiGenerateTitle(e); } },
-      );
-    }
-
-    // Themes
-    for (const th of Object.values(THEMES)) {
-      cmds.push({
-        id: `theme:${th.id}`,
-        label: `Theme: ${th.label}`,
-        group: "Theme",
-        icon: <Palette size={14} />,
-        run: () => setTheme(th.id),
-      });
-    }
-
-    return cmds;
-  }, [tabs, activeTabId, aiEnabled, addTab, setActiveTab, setActiveView, handleNewWhiteboard, handleOpenMultiple, handleOpenFolder, saveTabToFile, setTheme, toggleAiChat]);
+  const buildCommands = useCommands({
+    tabs, activeTabId, aiEnabled,
+    addTab, setActiveTab, setActiveView,
+    handleNewWhiteboard, handleOpenMultiple, handleOpenFolder,
+    saveTabToFile, setTheme, toggleAiChat,
+    onOpenSettings: () => setShowSettings(true),
+  });
 
   // Open the palette from the Monaco editor (which swallows Ctrl+Shift+P internally).
   useEffect(() => {
@@ -493,7 +416,9 @@ export default function App() {
           >
             <div className="ai-chat-resize-handle" onMouseDown={startAiChatResize} />
             <ErrorBoundary>
-              <AIChatPanel onClose={() => setAiChatOpen(false)} />
+              <Suspense fallback={null}>
+                <AIChatPanel onClose={() => setAiChatOpen(false)} />
+              </Suspense>
             </ErrorBoundary>
           </div>
         )}
@@ -521,7 +446,11 @@ export default function App() {
         />
       )}
 
-      {showAIOnboarding && <AIOnboarding onClose={() => setShowAIOnboarding(false)} />}
+      {showAIOnboarding && (
+        <Suspense fallback={null}>
+          <AIOnboarding onClose={() => setShowAIOnboarding(false)} />
+        </Suspense>
+      )}
 
       {showPalette && (
         <CommandPalette commands={buildCommands()} onClose={() => setShowPalette(false)} />
