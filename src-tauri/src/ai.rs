@@ -13,6 +13,8 @@ use futures_util::StreamExt;
 
 const SERVICE_NAME: &str = "notiq-ai";
 const ACCOUNT_NAME: &str = "api-key";
+/// Hard cap on the stored API key length — a sane bound for any real token.
+const MAX_API_KEY_LEN: usize = 4096;
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct ChatMessage {
@@ -50,11 +52,15 @@ fn snippet(s: &str) -> String {
 
 #[tauri::command]
 pub fn set_ai_api_key(_app: AppHandle, key: String) -> Result<(), String> {
-    if key.trim().is_empty() {
+    let trimmed = key.trim();
+    if trimmed.is_empty() {
         return clear_ai_api_key(_app);
     }
+    if trimmed.len() > MAX_API_KEY_LEN {
+        return Err(format!("API key is too long (max {} bytes)", MAX_API_KEY_LEN));
+    }
     let entry = Entry::new(SERVICE_NAME, ACCOUNT_NAME).map_err(|e| e.to_string())?;
-    entry.set_password(key.trim()).map_err(|e| e.to_string())?;
+    entry.set_password(trimmed).map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -77,8 +83,27 @@ fn read_api_key() -> String {
         .unwrap_or_default()
 }
 
-fn normalize_base(base_url: &str) -> String {
-    base_url.trim().trim_end_matches('/').to_string()
+/// Validate + normalize an AI base URL received from the frontend. Only http(s)
+/// is permitted, and plain `http` is restricted to loopback hosts so the bearer
+/// token is never transmitted in cleartext to a remote server.
+fn validate_base_url(base_url: &str) -> Result<String, String> {
+    let trimmed = base_url.trim().trim_end_matches('/');
+    if trimmed.is_empty() {
+        return Err("invalid|empty base URL".to_string());
+    }
+    let parsed = reqwest::Url::parse(trimmed)
+        .map_err(|_| "invalid|base URL is not a valid URL".to_string())?;
+    let host = parsed.host_str().unwrap_or("");
+    let is_loopback = matches!(host, "localhost" | "127.0.0.1" | "::1" | "[::1]");
+    match parsed.scheme() {
+        "https" => Ok(trimmed.to_string()),
+        "http" if is_loopback => Ok(trimmed.to_string()),
+        "http" => Err(
+            "invalid|refusing to send credentials over plain HTTP to a non-local host — use HTTPS"
+                .to_string(),
+        ),
+        other => Err(format!("invalid|unsupported URL scheme '{}'", other)),
+    }
 }
 
 // ─── Inference ────────────────────────────────────────────────────────────────
@@ -86,7 +111,7 @@ fn normalize_base(base_url: &str) -> String {
 #[tauri::command]
 pub async fn ai_list_models(_app: AppHandle, base_url: String) -> Result<Vec<String>, String> {
     let key = read_api_key();
-    let url = format!("{}/models", normalize_base(&base_url));
+    let url = format!("{}/models", validate_base_url(&base_url)?);
     let client = http_client()?;
 
     let mut req = client.get(&url);
@@ -125,7 +150,7 @@ pub async fn ai_complete(
     temperature: f32,
 ) -> Result<String, String> {
     let key = read_api_key();
-    let url = format!("{}/chat/completions", normalize_base(&base_url));
+    let url = format!("{}/chat/completions", validate_base_url(&base_url)?);
     let client = http_client()?;
 
     let body = serde_json::json!({
@@ -174,7 +199,7 @@ pub async fn ai_complete_stream(
     temperature: f32,
 ) -> Result<(), String> {
     let key = read_api_key();
-    let url = format!("{}/chat/completions", normalize_base(&base_url));
+    let url = format!("{}/chat/completions", validate_base_url(&base_url)?);
     let client = http_client()?;
 
     let body = serde_json::json!({
@@ -254,4 +279,50 @@ pub async fn ai_complete_stream(
     // Stream ended without an explicit [DONE] — still emit a final event.
     emit_final(&app, last_finish);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_base_url;
+
+    #[test]
+    fn accepts_https_any_host() {
+        assert_eq!(
+            validate_base_url("https://ollama.com/v1").unwrap(),
+            "https://ollama.com/v1"
+        );
+    }
+
+    #[test]
+    fn trims_whitespace_and_trailing_slash() {
+        assert_eq!(
+            validate_base_url("  https://ollama.com/v1/  ").unwrap(),
+            "https://ollama.com/v1"
+        );
+    }
+
+    #[test]
+    fn accepts_http_only_on_loopback() {
+        assert!(validate_base_url("http://localhost:11434/v1").is_ok());
+        assert!(validate_base_url("http://127.0.0.1:11434/v1").is_ok());
+    }
+
+    #[test]
+    fn rejects_plain_http_to_remote_host() {
+        // Would leak the bearer token in cleartext — must be refused.
+        assert!(validate_base_url("http://evil.example.com/v1").is_err());
+    }
+
+    #[test]
+    fn rejects_non_http_schemes() {
+        assert!(validate_base_url("file:///etc/passwd").is_err());
+        assert!(validate_base_url("ftp://host/x").is_err());
+    }
+
+    #[test]
+    fn rejects_garbage_and_empty() {
+        assert!(validate_base_url("not a url").is_err());
+        assert!(validate_base_url("").is_err());
+        assert!(validate_base_url("   ").is_err());
+    }
 }
