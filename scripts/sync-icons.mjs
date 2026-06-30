@@ -5,6 +5,17 @@ import { platform } from 'node:os'
 
 const isLinux = platform() === 'linux'
 
+// ── CI: committed icons are the source of truth ─────────────────────────────
+// The generated icons (src-tauri/icons/**, including association.ico) are checked
+// into git, but the .icon-hash / .assoc-icon-hash caches are gitignored. So on a
+// fresh CI checkout every icon looks "changed" and we'd try to regenerate — which
+// needs `tauri icon` plus Python+Pillow (png-to-ico.py) that the runners lack.
+// Regeneration is a local dev concern: skip it on CI and build with what's committed.
+if (process.env.CI) {
+  console.log('[sync-icons] CI detected — using committed icons, skipping regeneration')
+  process.exit(0)
+}
+
 // ── Helper: hash-based change detection ─────────────────────────────────────
 function fileHash(path) {
   return createHash('sha256').update(readFileSync(path)).digest('hex')
