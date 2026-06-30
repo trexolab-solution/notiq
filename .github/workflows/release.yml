@@ -15,7 +15,6 @@ jobs:
         include:
           - platform: windows-latest
           - platform: ubuntu-22.04
-          - platform: macos-latest
     runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v4
