@@ -9,6 +9,7 @@ interface Options {
   handleNewWhiteboard: () => void;
   onOpenSettings:      () => void;
   onOpenCommandPalette: () => void;
+  onOpenSearch:        () => void;
 }
 
 export function useGlobalShortcuts(opts: Options) {
@@ -36,12 +37,14 @@ export function useGlobalShortcuts(opts: Options) {
         tabs, activeTabId, addTab, setActiveTab,
         saveTabToFile, saveTabToFileAs,
         requestClose, handleOpenMultiple, handleOpenFolder, handleNewWhiteboard, onOpenSettings,
-        onOpenCommandPalette,
+        onOpenCommandPalette, onOpenSearch,
       } = ref.current;
       const activeTab = tabs.find((t) => t.id === activeTabId);
 
       // Ctrl+Shift+P → command palette (also prevents the native print dialog)
       if (e.ctrlKey && e.shiftKey && (e.key === "P" || e.key === "p")) { e.preventDefault(); onOpenCommandPalette(); return; }
+      // Ctrl+Shift+F → search across all open notes
+      if (e.ctrlKey && e.shiftKey && (e.key === "F" || e.key === "f")) { e.preventDefault(); onOpenSearch(); return; }
       if (e.ctrlKey && !e.shiftKey && e.key === "n") { e.preventDefault(); addTab(); return; }
       if (e.ctrlKey && !e.shiftKey && e.key === "w") { e.preventDefault(); if (activeTabId) requestClose(activeTabId); return; }
       if (e.ctrlKey && !e.shiftKey && e.key === "s") {

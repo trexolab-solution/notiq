@@ -192,11 +192,13 @@ export interface AppState {
   // view
   activeView: AppView;
   setActiveView: (view: AppView) => void;
-  /** Text to find and reveal in the editor when jumping here from the graph. */
-  pendingJump: { tabId: string; searchText: string } | null;
+  /** Text to find and reveal in the editor when jumping here (from the graph or
+   *  global search). `line` (1-based) disambiguates when the text occurs more
+   *  than once — the editor reveals the match on that line instead of the first. */
+  pendingJump: { tabId: string; searchText: string; line?: number } | null;
   clearPendingJump: () => void;
   /** Switch to editor, activate tab, force split mode, all in one commit. */
-  navigateToNote: (tabId: string, searchText?: string) => void;
+  navigateToNote: (tabId: string, searchText?: string, line?: number) => void;
 
   // session
   sessionReady: boolean;
@@ -498,11 +500,11 @@ export const useAppStore = create<AppState>((set, get) => {
     pendingJump: null,
     clearPendingJump() { set({ pendingJump: null }); },
 
-    navigateToNote(tabId, searchText) {
+    navigateToNote(tabId, searchText, line) {
       set((s) => ({
         activeView:  "editor",
         activeTabId: tabId,
-        pendingJump: searchText ? { tabId, searchText } : null,
+        pendingJump: searchText ? { tabId, searchText, line } : null,
         tabs: s.tabs.map((t) =>
           t.id === tabId && t.editorMode !== "split"
             ? { ...t, editorMode: "split" as EditorMode }

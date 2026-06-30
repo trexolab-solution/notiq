@@ -147,6 +147,13 @@ export const MonacoMarkdownEditor = React.memo(
             keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyP],
             run: () => { window.dispatchEvent(new CustomEvent("app:command-palette")); },
           });
+          // ── Ctrl+Shift+F → search across all open notes ──────────────────
+          editor.addAction({
+            id: "smart-note.global-search",
+            label: "Search in Notes",
+            keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyF],
+            run: () => { window.dispatchEvent(new CustomEvent("app:global-search")); },
+          });
 
           // ── Format document: Shift+Alt+F (all languages) ─────────────────
           editor.addAction({
@@ -451,7 +458,14 @@ export const MonacoMarkdownEditor = React.memo(
             false  // captureMatches
           );
           if (matches.length > 0) {
-            const range = matches[0].range;
+            // When a specific line is requested (global search), reveal the match
+            // on that line; otherwise (graph jump) fall back to the first match.
+            const wantLine = pendingJump.line;
+            const chosen =
+              wantLine != null
+                ? (matches.find((m) => m.range.startLineNumber === wantLine) ?? matches[0])
+                : matches[0];
+            const range = chosen.range;
             isSyncingRef.current = true;
             ed.revealLineInCenter(range.startLineNumber);
             ed.setSelection(range);
