@@ -39,6 +39,10 @@ nul
 # Build cache files
 .assoc-icon-hash
 
+# Stray screenshots (pasted images should never be committed)
+Screenshot*.png
+Screenshot*.jpg
+
 # Updater signing keys — NEVER commit the private key
 # (public key lives in src-tauri/tauri.conf.json → plugins.updater.pubkey)
 *.key
