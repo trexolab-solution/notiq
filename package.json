@@ -24,7 +24,7 @@
     "@excalidraw/excalidraw": "^0.18.0",
     "@monaco-editor/react": "^4.7.0",
     "@tailwindcss/vite": "^4.2.2",
-    "@tauri-apps/api": "^2",
+    "@tauri-apps/api": "2.11.1",
     "@tauri-apps/plugin-autostart": "^2",
     "@tauri-apps/plugin-clipboard-manager": "^2.3.2",
     "@tauri-apps/plugin-dialog": "^2.7.0",
@@ -58,7 +58,7 @@
     "zustand": "^5.0.12"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "^2",
+    "@tauri-apps/cli": "2.11.4",
     "@types/marked": "^6.0.0",
     "@types/react": "^18.3.1",
     "@types/react-dom": "^18.3.1",
