@@ -36,6 +36,7 @@ import { TerminalPanel }           from "./components/terminal/TerminalPanel";
 
 import { EditorContainer }         from "./components/editor/EditorContainer";
 import { CommandPalette }          from "./components/ui/CommandPalette";
+import { GlobalSearch }            from "./components/ui/GlobalSearch";
 import { updater } from "./lib/updater";
 import { ContextMenu }             from "./components/ui/ContextMenu";
 import { ConfirmDialog }           from "./components/ui/ConfirmDialog";
@@ -70,6 +71,7 @@ export default function App() {
   const [settingsSection, setSettingsSection] = useState<"ai" | undefined>(undefined);
   const [showAIOnboarding, setShowAIOnboarding] = useState(false);
   const [showPalette,   setShowPalette]   = useState(false);
+  const [showSearch,    setShowSearch]    = useState(false);
   const [aiChatOpen,    setAiChatOpen]    = useState(false);
   const [aiChatMounted, setAiChatMounted] = useState(false); // stays true after first open
   const [fileSelection, setFileSelection] = useState<{ files: FileEntry[]; folderPath?: string } | null>(null);
@@ -93,6 +95,7 @@ export default function App() {
   const setAiEnabled    = useAppStore((s) => s.setAiEnabled);
   const setTheme        = useAppStore((s) => s.setTheme);
   const saveTabToFile   = useAppStore((s) => s.saveTabToFile);
+  const navigateToNote  = useAppStore((s) => s.navigateToNote);
   const autoUpdateCheck = useAppStore((s) => s.autoUpdateCheck);
 
   // Header ✨ button: not set up → onboarding; set up → quick enable/disable toggle.
@@ -218,13 +221,20 @@ export default function App() {
     handleNewWhiteboard, handleOpenMultiple, handleOpenFolder,
     saveTabToFile, setTheme, toggleAiChat,
     onOpenSettings: () => setShowSettings(true),
+    onOpenSearch: () => setShowSearch(true),
   });
 
-  // Open the palette from the Monaco editor (which swallows Ctrl+Shift+P internally).
+  // Open the palette / global search from the Monaco editor (which swallows
+  // Ctrl+Shift+P / Ctrl+Shift+F internally and re-dispatches them as events).
   useEffect(() => {
-    const open = () => setShowPalette(true);
-    window.addEventListener("app:command-palette", open);
-    return () => window.removeEventListener("app:command-palette", open);
+    const openPalette = () => setShowPalette(true);
+    const openSearch = () => setShowSearch(true);
+    window.addEventListener("app:command-palette", openPalette);
+    window.addEventListener("app:global-search", openSearch);
+    return () => {
+      window.removeEventListener("app:command-palette", openPalette);
+      window.removeEventListener("app:global-search", openSearch);
+    };
   }, []);
 
   useGlobalShortcuts({
@@ -234,6 +244,7 @@ export default function App() {
     handleNewWhiteboard,
     onOpenSettings: () => setShowSettings(true),
     onOpenCommandPalette: () => setShowPalette(true),
+    onOpenSearch: () => setShowSearch(true),
   });
 
   const { ctxMenu, closeCtxMenu } = useGlobalContextMenu({
@@ -454,6 +465,14 @@ export default function App() {
 
       {showPalette && (
         <CommandPalette commands={buildCommands()} onClose={() => setShowPalette(false)} />
+      )}
+
+      {showSearch && (
+        <GlobalSearch
+          tabs={tabs}
+          onJump={(tabId, query, line) => navigateToNote(tabId, query, line)}
+          onClose={() => setShowSearch(false)}
+        />
       )}
 
       {fileSelection && (

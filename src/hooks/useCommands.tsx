@@ -2,6 +2,7 @@ import { useCallback } from "react";
 import {
   FileText as FileIcon, FilePlus, FolderOpen, Save, Settings as SettingsIcon,
   Network as NetworkIcon, Palette, MessageSquare as ChatIcon, SquarePen, PenLine, SpellCheck, Heading,
+  Search as SearchIcon,
 } from "lucide-react";
 import type { Command } from "../components/ui/CommandPalette";
 import type { Tab, AppView, ThemeId } from "../types";
@@ -23,6 +24,7 @@ interface UseCommandsDeps {
   setTheme: (id: ThemeId) => void;
   toggleAiChat: () => void;
   onOpenSettings: () => void;
+  onOpenSearch: () => void;
 }
 
 /**
@@ -34,7 +36,7 @@ export function useCommands(deps: UseCommandsDeps): () => Command[] {
     tabs, activeTabId, aiEnabled,
     addTab, setActiveTab, setActiveView,
     handleNewWhiteboard, handleOpenMultiple, handleOpenFolder,
-    saveTabToFile, setTheme, toggleAiChat, onOpenSettings,
+    saveTabToFile, setTheme, toggleAiChat, onOpenSettings, onOpenSearch,
   } = deps;
 
   return useCallback((): Command[] => {
@@ -57,6 +59,7 @@ export function useCommands(deps: UseCommandsDeps): () => Command[] {
     cmds.push(
       { id: "act:new-note", label: "New Note", group: "Actions", icon: <FilePlus size={14} />, trailing: "Ctrl+N", run: () => addTab() },
       { id: "act:new-wb", label: "New Whiteboard", group: "Actions", icon: <SquarePen size={14} />, trailing: "Ctrl+3", run: handleNewWhiteboard },
+      { id: "act:search", label: "Search in Notes", group: "Actions", icon: <SearchIcon size={14} />, trailing: "Ctrl+Shift+F", run: onOpenSearch },
       { id: "act:open", label: "Open File(s)", group: "Actions", icon: <FolderOpen size={14} />, trailing: "Ctrl+O", run: handleOpenMultiple },
       { id: "act:open-folder", label: "Open Folder", group: "Actions", icon: <FolderOpen size={14} />, run: handleOpenFolder },
       { id: "act:save", label: "Save", group: "Actions", icon: <Save size={14} />, trailing: "Ctrl+S", run: () => { if (activeTabId) saveTabToFile(activeTabId); } },
@@ -88,5 +91,5 @@ export function useCommands(deps: UseCommandsDeps): () => Command[] {
     }
 
     return cmds;
-  }, [tabs, activeTabId, aiEnabled, addTab, setActiveTab, setActiveView, handleNewWhiteboard, handleOpenMultiple, handleOpenFolder, saveTabToFile, setTheme, toggleAiChat, onOpenSettings]);
+  }, [tabs, activeTabId, aiEnabled, addTab, setActiveTab, setActiveView, handleNewWhiteboard, handleOpenMultiple, handleOpenFolder, saveTabToFile, setTheme, toggleAiChat, onOpenSettings, onOpenSearch]);
 }
