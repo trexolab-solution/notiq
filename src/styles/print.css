@@ -1,0 +1,110 @@
+/* ══════════════════════════════════════════════════════════════════════════════
+   PDF EXPORT (print)
+
+   `#notiq-print-root` holds an off-screen <MarkdownPreview> that is mounted
+   only during a PDF export (see src/lib/pdfExport.ts). It stays laid out — so
+   Mermaid can measure and render its SVGs — but is visually hidden on screen
+   (opacity:0, behind everything). The @media print block then reveals ONLY it
+   and hides the rest of the app, so the native WebView2 print-to-PDF captures
+   just the note. Theme tokens are forced to light values so the exported PDF is
+   always dark-on-white regardless of the app's current theme.
+══════════════════════════════════════════════════════════════════════════════ */
+
+#notiq-print-root {
+  position: fixed;
+  left: 0;
+  top: 0;
+  /* ~A4 content width @96dpi — a stable width so wrapping and Mermaid sizing
+     match the printed page instead of the (variable) app window width. */
+  width: 794px;
+  opacity: 0;
+  pointer-events: none;
+  z-index: -1;
+  overflow: visible;
+
+  /* Force a clean light theme for the printable page. These override the
+     inherited app theme tokens for everything inside the print root, including
+     the .hljs-* syntax colors (which are defined in terms of these vars). */
+  --color-bg:            #ffffff;
+  --color-bg-secondary:  #f1f5f9;
+  --color-bg-tertiary:   #e2e8f0;
+  --color-border:        #cbd5e1;
+  --color-text:          #1e293b;
+  --color-text-muted:    #64748b;
+  --color-primary:       #b45309;
+  --color-primary-hover: #92400e;
+  --color-accent:        #0284c7;
+  --color-success:       #16a34a;
+  --color-warning:       #d97706;
+  --color-danger:        #dc2626;
+  --color-editor-bg:     #ffffff;
+  --color-editor-text:   #1e293b;
+
+  background: #ffffff;
+  color: #1e293b;
+}
+
+/* Let the preview's scroll wrapper expand to full content height for print. */
+#notiq-print-root .prose-scroll {
+  overflow: visible !important;
+  height: auto !important;
+  background: #ffffff !important;
+}
+#notiq-print-root .prose-body {
+  /* @page margins provide the page padding, so drop the on-screen padding. */
+  padding: 0 !important;
+}
+
+@media print {
+  /* The app pins html/body/#root to height:100% + overflow:hidden (so the
+     window itself never scrolls). Left as-is, that clips the printed output to
+     a single page — reset it so content flows across as many pages as needed. */
+  html,
+  body {
+    height: auto !important;
+    overflow: visible !important;
+  }
+
+  /* Print ONLY the note: hide the app root and any stray portals. */
+  body > *:not(#notiq-print-root) {
+    display: none !important;
+  }
+
+  #notiq-print-root {
+    position: static !important;
+    opacity: 1 !important;
+    z-index: auto !important;
+    width: auto !important;
+    pointer-events: auto !important;
+  }
+
+  /* Page geometry. */
+  @page {
+    size: A4;
+    margin: 16mm;
+  }
+
+  /* Keep related blocks together across page breaks where sensible. */
+  #notiq-print-root :is(h1, h2, h3, h4) {
+    break-after: avoid;
+  }
+  #notiq-print-root pre,
+  #notiq-print-root .code-block-wrapper,
+  #notiq-print-root blockquote,
+  #notiq-print-root table,
+  #notiq-print-root .mermaid-container,
+  #notiq-print-root img {
+    break-inside: avoid;
+  }
+  #notiq-print-root img,
+  #notiq-print-root .mermaid-container svg {
+    max-width: 100% !important;
+    height: auto;
+  }
+
+  /* Interactive chrome has no meaning on paper. */
+  #notiq-print-root .code-copy-btn,
+  #notiq-print-root .code-lang-badge {
+    display: none !important;
+  }
+}

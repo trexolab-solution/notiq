@@ -2626,6 +2626,8 @@ dependencies = [
  "tauri-plugin-single-instance",
  "tauri-plugin-updater",
  "tauri-plugin-window-state",
+ "webview2-com",
+ "windows",
  "windows-sys 0.61.2",
  "winreg 0.52.0",
 ]

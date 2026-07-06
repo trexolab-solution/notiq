@@ -366,6 +366,130 @@ mod term {
     }
 }
 
+// ─── PDF export (desktop-only) ────────────────────────────────────────────────
+//
+// Silent, high-fidelity PDF export using the platform webview's native
+// print-to-PDF. The frontend mounts an off-screen render of the note (mermaid,
+// KaTeX, images and all) and hides everything else via @media print, then calls
+// `export_pdf`, which prints the current page to `path` without any print
+// dialog. Completion is reported back over the `notiq:pdf-export-result` event.
+//
+// Windows (WebView2) is implemented and tested. macOS (WKWebView.createPDF) and
+// Linux (WebKitPrintOperation) have native silent APIs too, but are not wired up
+// yet — they report a graceful "unsupported" result so the UI can surface it.
+
+#[cfg(desktop)]
+mod pdf {
+    use serde::Serialize;
+    use tauri::WebviewWindow;
+
+    pub const RESULT_EVENT: &str = "notiq:pdf-export-result";
+
+    #[derive(Serialize, Clone)]
+    pub struct PdfResult {
+        pub success: bool,
+        pub error: String,
+        pub path: String,
+    }
+
+    #[tauri::command]
+    pub fn export_pdf(window: WebviewWindow, path: String) -> Result<(), String> {
+        if path.trim().is_empty() {
+            return Err("Empty output path".into());
+        }
+
+        #[cfg(windows)]
+        {
+            win::export(&window, path)
+        }
+
+        #[cfg(not(windows))]
+        {
+            use tauri::{Emitter, Manager};
+            let msg = "PDF export is currently only supported on Windows.".to_string();
+            let _ = window.app_handle().emit(
+                RESULT_EVENT,
+                PdfResult { success: false, error: msg.clone(), path },
+            );
+            Err(msg)
+        }
+    }
+
+    #[cfg(windows)]
+    mod win {
+        use super::{PdfResult, RESULT_EVENT};
+        use tauri::{Emitter, Manager, WebviewWindow};
+        use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2_7;
+        use webview2_com::PrintToPdfCompletedHandler;
+        use windows::core::{Interface, PCWSTR};
+
+        pub fn export(window: &WebviewWindow, path: String) -> Result<(), String> {
+            let app = window.app_handle().clone();
+            let path_for_err = path.clone();
+
+            window
+                .with_webview(move |webview| {
+                    let app = app.clone();
+                    let path = path.clone();
+
+                    let run = || -> windows::core::Result<()> {
+                        unsafe {
+                            let core = webview.controller().CoreWebView2()?;
+                            let core7: ICoreWebView2_7 = core.cast()?;
+
+                            // NUL-terminated UTF-16 destination path.
+                            let wide: Vec<u16> =
+                                path.encode_utf16().chain(std::iter::once(0)).collect();
+
+                            let app_cb = app.clone();
+                            let path_cb = path.clone();
+                            let handler = PrintToPdfCompletedHandler::create(Box::new(
+                                move |result: windows::core::Result<()>, is_successful: bool| {
+                                    let ok = result.is_ok() && is_successful;
+                                    let error = if ok {
+                                        String::new()
+                                    } else {
+                                        format!(
+                                            "WebView2 PrintToPdf failed (result={result:?}, successful={is_successful})"
+                                        )
+                                    };
+                                    let _ = app_cb.emit(
+                                        RESULT_EVENT,
+                                        PdfResult { success: ok, error, path: path_cb.clone() },
+                                    );
+                                    Ok(())
+                                },
+                            ));
+
+                            core7.PrintToPdf(PCWSTR(wide.as_ptr()), None, &handler)?;
+                        }
+                        Ok(())
+                    };
+
+                    if let Err(e) = run() {
+                        let _ = app.emit(
+                            RESULT_EVENT,
+                            PdfResult { success: false, error: e.to_string(), path },
+                        );
+                    }
+                })
+                .map_err(|e| {
+                    let _ = window.app_handle().emit(
+                        RESULT_EVENT,
+                        PdfResult {
+                            success: false,
+                            error: e.to_string(),
+                            path: path_for_err.clone(),
+                        },
+                    );
+                    e.to_string()
+                })?;
+
+            Ok(())
+        }
+    }
+}
+
 // ─── System tray (desktop-only) ──────────────────────────────────────────────
 
 #[cfg(desktop)]
@@ -475,6 +599,7 @@ pub fn run() {
     let builder = builder.invoke_handler(tauri::generate_handler![
         show_main_window,
         get_open_file,
+        pdf::export_pdf,
         term::terminal_create,
         term::terminal_write,
         term::terminal_resize,
