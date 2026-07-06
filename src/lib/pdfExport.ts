@@ -1,303 +1,161 @@
-import { marked } from "marked";
-import type { Tokens } from "marked";
-import { jsPDF } from "jspdf";
+import { createElement } from "react";
+import { createRoot, type Root } from "react-dom/client";
 import { save } from "@tauri-apps/plugin-dialog";
-import { writeFile } from "@tauri-apps/plugin-fs";
+import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
+import { MarkdownPreview } from "../components/editor/MarkdownPreview";
 
-// ── Page geometry (A4 in mm) ──────────────────────────────────────────────────
-const PW     = 210;
-const PH     = 297;
-const MX     = 18;               // horizontal margin
-const MY     = 18;               // vertical margin
-const CW     = PW - MX * 2;     // 174 mm content width
+/**
+ * PDF export via the webview's native print-to-PDF.
+ *
+ * Instead of re-implementing markdown rendering (the old jsPDF builder could
+ * only flatten text and dropped images/math/mermaid/Devanagari), we mount the
+ * real <MarkdownPreview> into an off-screen "print root", wait for its async
+ * bits (Mermaid diagrams, images, fonts) to settle, then ask the Rust side to
+ * print the current page to a PDF file. `print.css` (@media print) hides
+ * everything except the print root, so the output is exactly the preview —
+ * mermaid, KaTeX, syntax highlighting, images and all — with full fidelity.
+ *
+ * The native path is silent (no OS print dialog). The only dialog shown is the
+ * native "Save As" file picker, used to choose the destination — the same UX
+ * the previous exporter had.
+ */
 
-// pt → mm with leading multiplier
-const ptMm = (pt: number, leading = 1.55) => pt * 0.3528 * leading;
+const PRINT_ROOT_ID = "notiq-print-root";
+const RESULT_EVENT = "notiq:pdf-export-result";
 
-// ── Strip inline markdown / HTML to plain text ────────────────────────────────
-function strip(text: string): string {
-  return text
-    .replace(/!\[[^\]]*\]\([^)]*\)/g,  "")        // images
-    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")       // links
-    .replace(/\*\*\*(.+?)\*\*\*/g,     "$1")       // bold-italic
-    .replace(/___(.+?)___/g,           "$1")
-    .replace(/\*\*(.+?)\*\*/g,         "$1")       // bold
-    .replace(/__(.+?)__/g,             "$1")
-    .replace(/\*(.+?)\*/g,             "$1")       // italic
-    .replace(/_(.+?)_/g,               "$1")
-    .replace(/~~(.+?)~~/g,             "$1")       // strike
-    .replace(/`([^`]+)`/g,             "$1")       // inline code
-    .replace(/<[^>]+>/g,               "")         // HTML tags
-    .replace(/&amp;/g,  "&").replace(/&lt;/g, "<")
-    .replace(/&gt;/g,   ">").replace(/&quot;/g, '"')
-    .replace(/&#39;/g,  "'").replace(/&nbsp;/g, " ")
-    .trim();
+interface PdfResult {
+  success: boolean;
+  error: string;
+  path: string;
 }
 
-// ── PDF Builder ───────────────────────────────────────────────────────────────
-class Builder {
-  doc: jsPDF;
-  y:   number;
-
-  constructor() {
-    this.doc = new jsPDF({ unit: "mm", format: "a4", orientation: "portrait" });
-    this.y   = MY;
-    this.doc.setFont("helvetica", "normal");
-    this.doc.setFontSize(11);
-    this.doc.setTextColor(30, 41, 59);
-  }
-
-  // Adds a new page when `needed` mm won't fit on the current page
-  private guard(needed: number) {
-    if (this.y + needed > PH - MY) {
-      this.doc.addPage();
-      this.y = MY;
-    }
-  }
-
-  private reset() {
-    this.doc.setFont("helvetica", "normal");
-    this.doc.setFontSize(11);
-    this.doc.setTextColor(30, 41, 59);
-    this.doc.setDrawColor(226, 232, 240);
-    this.doc.setLineWidth(0.3);
-  }
-
-  heading(text: string, depth: number) {
-    const sizes = [22, 17, 14, 12, 11, 11];
-    const sz    = sizes[Math.min(depth - 1, 5)];
-    const lh    = ptMm(sz, 1.35);
-
-    this.guard(lh + 10);
-    this.y += depth <= 3 ? 5 : 3;
-
-    this.doc.setFont("helvetica", "bold");
-    this.doc.setFontSize(sz);
-    this.doc.setTextColor(15, 23, 42);
-
-    const lines = this.doc.splitTextToSize(strip(text), CW);
-    this.doc.text(lines, MX, this.y);
-    this.y += lines.length * lh;
-
-    if (depth <= 2) {
-      this.y += 1.5;
-      this.doc.setDrawColor(226, 232, 240);
-      this.doc.setLineWidth(0.35);
-      this.doc.line(MX, this.y, PW - MX, this.y);
-      this.y += 3.5;
-    } else {
-      this.y += 2;
-    }
-
-    this.reset();
-  }
-
-  paragraph(text: string) {
-    const lh    = ptMm(11, 1.6);
-    const lines = this.doc.splitTextToSize(strip(text), CW);
-    this.guard(lines.length * lh);
-    this.doc.text(lines, MX, this.y);
-    this.y += lines.length * lh + 2;
-    this.reset();
-  }
-
-  code(text: string) {
-    const lh       = ptMm(9, 1.5);
-    const rawLines = text.split("\n");
-    const boxH     = rawLines.length * lh + 8;
-
-    this.guard(boxH + 4);
-
-    this.doc.setFillColor(248, 250, 252);
-    this.doc.setDrawColor(226, 232, 240);
-    this.doc.setLineWidth(0.3);
-    this.doc.roundedRect(MX, this.y, CW, boxH, 1.5, 1.5, "FD");
-
-    this.doc.setFont("courier", "normal");
-    this.doc.setFontSize(9);
-    this.doc.setTextColor(30, 41, 59);
-
-    let cy = this.y + 5;
-    for (const line of rawLines) {
-      const wrapped = this.doc.splitTextToSize(line || " ", CW - 8);
-      this.doc.text(wrapped, MX + 4, cy);
-      cy += wrapped.length * lh;
-    }
-    this.y += boxH + 3;
-    this.reset();
-  }
-
-  blockquote(text: string) {
-    const lh    = ptMm(10.5, 1.6);
-    this.doc.setFont("helvetica", "italic");
-    this.doc.setFontSize(10.5);
-    this.doc.setTextColor(100, 116, 139);
-
-    const lines = this.doc.splitTextToSize(strip(text), CW - 8);
-    const boxH  = lines.length * lh + 4;
-    this.guard(boxH + 4);
-
-    // accent bar
-    this.doc.setFillColor(201, 168, 76);
-    this.doc.rect(MX, this.y - 1, 1.5, boxH, "F");
-    // tinted background
-    this.doc.setFillColor(255, 251, 235);
-    this.doc.rect(MX + 1.5, this.y - 1, CW - 1.5, boxH, "F");
-
-    this.doc.text(lines, MX + 5, this.y);
-    this.y += boxH + 3;
-    this.reset();
-  }
-
-  list(token: Tokens.List, depth = 0) {
-    const lh     = ptMm(11, 1.5);
-    const indent = depth * 6;
-
-    token.items.forEach((item, i) => {
-      const bullet = token.ordered
-        ? `${(typeof token.start === "number" ? token.start : 1) + i}.`
-        : item.task ? (item.checked ? "[x]" : "[ ]") : "•";
-
-      const maxW  = CW - indent - 7;
-      const lines = this.doc.splitTextToSize(strip(item.text) || " ", maxW);
-      this.guard(lines.length * lh + 2);
-
-      this.doc.setFont("helvetica", "normal");
-      this.doc.setFontSize(11);
-      this.doc.setTextColor(30, 41, 59);
-
-      this.doc.text(bullet, MX + indent, this.y);
-      this.doc.text(lines, MX + indent + 7, this.y);
-      this.y += lines.length * lh + 1;
-
-      // nested lists
-      for (const t of (item.tokens ?? [])) {
-        if (t.type === "list") this.list(t as Tokens.List, depth + 1);
-      }
-    });
-
-    if (depth === 0) this.y += 2;
-    this.reset();
-  }
-
-  table(token: Tokens.Table) {
-    const cols   = token.header.length;
-    const colW   = CW / cols;
-    const rowH   = 7;
-    const totalH = (token.rows.length + 1) * rowH + 2;
-
-    this.guard(totalH + 4);
-
-    // header background
-    this.doc.setFillColor(241, 245, 249);
-    this.doc.rect(MX, this.y - 4.5, CW, rowH, "F");
-
-    this.doc.setFont("helvetica", "bold");
-    this.doc.setFontSize(10);
-    this.doc.setTextColor(30, 41, 59);
-
-    token.header.forEach((cell, ci) => {
-      const t = this.doc.splitTextToSize(strip(cell.text), colW - 3);
-      this.doc.text(t[0] ?? "", MX + ci * colW + 2, this.y);
-    });
-    this.y += rowH;
-
-    this.doc.setFont("helvetica", "normal");
-
-    token.rows.forEach((row, ri) => {
-      if (ri % 2 === 1) {
-        this.doc.setFillColor(248, 250, 252);
-        this.doc.rect(MX, this.y - 4.5, CW, rowH, "F");
-      }
-      row.forEach((cell, ci) => {
-        const t = this.doc.splitTextToSize(strip(cell.text), colW - 3);
-        this.doc.text(t[0] ?? "", MX + ci * colW + 2, this.y);
-      });
-      this.y += rowH;
-    });
-
-    // outer border
-    this.doc.setDrawColor(203, 213, 225);
-    this.doc.setLineWidth(0.3);
-    this.doc.rect(MX, this.y - totalH, CW, totalH, "S");
-
-    // column separators
-    for (let ci = 1; ci < cols; ci++) {
-      const x = MX + ci * colW;
-      this.doc.line(x, this.y - totalH, x, this.y);
-    }
-
-    this.y += 4;
-    this.reset();
-  }
-
-  hr() {
-    this.guard(8);
-    this.y += 3;
-    this.doc.setDrawColor(226, 232, 240);
-    this.doc.setLineWidth(0.3);
-    this.doc.line(MX, this.y, PW - MX, this.y);
-    this.y += 5;
-  }
+/** Count fenced ```mermaid / ~~~mermaid blocks so we know how many diagrams to await. */
+function countMermaidBlocks(md: string): number {
+  const matches = md.match(/^[ \t]{0,3}(?:```|~~~)[ \t]*mermaid\b/gm);
+  return matches ? matches.length : 0;
 }
 
-function renderTokens(b: Builder, tokens: ReturnType<typeof marked.lexer>) {
-  for (const token of tokens) {
-    switch (token.type) {
-      case "heading":
-        b.heading(token.text, token.depth);
-        break;
-      case "paragraph":
-        b.paragraph(token.text);
-        break;
-      case "code":
-        b.code(token.text);
-        break;
-      case "blockquote": {
-        // Render inner paragraph tokens so nested content is handled
-        const bq = token as Tokens.Blockquote;
-        const innerText = bq.tokens
-          .filter((t) => t.type === "paragraph" || t.type === "text")
-          .map((t) => (t as Tokens.Paragraph).text ?? "")
-          .join(" ");
-        b.blockquote(innerText || bq.text);
-        break;
-      }
-      case "list":
-        b.list(token as Tokens.List);
-        break;
-      case "table":
-        b.table(token as Tokens.Table);
-        break;
-      case "hr":
-        b.hr();
-        break;
-      case "space":
-        break;
-    }
-  }
+/** Resolve after two animation frames — lets React commit + the browser lay out. */
+function nextFrames(): Promise<void> {
+  return new Promise((resolve) =>
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+  );
 }
 
 /**
- * Export markdown content as a PDF file.
- * Shows a native "Save As" dialog — no print dialog, no browser UI.
+ * Wait until the off-screen preview has finished rendering its async content:
+ * Mermaid diagrams (rendered in a useEffect), images, and web fonts. Bounded by
+ * `timeoutMs` so a stuck diagram/image never hangs the export.
+ */
+async function waitForRender(root: HTMLElement, content: string, timeoutMs = 8000): Promise<void> {
+  const start = performance.now();
+  const expectedMermaid = countMermaidBlocks(content);
+
+  // 1. Mermaid renders asynchronously — poll until each block produced an <svg>
+  //    (or a .mermaid-error), or we run out of time.
+  if (expectedMermaid > 0) {
+    while (performance.now() - start < timeoutMs) {
+      const done = root.querySelectorAll(".mermaid-container svg, .mermaid-error").length;
+      if (done >= expectedMermaid) break;
+      await new Promise((r) => setTimeout(r, 60));
+    }
+  }
+
+  // 2. Images — wait for load/error, each capped so a slow/broken URL can't hang.
+  //    The preview marks images loading="lazy"; off-screen (below the fold) they
+  //    would never load here, so force eager loading before we wait on them.
+  const imgs = Array.from(root.querySelectorAll("img")) as HTMLImageElement[];
+  imgs.forEach((img) => {
+    if (img.loading === "lazy") img.loading = "eager";
+  });
+  await Promise.all(
+    imgs.map((img) =>
+      img.complete
+        ? Promise.resolve()
+        : new Promise<void>((resolve) => {
+            const done = () => resolve();
+            img.addEventListener("load", done, { once: true });
+            img.addEventListener("error", done, { once: true });
+            setTimeout(done, 4000);
+          }),
+    ),
+  );
+
+  // 3. Fonts settled + a couple of frames so final layout is stable.
+  try {
+    await (document as Document & { fonts?: FontFaceSet }).fonts?.ready;
+  } catch {
+    /* fonts API unavailable — ignore */
+  }
+  await nextFrames();
+}
+
+/** Run the native print-to-PDF and resolve with its result event (or reject on timeout). */
+function nativePrint(path: string): Promise<PdfResult> {
+  return new Promise<PdfResult>((resolve, reject) => {
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      unlisten.then((u) => u()).catch(() => {});
+      reject(new Error("PDF export timed out"));
+    }, 30_000);
+
+    const finish = (fn: () => void) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      unlisten.then((u) => u()).catch(() => {});
+      fn();
+    };
+
+    // Register the completion listener BEFORE invoking, then kick off the export.
+    const unlisten = listen<PdfResult>(RESULT_EVENT, (evt) => {
+      finish(() => resolve(evt.payload));
+    });
+
+    unlisten
+      .then(() => invoke("export_pdf", { path }))
+      .catch((err) => finish(() => reject(err)));
+  });
+}
+
+/**
+ * Export markdown `content` as a PDF, rendered identically to the live preview.
+ * Shows a native "Save As" dialog. Never throws — some call sites invoke this
+ * without awaiting/catching, so failures are logged rather than propagated.
  */
 export async function exportToPDF(title: string, content: string): Promise<void> {
-  const savePath = await save({
-    title: "Export as PDF",
-    defaultPath: `${title}.pdf`,
-    filters: [{ name: "PDF Document", extensions: ["pdf"] }],
-  });
-  if (!savePath) return;
-
   try {
-    const tokens  = marked.lexer(content);
-    const builder = new Builder();
-    renderTokens(builder, tokens);
+    if (!content || !content.trim()) return; // nothing to export
 
-    const bytes = new Uint8Array(builder.doc.output("arraybuffer"));
-    await writeFile(savePath, bytes);
+    const savePath = await save({
+      title: "Export as PDF",
+      defaultPath: `${title}.pdf`,
+      filters: [{ name: "PDF Document", extensions: ["pdf"] }],
+    });
+    if (!savePath) return; // user cancelled
+
+    // Mount an off-screen, print-only render of the note.
+    const container = document.createElement("div");
+    container.id = PRINT_ROOT_ID;
+    document.body.appendChild(container);
+    const root: Root = createRoot(container);
+
+    try {
+      root.render(createElement(MarkdownPreview, { content }));
+      await waitForRender(container, content);
+
+      const result = await nativePrint(savePath);
+      if (!result.success) {
+        throw new Error(result.error || "Native PDF export failed");
+      }
+    } finally {
+      root.unmount();
+      container.remove();
+    }
   } catch (err) {
-    throw new Error(`PDF export failed: ${err instanceof Error ? err.message : String(err)}`);
+    console.error("PDF export failed:", err);
   }
 }
