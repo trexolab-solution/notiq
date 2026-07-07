@@ -2607,7 +2607,7 @@ dependencies = [
 
 [[package]]
 name = "notiq"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "futures-util",
  "keyring",
