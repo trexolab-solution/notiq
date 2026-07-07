@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { SettingRow } from "../SettingRow";
 import { Toggle } from "../Toggle";
+import { Button } from "../Button";
 import { enable, disable, isEnabled } from "../../../lib/autostart";
 import { toast } from "../../../lib/toast";
 
@@ -44,6 +45,24 @@ export const GeneralSection = React.memo(function GeneralSection() {
         description="Start Notiq automatically when you sign in. Runs minimized in the system tray."
       >
         <Toggle value={autostart} onChange={handleAutostartToggle} />
+      </SettingRow>
+
+      <SettingRow
+        label="Welcome tour"
+        description="Replay the guided walkthrough of Notiq's main features."
+      >
+        <Button variant="ghost" size="sm" onClick={() => window.dispatchEvent(new Event("app:start-tour"))}>
+          Replay tour
+        </Button>
+      </SettingRow>
+
+      <SettingRow
+        label="What's new"
+        description="Open the release notes for the current version."
+      >
+        <Button variant="ghost" size="sm" onClick={() => window.dispatchEvent(new Event("app:show-whats-new"))}>
+          See what's new
+        </Button>
       </SettingRow>
     </div>
   );

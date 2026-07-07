@@ -173,6 +173,25 @@
 }
 .update-pill:disabled { cursor: default; opacity: 0.8; }
 
+/* "Update available" — attention state: solid fill + soft ripple so it stands out */
+.update-pill--attention {
+  color: var(--color-bg);
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  animation: update-pulse 2s ease-in-out infinite;
+}
+.update-pill--attention:hover:not(:disabled) {
+  background: var(--color-primary-hover);
+  border-color: var(--color-primary-hover);
+}
+@keyframes update-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-primary) 55%, transparent); }
+  50%      { box-shadow: 0 0 0 6px color-mix(in srgb, var(--color-primary) 0%, transparent); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .update-pill--attention { animation: none; }
+}
+
 /* Mode slot — now a normal flex item inside .header-center */
 .titlebar-mode-slot {
   display: flex;

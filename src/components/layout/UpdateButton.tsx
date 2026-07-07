@@ -32,7 +32,7 @@ export const UpdateButton = React.memo(function UpdateButton() {
   return (
     <Tooltip content={tip}>
       <button
-        className="update-pill"
+        className={`update-pill${status === "available" ? " update-pill--attention" : ""}`}
         aria-label={tip}
         onClick={onClick}
         disabled={status === "downloading"}
