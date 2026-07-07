@@ -1,0 +1,129 @@
+/* ── First-run welcome tour (custom spotlight overlay) ─────────────────────── */
+.tour-root {
+  position: fixed;
+  inset: 0;
+  z-index: 95000;       /* above app + modals; below toasts / tooltips */
+  pointer-events: auto; /* block background interaction during the tour */
+}
+
+/* Full-screen dim for centered (anchor-less) steps */
+.tour-dim {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+}
+
+/* Spotlight "hole" — the huge box-shadow paints the dim over everything else */
+.tour-spotlight {
+  position: absolute;
+  border-radius: 10px;
+  box-shadow: 0 0 0 100vmax rgba(0, 0, 0, 0.55);
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+  pointer-events: none;
+  transition: top 0.18s ease, left 0.18s ease, width 0.18s ease, height 0.18s ease;
+  animation: tour-ring 2s ease-in-out infinite;
+}
+
+@keyframes tour-ring {
+  0%, 100% { outline-color: color-mix(in srgb, var(--color-primary) 55%, transparent); }
+  50%      { outline-color: var(--color-primary); }
+}
+
+/* Popover card */
+.tour-popover {
+  position: absolute;
+  box-sizing: border-box;
+  padding: 16px 16px 12px;
+  border-radius: 12px;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  color: var(--color-text);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
+  pointer-events: auto;
+}
+
+.tour-close {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  display: inline-flex;
+  padding: 3px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+.tour-close:hover { background: var(--color-bg-tertiary); color: var(--color-text); }
+
+.tour-title {
+  margin: 0 24px 6px 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+.tour-body {
+  margin: 0 0 14px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--color-text-muted);
+}
+
+.tour-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.tour-dots { display: inline-flex; align-items: center; gap: 5px; }
+.tour-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--color-border);
+  transition: background 0.15s, width 0.15s;
+}
+.tour-dot.is-active { background: var(--color-primary); width: 16px; }
+
+.tour-actions { display: inline-flex; align-items: center; gap: 8px; }
+
+.tour-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 30px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+.tour-btn--ghost {
+  background: transparent;
+  color: var(--color-text-muted);
+}
+.tour-btn--ghost:hover { background: var(--color-bg-tertiary); color: var(--color-text); }
+.tour-btn--primary {
+  background: var(--color-primary);
+  color: var(--color-bg);
+}
+.tour-btn--primary:hover { background: var(--color-primary-hover); }
+
+.tour-skip {
+  margin-top: 10px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font-size: 11px;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+.tour-skip:hover { color: var(--color-text); text-decoration: underline; }
+
+@media (prefers-reduced-motion: reduce) {
+  .tour-spotlight { animation: none; transition: none; }
+}

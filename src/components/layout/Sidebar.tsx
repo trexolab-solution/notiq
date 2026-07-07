@@ -22,7 +22,7 @@ export const Sidebar = React.memo(function Sidebar({
 
   return (
     <aside style={{ display: "flex", height: "100%", flexShrink: 0 }}>
-      <div className="activity-bar">
+      <div className="activity-bar" data-tour="nav-rail">
         <Tooltip content="Editor" shortcut="Ctrl+1">
           <button
             className={`activity-btn${activeView === "editor" ? " is-active" : ""}`}
@@ -56,7 +56,7 @@ export const Sidebar = React.memo(function Sidebar({
         <div style={{ flex: 1 }} />
 
         <Tooltip content="Settings" shortcut="Ctrl+,">
-          <button className="activity-btn" aria-label="Settings" onClick={onOpenSettings}>
+          <button className="activity-btn" aria-label="Settings" data-tour="settings" onClick={onOpenSettings}>
             <Settings size={15} strokeWidth={1.8} />
           </button>
         </Tooltip>

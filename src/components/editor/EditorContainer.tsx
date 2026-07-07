@@ -105,7 +105,7 @@ export const EditorContainer = React.memo(function EditorContainer() {
   // ── Empty state ───────────────────────────────────────────────────────────
   if (!activeTab) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center gap-5 select-none bg-[var(--color-editor-bg)]">
+      <div data-tour="editor" className="flex-1 flex flex-col items-center justify-center gap-5 select-none bg-[var(--color-editor-bg)]">
         <div
           className="flex items-center justify-center w-14 h-14 rounded-2xl"
           style={{
@@ -158,7 +158,7 @@ export const EditorContainer = React.memo(function EditorContainer() {
   );
 
   return (
-    <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
+    <div data-tour="editor" className="flex flex-col flex-1 min-h-0 overflow-hidden">
       <div className="flex flex-1 min-h-0 overflow-hidden">
         {effectiveMode === "markdown" && MonacoPane}
 

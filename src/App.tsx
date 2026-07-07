@@ -18,6 +18,9 @@ import { toast } from "./lib/toast";
 import { pickAndReadMultipleFiles, pickFolderAndReadFiles, type FileEntry } from "./lib/fileOps";
 import { getFileName } from "./lib/pathUtils";
 import { bootstrapAutostart } from "./lib/autostart";
+import { isTourCompleted, wasUpdated, recordSeenVersion } from "./lib/firstRun";
+import { WHATS_NEW } from "./config/whatsNew";
+import { APP_VERSION } from "./config/app";
 import { readTextFile } from "@tauri-apps/plugin-fs";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
@@ -61,6 +64,7 @@ const AIChatPanel = lazy(() =>
 const AIOnboarding = lazy(() =>
   import("./components/ai/AIOnboarding").then((m) => ({ default: m.AIOnboarding }))
 );
+const Tour = lazy(() => import("./components/tour/Tour"));
 
 export default function App() {
   useSession();
@@ -70,6 +74,7 @@ export default function App() {
   const [showSettings,  setShowSettings]  = useState(false);
   const [settingsSection, setSettingsSection] = useState<"ai" | undefined>(undefined);
   const [showAIOnboarding, setShowAIOnboarding] = useState(false);
+  const [showTour, setShowTour] = useState(false);
   const [showPalette,   setShowPalette]   = useState(false);
   const [showSearch,    setShowSearch]    = useState(false);
   const [aiChatOpen,    setAiChatOpen]    = useState(false);
@@ -112,6 +117,16 @@ export default function App() {
     setShowSettings(true);
   }, []);
 
+  // Open the "What's New" release note as an in-memory preview tab.
+  const openWhatsNew = useCallback(() => {
+    addTab({
+      kind: "note",
+      title: `What's New in Notiq ${APP_VERSION}`,
+      content: WHATS_NEW,
+      editorMode: "preview",
+    });
+  }, [addTab]);
+
   const activeTab = tabs.find((t) => t.id === activeTabId);
   const isMdNote  = activeTab?.kind === "note" && isMarkdownLike(activeTab?.filePath);
 
@@ -136,6 +151,16 @@ export default function App() {
     const t = setTimeout(() => { void updater.check({ silent: true }); }, 3000);
     return () => clearTimeout(t);
   }, [autoUpdateCheck]);
+
+  // First-run welcome tour + post-update "What's New" note. Both gate on
+  // standalone localStorage flags (lib/firstRun) so a preferences reset won't
+  // re-trigger them. At most one greets the user per launch: a fresh install
+  // gets the tour (and silently records the version); an update opens the note.
+  useEffect(() => {
+    if (!isTourCompleted()) setShowTour(true);
+    else if (wasUpdated(APP_VERSION)) openWhatsNew();
+    recordSeenVersion(APP_VERSION);
+  }, [openWhatsNew]); // effectively run-once (openWhatsNew is stable)
 
   // Window drag — manual startDragging because data-tauri-drag-region only
   // works on the element itself (not children), per Tauri docs.
@@ -229,13 +254,21 @@ export default function App() {
   useEffect(() => {
     const openPalette = () => setShowPalette(true);
     const openSearch = () => setShowSearch(true);
+    // Replay entry points from Settings → General. Close settings first so the
+    // tour/note isn't hidden behind the settings modal.
+    const startTour = () => { setShowSettings(false); setShowTour(true); };
+    const showWhatsNew = () => { setShowSettings(false); openWhatsNew(); };
     window.addEventListener("app:command-palette", openPalette);
     window.addEventListener("app:global-search", openSearch);
+    window.addEventListener("app:start-tour", startTour);
+    window.addEventListener("app:show-whats-new", showWhatsNew);
     return () => {
       window.removeEventListener("app:command-palette", openPalette);
       window.removeEventListener("app:global-search", openSearch);
+      window.removeEventListener("app:start-tour", startTour);
+      window.removeEventListener("app:show-whats-new", showWhatsNew);
     };
-  }, []);
+  }, [openWhatsNew]);
 
   useGlobalShortcuts({
     requestClose,
@@ -297,6 +330,7 @@ export default function App() {
             <button
               className="titlebar-tool-btn"
               aria-label="AI assistance"
+              data-tour="ai-button"
               onClick={handleAIClick}
               onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); openAISettings(); }}
               style={aiOnboarded && aiEnabled ? { color: "var(--color-primary)" } : undefined}
@@ -308,6 +342,7 @@ export default function App() {
             <button
               className="titlebar-tool-btn"
               aria-label="AI Chat"
+              data-tour="ai-chat"
               onClick={toggleAiChat}
               style={aiChatOpen ? { color: "var(--color-primary)" } : undefined}
             >
@@ -460,6 +495,12 @@ export default function App() {
       {showAIOnboarding && (
         <Suspense fallback={null}>
           <AIOnboarding onClose={() => setShowAIOnboarding(false)} />
+        </Suspense>
+      )}
+
+      {showTour && (
+        <Suspense fallback={null}>
+          <Tour onClose={() => setShowTour(false)} />
         </Suspense>
       )}
 
