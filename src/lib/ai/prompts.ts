@@ -197,18 +197,28 @@ export function generateTitleSystem(): string {
   ].join(" ");
 }
 
+export interface ChatContextFile {
+  title?: string;
+  content: string;
+  fileName?: string;
+  language?: string;
+}
+
 /**
- * System prompt for the side chat panel — optionally grounded in the active
- * note/file. When the active tab is a real code/text file (not a markdown note),
- * pass `fileName` + `language` so the model answers in that file's language.
+ * System prompt for the side chat panel — optionally grounded in one or more
+ * open files/notes selected via the context picker. A single file's output is
+ * byte-identical to the original single-document format (minimizes prompt
+ * behavior regression); 2+ files get numbered `FILE i/N` blocks instead.
  */
-export function chatSystem(
-  noteTitle?: string,
-  noteContent?: string,
-  fileName?: string,
-  language?: string,
-  relevance: "high" | "medium" | "low" = "high",
-): string {
+export function chatSystem(files: ChatContextFile[] = []): string {
+  if (files.length > 1) return multiFileChatSystem(files);
+
+  const single = files[0];
+  const noteTitle = single?.title;
+  const noteContent = single?.content;
+  const fileName = single?.fileName;
+  const language = single?.language;
+
   const trimmed = (noteContent ?? "").trim();
   const isCodeFile = !!language && language !== "markdown" && language !== "plaintext";
 
@@ -253,16 +263,8 @@ export function chatSystem(
       ? `--- ACTIVE FILE${fileName ? ` ("${fileName}", ${language})` : ` (${language})`}${sizeHint}`
       : `--- ACTIVE NOTE${noteTitle ? ` ("${noteTitle}")` : ""}${sizeHint}`;
 
-    // Relevance gate: tell the model how related this content seems to the request,
-    // so it doesn't drag an unrelated open file into an unrelated answer.
-    const gate = relevance === "low"
-      ? "IMPORTANT: this open document looks UNRELATED to the user's request — IGNORE it unless the user clearly refers to it."
-      : relevance === "medium"
-        ? "This open document may be only loosely related — use it only if it actually helps answer the request."
-        : "Use this open document as the primary context for the request.";
-
     base.push(
-      `\n\n${gate}`,
+      "\n\nUse this open document as the primary context for the request.",
       `\n\n${heading} (read-only reference — do NOT repeat it back verbatim unless asked) ---\n`,
       trimmed,
       "\n--- END ---",
@@ -270,5 +272,52 @@ export function chatSystem(
   } else {
     base.push("\n\n(No active note/file is attached.)");
   }
+  return base.join(" ");
+}
+
+/** Multi-file variant of chatSystem's context block — same opening instructions,
+ *  but numbered `FILE i/N` blocks instead of one `ACTIVE NOTE`/`ACTIVE FILE`. */
+function multiFileChatSystem(files: ChatContextFile[]): string {
+  const anyCode = files.some((f) => !!f.language && f.language !== "markdown" && f.language !== "plaintext");
+
+  const base = [
+    "You are a capable assistant inside a markdown note-taking app.",
+    "Help the user write, edit, explain, brainstorm, and generate content (including code,",
+    "HTML, scripts, tables, documents) directly in your reply using markdown. Put code in",
+    "fenced blocks with a language tag (e.g. ```html, ```js).",
+    "NEVER refuse by saying you are 'just a text-based AI' or that you 'cannot run code / build an app'.",
+    "Provide the content itself; no disclaimers about your nature.",
+    "BE PROPORTIONAL: match the size and effort of your answer to the request. A short or vague",
+    "input deserves a short, focused answer — not a long one.",
+    "Do NOT invent multiple elaborate 'Option 1 / Option 2' alternatives unless the user explicitly",
+    "asks for options. Give the single best response.",
+    "If the request is ambiguous or the context is too sparse to know what's wanted (e.g. just a word",
+    "or two and the user says 'complete this'), ask ONE brief clarifying question first — one sentence.",
+    "Lead with the answer, no preamble.",
+    `\n\n${files.length} files are attached below. When the user refers to "this"/"the file"/a`,
+    "specific filename or title, use the matching one — don't blend unrelated files together.",
+    anyCode ? "When editing/generating code, match each file's own language and existing style." : "",
+  ].filter(Boolean);
+
+  files.forEach((f, i) => {
+    const trimmed = f.content.trim();
+    const n = i + 1;
+    if (!trimmed) return;
+    const isCode = !!f.language && f.language !== "markdown" && f.language !== "plaintext";
+    const words = trimmed.split(/\s+/).filter(Boolean).length;
+    const sizeHint = words <= 5
+      ? ` — NOTE: only ${words} word(s); treat as a sparse/ambiguous starting point`
+      : "";
+    const heading = isCode
+      ? `--- FILE ${n}/${files.length}${f.fileName ? ` ("${f.fileName}", ${f.language})` : f.language ? ` (${f.language})` : ""}${sizeHint}`
+      : `--- FILE ${n}/${files.length}${f.title ? ` ("${f.title}")` : ""}${sizeHint}`;
+
+    base.push(
+      `\n\n${heading} (read-only reference — do NOT repeat it back verbatim unless asked) ---\n`,
+      trimmed,
+      `\n--- END ${n}/${files.length} ---`,
+    );
+  });
+
   return base.join(" ");
 }

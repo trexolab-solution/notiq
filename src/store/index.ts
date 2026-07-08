@@ -167,6 +167,16 @@ export interface AppState {
   setAiProvider: (v: AIProvider) => void;
   aiModel: string;
   setAiModel: (v: string) => void;
+  aiModelCloud: string;
+  setAiModelCloud: (v: string) => void;
+  aiModelLocal: string;
+  setAiModelLocal: (v: string) => void;
+  aiModelOpenrouter: string;
+  setAiModelOpenrouter: (v: string) => void;
+  aiFallbackProvider: AIProvider | "none";
+  setAiFallbackProvider: (v: AIProvider | "none") => void;
+  aiFallbackModel: string;
+  setAiFallbackModel: (v: string) => void;
   aiAutocompleteEnabled: boolean;
   setAiAutocompleteEnabled: (v: boolean) => void;
   aiTriggerMode: AITriggerMode;
@@ -441,7 +451,10 @@ export const useAppStore = create<AppState>((set, get) => {
     },
 
     // ── preferences (generated from declarative registry) ─────
-    ...(buildPreferenceSlice(set as (partial: Record<string, unknown>) => void) as Pick<
+    ...(buildPreferenceSlice(
+      set as (partial: Record<string, unknown>) => void,
+      get as unknown as () => Record<string, unknown>,
+    ) as Pick<
       AppState,
       | "editorFontSize" | "setEditorFontSize"
       | "wordWrap" | "setWordWrap"
@@ -470,6 +483,11 @@ export const useAppStore = create<AppState>((set, get) => {
       | "aiEnabled" | "setAiEnabled"
       | "aiProvider" | "setAiProvider"
       | "aiModel" | "setAiModel"
+      | "aiModelCloud" | "setAiModelCloud"
+      | "aiModelLocal" | "setAiModelLocal"
+      | "aiModelOpenrouter" | "setAiModelOpenrouter"
+      | "aiFallbackProvider" | "setAiFallbackProvider"
+      | "aiFallbackModel" | "setAiFallbackModel"
       | "aiAutocompleteEnabled" | "setAiAutocompleteEnabled"
       | "aiTriggerMode" | "setAiTriggerMode"
       | "aiDebounceMs" | "setAiDebounceMs"

@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
-import { Sparkles, ShieldCheck, Cloud, HardDrive, ExternalLink, Check } from "lucide-react";
+import { Sparkles, ShieldCheck, Cloud, HardDrive, Router, ExternalLink, Check } from "lucide-react";
 import { useAIPreferences } from "../../store/selectors";
 import { Modal } from "../ui/Modal";
 import { SegmentedControl } from "../ui/SegmentedControl";
-import { Select } from "../ui/Select";
+import { ModelPicker } from "./ModelPicker";
 import { Input } from "../ui/Input";
 import { Button } from "../ui/Button";
 import { AI_PROVIDER_OPTIONS } from "../ui/settings/settingsConstants";
@@ -11,7 +11,6 @@ import {
   aiListModels, setApiKey, hasApiKey, baseUrlFor,
 } from "../../lib/ai/client";
 import { mapAiError } from "../../lib/ai/errors";
-import { metaFor, kindLabel, SUGGESTED_CLOUD_MODELS } from "../../lib/ai/models";
 import { isTauri } from "../../lib/tauriWindow";
 import { toast } from "../../lib/toast";
 import type { AIProvider } from "../../types";
@@ -32,27 +31,27 @@ export function AIOnboarding({ onClose }: AIOnboardingProps) {
   const [step, setStep] = useState<Step>(0);
   const [keyInput, setKeyInput] = useState("");
   const [keyPresent, setKeyPresent] = useState(false);
-  const [models, setModels] = useState<string[]>([]);
+  const [models, setModels] = useState<{ id: string; context_length?: number }[]>([]);
   const [busy, setBusy] = useState(false);
 
   const isCloud = aiProvider === "cloud";
+  const needsKey = aiProvider !== "local";
 
-  useEffect(() => { hasApiKey().then(setKeyPresent).catch(() => {}); }, []);
+  useEffect(() => { hasApiKey(aiProvider).then(setKeyPresent).catch(() => {}); }, [aiProvider]);
 
   // Step 2 → test connection (also fetches models), advance on success.
   const connectAndContinue = async () => {
     if (!isTauri) { toast.error("Run the desktop app to connect"); return; }
     setBusy(true);
     try {
-      if (isCloud && keyInput.trim()) {
-        await setApiKey(keyInput.trim());
+      if (needsKey && keyInput.trim()) {
+        await setApiKey(aiProvider, keyInput.trim());
         setKeyPresent(true);
         setKeyInput("");
       }
-      const list = await aiListModels(baseUrlFor(aiProvider));
-      setModels(list.length ? list : (isCloud ? SUGGESTED_CLOUD_MODELS : []));
-      if (!aiModel && list.length) setAiModel(list[0]);
-      else if (!aiModel && isCloud) setAiModel(SUGGESTED_CLOUD_MODELS[0]);
+      const list = await aiListModels(aiProvider);
+      setModels(list);
+      if (!aiModel && list.length) setAiModel(list[0].id);
       setStep(3);
     } catch (e) {
       toast.error(mapAiError(e));
@@ -70,11 +69,6 @@ export function AIOnboarding({ onClose }: AIOnboardingProps) {
   };
 
   const dismiss = () => { setAiOnboarded(true); onClose(); };
-
-  const modelOptions = Array.from(new Set([aiModel, ...models].filter(Boolean))).map((id) => ({
-    value: id,
-    label: `${id} · ${kindLabel(metaFor(id).kind)}`,
-  }));
 
   return (
     <Modal onClose={onClose}>
@@ -140,15 +134,19 @@ export function AIOnboarding({ onClose }: AIOnboardingProps) {
                   <HardDrive size={15} style={{ flexShrink: 0, marginTop: 1 }} />
                   <span><b style={{ color: "var(--color-text)" }}>Local</b> — free &amp; offline, runs via <code>ollama serve</code> on your machine.</span>
                 </div>
+                <div className="flex items-start gap-2 text-xs" style={{ color: "var(--color-text-muted)" }}>
+                  <Router size={15} style={{ flexShrink: 0, marginTop: 1 }} />
+                  <span><b style={{ color: "var(--color-text)" }}>OpenRouter</b> — access to many hosted models with one API key.</span>
+                </div>
               </div>
             </>
           )}
 
           {step === 2 && (
             <>
-              {isCloud ? (
+              {needsKey ? (
                 <>
-                  <p className="text-sm">Paste your Ollama Cloud API key:</p>
+                  <p className="text-sm">Paste your {isCloud ? "Ollama Cloud" : "OpenRouter"} API key:</p>
                   <Input
                     type="password"
                     value={keyInput}
@@ -156,9 +154,9 @@ export function AIOnboarding({ onClose }: AIOnboardingProps) {
                     placeholder={keyPresent ? "•••••••• (a key is already saved)" : "Paste API key"}
                     aria-label="API key"
                   />
-                  <a href="https://ollama.com/settings/keys" target="_blank" rel="noreferrer"
+                  <a href={isCloud ? "https://ollama.com/settings/keys" : "https://openrouter.ai/keys"} target="_blank" rel="noreferrer"
                     className="inline-flex items-center gap-1.5 text-xs" style={{ color: "var(--color-primary)" }}>
-                    <ExternalLink size={12} /> Get an Ollama API key
+                    <ExternalLink size={12} /> Get an {isCloud ? "Ollama" : "OpenRouter"} API key
                   </a>
                 </>
               ) : (
@@ -178,10 +176,10 @@ export function AIOnboarding({ onClose }: AIOnboardingProps) {
           {step === 3 && (
             <>
               <p className="text-sm">Pick a model to use:</p>
-              <Select
+              <ModelPicker
                 value={aiModel}
                 onChange={setAiModel}
-                options={modelOptions}
+                models={models.map((m) => ({ ...m, provider: aiProvider }))}
                 placeholder="Select model"
                 aria-label="AI model"
               />

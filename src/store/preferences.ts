@@ -62,10 +62,17 @@ const PREFERENCE_DEFS: PrefDef[] = [
   { stateKey: "terminalScrollback",     storageKey: "pref:termScrollback",         defaultValue: 5000,                         coercion: "number" },
   { stateKey: "terminalLayout",         storageKey: "pref:termLayout",             defaultValue: "horizontal",                 coercion: "string" },
 
-  // AI / Autocomplete (the API key is NOT stored here — it lives in a Rust-managed config file)
+  // AI / Autocomplete (the API key is NOT stored here — it lives in the OS keyring).
+  // NOTE: aiProvider/aiModel are hand-written below buildPreferenceSlice's loop
+  // (see the "aiProvider / aiModel" block) since they need cross-field logic —
+  // switching provider restores that provider's remembered model. Kept out of
+  // this generic registry for that reason, same as `defaultEditorMode` below.
   { stateKey: "aiEnabled",              storageKey: "pref:aiEnabled",              defaultValue: false,                        coercion: "bool-false" },
-  { stateKey: "aiProvider",             storageKey: "pref:aiProvider",             defaultValue: "cloud",                      coercion: "string" },
-  { stateKey: "aiModel",                storageKey: "pref:aiModel",                defaultValue: "",                           coercion: "string" },
+  { stateKey: "aiModelCloud",           storageKey: "pref:aiModelCloud",           defaultValue: "",                           coercion: "string" },
+  { stateKey: "aiModelLocal",           storageKey: "pref:aiModelLocal",           defaultValue: "",                           coercion: "string" },
+  { stateKey: "aiModelOpenrouter",      storageKey: "pref:aiModelOpenrouter",      defaultValue: "",                           coercion: "string" },
+  { stateKey: "aiFallbackProvider",     storageKey: "pref:aiFallbackProvider",     defaultValue: "none",                       coercion: "string" },
+  { stateKey: "aiFallbackModel",        storageKey: "pref:aiFallbackModel",        defaultValue: "",                           coercion: "string" },
   { stateKey: "aiAutocompleteEnabled",  storageKey: "pref:aiAutocomplete",         defaultValue: true,                         coercion: "bool-true" },
   { stateKey: "aiTriggerMode",          storageKey: "pref:aiTriggerMode",          defaultValue: "auto",                       coercion: "string" },
   { stateKey: "aiDebounceMs",           storageKey: "pref:aiDebounceMs",           defaultValue: 400,                          coercion: "number" },
@@ -84,11 +91,24 @@ function setterName(stateKey: string): string {
 
 // ─── slice builder ───────────────────────────────────────────────────────────
 
+/** Maps an AI provider id to the storage key remembering that provider's last-picked model. */
+const MODEL_STATE_KEY: Record<string, string> = {
+  cloud: "aiModelCloud", local: "aiModelLocal", openrouter: "aiModelOpenrouter",
+};
+const MODEL_STORAGE_KEY: Record<string, string> = {
+  cloud: "pref:aiModelCloud", local: "pref:aiModelLocal", openrouter: "pref:aiModelOpenrouter",
+};
+
 /**
- * Generates initial values + setter functions for all 21 standard preferences.
- * The `defaultEditorMode` pref is handled separately due to its special migration logic.
+ * Generates initial values + setter functions for the standard preferences.
+ * `defaultEditorMode` and `aiProvider`/`aiModel` are handled separately below —
+ * the former for its one-time value migration, the latter because switching
+ * provider needs to restore that provider's own remembered model.
  */
-export function buildPreferenceSlice(set: (partial: Record<string, unknown>) => void): Record<string, unknown> {
+export function buildPreferenceSlice(
+  set: (partial: Record<string, unknown>) => void,
+  get: () => Record<string, unknown>,
+): Record<string, unknown> {
   const slice: Record<string, unknown> = {};
 
   for (const def of PREFERENCE_DEFS) {
@@ -109,6 +129,35 @@ export function buildPreferenceSlice(set: (partial: Record<string, unknown>) => 
     set({ defaultEditorMode: mode });
   };
 
+  // aiProvider / aiModel — the "current" model always tracks whichever provider
+  // is selected, backed by per-provider storage (aiModelCloud/Local/Openrouter)
+  // so switching providers back and forth restores each one's last choice.
+  const initialProvider = localStorage.getItem("pref:aiProvider") || "cloud";
+
+  // One-time migration: an older build stored a single flat `pref:aiModel` with
+  // no provider association. Seed it into the matching per-provider slot (only
+  // if that slot is still empty, so it never clobbers a real per-provider value)
+  // then stop writing the legacy key.
+  const legacyModel = localStorage.getItem("pref:aiModel");
+  if (legacyModel && !localStorage.getItem(MODEL_STORAGE_KEY[initialProvider])) {
+    localStorage.setItem(MODEL_STORAGE_KEY[initialProvider], legacyModel);
+    slice[MODEL_STATE_KEY[initialProvider]] = legacyModel;
+  }
+  localStorage.removeItem("pref:aiModel");
+
+  slice.aiProvider = initialProvider;
+  slice.aiModel = (slice[MODEL_STATE_KEY[initialProvider]] as string) ?? "";
+
+  slice.setAiProvider = (v: string) => {
+    localStorage.setItem("pref:aiProvider", v);
+    set({ aiProvider: v, aiModel: (get()[MODEL_STATE_KEY[v]] as string) ?? "" });
+  };
+  slice.setAiModel = (v: string) => {
+    const provider = get().aiProvider as string;
+    localStorage.setItem(MODEL_STORAGE_KEY[provider], v);
+    set({ aiModel: v, [MODEL_STATE_KEY[provider]]: v });
+  };
+
   return slice;
 }
 
@@ -125,6 +174,11 @@ export function resetAllPreferences(set: (partial: Record<string, unknown>) => v
   }
   localStorage.removeItem("pref:defaultMode");
   updates.defaultEditorMode = "split";
+
+  localStorage.removeItem("pref:aiProvider");
+  updates.aiProvider = "cloud";
+  updates.aiModel = "";
+
   set(updates);
 }
 

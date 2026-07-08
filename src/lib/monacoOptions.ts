@@ -79,11 +79,20 @@ export const STATIC_EDITOR_OPTIONS: editor.IStandaloneEditorConstructionOptions 
     highlightActiveBracketPair: true,
   },
   inlineSuggest: { enabled: true },
-  quickSuggestions: { other: true, comments: true, strings: true },
+  // Native auto-popup ("quick suggestions" on every keystroke, plus dumb
+  // word-matching across all open documents) constantly out-competes the AI
+  // ghost-text suggestion for attention — Monaco's own conflict resolution
+  // hides inline suggestions whenever the native suggest widget has a
+  // highlighted item, which it almost always does the moment either of these
+  // fires. VS Code made the same call (1.121+, no more auto-popup-on-letters
+  // by default) for the same reason. Trigger-character suggestions (e.g. "."
+  // in JS/TS/JSON/CSS/HTML, which have real Monaco language workers) still
+  // work via `suggestOnTriggerCharacters` and manual Ctrl+Space.
+  quickSuggestions: false,
+  wordBasedSuggestions: "off",
   suggestOnTriggerCharacters: true,
   acceptSuggestionOnEnter: "smart",
   tabCompletion: "on",
-  wordBasedSuggestions: "allDocuments",
   snippetSuggestions: "inline",
   suggestSelection: "first",
   suggest: {

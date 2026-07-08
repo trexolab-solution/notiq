@@ -15,6 +15,12 @@ interface SelectProps {
   placeholder?: string;
   disabled?: boolean;
   className?: string;
+  /** Shallow-merged over the trigger's default inline style, for callers that
+   *  need to size/shape the trigger beyond what className can reach. */
+  triggerStyle?: React.CSSProperties;
+  /** Fired each time the dropdown opens — for callers that want to lazily load
+   *  `options` on first interaction rather than eagerly on mount. */
+  onOpen?: () => void;
   "aria-label"?: string;
 }
 
@@ -25,6 +31,8 @@ export const Select = React.memo(function Select({
   placeholder,
   disabled,
   className,
+  triggerStyle,
+  onOpen,
   "aria-label": ariaLabel,
 }: SelectProps) {
   const [open, setOpen] = useState(false);
@@ -47,7 +55,8 @@ export const Select = React.memo(function Select({
     setPos({ top: flipUp ? rect.top : rect.bottom + 4, left: rect.left, width: rect.width, flipUp });
     setFocusIdx(options.findIndex((o) => o.value === value));
     setOpen(true);
-  }, [disabled, options, value]);
+    onOpen?.();
+  }, [disabled, options, value, onOpen]);
 
   const closeDropdown = useCallback(() => {
     setOpen(false);
@@ -131,6 +140,7 @@ export const Select = React.memo(function Select({
           opacity: disabled ? 0.5 : 1,
           outline: "none",
           textAlign: "left",
+          ...triggerStyle,
         }}
       >
         <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
