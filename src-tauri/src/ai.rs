@@ -12,14 +12,31 @@ use keyring::Entry;
 use futures_util::StreamExt;
 
 const SERVICE_NAME: &str = "notiq-ai";
-const ACCOUNT_NAME: &str = "api-key";
+const ACCOUNT_CLOUD: &str = "api-key";
+const ACCOUNT_OPENROUTER: &str = "openrouter-api-key";
 /// Hard cap on the stored API key length — a sane bound for any real token.
 const MAX_API_KEY_LEN: usize = 4096;
+
+/// Map a provider id to its keyring account name. `None` means the provider
+/// never has a stored key (e.g. "local" — Ollama on localhost needs no auth).
+fn account_for(provider: &str) -> Option<&'static str> {
+    match provider {
+        "cloud" => Some(ACCOUNT_CLOUD),
+        "openrouter" => Some(ACCOUNT_OPENROUTER),
+        _ => None,
+    }
+}
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct ChatMessage {
     pub role: String,
     pub content: String,
+}
+
+#[derive(Serialize, Clone)]
+pub struct ModelInfo {
+    id: String,
+    context_length: Option<u64>,
 }
 
 #[derive(Serialize, Clone)]
@@ -51,34 +68,37 @@ fn snippet(s: &str) -> String {
 // ─── Key management ───────────────────────────────────────────────────────────
 
 #[tauri::command]
-pub fn set_ai_api_key(_app: AppHandle, key: String) -> Result<(), String> {
+pub fn set_ai_api_key(_app: AppHandle, provider: String, key: String) -> Result<(), String> {
     let trimmed = key.trim();
     if trimmed.is_empty() {
-        return clear_ai_api_key(_app);
+        return clear_ai_api_key(_app, provider);
     }
     if trimmed.len() > MAX_API_KEY_LEN {
         return Err(format!("API key is too long (max {} bytes)", MAX_API_KEY_LEN));
     }
-    let entry = Entry::new(SERVICE_NAME, ACCOUNT_NAME).map_err(|e| e.to_string())?;
+    let account = account_for(&provider).ok_or_else(|| format!("'{}' does not use an API key", provider))?;
+    let entry = Entry::new(SERVICE_NAME, account).map_err(|e| e.to_string())?;
     entry.set_password(trimmed).map_err(|e| e.to_string())?;
     Ok(())
 }
 
 #[tauri::command]
-pub fn has_ai_api_key(_app: AppHandle) -> bool {
-    read_api_key().is_empty() == false
+pub fn has_ai_api_key(_app: AppHandle, provider: String) -> bool {
+    read_api_key(&provider).is_empty() == false
 }
 
 #[tauri::command]
-pub fn clear_ai_api_key(_app: AppHandle) -> Result<(), String> {
-    let entry = Entry::new(SERVICE_NAME, ACCOUNT_NAME).map_err(|e| e.to_string())?;
+pub fn clear_ai_api_key(_app: AppHandle, provider: String) -> Result<(), String> {
+    let account = account_for(&provider).ok_or_else(|| format!("'{}' does not use an API key", provider))?;
+    let entry = Entry::new(SERVICE_NAME, account).map_err(|e| e.to_string())?;
     // Clear the secret by setting it to an empty string.
     entry.set_password("").map_err(|e| e.to_string())?;
     Ok(())
 }
 
-fn read_api_key() -> String {
-    Entry::new(SERVICE_NAME, ACCOUNT_NAME)
+fn read_api_key(provider: &str) -> String {
+    let Some(account) = account_for(provider) else { return String::new() };
+    Entry::new(SERVICE_NAME, account)
         .and_then(|e| e.get_password())
         .unwrap_or_default()
 }
@@ -108,10 +128,35 @@ fn validate_base_url(base_url: &str) -> Result<String, String> {
 
 // ─── Inference ────────────────────────────────────────────────────────────────
 
+/// Best-effort: fetch Ollama's native `/api/tags` (richer than the OpenAI-compat
+/// `/v1/models`) and return a name → context_length map. Never fails the caller —
+/// any error/shape mismatch just yields an empty map.
+async fn fetch_ollama_context_lengths(client: &reqwest::Client, base_url: &str) -> std::collections::HashMap<String, u64> {
+    let root = base_url.trim_end_matches('/').trim_end_matches("/v1");
+    let url = format!("{}/api/tags", root);
+    let mut out = std::collections::HashMap::new();
+
+    let Ok(resp) = client.get(&url).send().await else { return out };
+    let Ok(text) = resp.text().await else { return out };
+    let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&text) else { return out };
+
+    if let Some(models) = parsed.get("models").and_then(|m| m.as_array()) {
+        for m in models {
+            let name = m.get("name").or_else(|| m.get("model")).and_then(|n| n.as_str());
+            let ctx = m.get("details").and_then(|d| d.get("context_length")).and_then(|c| c.as_u64());
+            if let (Some(name), Some(ctx)) = (name, ctx) {
+                out.insert(name.to_string(), ctx);
+            }
+        }
+    }
+    out
+}
+
 #[tauri::command]
-pub async fn ai_list_models(_app: AppHandle, base_url: String) -> Result<Vec<String>, String> {
-    let key = read_api_key();
-    let url = format!("{}/models", validate_base_url(&base_url)?);
+pub async fn ai_list_models(_app: AppHandle, base_url: String, provider: String) -> Result<Vec<ModelInfo>, String> {
+    let key = read_api_key(&provider);
+    let validated = validate_base_url(&base_url)?;
+    let url = format!("{}/models", validated);
     let client = http_client()?;
 
     let mut req = client.get(&url);
@@ -129,11 +174,20 @@ pub async fn ai_list_models(_app: AppHandle, base_url: String) -> Result<Vec<Str
     let parsed: serde_json::Value =
         serde_json::from_str(&text).map_err(|e| format!("parse|{}", e))?;
 
+    let ollama_ctx = if provider == "local" {
+        fetch_ollama_context_lengths(&client, &validated).await
+    } else {
+        std::collections::HashMap::new()
+    };
+
     let mut models = Vec::new();
     if let Some(data) = parsed.get("data").and_then(|d| d.as_array()) {
         for m in data {
             if let Some(id) = m.get("id").and_then(|i| i.as_str()) {
-                models.push(id.to_string());
+                let context_length = m.get("context_length")
+                    .and_then(|c| c.as_u64())
+                    .or_else(|| ollama_ctx.get(id).copied());
+                models.push(ModelInfo { id: id.to_string(), context_length });
             }
         }
     }
@@ -148,8 +202,9 @@ pub async fn ai_complete(
     messages: Vec<ChatMessage>,
     max_tokens: u32,
     temperature: f32,
+    provider: String,
 ) -> Result<String, String> {
-    let key = read_api_key();
+    let key = read_api_key(&provider);
     let url = format!("{}/chat/completions", validate_base_url(&base_url)?);
     let client = http_client()?;
 
@@ -197,8 +252,9 @@ pub async fn ai_complete_stream(
     messages: Vec<ChatMessage>,
     max_tokens: u32,
     temperature: f32,
+    provider: String,
 ) -> Result<(), String> {
-    let key = read_api_key();
+    let key = read_api_key(&provider);
     let url = format!("{}/chat/completions", validate_base_url(&base_url)?);
     let client = http_client()?;
 

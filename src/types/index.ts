@@ -10,7 +10,7 @@ export type EditorCursorBlinking = "blink" | "smooth" | "phase" | "expand" | "so
 export type TerminalCursorStyle  = "block" | "underline" | "bar";
 export type TerminalLayout       = "horizontal" | "vertical";
 
-export type AIProvider    = "cloud" | "local";
+export type AIProvider    = "cloud" | "local" | "openrouter";
 export type AITriggerMode = "auto" | "manual";
 
 export type ThemeId =

@@ -2,7 +2,12 @@
 // conversation has an id, a derived title (first user message), a timestamp, and
 // its messages. Kept small (most-recent N) so it never bloats storage.
 
-export interface ChatMsg { role: "user" | "assistant"; content: string; }
+export interface ChatMsg {
+  role: "user" | "assistant";
+  content: string;
+  note?: string;
+  noteTone?: "info" | "warning";
+}
 
 export interface ChatConversation {
   id: string;

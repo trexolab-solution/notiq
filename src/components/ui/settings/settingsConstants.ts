@@ -71,7 +71,14 @@ export const TAB_SIZE_OPTIONS = [
 export const AI_PROVIDER_OPTIONS: { value: string; label: string }[] = [
   { value: "cloud", label: "Ollama Cloud" },
   { value: "local", label: "Local Ollama" },
+  { value: "openrouter", label: "OpenRouter" },
 ];
+
+/** Human label for a provider id — used wherever a bare AIProvider needs display text
+ *  (e.g. the fallback-provider picker, which only has string ids to work with). */
+export const PROVIDER_LABEL: Record<string, string> = {
+  cloud: "Ollama Cloud", local: "Local Ollama", openrouter: "OpenRouter",
+};
 
 export const AI_TRIGGER_MODE_OPTIONS: { value: string; label: string }[] = [
   { value: "auto",   label: "Auto (on pause)" },

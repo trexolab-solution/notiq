@@ -113,6 +113,18 @@ export const MonacoMarkdownEditor = React.memo(
           editor.addAction({ id: "smart-note.ai.generateTitle", label: "AI: Generate Title",   run: () => { void aiGenerateTitle(editor); } });
           editor.addAction({ id: "smart-note.ai.fixMermaid",    label: "AI: Fix Mermaid",      run: () => { void aiFixMermaid(editor); } });
 
+          // Tab always accepts the AI ghost-text suggestion when one is showing —
+          // even if Monaco's native suggest widget also happens to be open at the
+          // same time (e.g. after a trigger character like "." in a code file).
+          // Matches Cursor's behavior; VS Code's own default instead lets the
+          // native widget win Tab in that situation, which is exactly why AI
+          // suggestions used to feel like they "never worked" in code files.
+          editor.addCommand(
+            monaco.KeyCode.Tab,
+            () => { editor.trigger("smart-note.ai", "editor.action.inlineSuggest.commit", {}); },
+            "inlineSuggestionVisible",
+          );
+
           // Esc cancels any in-flight AI work (streaming or not), and only when
           // something is running, so it doesn't disturb Monaco's normal Esc.
           editor.onKeyDown((e) => {

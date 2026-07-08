@@ -1,31 +1,157 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
-import { X, Send, Square, Trash2, CornerDownLeft, Sparkles, Copy, Check, RotateCcw, FileText, History, Plus, FilePlus2 } from "lucide-react";
+import {
+  X, Send, Square, Trash2, CornerDownLeft, Sparkles, Copy, Check, RotateCcw, FileText, History,
+  Plus, FilePlus2, ChevronDown, CheckSquare, Info, AlertTriangle, ArrowDown, FileCode, NotebookText,
+} from "lucide-react";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
+import { useShallow } from "zustand/shallow";
 import { useAppStore } from "../../store";
-import { aiCompleteStream, type ChatMessage, type StreamHandle } from "../../lib/ai/client";
-import { chatSystem } from "../../lib/ai/prompts";
+import {
+  aiCompleteStream, aiListModels, type ChatMessage, type StreamHandle, type ModelInfo,
+} from "../../lib/ai/client";
+import { chatSystem, type ChatContextFile } from "../../lib/ai/prompts";
 import { mapAiError } from "../../lib/ai/errors";
 import { getActiveEditor } from "../../lib/activeEditor";
 import { insertAtCursor } from "../../lib/ai/actions";
 import { resolveCodeLang } from "../../lib/ai/codeLang";
 import { getLanguageFromPath, isMarkdownLike } from "../../lib/language";
 import { getFileName } from "../../lib/pathUtils";
-import { scoreRelevance, relevanceLabel } from "../../lib/ai/relevance";
+import { computePopoverPos } from "../../lib/popoverPosition";
 import { toast } from "../../lib/toast";
 import { useEscapeKey } from "../../hooks/useEscapeKey";
+import { useClickOutside } from "../../hooks/useClickOutside";
 import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
 import { Tooltip } from "../ui/Tooltip";
+import { ModelPicker } from "./ModelPicker";
 import {
   loadConversations, saveConversation, deleteConversation, clearConversations,
   relativeTime, type ChatConversation,
 } from "../../lib/ai/chatHistory";
+import type { AIProvider, Tab } from "../../types";
 
-interface Msg { role: "user" | "assistant"; content: string; }
+interface Msg {
+  role: "user" | "assistant";
+  content: string;
+  /** A short system note about this reply (fallback switch, length cutoff) —
+   *  rendered as a separate banner, never mixed into `content` so Copy/Insert
+   *  only ever carry what the model actually said. */
+  note?: string;
+  noteTone?: "info" | "warning";
+}
 
 const MAX_NOTE_CHARS = 8000;
+/** Combined ceiling across every selected context file, split proportionally. */
+const MAX_TOTAL_CONTEXT_CHARS = 20000;
+const PROVIDER_TAG: Record<AIProvider, string> = { cloud: "Cloud", local: "Local", openrouter: "OpenRouter" };
+const DEFAULT_MODEL_VALUE = "__default__";
+
+/** Display label for a tab in the context picker / pill — filename for real
+ *  files, title for in-memory notes. */
+function tabLabel(tab: Tab): string {
+  return tab.filePath ? getFileName(tab.filePath) : tab.title;
+}
+
+/** A real (non-prose) file vs. a markdown note — same distinction the context
+ *  block itself uses to decide whether to send fileName/language. */
+function isCodeTab(tab: Tab): boolean {
+  return !!tab.filePath && !(isMarkdownLike(tab.filePath) && !tab.language);
+}
+
+/** Default context selection: just the currently active note tab (matches the
+ *  pre-multi-file behavior). Used for the initial state and every reset. */
+function seedContextTabIds(): Set<string> {
+  const st = useAppStore.getState();
+  const tab = st.tabs.find((t) => t.id === st.activeTabId);
+  return tab && tab.kind === "note" ? new Set([tab.id]) : new Set();
+}
+
+/** Build one chat-context entry from an open tab, capping its content at `cap`
+ *  chars and only surfacing fileName/language for real (non-prose) files —
+ *  mirrors the single-file logic this replaced. */
+function tabToContextFile(tab: Tab, cap: number): ChatContextFile {
+  const language = tab.language ?? getLanguageFromPath(tab.filePath);
+  const isProseNote = !tab.filePath || (isMarkdownLike(tab.filePath) && !tab.language);
+  return {
+    title: tab.title !== "Untitled" ? tab.title : undefined,
+    content: tab.content.slice(0, cap),
+    fileName: !isProseNote ? tabLabel(tab) : undefined,
+    language: !isProseNote ? language : undefined,
+  };
+}
+
+/** Checklist popover anchored off the context pill's chevron — lets the user
+ *  pick which open note/file tabs are included as chat context (Cursor-style). */
+function ContextFilesPopover({ tabs, selected, onToggle, onSelectAll, onClearAll, onClose, anchorRef }: {
+  tabs: Tab[];
+  selected: Set<string>;
+  onToggle: (id: string) => void;
+  onSelectAll: () => void;
+  onClearAll: () => void;
+  onClose: () => void;
+  anchorRef: React.RefObject<HTMLElement | null>;
+}) {
+  const popRef = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState<ReturnType<typeof computePopoverPos> | null>(null);
+
+  useEffect(() => {
+    if (anchorRef.current) setPos(computePopoverPos(anchorRef.current, { minWidth: 260, maxHeight: 300 }));
+  }, [anchorRef]);
+
+  useClickOutside([anchorRef, popRef], onClose, true);
+  useEscapeKey(onClose, true);
+
+  if (!pos) return null;
+
+  const allSelected = tabs.length > 0 && tabs.every((t) => selected.has(t.id));
+
+  return createPortal(
+    <div
+      ref={popRef}
+      className="ai-chat__ctx-popover"
+      style={{ position: "fixed", top: pos.top, bottom: pos.bottom, left: pos.left, width: pos.width }}
+    >
+      {tabs.length === 0 ? (
+        <div className="ai-chat__ctx-popover-empty">
+          <FileText size={18} />
+          <span>No open notes/files</span>
+        </div>
+      ) : (
+        <>
+          <div className="ai-chat__ctx-popover-head">
+            <span className="ai-chat__ctx-popover-count">{selected.size} of {tabs.length} selected</span>
+            <button type="button" className="ai-chat__ctx-popover-selectall" onClick={allSelected ? onClearAll : onSelectAll}>
+              {allSelected ? "Clear" : "Select all"}
+            </button>
+          </div>
+          <ul className="ai-chat__ctx-popover-list">
+            {tabs.map((t) => {
+              const isSel = selected.has(t.id);
+              const isCode = isCodeTab(t);
+              return (
+                <li
+                  key={t.id}
+                  className={`ai-chat__ctx-popover-row${isSel ? " is-selected" : ""}`}
+                  onClick={() => onToggle(t.id)}
+                >
+                  {isSel ? <CheckSquare size={13} className="ai-chat__ctx-popover-check" /> : <Square size={13} className="ai-chat__ctx-popover-check" />}
+                  {isCode
+                    ? <FileCode size={13} className="ai-chat__ctx-popover-icon is-code" />
+                    : <NotebookText size={13} className="ai-chat__ctx-popover-icon" />}
+                  <span className="ai-chat__ctx-popover-label">{tabLabel(t)}</span>
+                </li>
+              );
+            })}
+          </ul>
+        </>
+      )}
+    </div>,
+    document.body,
+  );
+}
 
 // crypto.randomUUID is available in the Tauri webview.
 const newId = () => crypto.randomUUID();
@@ -87,8 +213,9 @@ interface Props {
 }
 
 export const AIChatPanel = React.memo(function AIChatPanel({ onClose }: Props) {
-  const aiEnabled = useAppStore((s) => s.aiEnabled);
-  const aiModel   = useAppStore((s) => s.aiModel);
+  const aiEnabled  = useAppStore((s) => s.aiEnabled);
+  const aiProvider = useAppStore((s) => s.aiProvider);
+  const aiModel    = useAppStore((s) => s.aiModel);
 
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
@@ -97,24 +224,51 @@ export const AIChatPanel = React.memo(function AIChatPanel({ onClose }: Props) {
     () => localStorage.getItem("pref:aiChatUseNoteContext") !== "false",
   );
 
+  // Per-conversation model override — never touches the global Settings default.
+  // Resets to "use the default" on New chat / loading a different conversation.
+  const [modelOverride, setModelOverride] = useState<{ provider: AIProvider; model: string } | null>(null);
+  const [modelChoices, setModelChoices] = useState<(ModelInfo & { provider: AIProvider })[] | null>(null);
+  const modelsLoadingRef = useRef(false);
+
+  // Lazily fetch every configured provider's model list on first dropdown open —
+  // a provider with no key/unreachable local Ollama just drops out silently.
+  const loadModelChoices = useCallback(() => {
+    if (modelChoices !== null || modelsLoadingRef.current) return;
+    modelsLoadingRef.current = true;
+    Promise.allSettled(
+      (["cloud", "local", "openrouter"] as AIProvider[]).map((p) =>
+        aiListModels(p).then((list) => list.map((m) => ({ ...m, provider: p }))),
+      ),
+    ).then((results) => {
+      const merged = results
+        .filter((r): r is PromiseFulfilledResult<(ModelInfo & { provider: AIProvider })[]> => r.status === "fulfilled")
+        .flatMap((r) => r.value)
+        .sort((a, b) => a.provider.localeCompare(b.provider) || a.id.localeCompare(b.id));
+      setModelChoices(merged);
+      modelsLoadingRef.current = false;
+    });
+  }, [modelChoices]);
+
   // History
   const [conversations, setConversations] = useState<ChatConversation[]>(() => loadConversations());
   const [historyOpen, setHistoryOpen] = useState(false);
   const convIdRef = useRef<string>(newId());      // id of the conversation being edited
   const nowRef = useRef<number>(Date.now());
 
-  // Live label for the context pill — filename for real files, title for notes.
-  const activeNoteTitle = useAppStore((s) => {
-    const tab = s.tabs.find((t) => t.id === s.activeTabId);
-    if (!tab || tab.kind !== "note") return null;
-    if (tab.filePath) return getFileName(tab.filePath); // real file → show its name+ext
-    return tab.title;                                   // in-memory note → its title
-  });
-  // Active note content, so the pill can preview how relevant it is to the draft.
-  const activeNoteContent = useAppStore((s) => {
-    const tab = s.tabs.find((t) => t.id === s.activeTabId);
-    return tab && tab.kind === "note" ? tab.content : "";
-  });
+  // Open note/file tabs — the pool the context picker chooses from.
+  const noteTabs = useAppStore(useShallow((s) => s.tabs.filter((t) => t.kind === "note")));
+
+  // Which open tabs are included as chat context. Seeded to just the active
+  // tab (matches the old single-file behavior); reset on New chat/load chat,
+  // not persisted — a stale tab-id list from a past session is meaningless.
+  const [contextTabIds, setContextTabIds] = useState<Set<string>>(seedContextTabIds);
+  const [ctxPopoverOpen, setCtxPopoverOpen] = useState(false);
+  const ctxPickerBtnRef = useRef<HTMLButtonElement>(null);
+
+  const selectedTabs = useMemo(
+    () => noteTabs.filter((t) => contextTabIds.has(t.id)),
+    [noteTabs, contextTabIds],
+  );
 
   const streamRef = useRef<StreamHandle | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -128,11 +282,53 @@ export const AIChatPanel = React.memo(function AIChatPanel({ onClose }: Props) {
     });
   }, []);
 
-  // Auto-scroll to bottom as messages grow.
+  const toggleContextTab = useCallback((id: string) => {
+    setContextTabIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const selectAllContext = useCallback(() => {
+    setContextTabIds(new Set(noteTabs.map((t) => t.id)));
+  }, [noteTabs]);
+
+  const clearAllContext = useCallback(() => setContextTabIds(new Set()), []);
+
+  // Whether the view is "pinned" to the latest message — mirrors ChatGPT/Claude:
+  // stream new tokens only autoscroll while the user hasn't scrolled away to
+  // read something earlier. A ref (not just state) so the streaming callback
+  // above always reads the current value without needing to be a dependency.
+  const [pinned, setPinned] = useState(true);
+  const pinnedRef = useRef(true);
+  useEffect(() => { pinnedRef.current = pinned; }, [pinned]);
+
+  const scrollToBottom = useCallback((smooth = false) => {
+    const el = scrollRef.current;
+    if (!el) return;
+    if (smooth) el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+    else el.scrollTop = el.scrollHeight;
+  }, []);
+
+  // Track how close to the bottom the user has scrolled; only "pinned" when
+  // within a small threshold, so autoscroll disengages the moment they read up.
   useEffect(() => {
     const el = scrollRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [messages]);
+    if (!el) return;
+    const onScroll = () => {
+      const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+      setPinned(distanceFromBottom < 80);
+    };
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => el.removeEventListener("scroll", onScroll);
+  }, []);
+
+  // Auto-scroll to bottom as messages grow — but only while pinned, so
+  // scrolling up mid-stream to re-read something isn't yanked back down.
+  useEffect(() => {
+    if (pinnedRef.current) scrollToBottom();
+  }, [messages, scrollToBottom]);
 
   // Auto-grow the composer textarea with its content (capped via CSS max-height).
   useEffect(() => {
@@ -172,45 +368,49 @@ export const AIChatPanel = React.memo(function AIChatPanel({ onClose }: Props) {
   // empty assistant bubble and fills it token-by-token. Shared by send + regenerate.
   const runCompletion = useCallback((history: Msg[]) => {
     if (!aiEnabled) { toast.warning("AI is off — turn it on in Settings → AI"); return; }
-    if (!aiModel)   { toast.warning("Pick a model in Settings → AI"); return; }
+    const provider = modelOverride?.provider ?? aiProvider;
+    const model = modelOverride?.model ?? aiModel;
+    if (!model)     { toast.warning("Pick a model in Settings → AI"); return; }
 
-    // Grab the active note/file for grounding (only when the toggle is on).
+    // Grab the checked context tabs for grounding (only when the toggle is on).
+    // Total content is capped across all of them, split proportionally so N
+    // files never blows the prompt past MAX_TOTAL_CONTEXT_CHARS.
     const st = useAppStore.getState();
-    const tab = st.tabs.find((t) => t.id === st.activeTabId);
-    const useTab = useNoteContext && tab && tab.kind === "note";
-
-    // File-type awareness: if the active tab is a real (non-markdown) file, tell
-    // the AI its filename + language so it answers in that language, not prose.
-    let fileName: string | undefined;
-    let language: string | undefined;
-    if (useTab) {
-      // Prefer an explicit per-tab language (AI snippet tabs), else derive from path.
-      const lang = tab.language ?? getLanguageFromPath(tab.filePath);
-      const isProseNote = !tab.filePath || (isMarkdownLike(tab.filePath) && !tab.language);
-      if (!isProseNote) {
-        language = lang;
-        fileName = tab.filePath ? getFileName(tab.filePath) : tab.title;
-      }
-    }
-
-    const noteTitle = useTab && tab.title !== "Untitled" ? tab.title : undefined;
-    const noteContent = useTab ? tab.content.slice(0, MAX_NOTE_CHARS) : undefined;
-
-    // How related is the open document to this request? Gates context usage.
-    const lastUser = [...history].reverse().find((m) => m.role === "user")?.content ?? "";
-    const relevance = noteContent ? scoreRelevance(lastUser, noteContent) : "low";
+    const activeTabs = useNoteContext
+      ? st.tabs.filter((t) => t.kind === "note" && contextTabIds.has(t.id))
+      : [];
+    const perFileCap = activeTabs.length > 0
+      ? Math.min(MAX_NOTE_CHARS, Math.floor(MAX_TOTAL_CONTEXT_CHARS / activeTabs.length))
+      : MAX_NOTE_CHARS;
+    const contextFiles = activeTabs.map((t) => tabToContextFile(t, perFileCap));
 
     setMessages([...history, { role: "assistant", content: "" }]);
     setBusy(true);
 
     const apiMessages: ChatMessage[] = [
-      { role: "system", content: chatSystem(noteTitle, noteContent, fileName, language, relevance) },
+      { role: "system", content: chatSystem(contextFiles) },
       ...history.map((m) => ({ role: m.role, content: m.content })),
     ];
 
     const handle = aiCompleteStream(
       apiMessages,
-      { maxTokens: 4096, temperature: 0.4 },
+      {
+        maxTokens: 4096, temperature: 0.4, provider, model,
+        onFallback: (fb) => {
+          setMessages((prev) => {
+            const next = prev.slice();
+            const last = next[next.length - 1];
+            if (last && last.role === "assistant") {
+              next[next.length - 1] = {
+                ...last,
+                note: `Switched to ${PROVIDER_TAG[fb.provider]} (${fb.model}) after an auth/quota error`,
+                noteTone: "info",
+              };
+            }
+            return next;
+          });
+        },
+      },
       {
         onToken: (tok) => {
           setMessages((prev) => {
@@ -223,13 +423,17 @@ export const AIChatPanel = React.memo(function AIChatPanel({ onClose }: Props) {
         onComplete: (finishReason) => {
           streamRef.current = null;
           setBusy(false);
-          // Cut off by the token cap → append a hint so the user can ask to continue.
+          // Cut off by the token cap → note it so the user knows to ask to continue.
           if (finishReason === "length") {
             setMessages((prev) => {
               const next = prev.slice();
               const last = next[next.length - 1];
               if (last && last.role === "assistant" && last.content) {
-                next[next.length - 1] = { ...last, content: `${last.content}\n\n_⚠️ Response was cut off (length limit). Type "continue" to get the rest._` };
+                next[next.length - 1] = {
+                  ...last,
+                  note: 'Response was cut off (length limit) — type "continue" to get the rest.',
+                  noteTone: "warning",
+                };
               }
               return next;
             });
@@ -249,12 +453,13 @@ export const AIChatPanel = React.memo(function AIChatPanel({ onClose }: Props) {
         return next;
       });
     });
-  }, [aiEnabled, aiModel, useNoteContext]);
+  }, [aiEnabled, aiProvider, aiModel, modelOverride, useNoteContext, contextTabIds]);
 
   const send = useCallback(() => {
     const text = input.trim();
     if (!text || busy) return;
     setInput("");
+    setPinned(true);
     runCompletion([...messages, { role: "user", content: text }]);
   }, [input, busy, messages, runCompletion]);
 
@@ -264,6 +469,7 @@ export const AIChatPanel = React.memo(function AIChatPanel({ onClose }: Props) {
     if (busy) return;
     const history = messages.slice(0, assistantIdx); // everything before this reply
     if (history.length === 0) return;
+    setPinned(true);
     runCompletion(history);
   }, [busy, messages, runCompletion]);
 
@@ -277,15 +483,6 @@ export const AIChatPanel = React.memo(function AIChatPanel({ onClose }: Props) {
     insertAtCursor(ed, content, "ai-chat-insert");
     toast.success("Inserted into note");
   }, []);
-
-  // Live relevance of the open note to the current draft — shown on the pill so
-  // the user knows whether the context will actually be used.
-  const liveRelevance = useMemo(
-    () => (useNoteContext && input.trim() && activeNoteContent.trim()
-      ? scoreRelevance(input, activeNoteContent)
-      : null),
-    [useNoteContext, input, activeNoteContent],
-  );
 
   // Open a code block as a new unsaved tab in the right language.
   const newFileFromCode = useCallback((code: string, fenceLang: string) => {
@@ -330,6 +527,9 @@ export const AIChatPanel = React.memo(function AIChatPanel({ onClose }: Props) {
     stop();
     convIdRef.current = newId();
     setMessages([]);
+    setModelOverride(null);
+    setContextTabIds(seedContextTabIds());
+    setPinned(true);
     setHistoryOpen(false);
     setTimeout(() => inputRef.current?.focus(), 0);
   }, [stop]);
@@ -338,6 +538,9 @@ export const AIChatPanel = React.memo(function AIChatPanel({ onClose }: Props) {
     stop();
     convIdRef.current = c.id;
     setMessages(c.messages);
+    setModelOverride(null);
+    setContextTabIds(seedContextTabIds());
+    setPinned(true);
     setHistoryOpen(false);
   }, [stop]);
 
@@ -353,6 +556,20 @@ export const AIChatPanel = React.memo(function AIChatPanel({ onClose }: Props) {
     convIdRef.current = newId();
     setMessages([]);
     setHistoryOpen(false);
+  }, []);
+
+  // A leading sentinel option reverts a per-conversation override to the global default.
+  const modelExtraOptions = useMemo(() => [{
+    value: DEFAULT_MODEL_VALUE,
+    label: aiModel ? `Use default (${PROVIDER_TAG[aiProvider]} · ${aiModel})` : "Use default",
+  }], [aiProvider, aiModel]);
+
+  const modelSelectValue = modelOverride ? `${modelOverride.provider}::${modelOverride.model}` : DEFAULT_MODEL_VALUE;
+
+  const onModelSelectChange = useCallback((v: string) => {
+    if (v === DEFAULT_MODEL_VALUE) { setModelOverride(null); return; }
+    const sep = v.indexOf("::");
+    setModelOverride({ provider: v.slice(0, sep) as AIProvider, model: v.slice(sep + 2) });
   }, []);
 
   return (
@@ -419,7 +636,7 @@ export const AIChatPanel = React.memo(function AIChatPanel({ onClose }: Props) {
           <div className="ai-chat__empty">
             <Sparkles size={22} strokeWidth={1.5} />
             <p>Ask anything</p>
-            <span>{useNoteContext ? "The active note is shared as context." : "Note context is off — ask freely."}</span>
+            <span>{useNoteContext ? "Open notes/files can be shared as context." : "Note context is off — ask freely."}</span>
           </div>
         )}
         {messages.map((m, i) => {
@@ -428,7 +645,13 @@ export const AIChatPanel = React.memo(function AIChatPanel({ onClose }: Props) {
           const showActions = !isStreaming && !isError;
           return (
             <div key={i} className={`ai-chat__msg ai-chat__msg--${m.role}`}>
-              <div className="ai-chat__bubble">
+              {m.note && (
+                <div className={`ai-chat__note ai-chat__note--${m.noteTone ?? "info"}`}>
+                  {m.noteTone === "warning" ? <AlertTriangle size={11} /> : <Info size={11} />}
+                  <span>{m.note}</span>
+                </div>
+              )}
+              <div className={`ai-chat__bubble${isError ? " is-error" : ""}`}>
                 {isStreaming ? (
                   <span className="ai-chat__typing"><span></span><span></span><span></span></span>
                 ) : (
@@ -463,9 +686,22 @@ export const AIChatPanel = React.memo(function AIChatPanel({ onClose }: Props) {
         })}
       </div>
 
+      {!pinned && messages.length > 0 && (
+        <Tooltip content="Jump to latest">
+          <button
+            type="button"
+            className="ai-chat__jump-btn"
+            aria-label="Jump to latest message"
+            onClick={() => { scrollToBottom(true); setPinned(true); }}
+          >
+            <ArrowDown size={13} />
+          </button>
+        </Tooltip>
+      )}
+
       <div className="ai-chat__composer">
         <div className="ai-chat__context-row">
-          <Tooltip content={useNoteContext ? "Sharing the active note as context — click to turn off" : "Note context is off — click to share the active note"}>
+          <Tooltip content={useNoteContext ? "Sharing selected files as context — click to turn off" : "Note context is off — click to turn on"}>
             <button
               type="button"
               className={`ai-chat__context-pill${useNoteContext ? " is-on" : ""}`}
@@ -473,23 +709,51 @@ export const AIChatPanel = React.memo(function AIChatPanel({ onClose }: Props) {
             >
               <FileText size={12} />
               <span className="ai-chat__context-label">
-                {useNoteContext
-                  ? (activeNoteTitle ? `Using: ${activeNoteTitle}` : "Using active note")
-                  : "Note context off"}
+                {!useNoteContext
+                  ? "Note context off"
+                  : selectedTabs.length === 0
+                    ? "No files selected"
+                    : selectedTabs.length === 1
+                      ? `Using: ${tabLabel(selectedTabs[0])}`
+                      : `Using: ${selectedTabs.length} files`}
               </span>
             </button>
           </Tooltip>
-          {liveRelevance && (
-            <Tooltip content={
-              liveRelevance === "low"
-                ? "Your message looks unrelated to the open note — it will be ignored"
-                : liveRelevance === "medium"
-                  ? "The open note may be only loosely related to your message"
-                  : "The open note is relevant to your message"
-            }>
-              <span className={`ai-chat__relevance is-${liveRelevance}`}>{relevanceLabel(liveRelevance)}</span>
+          {useNoteContext && (
+            <Tooltip content="Choose which open files to include">
+              <button
+                type="button"
+                ref={ctxPickerBtnRef}
+                className={`ai-chat__ctx-picker-btn${ctxPopoverOpen ? " is-active" : ""}`}
+                aria-label="Choose context files"
+                onClick={(e) => { e.stopPropagation(); setCtxPopoverOpen((v) => !v); }}
+              >
+                <ChevronDown size={11} />
+              </button>
             </Tooltip>
           )}
+          {ctxPopoverOpen && (
+            <ContextFilesPopover
+              tabs={noteTabs}
+              selected={contextTabIds}
+              onToggle={toggleContextTab}
+              onSelectAll={selectAllContext}
+              onClearAll={clearAllContext}
+              onClose={() => setCtxPopoverOpen(false)}
+              anchorRef={ctxPickerBtnRef}
+            />
+          )}
+
+          <ModelPicker
+            variant="pill"
+            unified
+            value={modelSelectValue}
+            onChange={onModelSelectChange}
+            onOpen={loadModelChoices}
+            models={modelChoices ?? []}
+            extraOptions={modelExtraOptions}
+            aria-label="Model for this chat"
+          />
         </div>
 
         <div className="ai-chat__inputwrap">
