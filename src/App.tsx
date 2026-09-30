@@ -1,5 +1,4 @@
-import { useState, useEffect, useCallback, lazy, Suspense } from "react";
-import { Network, NotepadText, List, Sparkles, MessageSquare } from "lucide-react";
+import { useState, useEffect, useCallback } from "react";
 
 import { useSession }              from "./hooks/useSession";
 import { useCloseTab }             from "./hooks/useCloseTab";
@@ -9,62 +8,18 @@ import { useTerminalPanel }        from "./hooks/useTerminalPanel";
 import { useFileWatcher }          from "./hooks/useFileWatcher";
 import { useCommands }             from "./hooks/useCommands";
 import { useAiChatPanel }          from "./hooks/useAiChatPanel";
+import { useAppStartup }           from "./hooks/useAppStartup";
 
 import { useAppStore }             from "./store";
 import { isMarkdownLike }          from "./lib/language";
 import { appWin }                  from "./lib/tauriWindow";
-import { openStickyNote, openStickyNotesList } from "./lib/stickyNote";
 import { toast } from "./lib/toast";
 import { pickAndReadMultipleFiles, pickFolderAndReadFiles, type FileEntry } from "./lib/fileOps";
-import { getFileName } from "./lib/pathUtils";
-import { bootstrapAutostart } from "./lib/autostart";
-import { isTourCompleted, wasUpdated, recordSeenVersion } from "./lib/firstRun";
-import { WHATS_NEW } from "./config/whatsNew";
-import { APP_VERSION } from "./config/app";
-import { readTextFile } from "@tauri-apps/plugin-fs";
-import { invoke } from "@tauri-apps/api/core";
-import { getCurrentWebview } from "@tauri-apps/api/webview";
 
-import { TabBar }                  from "./components/layout/TabBar";
-import { Sidebar }                 from "./components/layout/Sidebar";
+import { AppTitlebar }              from "./components/layout/AppTitlebar";
+import { AppWorkspace }             from "./components/layout/AppWorkspace";
+import { AppOverlays }              from "./components/layout/AppOverlays";
 import { StatusBar }               from "./components/layout/StatusBar";
-import { WindowControls }          from "./components/layout/WindowControls";
-import { ViewLoader }              from "./components/layout/ViewLoader";
-import { TitlebarModePicker }      from "./components/layout/TitlebarModePicker";
-import { TitlebarMenuBar }         from "./components/layout/TitlebarMenuBar";
-import { NoteActions }             from "./components/layout/NoteActions";
-import { WhiteboardActions }       from "./components/layout/WhiteboardActions";
-import { UpdateButton }            from "./components/layout/UpdateButton";
-import { TerminalPanel }           from "./components/terminal/TerminalPanel";
-
-import { EditorContainer }         from "./components/editor/EditorContainer";
-import { CommandPalette }          from "./components/ui/CommandPalette";
-import { GlobalSearch }            from "./components/ui/GlobalSearch";
-import { updater } from "./lib/updater";
-import { ContextMenu }             from "./components/ui/ContextMenu";
-import { ConfirmDialog }           from "./components/ui/ConfirmDialog";
-import { SettingsModal }           from "./components/ui/SettingsModal";
-import { UpdateDialog }            from "./components/ui/UpdateDialog";
-import { FileSelectionModal }      from "./components/ui/FileSelectionModal";
-import { ToastProvider }           from "./components/ui/Toast";
-import { Tooltip }                from "./components/ui/Tooltip";
-import { ErrorBoundary }          from "./components/ui/ErrorBoundary";
-
-import logoUrl                     from "./assets/logo.png";
-
-const KnowledgeGraph = lazy(() =>
-  import("./components/graph/KnowledgeGraph").then((m) => ({ default: m.KnowledgeGraph }))
-);
-const Whiteboard = lazy(() =>
-  import("./components/whiteboard/Whiteboard").then((m) => ({ default: m.Whiteboard }))
-);
-const AIChatPanel = lazy(() =>
-  import("./components/ai/AIChatPanel").then((m) => ({ default: m.AIChatPanel }))
-);
-const AIOnboarding = lazy(() =>
-  import("./components/ai/AIOnboarding").then((m) => ({ default: m.AIOnboarding }))
-);
-const Tour = lazy(() => import("./components/tour/Tour"));
 
 export default function App() {
   useSession();
@@ -101,7 +56,6 @@ export default function App() {
   const setTheme        = useAppStore((s) => s.setTheme);
   const saveTabToFile   = useAppStore((s) => s.saveTabToFile);
   const navigateToNote  = useAppStore((s) => s.navigateToNote);
-  const autoUpdateCheck = useAppStore((s) => s.autoUpdateCheck);
 
   // Header ✨ button: not set up → onboarding; set up → quick enable/disable toggle.
   const handleAIClick = useCallback(() => {
@@ -117,16 +71,6 @@ export default function App() {
     setShowSettings(true);
   }, []);
 
-  // Open the "What's New" release note as an in-memory preview tab.
-  const openWhatsNew = useCallback(() => {
-    addTab({
-      kind: "note",
-      title: `What's New in Notiq ${APP_VERSION}`,
-      content: WHATS_NEW,
-      editorMode: "preview",
-    });
-  }, [addTab]);
-
   const activeTab = tabs.find((t) => t.id === activeTabId);
   const isMdNote  = activeTab?.kind === "note" && isMarkdownLike(activeTab?.filePath);
 
@@ -141,26 +85,10 @@ export default function App() {
     if (!graphMounted && tabs.length > 0) setGraphMounted(true);
   }, [graphMounted, tabs.length]);
 
-  // Bootstrap auto-start on the very first launch of an installed build.
-  useEffect(() => { bootstrapAutostart(); }, []);
-
-  // Auto-check for app updates shortly after startup (toggle in Settings →
-  // About). No-ops outside Tauri; if an update exists the topbar pill appears.
-  useEffect(() => {
-    if (!autoUpdateCheck) return;
-    const t = setTimeout(() => { void updater.check({ silent: true }); }, 3000);
-    return () => clearTimeout(t);
-  }, [autoUpdateCheck]);
-
-  // First-run welcome tour + post-update "What's New" note. Both gate on
-  // standalone localStorage flags (lib/firstRun) so a preferences reset won't
-  // re-trigger them. At most one greets the user per launch: a fresh install
-  // gets the tour (and silently records the version); an update opens the note.
-  useEffect(() => {
-    if (!isTourCompleted()) setShowTour(true);
-    else if (wasUpdated(APP_VERSION)) openWhatsNew();
-    recordSeenVersion(APP_VERSION);
-  }, [openWhatsNew]); // effectively run-once (openWhatsNew is stable)
+  // Startup effects: autostart bootstrap, background update check, first-run
+  // tour / What's New note, opening a file passed via file-association / CLI
+  // arg, OS drag-and-drop, and the command-palette/search/tour event bridge.
+  const { dragOver } = useAppStartup({ setShowTour, setShowSettings, setShowPalette, setShowSearch });
 
   // Window drag — manual startDragging because data-tauri-drag-region only
   // works on the element itself (not children), per Tauri docs.
@@ -186,45 +114,6 @@ export default function App() {
     addTab({ kind: "whiteboard", title: `${activeTab!.title} — Board`, linkedNoteId: activeTabId });
   }, [activeTabId, activeTab, tabs, addTab, setActiveTab]);
 
-  // On startup: open file passed via file-association / CLI arg
-  useEffect(() => {
-    invoke<string | null>("get_open_file").then(async (filePath) => {
-      if (!filePath) return;
-      try {
-        const content = await readTextFile(filePath);
-        const name = getFileName(filePath) || "Note";
-        const title = name.replace(/\.(md|markdown|txt|notiq)$/i, "");
-        openFilesAsTabs([{ path: filePath, content, title }]);
-      } catch { /* file unreadable — ignore */ }
-    });
-  }, []); // Init-once: reads from store via openFilesAsTabs (stable ref)
-
-  // Drag-and-drop files from OS — uses Tauri's native webview drop event
-  const [dragOver, setDragOver] = useState(false);
-  useEffect(() => {
-    let unlisten: (() => void) | undefined;
-    getCurrentWebview().onDragDropEvent(async (event) => {
-      if (event.payload.type === "enter") {
-        setDragOver(true);
-      } else if (event.payload.type === "leave") {
-        setDragOver(false);
-      } else if (event.payload.type === "drop") {
-        setDragOver(false);
-        const entries: FileEntry[] = [];
-        for (const filePath of event.payload.paths) {
-          try {
-            const content = await readTextFile(filePath);
-            const name = getFileName(filePath) || "Note";
-            const title = name.replace(/\.(md|markdown|txt|notiq)$/i, "");
-            entries.push({ path: filePath.replace(/\\/g, "/"), content, title });
-          } catch { /* skip unreadable / binary */ }
-        }
-        if (entries.length) openFilesAsTabs(entries);
-      }
-    }).then((fn) => { unlisten = fn; });
-    return () => { unlisten?.(); };
-  }, []); // Init-once: drag-drop listener registered at mount
-
   // File open
   const handleOpenMultiple = useCallback(async () => {
     const files = await pickAndReadMultipleFiles();
@@ -249,27 +138,6 @@ export default function App() {
     onOpenSearch: () => setShowSearch(true),
   });
 
-  // Open the palette / global search from the Monaco editor (which swallows
-  // Ctrl+Shift+P / Ctrl+Shift+F internally and re-dispatches them as events).
-  useEffect(() => {
-    const openPalette = () => setShowPalette(true);
-    const openSearch = () => setShowSearch(true);
-    // Replay entry points from Settings → General. Close settings first so the
-    // tour/note isn't hidden behind the settings modal.
-    const startTour = () => { setShowSettings(false); setShowTour(true); };
-    const showWhatsNew = () => { setShowSettings(false); openWhatsNew(); };
-    window.addEventListener("app:command-palette", openPalette);
-    window.addEventListener("app:global-search", openSearch);
-    window.addEventListener("app:start-tour", startTour);
-    window.addEventListener("app:show-whats-new", showWhatsNew);
-    return () => {
-      window.removeEventListener("app:command-palette", openPalette);
-      window.removeEventListener("app:global-search", openSearch);
-      window.removeEventListener("app:start-tour", startTour);
-      window.removeEventListener("app:show-whats-new", showWhatsNew);
-    };
-  }, [openWhatsNew]);
-
   useGlobalShortcuts({
     requestClose,
     handleOpenMultiple,
@@ -291,290 +159,77 @@ export default function App() {
   return (
     <div className="app-shell">
 
-      {/* ── Titlebar ────────────────────────────────────────────────────── */}
-      <header className="app-header" onMouseDown={handleHeaderMouseDown}>
-        <div className="header-left">
-          <div className="app-brand">
-            <img src={logoUrl} alt="Notiq" draggable={false} className="app-brand-logo" />
-            <span className="app-brand-name">Notiq</span>
-          </div>
+      <AppTitlebar
+        onHeaderMouseDown={handleHeaderMouseDown}
+        onNewWhiteboard={handleNewWhiteboard}
+        onOpenMultiple={handleOpenMultiple}
+        onOpenFolder={handleOpenFolder}
+        onOpenSettings={() => setShowSettings(true)}
+        onShowGraph={() => setActiveView("graph")}
+        onShowEditor={() => setActiveView("editor")}
+        requestClose={requestClose}
+        activeView={activeView}
+        activeTab={activeTab}
+        isMdNote={isMdNote}
+        aiOnboarded={aiOnboarded}
+        aiEnabled={aiEnabled}
+        aiChatOpen={aiChatOpen}
+        onAIClick={handleAIClick}
+        onOpenAISettings={openAISettings}
+        onToggleAiChat={toggleAiChat}
+      />
 
-          <TitlebarMenuBar
-            onNewWhiteboard={handleNewWhiteboard}
-            onOpenMultiple={handleOpenMultiple}
-            onOpenFolder={handleOpenFolder}
-            onOpenSettings={() => setShowSettings(true)}
-            onShowGraph={() => setActiveView("graph")}
-            onShowEditor={() => setActiveView("editor")}
-            requestClose={requestClose}
-          />
-        </div>
-
-        <div className="header-center">
-          {activeView === "editor" && activeTab?.kind === "note" && isMdNote && (
-            <TitlebarModePicker tab={activeTab} />
-          )}
-        </div>
-
-        <div className="header-right">
-          <UpdateButton />
-          <Tooltip
-            content={
-              !aiOnboarded
-                ? "Set up AI"
-                : aiEnabled
-                  ? "AI on — click to disable · right-click for settings"
-                  : "AI off — click to enable · right-click for settings"
-            }
-          >
-            <button
-              className="titlebar-tool-btn"
-              aria-label="AI assistance"
-              data-tour="ai-button"
-              onClick={handleAIClick}
-              onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); openAISettings(); }}
-              style={aiOnboarded && aiEnabled ? { color: "var(--color-primary)" } : undefined}
-            >
-              <Sparkles size={15} strokeWidth={1.7} />
-            </button>
-          </Tooltip>
-          <Tooltip content="AI Chat">
-            <button
-              className="titlebar-tool-btn"
-              aria-label="AI Chat"
-              data-tour="ai-chat"
-              onClick={toggleAiChat}
-              style={aiChatOpen ? { color: "var(--color-primary)" } : undefined}
-            >
-              <MessageSquare size={15} strokeWidth={1.7} />
-            </button>
-          </Tooltip>
-          <Tooltip content="New Sticky Note">
-            <button className="titlebar-tool-btn" aria-label="New Sticky Note" onClick={() => openStickyNote()}>
-              <NotepadText size={15} strokeWidth={1.7} />
-            </button>
-          </Tooltip>
-          <Tooltip content="Sticky Notes List">
-            <button className="titlebar-tool-btn" aria-label="Sticky Notes List" onClick={() => openStickyNotesList()}>
-              <List size={15} strokeWidth={1.7} />
-            </button>
-          </Tooltip>
-        </div>
-
-        <WindowControls />
-      </header>
-
-      {/* ── Body ────────────────────────────────────────────────────────── */}
-      <div className="app-body">
-        <Sidebar
-          activeView={activeView}
-          onViewChange={setActiveView}
-          onNewWhiteboard={handleNewWhiteboard}
-          onOpenSettings={() => setShowSettings(true)}
-        />
-
-        <div className="app-content-column">
-
-          {/* ── Tab Bar ───────────────────────────────────────────────── */}
-          <div className="tab-bar-row">
-            <TabBar onCloseTab={requestClose} />
-
-            {activeView === "editor" && activeTab?.kind === "note" && (
-              <NoteActions tab={activeTab} onLinkedWhiteboard={handleLinkedWhiteboard} />
-            )}
-
-            {activeView === "editor" && activeTab?.kind === "whiteboard" && (
-              <WhiteboardActions tab={activeTab} />
-            )}
-
-            {activeView === "graph" && (
-              <div className="tab-bar-view-label">
-                <Network size={13} strokeWidth={1.8} /><span>Knowledge Graph</span>
-              </div>
-            )}
-          </div>
-
-          {/* ── Main + terminal row (flex direction follows terminal layout) ── */}
-          <div className={`app-main-row ${term.layout}`}>
-            <main className="app-main">
-              {activeView === "editor" && (
-                activeTab?.kind === "whiteboard" ? (
-                  <ErrorBoundary>
-                    <Suspense fallback={<ViewLoader view="whiteboard" />}>
-                      <Whiteboard tabId={activeTab.id} linkedNoteId={activeTab.linkedNoteId} />
-                    </Suspense>
-                  </ErrorBoundary>
-                ) : (
-                  <EditorContainer />
-                )
-              )}
-
-              {graphMounted && (
-                <div
-                  className="app-graph-layer"
-                  style={{ display: activeView === "graph" ? "flex" : "none" }}
-                >
-                  <ErrorBoundary>
-                    <Suspense fallback={activeView === "graph" ? <ViewLoader view="graph" /> : null}>
-                      <KnowledgeGraph />
-                    </Suspense>
-                  </ErrorBoundary>
-                </div>
-              )}
-            </main>
-
-            {/* ── Terminal panel ────────────────────────────────────────── */}
-            {term.mounted && (
-              <div
-                className="terminal-section"
-                style={
-                  term.layout === "horizontal"
-                    ? { height: term.isOpen ? term.height : 0 }
-                    : { width:  term.isOpen ? term.width  : 0 }
-                }
-              >
-                <div
-                  className="terminal-resize-handle"
-                  onMouseDown={term.onResizeDrag}
-                />
-                <ErrorBoundary>
-                  <TerminalPanel
-                    ref={term.panelRef}
-                    isOpen={term.isOpen}
-                    onClose={term.close}
-                    layout={term.layout}
-                    onToggleLayout={term.toggleLayout}
-                  />
-                </ErrorBoundary>
-              </div>
-            )}
-          </div>
-
-        </div>
-
-        {/* ── AI Chat panel (docked right, resizable) ───────────────────────
-            Stays mounted once first opened and is hidden with display:none when
-            closed, so the in-progress conversation survives panel toggles. */}
-        {aiChatMounted && (
-          <div
-            className="ai-chat-section"
-            style={{ width: aiChatWidth, display: aiChatOpen ? undefined : "none" }}
-          >
-            <div className="ai-chat-resize-handle" onMouseDown={startAiChatResize} />
-            <ErrorBoundary>
-              <Suspense fallback={null}>
-                <AIChatPanel onClose={() => setAiChatOpen(false)} />
-              </Suspense>
-            </ErrorBoundary>
-          </div>
-        )}
-      </div>
+      <AppWorkspace
+        activeView={activeView}
+        onViewChange={setActiveView}
+        onNewWhiteboard={handleNewWhiteboard}
+        onOpenSettings={() => setShowSettings(true)}
+        requestClose={requestClose}
+        activeTab={activeTab}
+        onLinkedWhiteboard={handleLinkedWhiteboard}
+        graphMounted={graphMounted}
+        term={term}
+        aiChatMounted={aiChatMounted}
+        aiChatOpen={aiChatOpen}
+        aiChatWidth={aiChatWidth}
+        onAiChatResizeStart={startAiChatResize}
+        onCloseAiChat={() => setAiChatOpen(false)}
+      />
 
       <StatusBar
         terminalOpen={term.isOpen}
         onToggleTerminal={term.toggle}
       />
 
-      {/* ── Overlays ────────────────────────────────────────────────────── */}
-      {ctxMenu && (
-        <ContextMenu x={ctxMenu.x} y={ctxMenu.y} items={ctxMenu.items} onClose={closeCtxMenu} />
-      )}
-
-      {showSettings && (
-        <SettingsModal
-          onClose={() => { setShowSettings(false); setSettingsSection(undefined); }}
-          initialSection={settingsSection}
-          onRunAIOnboarding={() => {
-            setShowSettings(false);
-            setSettingsSection(undefined);
-            setShowAIOnboarding(true);
-          }}
-        />
-      )}
-
-      {showAIOnboarding && (
-        <Suspense fallback={null}>
-          <AIOnboarding onClose={() => setShowAIOnboarding(false)} />
-        </Suspense>
-      )}
-
-      {showTour && (
-        <Suspense fallback={null}>
-          <Tour onClose={() => setShowTour(false)} />
-        </Suspense>
-      )}
-
-      {showPalette && (
-        <CommandPalette commands={buildCommands()} onClose={() => setShowPalette(false)} />
-      )}
-
-      {showSearch && (
-        <GlobalSearch
-          tabs={tabs}
-          onJump={(tabId, query, line) => navigateToNote(tabId, query, line)}
-          onClose={() => setShowSearch(false)}
-        />
-      )}
-
-      {fileSelection && (
-        <FileSelectionModal
-          files={fileSelection.files}
-          folderPath={fileSelection.folderPath}
-          onConfirm={(selected) => {
-            setFileSelection(null);
-            openFilesAsTabs(selected);
-            // Auto-switch to graph view so the user sees the knowledge graph populate
-            if (selected.length >= 2) {
-              setGraphMounted(true);
-              setActiveView("graph");
-            }
-          }}
-          onCancel={() => setFileSelection(null)}
-        />
-      )}
-
-      {pendingTab && (
-        pendingTab.kind === "whiteboard" ? (
-          <ConfirmDialog
-            title="Close whiteboard?"
-            message="This whiteboard has drawings. Closing the tab will permanently delete the canvas data."
-            detail={pendingTab.title}
-            icon="whiteboard"
-            confirmLabel="Discard & Close"
-            danger
-            onConfirm={handleDiscardAndClose}
-            onCancel={handleCancelClose}
-          />
-        ) : (
-          <ConfirmDialog
-            title="Unsaved changes"
-            message={
-              pendingTab.filePath
-                ? "This note has unsaved changes. Save before closing?"
-                : "This note has never been saved to disk. Close without saving?"
-            }
-            detail={pendingTab.title}
-            icon="file"
-            confirmLabel={pendingTab.filePath ? "Save" : "Save As"}
-            discardLabel="Discard"
-            cancelLabel="Cancel"
-            onConfirm={handleSaveAndClose}
-            onDiscard={handleDiscardAndClose}
-            onCancel={handleCancelClose}
-          />
-        )
-      )}
-
-      <UpdateDialog />
-
-      <ToastProvider />
-
-      {/* Drag-and-drop overlay */}
-      {dragOver && (
-        <div className="drop-overlay">
-          <div className="drop-overlay-label">Drop files to open</div>
-        </div>
-      )}
+      <AppOverlays
+        ctxMenu={ctxMenu}
+        closeCtxMenu={closeCtxMenu}
+        showSettings={showSettings}
+        setShowSettings={setShowSettings}
+        settingsSection={settingsSection}
+        setSettingsSection={setSettingsSection}
+        showAIOnboarding={showAIOnboarding}
+        setShowAIOnboarding={setShowAIOnboarding}
+        showTour={showTour}
+        setShowTour={setShowTour}
+        showPalette={showPalette}
+        setShowPalette={setShowPalette}
+        buildCommands={buildCommands}
+        showSearch={showSearch}
+        setShowSearch={setShowSearch}
+        tabs={tabs}
+        navigateToNote={navigateToNote}
+        fileSelection={fileSelection}
+        setFileSelection={setFileSelection}
+        openFilesAsTabs={openFilesAsTabs}
+        setGraphMounted={setGraphMounted}
+        setActiveView={setActiveView}
+        pendingTab={pendingTab}
+        handleSaveAndClose={handleSaveAndClose}
+        handleDiscardAndClose={handleDiscardAndClose}
+        handleCancelClose={handleCancelClose}
+        dragOver={dragOver}
+      />
     </div>
   );
 }
