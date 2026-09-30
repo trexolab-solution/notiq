@@ -16,6 +16,10 @@ dist-linux
 dist-ssr
 *.local
 
+# We use bun.lock as the single lockfile; ignore npm's in case it gets
+# regenerated locally (e.g. by an editor or a stray `npm install`).
+package-lock.json
+
 # Rust / Tauri build output
 src-tauri/target
 
