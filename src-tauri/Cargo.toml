@@ -40,5 +40,5 @@ winreg = "0.52"
 windows-sys = { version = "0.61", features = ["Win32_UI_Shell", "Win32_Foundation", "Win32_Security_Cryptography"] }
 # Native silent print-to-PDF via WebView2 (ICoreWebView2_7::PrintToPdf).
 # Versions must match what wry/tauri already pull in (see Cargo.lock).
-webview2-com = "0.38"
-windows = { version = "0.61", features = ["Win32_Foundation"] }
+webview2-com = "0.39"
+windows = { version = "0.62", features = ["Win32_Foundation"] }
