@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import {
-  X, Monitor, Type, Keyboard, Info, Terminal, RotateCcw, Sparkles, Download, Settings as SettingsIcon,
+  X, Monitor, Type, Keyboard, Info, Terminal, RotateCcw, Sparkles, Download, Lock, Settings as SettingsIcon,
 } from "lucide-react";
 import { useAppStore } from "../../store";
 import { Modal } from "./Modal";
@@ -11,6 +11,7 @@ import { AppearanceSection }        from "./settings/AppearanceSection";
 import { AISettingsSection }        from "./settings/AISettingsSection";
 import { ShortcutsSection }         from "./settings/ShortcutsSection";
 import { UpdatesSection }           from "./settings/UpdatesSection";
+import { VaultSection }             from "./settings/VaultSection";
 import { AboutSection }             from "./settings/AboutSection";
 
 interface SettingsModalProps {
@@ -20,12 +21,13 @@ interface SettingsModalProps {
   onRunAIOnboarding?: () => void;
 }
 
-type Section = "general" | "editor" | "ai" | "terminal" | "appearance" | "shortcuts" | "updates" | "about";
+type Section = "general" | "editor" | "ai" | "vault" | "terminal" | "appearance" | "shortcuts" | "updates" | "about";
 
 const SECTIONS: { id: Section; label: string; icon: React.ReactNode }[] = [
   { id: "general",    label: "General",    icon: <SettingsIcon size={15} /> },
   { id: "editor",     label: "Editor",     icon: <Type         size={15} /> },
   { id: "ai",         label: "AI",         icon: <Sparkles     size={15} /> },
+  { id: "vault",      label: "Vault",      icon: <Lock         size={15} /> },
   { id: "terminal",   label: "Terminal",   icon: <Terminal     size={15} /> },
   { id: "appearance", label: "Appearance", icon: <Monitor      size={15} /> },
   { id: "shortcuts",  label: "Shortcuts",  icon: <Keyboard     size={15} /> },
@@ -102,6 +104,7 @@ export function SettingsModal({ onClose, initialSection = "general", onRunAIOnbo
           {section === "general"    && <GeneralSection />}
           {section === "editor"     && <EditorSettingsSection />}
           {section === "ai"         && <AISettingsSection onRunSetup={onRunAIOnboarding} />}
+          {section === "vault"      && <VaultSection />}
           {section === "terminal"   && <TerminalSettingsSection />}
           {section === "appearance" && <AppearanceSection />}
           {section === "shortcuts"  && <ShortcutsSection />}

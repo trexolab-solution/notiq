@@ -4,6 +4,9 @@ import { save } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { MarkdownPreview } from "../components/editor/MarkdownPreview";
+import { useAppStore } from "../store";
+import { toast } from "./toast";
+import { isVaultPath } from "./vault";
 
 /**
  * PDF export via the webview's native print-to-PDF.
@@ -136,6 +139,12 @@ export async function exportToPDF(title: string, content: string): Promise<void>
       filters: [{ name: "PDF Document", extensions: ["pdf"] }],
     });
     if (!savePath) return; // user cancelled
+
+    // Exporting a vault note writes a plain, unencrypted PDF — make that explicit.
+    const st = useAppStore.getState();
+    if (isVaultPath(st.tabs.find((t) => t.id === st.activeTabId)?.filePath)) {
+      toast.warning("This PDF is not encrypted — anyone with the file can read it");
+    }
 
     // Mount an off-screen, print-only render of the note.
     const container = document.createElement("div");

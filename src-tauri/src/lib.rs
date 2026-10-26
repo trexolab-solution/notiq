@@ -3,6 +3,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::Manager;
 
 mod ai;
+mod vault;
+mod vault_core;
+mod telegram;
 #[cfg(desktop)]
 use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem},
@@ -39,7 +42,7 @@ mod file_assoc {
     use winreg::enums::*;
 
     const PROG_ID: &str    = "Notiq.Note";
-    const EXTS:    &[&str] = &[".md", ".markdown", ".txt", ".notiq"];
+    const EXTS:    &[&str] = &[".md", ".markdown", ".txt", ".notiq", ".nqv"];
 
     pub fn register(exe: &str) {
         // Validate executable path contains no control characters or shell metacharacters
@@ -267,12 +270,26 @@ mod term {
                     }
                 };
                 let mut buf = [0u8; TERMINAL_BUFFER_SIZE];
+                // A read can end in the middle of a multi-byte UTF-8 character
+                // (box-drawing, emoji, …). Hold those bytes back until the rest
+                // arrives, otherwise they render as U+FFFD garbage.
+                let mut pending: Vec<u8> = Vec::new();
                 loop {
                     match std::io::Read::read(&mut reader, &mut buf) {
                         Ok(0) | Err(_) => break,
                         Ok(n) => {
-                            let data = String::from_utf8_lossy(&buf[..n]).into_owned();
-                            let _ = app2.emit("terminal-data", DataPayload { id, data });
+                            pending.extend_from_slice(&buf[..n]);
+                            let keep_from = match std::str::from_utf8(&pending) {
+                                Ok(_) => pending.len(),
+                                Err(e) if e.error_len().is_none() => e.valid_up_to(),
+                                Err(_) => pending.len(),
+                            };
+                            let rest = pending.split_off(keep_from);
+                            let data = String::from_utf8_lossy(&pending).into_owned();
+                            pending = rest;
+                            if !data.is_empty() {
+                                let _ = app2.emit("terminal-data", DataPayload { id, data });
+                            }
                         }
                     }
                 }
@@ -595,6 +612,8 @@ pub fn run() {
             .plugin(tauri_plugin_process::init())
     };
 
+    let builder = builder.manage(vault::VaultState::default());
+
     #[cfg(desktop)]
     let builder = builder.invoke_handler(tauri::generate_handler![
         show_main_window,
@@ -610,6 +629,21 @@ pub fn run() {
         ai::ai_list_models,
         ai::ai_complete,
         ai::ai_complete_stream,
+        vault::vault_status,
+        vault::vault_create,
+        vault::vault_unlock,
+        vault::vault_unlock_with_recovery,
+        vault::vault_change_password,
+        vault::vault_lock,
+        vault::vault_write_file,
+        vault::vault_read_file,
+        telegram::tg_status,
+        telegram::tg_detect_chat,
+        telegram::tg_save_config,
+        telegram::tg_clear,
+        telegram::tg_sync_state,
+        telegram::tg_sync,
+        telegram::tg_restore,
     ]);
 
     #[cfg(not(desktop))]
@@ -622,12 +656,30 @@ pub fn run() {
         ai::ai_list_models,
         ai::ai_complete,
         ai::ai_complete_stream,
+        vault::vault_status,
+        vault::vault_create,
+        vault::vault_unlock,
+        vault::vault_unlock_with_recovery,
+        vault::vault_change_password,
+        vault::vault_lock,
+        vault::vault_write_file,
+        vault::vault_read_file,
+        telegram::tg_status,
+        telegram::tg_detect_chat,
+        telegram::tg_save_config,
+        telegram::tg_clear,
+        telegram::tg_sync_state,
+        telegram::tg_sync,
+        telegram::tg_restore,
     ]);
 
     #[cfg(desktop)]
     let builder = builder.on_window_event(|window, event| {
         if let tauri::WindowEvent::CloseRequested { api, .. } = event {
             if window.label() == "main" {
+                // Tell the frontend the window is going to the tray so the
+                // Secure Vault can lock itself (it would otherwise stay unlocked).
+                let _ = window.emit("vault-window-hidden", ());
                 let _ = window.hide();
                 api.prevent_close();
             }

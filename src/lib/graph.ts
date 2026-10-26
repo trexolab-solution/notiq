@@ -7,7 +7,10 @@ const MD_LINK_RE = /\[([^\]]+)\]\(([^)\s]+(?:\s[^)]+)?)\)/g;
 // Wiki-links: [[Title]] or [[Title|alias]]
 const WIKI_LINK_RE = /\[\[([^\]|]+?)(?:\|[^\]]*)?\]\]/g;
 
-export function buildGraphData(tabs: Tab[]): GraphData {
+export function buildGraphData(allTabs: Tab[]): GraphData {
+  // Locked vault notes are invisible to the graph: no node, no title, and
+  // nothing can link to them, so their existence/links aren't revealed.
+  const tabs = allTabs.filter((t) => !t.vaultLocked);
   const nodes = tabs.map((t) => ({
     id:    t.id,
     name:  t.title,

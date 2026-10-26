@@ -928,3 +928,39 @@
   background: color-mix(in srgb, var(--color-primary) 10%, transparent);
   color: var(--color-primary);
 }
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   RESPONSIVE TITLEBAR — progressively collapse on narrow windows so the
+   menu bar, mode picker, tools and window controls never overlap.
+══════════════════════════════════════════════════════════════════════════════ */
+.header-center { min-width: 0; }
+/* "⋯ More" overflow button — only when items have collapsed */
+.titlebar-more, .titlebar-tb-more { display: none; }
+
+@media (max-width: 1000px) {
+  .app-brand-name { display: none; }
+  .app-brand { padding: 0 8px; }
+  .titlebar-menu-btn { padding: 0 8px; }
+  .update-pill span { display: none; }
+  /* Left toolbar: lower-priority buttons move into its "⋯" menu */
+  .tb-p3 { display: none; }
+  .titlebar-tb-more { display: inline-flex; }
+  .titlebar-vsep { display: none; }
+  .update-pill { padding: 0 8px; }
+  /* Editor-mode switcher → compact icon-only buttons */
+  .mode-picker--titlebar .mode-btn span { display: none; }
+  .mode-picker--titlebar .mode-btn { padding: 0 7px; gap: 0; min-width: 26px; }
+}
+@media (max-width: 820px) {
+  .titlebar-opt { display: none; }
+  .tb-p2 { display: none; }
+  .titlebar-more { display: inline-flex; }
+  .titlebar-menu-btn { padding: 0 6px; }
+  .header-meta { display: none; }
+}
+@media (max-width: 680px) {
+  .titlebar-vsep { display: none; }
+  .titlebar-toolbar { gap: 0; }
+  .win-btn { width: 38px; }
+  .header-left { flex: 0 1 auto; min-width: 0; overflow: hidden; }
+}

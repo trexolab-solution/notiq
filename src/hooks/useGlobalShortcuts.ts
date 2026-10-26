@@ -1,6 +1,9 @@
 import { useEffect, useRef } from "react";
 import { useAppStore } from "../store";
 import { exportToPDF } from "../lib/pdfExport";
+import { toast } from "../lib/toast";
+import { comboFromEvent } from "../lib/shortcutCombo";
+import { getPanicShortcut } from "../lib/vaultPrefs";
 
 interface Options {
   requestClose:        (id: string) => void;
@@ -41,6 +44,13 @@ export function useGlobalShortcuts(opts: Options) {
       } = ref.current;
       const activeTab = tabs.find((t) => t.id === activeTabId);
 
+      // Panic lock (default Ctrl+Alt+L, customizable in Settings → Vault):
+      // save + lock the Secure Vault immediately.
+      if (comboFromEvent(e) === getPanicShortcut()) {
+        e.preventDefault();
+        void useAppStore.getState().lockVault({ skipSync: true }).then((ok) => { if (ok) toast.info("Vault locked"); });
+        return;
+      }
       // Ctrl+Shift+P → command palette (also prevents the native print dialog)
       if (e.ctrlKey && e.shiftKey && (e.key === "P" || e.key === "p")) { e.preventDefault(); onOpenCommandPalette(); return; }
       // Ctrl+Shift+F → search across all open notes

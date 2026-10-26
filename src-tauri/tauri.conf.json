@@ -62,6 +62,13 @@
         "name": "Notiq Note",
         "description": "Notiq Note",
         "role": "Editor"
+      },
+      {
+        "ext": ["nqv"],
+        "mimeType": "application/x-notiq-vault",
+        "name": "Notiq Vault Note",
+        "description": "Encrypted Notiq note — open with Notiq",
+        "role": "Editor"
       }
     ],
     "icon": [

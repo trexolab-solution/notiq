@@ -394,6 +394,20 @@ notiq/
 
 ---
 
+## Secure Vault
+
+Lock individual notes behind a master password. A locked note is stored as a `.nqv` file and is only ever readable inside Notiq while the vault is unlocked.
+
+- **Crypto:** the master password is stretched with Argon2id (64 MiB, 3 passes) into a key that wraps a random 256-bit vault key. A random recovery key wraps the same vault key. Notes are sealed with XChaCha20-Poly1305 using a fresh random 24-byte nonce on every save, and the file header is authenticated.
+- **Keys in memory only:** the vault key exists only in the app process while unlocked and is zeroized on lock. Passwords are zeroized on the Rust side after use (the JavaScript string that carried them cannot be wiped).
+- **Locking:** manual, a customizable panic shortcut (default `Ctrl+Alt+L`), idle timeout, and when the window is closed to the tray.
+- **AI & search:** locked notes are excluded from AI chat/actions/autocomplete, global search and the graph.
+- **Brute force:** repeated wrong passwords are throttled in-app; offline resistance comes from the Argon2 cost, so choose a long password.
+- **Telegram backup (optional):** only the encrypted `.nqv` files are uploaded to your own bot, under random names, plus an encrypted manifest. The bot token is kept in the OS keychain. Restore requires the same vault.
+- **Not covered:** titles of locked notes are visible in tabs/sidebar, images pasted into `assets/` stay unencrypted, unsaved edits to a locked note are discarded on restart, and a compromised OS (keylogger, memory dump while unlocked) defeats any in-app encryption.
+
+**Losing both your master password and recovery key means the notes cannot be recovered.**
+
 ## Data & Privacy
 
 - All note content is stored **locally** in IndexedDB inside the Tauri WebView

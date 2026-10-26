@@ -10,6 +10,12 @@ import { applyTheme } from "../lib/themes";
 import { saveSession } from "../lib/session";
 import { buildGraphData } from "../lib/graph";
 import { pickSavePath, writeFile, type FileEntry } from "../lib/fileOps";
+import { isVaultPath, extFromPath, vaultLock, vaultReadFile, vaultWriteFile, vaultErrorMessage } from "../lib/vault";
+import { useVaultStore } from "./vaultStore";
+import { pickVaultDestination } from "../lib/vaultDest";
+import { syncBeforeLock } from "../lib/telegram";
+import { scrubMonacoModels } from "../lib/vaultMemory";
+import { exists } from "@tauri-apps/plugin-fs";
 import { getFileName } from "../lib/pathUtils";
 import { migrateTempToSaveDir, cleanupTabTemp } from "../lib/attachments";
 import { toast } from "../lib/toast";
@@ -56,7 +62,7 @@ export function flushPendingGraphRebuild() {
 
 function titleFromPath(path: string, fallback: string): string {
   const fileName = getFileName(path) || fallback;
-  return fileName.replace(/\.(md|markdown|txt)$/i, "");
+  return fileName.replace(/\.(md|markdown|txt|nqv)$/i, "");
 }
 
 function makeTab(overrides: Partial<Tab> = {}): Tab {
@@ -104,6 +110,15 @@ export interface AppState {
   openFilesAsTabs: (files: FileEntry[]) => void;
   /** Replace a tab's content with fresh disk content (external change) — keeps it clean. */
   reloadTabFromDisk: (id: string, content: string) => void;
+
+  // secure vault
+  /** Encrypts a tab into a `.nqv` file. `plainPath` is the original unencrypted file, if any. */
+  lockTabToVault: (id: string) => Promise<{ ok: boolean; plainPath?: string }>;
+  /** Decrypts every locked `.nqv` tab (vault must be unlocked). */
+  unlockVaultTabs: () => Promise<void>;
+  /** Saves dirty vault tabs, drops the key from memory, blanks vault tabs. */
+  /** `skipSync`: lock instantly (panic) without the pre-lock Telegram backup. */
+  lockVault: (opts?: { skipSync?: boolean }) => Promise<boolean>;
 
   // theme
   themeId: ThemeId;
@@ -220,7 +235,12 @@ export interface AppState {
 export const useAppStore = create<AppState>((set, get) => {
   const persist = () => {
     const { tabs, activeTabId, themeId } = get();
-    saveSession({ tabs, activeTabId, themeId, savedAt: Date.now() });
+    // Secure Vault: decrypted content must never reach IndexedDB. Persist vault
+    // tabs as locked shells; they re-open locked and decrypt from the .nqv file.
+    const safeTabs = tabs.map((t) =>
+      isVaultPath(t.filePath) ? { ...t, content: "", isDirty: false, vaultLocked: true } : t,
+    );
+    saveSession({ tabs: safeTabs, activeTabId, themeId, savedAt: Date.now() });
   };
 
   /** Update a single tab by id, merging `changes` into the matched tab. */
@@ -234,6 +254,8 @@ export const useAppStore = create<AppState>((set, get) => {
   const saveTabImpl = async (id: string, forcePickPath: boolean): Promise<boolean> => {
     const tab = get().tabs.find((t) => t.id === id);
     if (!tab) return false;
+    // A locked vault tab has empty content — saving it would wipe the note.
+    if (tab.vaultLocked) return false;
     const path = forcePickPath
       ? await pickSavePath(tab.title)
       : (tab.filePath ?? await pickSavePath(tab.title));
@@ -252,9 +274,23 @@ export const useAppStore = create<AppState>((set, get) => {
       }
     }
 
-    await writeFile(path, tab.content);
+    let vaultExt = tab.vaultExt;
+    if (isVaultPath(path)) {
+      if (!(await useVaultStore.getState().ensureUnlocked())) return false;
+      vaultExt = vaultExt ?? "md";
+      try {
+        await vaultWriteFile(path, tab.content, vaultExt);
+      } catch (e) {
+        toast.error(`Couldn't save locked note: ${vaultErrorMessage(e)}`);
+        return false;
+      }
+    } else {
+      await writeFile(path, tab.content);
+      vaultExt = undefined;
+    }
     updateTab(id, {
       filePath: path,
+      vaultExt,
       title: titleFromPath(path, tab.title),
       isDirty: false,
       updatedAt: Date.now(),
@@ -287,6 +323,8 @@ export const useAppStore = create<AppState>((set, get) => {
       if (target.kind === "whiteboard") {
         try { localStorage.removeItem(`smart-note:wb-${id}`); } catch { /* ignore */ }
       }
+      // Vault note: drop its decrypted text from the editor-model cache.
+      if (isVaultPath(target.filePath)) setTimeout(() => void scrubMonacoModels([id]), 100);
       // Clean up temp attachment folder if this tab had unsaved pasted images
       if (target.attachments && Object.keys(target.attachments).length > 0) {
         cleanupTabTemp(id).catch((e) => console.warn("removeTab: temp cleanup failed", e));
@@ -406,7 +444,10 @@ export const useAppStore = create<AppState>((set, get) => {
           focusId = existingId;
           continue;
         }
-        const tab = makeTab({ title, content, filePath, isDirty: false, editorMode: defaultEditorMode });
+        const tab = isVaultPath(filePath)
+          // Ciphertext is never read into a tab; it opens locked and decrypts on unlock.
+          ? makeTab({ title, content: "", filePath, isDirty: false, editorMode: defaultEditorMode, vaultLocked: true })
+          : makeTab({ title, content, filePath, isDirty: false, editorMode: defaultEditorMode });
         newTabs.push(tab);
         byPath.set(key, tab.id);
         focusId = tab.id;
@@ -427,6 +468,10 @@ export const useAppStore = create<AppState>((set, get) => {
       }));
       debounceGraphRebuild(() => get().rebuildGraph());
       persist();
+      // Vault already unlocked this session → decrypt the newly opened tabs now.
+      if (newTabs.some((t) => t.vaultLocked) && useVaultStore.getState().unlocked) {
+        void get().unlockVaultTabs();
+      }
     },
 
     reloadTabFromDisk(id, content) {
@@ -437,6 +482,94 @@ export const useAppStore = create<AppState>((set, get) => {
       updateTab(id, { content, isDirty: false, updatedAt: Date.now() });
       debounceGraphRebuild(() => get().rebuildGraph());
       persist();
+    },
+
+    // ── secure vault ──────────────────────────────────────────
+    async lockTabToVault(id) {
+      const tab = get().tabs.find((t) => t.id === id);
+      if (!tab || tab.kind !== "note") return { ok: false };
+      if (isVaultPath(tab.filePath)) return { ok: true };
+
+      if (!(await useVaultStore.getState().ensureUnlocked())) return { ok: false };
+
+      const plainPath = tab.filePath;
+      // Offer a folder inside the vault storage folder (SSH, Logins, …).
+      const target = await pickVaultDestination(tab.title);
+      if (!target) return { ok: false };
+
+      try {
+        if (plainPath && (await exists(target))) {
+          toast.error(`"${target.split(/[\\/]/).pop()}" already exists — rename or remove it first`);
+          return { ok: false };
+        }
+        const ext = extFromPath(plainPath);
+        await vaultWriteFile(target, tab.content, ext);
+        updateTab(id, {
+          filePath: target.replace(/\\/g, "/"),
+          title: titleFromPath(target, tab.title),
+          vaultExt: ext,
+          vaultLocked: false,
+          isDirty: false,
+          updatedAt: Date.now(),
+        });
+      } catch (e) {
+        toast.error(`Couldn't lock note: ${vaultErrorMessage(e)}`);
+        return { ok: false };
+      }
+      get().rebuildGraph();
+      persist();
+      return { ok: true, plainPath };
+    },
+
+    async unlockVaultTabs() {
+      const targets = get().tabs.filter((t) => isVaultPath(t.filePath) && t.vaultLocked);
+      for (const t of targets) {
+        try {
+          const file = await vaultReadFile(t.filePath!);
+          // The tab may have been closed while we were decrypting.
+          if (!get().tabs.some((x) => x.id === t.id)) continue;
+          updateTab(t.id, {
+            content: file.content,
+            vaultExt: file.ext || "md",
+            vaultLocked: false,
+            isDirty: false,
+          });
+        } catch (e) {
+          toast.error(`Couldn't open "${t.title}": ${vaultErrorMessage(e)}`);
+        }
+      }
+      debounceGraphRebuild(() => get().rebuildGraph());
+      persist();
+    },
+
+    async lockVault(opts) {
+      // Never lose edits: save dirty vault tabs first; abort the lock if any fails.
+      const dirty = get().tabs.filter((t) => isVaultPath(t.filePath) && !t.vaultLocked && t.isDirty);
+      for (const t of dirty) {
+        if (!(await saveTabImpl(t.id, false))) {
+          toast.error(`Couldn't save "${t.title}" — vault not locked`);
+          return false;
+        }
+      }
+      if (!opts?.skipSync) await syncBeforeLock();
+      try {
+        await vaultLock();
+      } catch (e) {
+        toast.error(`Couldn't lock vault: ${vaultErrorMessage(e)}`);
+        return false;
+      }
+      useVaultStore.getState().setUnlocked(false);
+      const vaultTabIds = get().tabs.filter((t) => isVaultPath(t.filePath)).map((t) => t.id);
+      set((s) => ({
+        tabs: s.tabs.map((t) =>
+          isVaultPath(t.filePath) ? { ...t, content: "", isDirty: false, vaultLocked: true } : t,
+        ),
+      }));
+      get().rebuildGraph();
+      persist();
+      // After React has swapped the editor for the lock screen, purge cached plaintext.
+      setTimeout(() => void scrubMonacoModels(vaultTabIds), 100);
+      return true;
     },
 
     // ── theme ─────────────────────────────────────────────────

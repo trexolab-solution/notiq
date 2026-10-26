@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   Code2, Columns2, Eye, FileDown, FilePlus, Files, FileText, FolderOpen,
-  Network, PenTool, Save, SaveAll, Settings,
+  MoreHorizontal, Network, PenTool, Save, SaveAll, Settings,
 } from "lucide-react";
 import { useAppStore } from "../../store";
 import { exportToPDF } from "../../lib/pdfExport";
@@ -34,6 +34,7 @@ export function TitlebarMenuBar({
   const saveTabToFileAs     = useAppStore((s) => s.saveTabToFileAs);
   const updateTabEditorMode = useAppStore((s) => s.updateTabEditorMode);
 
+  const [tbMore, setTbMore] = useState<{ x: number; y: number } | null>(null);
   const activeTab = tabs.find((t) => t.id === activeTabId);
   const isNote    = activeTab?.kind === "note";
   const isMd      = isNote && isMarkdownLike(activeTab.filePath);
@@ -141,7 +142,7 @@ export function TitlebarMenuBar({
 
         <Tooltip content="Open File(s)" shortcut="Ctrl+O">
           <button
-            className="titlebar-tool-btn"
+            className="titlebar-tool-btn tb-p2"
             onMouseDown={(e) => e.nativeEvent.stopPropagation()}
             onClick={onOpenMultiple}
           >
@@ -151,7 +152,7 @@ export function TitlebarMenuBar({
 
         <Tooltip content="Open Folder" shortcut="Ctrl+⇧+O">
           <button
-            className="titlebar-tool-btn"
+            className="titlebar-tool-btn tb-p3"
             onMouseDown={(e) => e.nativeEvent.stopPropagation()}
             onClick={onOpenFolder}
           >
@@ -174,7 +175,7 @@ export function TitlebarMenuBar({
 
         <Tooltip content="Save All">
           <button
-            className={`titlebar-tool-btn${hasDirty ? " is-dirty" : ""}`}
+            className={`titlebar-tool-btn tb-p3${hasDirty ? " is-dirty" : ""}`}
             disabled={!hasDirty}
             onMouseDown={(e) => e.nativeEvent.stopPropagation()}
             onClick={handleSaveAll}
@@ -187,7 +188,7 @@ export function TitlebarMenuBar({
 
         <Tooltip content="Export as PDF" shortcut="Ctrl+P">
           <button
-            className="titlebar-tool-btn"
+            className="titlebar-tool-btn tb-p3"
             disabled={!isMd}
             onMouseDown={(e) => e.nativeEvent.stopPropagation()}
             onClick={() => activeTab && exportToPDF(activeTab.title, activeTab.content)}
@@ -195,7 +196,36 @@ export function TitlebarMenuBar({
             <FileDown size={14} strokeWidth={1.8} />
           </button>
         </Tooltip>
+
+        <button
+          className="titlebar-tool-btn titlebar-tb-more"
+          aria-label="More actions"
+          aria-haspopup="menu"
+          onMouseDown={(e) => e.nativeEvent.stopPropagation()}
+          onClick={(e) => {
+            const r = e.currentTarget.getBoundingClientRect();
+            setTbMore({ x: r.left, y: r.bottom + 4 });
+          }}
+        >
+          <MoreHorizontal size={15} strokeWidth={1.7} />
+        </button>
       </div>
+
+      {tbMore && (
+        <ContextMenu
+          x={tbMore.x}
+          y={tbMore.y}
+          onClose={() => setTbMore(null)}
+          items={[
+            { type: "item", label: "Open File(s)", icon: <Files size={13} />, shortcut: "Ctrl+O", onClick: onOpenMultiple },
+            { type: "item", label: "Open Folder", icon: <FolderOpen size={13} />, shortcut: "Ctrl+⇧+O", onClick: onOpenFolder },
+            { type: "separator" },
+            { type: "item", label: "Save All", icon: <SaveAll size={13} />, disabled: !hasDirty, onClick: handleSaveAll },
+            { type: "item", label: "Export as PDF", icon: <FileDown size={13} />, shortcut: "Ctrl+P", disabled: !isMd,
+              onClick: () => { if (activeTab) void exportToPDF(activeTab.title, activeTab.content); } },
+          ]}
+        />
+      )}
 
       {open && (
         <ContextMenu

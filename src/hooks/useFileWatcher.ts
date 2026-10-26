@@ -4,6 +4,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useAppStore } from "../store";
 import { isTauri } from "../lib/tauriWindow";
 import { toast } from "../lib/toast";
+import { isVaultPath } from "../lib/vault";
 
 // How often to poll open file-backed tabs for external changes. Notepad++ uses
 // the same poll-based approach; ~1.2 s feels instant without burning CPU. We
@@ -55,6 +56,9 @@ export function useFileWatcher() {
 
       for (const tab of tabs) {
         if (tab.kind !== "note" || !tab.filePath) continue;
+        // Vault files are ciphertext — reading them as text would load garbage
+        // into the editor. Skip until vault-aware reload exists.
+        if (isVaultPath(tab.filePath)) continue;
         liveIds.add(tab.id);
         const path = tab.filePath;
 

@@ -2,9 +2,11 @@ import { useCallback } from "react";
 import {
   FileText as FileIcon, FilePlus, FolderOpen, Save, Settings as SettingsIcon,
   Network as NetworkIcon, Palette, MessageSquare as ChatIcon, SquarePen, PenLine, SpellCheck, Heading,
-  Search as SearchIcon,
+  Search as SearchIcon, Lock as LockIcon, Unlock as UnlockIcon,
 } from "lucide-react";
 import type { Command } from "../components/ui/CommandPalette";
+import { useAppStore } from "../store";
+import { useVaultStore } from "../store/vaultStore";
 import type { Tab, AppView, ThemeId } from "../types";
 import { THEMES } from "../lib/themes";
 import { getActiveEditor } from "../lib/activeEditor";
@@ -66,6 +68,9 @@ export function useCommands(deps: UseCommandsDeps): () => Command[] {
       { id: "act:graph", label: "Knowledge Graph", group: "Actions", icon: <NetworkIcon size={14} />, run: () => setActiveView("graph") },
       { id: "act:editor", label: "Editor View", group: "Actions", icon: <FileIcon size={14} />, run: () => setActiveView("editor") },
       { id: "act:chat", label: "Toggle AI Chat", group: "Actions", icon: <ChatIcon size={14} />, run: toggleAiChat },
+      { id: "vault:lock-note", label: "Vault: Lock This Note", group: "Vault", icon: <LockIcon size={14} />, run: () => { if (activeTabId) void useAppStore.getState().lockTabToVault(activeTabId); } },
+      { id: "vault:lock", label: "Vault: Lock Now", group: "Vault", icon: <LockIcon size={14} />, run: () => { void useAppStore.getState().lockVault(); } },
+      { id: "vault:unlock", label: "Vault: Unlock", group: "Vault", icon: <UnlockIcon size={14} />, run: () => { void useVaultStore.getState().ensureUnlocked(); } },
       { id: "act:settings", label: "Settings", group: "Actions", icon: <SettingsIcon size={14} />, trailing: "Ctrl+,", run: onOpenSettings },
     );
 
