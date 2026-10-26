@@ -270,12 +270,26 @@ mod term {
                     }
                 };
                 let mut buf = [0u8; TERMINAL_BUFFER_SIZE];
+                // A read can end in the middle of a multi-byte UTF-8 character
+                // (box-drawing, emoji, …). Hold those bytes back until the rest
+                // arrives, otherwise they render as U+FFFD garbage.
+                let mut pending: Vec<u8> = Vec::new();
                 loop {
                     match std::io::Read::read(&mut reader, &mut buf) {
                         Ok(0) | Err(_) => break,
                         Ok(n) => {
-                            let data = String::from_utf8_lossy(&buf[..n]).into_owned();
-                            let _ = app2.emit("terminal-data", DataPayload { id, data });
+                            pending.extend_from_slice(&buf[..n]);
+                            let keep_from = match std::str::from_utf8(&pending) {
+                                Ok(_) => pending.len(),
+                                Err(e) if e.error_len().is_none() => e.valid_up_to(),
+                                Err(_) => pending.len(),
+                            };
+                            let rest = pending.split_off(keep_from);
+                            let data = String::from_utf8_lossy(&pending).into_owned();
+                            pending = rest;
+                            if !data.is_empty() {
+                                let _ = app2.emit("terminal-data", DataPayload { id, data });
+                            }
                         }
                     }
                 }

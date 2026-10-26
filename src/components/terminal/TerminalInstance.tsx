@@ -151,17 +151,35 @@ export const TerminalInstance = forwardRef<InstanceHandle, Props>(
         onFocusRef.current?.(sessionId);
       });
 
-      // ── Ctrl+V → clipboard paste ───────────────────────────────────────
-      // preventDefault() stops the browser's native paste from also firing —
-      // without it xterm processes both, causing a double paste.
+      // ── Native-style clipboard keys ────────────────────────────────────
+      // Paste goes through term.paste(): it honours bracketed-paste mode (so
+      // TUIs like Claude Code receive a multi-line paste as ONE paste instead
+      // of typed lines that submit on every newline) and normalises newlines.
+      // preventDefault() stops the browser's own paste from also firing.
+      const doPaste = () => {
+        readText()
+          .then((txt) => {
+            if (txt) term.paste(txt);
+            else invoke("terminal_write", { id: sessionId, data: "\x16" }).catch(console.error); // let the app handle e.g. image paste
+          })
+          .catch(() => {});
+      };
+      const doCopy = () => {
+        writeText(term.getSelection()).catch(() => {});
+      };
       term.attachCustomKeyEventHandler((ev) => {
-        if (ev.type === "keydown" && ev.ctrlKey && !ev.shiftKey && ev.key === "v") {
+        if (ev.type !== "keydown") return true;
+        const k = ev.key.toLowerCase();
+        // Ctrl+V / Ctrl+Shift+V / Shift+Insert → paste
+        if ((ev.ctrlKey && k === "v") || (ev.shiftKey && !ev.ctrlKey && ev.key === "Insert")) {
           ev.preventDefault();
-          readText()
-            .then((t) => {
-              if (t) invoke("terminal_write", { id: sessionId, data: t }).catch(console.error);
-            })
-            .catch(() => {});
+          doPaste();
+          return false;
+        }
+        // Ctrl+C copies when text is selected (otherwise it is a normal interrupt);
+        // Ctrl+Shift+C / Ctrl+Insert always copy.
+        if (ev.ctrlKey && (k === "c" || ev.key === "Insert") && (ev.shiftKey || ev.key === "Insert" || term.hasSelection())) {
+          if (term.hasSelection()) { ev.preventDefault(); doCopy(); }
           return false;
         }
         return true;
@@ -216,8 +234,21 @@ export const TerminalInstance = forwardRef<InstanceHandle, Props>(
     }, [terminalFontSize, terminalCursorStyle, terminalCursorBlink, terminalScrollback]);
 
     // ── Right-click: show context menu ──────────────────────────────────────
+    // Native behaviour: right-click copies the selection, or pastes when nothing
+    // is selected. Shift+right-click opens the menu.
     const handleContextMenu = useCallback((e: React.MouseEvent) => {
       e.preventDefault();
+      const t = termRef.current;
+      if (!e.shiftKey && t) {
+        if (t.hasSelection()) {
+          void writeText(t.getSelection()).catch(() => {});
+          t.clearSelection();
+        } else {
+          void readText().then((txt) => { if (txt) t.paste(txt); }).catch(() => {});
+        }
+        t.focus();
+        return;
+      }
       setCtxMenu({ x: e.clientX, y: e.clientY });
     }, []);
 
@@ -234,7 +265,7 @@ export const TerminalInstance = forwardRef<InstanceHandle, Props>(
 
     const handlePaste = useCallback(async () => {
       const text = await readText().catch(() => "");
-      if (text) invoke("terminal_write", { id: sessionId, data: text }).catch(console.error);
+      if (text) termRef.current?.paste(text);
       termRef.current?.focus();
     }, [sessionId]);
 
