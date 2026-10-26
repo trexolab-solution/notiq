@@ -1,6 +1,7 @@
 import { useAppStore } from "../../../store";
 import { getLanguageFromPath, isMarkdownLike } from "../../../lib/language";
 import { getFileName } from "../../../lib/pathUtils";
+import { isVaultPath } from "../../../lib/vault";
 import type { ChatContextFile } from "../../../lib/ai/prompts";
 import type { Tab } from "../../../types";
 
@@ -21,7 +22,7 @@ export function isCodeTab(tab: Tab): boolean {
 export function seedContextTabIds(): Set<string> {
   const st = useAppStore.getState();
   const tab = st.tabs.find((t) => t.id === st.activeTabId);
-  return tab && tab.kind === "note" ? new Set([tab.id]) : new Set();
+  return tab && tab.kind === "note" && !isVaultPath(tab.filePath) ? new Set([tab.id]) : new Set();
 }
 
 /** Build one chat-context entry from an open tab, capping its content at `cap`

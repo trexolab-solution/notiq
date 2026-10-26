@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { X, Plus, HardDrive, PenTool, ChevronLeft, ChevronRight, Pin, PinOff, Pencil } from "lucide-react";
+import { X, Plus, HardDrive, PenTool, ChevronLeft, ChevronRight, Pin, PinOff, Pencil, Lock } from "lucide-react";
 import {
   DndContext,
   closestCenter,
@@ -20,6 +20,10 @@ import { Input } from "../ui/Input";
 import { Tooltip } from "../ui/Tooltip";
 import { ContextMenu, type ContextMenuItem } from "../ui/ContextMenu";
 import type { Tab } from "../../types";
+import { ConfirmDialog } from "../ui/ConfirmDialog";
+import { toast } from "../../lib/toast";
+import { isVaultPath } from "../../lib/vault";
+import { remove } from "@tauri-apps/plugin-fs";
 
 // ── Context Menu ──────────────────────────────────────────────────────────────
 interface TabContextMenuState {
@@ -28,6 +32,10 @@ interface TabContextMenuState {
   tabId: string;
   isPinned: boolean;
   title: string;
+  /** Plain note that can be locked into the vault. */
+  canLock: boolean;
+  /** Already a vault note (locked or unlocked). */
+  isVault: boolean;
 }
 
 // ── Sortable Tab Item ────────────────────────────────────────────────────────
@@ -157,6 +165,10 @@ export const TabBar = React.memo(function TabBar({ onCloseTab }: TabBarProps) {
   const updateTabTitle = useAppStore((s) => s.updateTabTitle);
   const reorderTabs    = useAppStore((s) => s.reorderTabs);
   const togglePinTab   = useAppStore((s) => s.togglePinTab);
+  const lockTabToVault = useAppStore((s) => s.lockTabToVault);
+  const lockVault       = useAppStore((s) => s.lockVault);
+  // Original unencrypted file left behind after locking — ask before deleting.
+  const [plainLeftover, setPlainLeftover] = useState<{ path: string; title: string } | null>(null);
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
@@ -170,7 +182,11 @@ export const TabBar = React.memo(function TabBar({ onCloseTab }: TabBarProps) {
   const handleContextMenu = useCallback((e: React.MouseEvent, tab: Tab) => {
     e.preventDefault();
     e.stopPropagation();
-    setCtxMenu({ x: e.clientX, y: e.clientY, tabId: tab.id, isPinned: tab.isPinned, title: tab.title });
+    const isVault = isVaultPath(tab.filePath);
+    setCtxMenu({
+      x: e.clientX, y: e.clientY, tabId: tab.id, isPinned: tab.isPinned, title: tab.title,
+      canLock: tab.kind === "note" && !isVault, isVault,
+    });
   }, []);
 
   // ── Overflow detection ──────────────────────────────────────────────────
@@ -329,6 +345,24 @@ export const TabBar = React.memo(function TabBar({ onCloseTab }: TabBarProps) {
               onClick: () => startEdit(ctxMenu.tabId, ctxMenu.title),
             },
             { type: "separator" },
+            ...(ctxMenu.canLock ? [{
+              type: "item" as const,
+              label: "Lock with Vault",
+              icon: <Lock size={13} />,
+              onClick: async () => {
+                const res = await lockTabToVault(ctxMenu.tabId);
+                if (res.ok && res.plainPath) {
+                  setPlainLeftover({ path: res.plainPath, title: ctxMenu.title });
+                }
+              },
+            }] : []),
+            ...(ctxMenu.isVault ? [{
+              type: "item" as const,
+              label: "Lock Vault Now",
+              icon: <Lock size={13} />,
+              onClick: () => { void lockVault(); },
+            }] : []),
+            ...(ctxMenu.canLock || ctxMenu.isVault ? [{ type: "separator" as const }] : []),
             {
               type: "item",
               label: "Close Tab",
@@ -344,6 +378,33 @@ export const TabBar = React.memo(function TabBar({ onCloseTab }: TabBarProps) {
               },
             },
           ] satisfies ContextMenuItem[]}
+        />
+      )}
+
+      {plainLeftover && (
+        <ConfirmDialog
+          title="Delete the unencrypted original?"
+          message="Your note is now locked in a .nqv file, but the original plain-text file is still on disk and anyone can read it. Delete it now?"
+          detail={plainLeftover.path}
+          icon="file"
+          confirmLabel="Delete original"
+          cancelLabel="Keep it"
+          danger
+          onConfirm={async () => {
+            const { path } = plainLeftover;
+            setPlainLeftover(null);
+            try {
+              await remove(path);
+              toast.info("Original file deleted");
+            } catch (e) {
+              console.error("vault: couldn't delete original", e);
+              toast.error("Couldn't delete the original — please delete it yourself");
+            }
+          }}
+          onCancel={() => {
+            setPlainLeftover(null);
+            toast.warning("The unencrypted original is still on disk");
+          }}
         />
       )}
     </DndContext>

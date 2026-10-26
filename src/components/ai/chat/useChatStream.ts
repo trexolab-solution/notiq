@@ -6,6 +6,7 @@ import { chatSystem } from "../../../lib/ai/prompts";
 import { mapAiError } from "../../../lib/ai/errors";
 import { toast } from "../../../lib/toast";
 import { useAppStore } from "../../../store";
+import { isVaultPath } from "../../../lib/vault";
 import type { AIProvider } from "../../../types";
 import { tabToContextFile } from "./contextFiles";
 import { MAX_NOTE_CHARS, MAX_TOTAL_CONTEXT_CHARS, PROVIDER_TAG, type Msg } from "./types";
@@ -64,7 +65,8 @@ export function useChatStream({
     // files never blows the prompt past MAX_TOTAL_CONTEXT_CHARS.
     const st = useAppStore.getState();
     const activeTabs = useNoteContext
-      ? st.tabs.filter((t) => t.kind === "note" && contextTabIds.has(t.id))
+      // Defense in depth: even if a vault tab id slipped into the selection, never send it.
+      ? st.tabs.filter((t) => t.kind === "note" && !isVaultPath(t.filePath) && contextTabIds.has(t.id))
       : [];
     const perFileCap = activeTabs.length > 0
       ? Math.min(MAX_NOTE_CHARS, Math.floor(MAX_TOTAL_CONTEXT_CHARS / activeTabs.length))

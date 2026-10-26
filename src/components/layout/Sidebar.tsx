@@ -1,5 +1,6 @@
-import React from "react";
-import { Settings, GitBranch, PenTool, FileText } from "lucide-react";
+import React, { useState } from "react";
+import { Settings, GitBranch, PenTool, FileText, Lock } from "lucide-react";
+import { VaultPanel } from "../vault/VaultPanel";
 import { useAppStore } from "../../store";
 import { Tooltip } from "../ui/Tooltip";
 import type { AppView } from "../../types";
@@ -18,6 +19,7 @@ export const Sidebar = React.memo(function Sidebar({
 }: SidebarProps) {
   const tabs        = useAppStore((s) => s.tabs);
   const activeTabId = useAppStore((s) => s.activeTabId);
+  const [vaultOpen, setVaultOpen] = useState(false);
   const isWbActive  = tabs.find((t) => t.id === activeTabId)?.kind === "whiteboard";
 
   return (
@@ -53,6 +55,17 @@ export const Sidebar = React.memo(function Sidebar({
           </button>
         </Tooltip>
 
+        <Tooltip content="Secure Vault">
+          <button
+            className={`activity-btn${vaultOpen ? " is-active" : ""}`}
+            aria-label="Secure Vault"
+            aria-pressed={vaultOpen}
+            onClick={() => setVaultOpen((v) => !v)}
+          >
+            <Lock size={16} strokeWidth={1.8} />
+          </button>
+        </Tooltip>
+
         <div style={{ flex: 1 }} />
 
         <Tooltip content="Settings" shortcut="Ctrl+,">
@@ -61,6 +74,7 @@ export const Sidebar = React.memo(function Sidebar({
           </button>
         </Tooltip>
       </div>
+      {vaultOpen && <VaultPanel />}
     </aside>
   );
 });

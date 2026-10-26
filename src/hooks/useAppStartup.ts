@@ -1,13 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
-import { readTextFile } from "@tauri-apps/plugin-fs";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 
 import { useAppStore } from "../store";
 import { bootstrapAutostart } from "../lib/autostart";
 import { isTourCompleted, wasUpdated, recordSeenVersion } from "../lib/firstRun";
-import { getFileName } from "../lib/pathUtils";
-import type { FileEntry } from "../lib/fileOps";
+import { readFileEntry, type FileEntry } from "../lib/fileOps";
 import { WHATS_NEW } from "../config/whatsNew";
 import { APP_VERSION } from "../config/app";
 import { updater } from "../lib/updater";
@@ -80,10 +78,7 @@ export function useAppStartup({
     invoke<string | null>("get_open_file").then(async (filePath) => {
       if (!filePath) return;
       try {
-        const content = await readTextFile(filePath);
-        const name = getFileName(filePath) || "Note";
-        const title = name.replace(/\.(md|markdown|txt|notiq)$/i, "");
-        openFilesAsTabs([{ path: filePath, content, title }]);
+        openFilesAsTabs([await readFileEntry(filePath)]);
       } catch { /* file unreadable — ignore */ }
     });
   }, []); // Init-once: reads from store via openFilesAsTabs (stable ref)
@@ -102,10 +97,7 @@ export function useAppStartup({
         const entries: FileEntry[] = [];
         for (const filePath of event.payload.paths) {
           try {
-            const content = await readTextFile(filePath);
-            const name = getFileName(filePath) || "Note";
-            const title = name.replace(/\.(md|markdown|txt|notiq)$/i, "");
-            entries.push({ path: filePath.replace(/\\/g, "/"), content, title });
+            entries.push(await readFileEntry(filePath));
           } catch { /* skip unreadable / binary */ }
         }
         if (entries.length) openFilesAsTabs(entries);

@@ -6,6 +6,8 @@ import { MarkdownPreview, type PreviewHandle } from "./MarkdownPreview";
 import { PreviewSearchBar } from "./PreviewSearchBar";
 import { Button } from "../ui/Button";
 import { getLanguageFromPath, isMarkdownLike } from "../../lib/language";
+import { displayPathOf } from "../../lib/vault";
+import { LockedNoteView } from "../vault/LockedNoteView";
 
 export const EditorContainer = React.memo(function EditorContainer() {
   const tabs        = useAppStore((s) => s.tabs);
@@ -72,7 +74,7 @@ export const EditorContainer = React.memo(function EditorContainer() {
       if (!e.ctrlKey || e.key !== "f") return;
       if (!activeTab) return;
 
-      const isMd = isMarkdownLike(activeTab.filePath);
+      const isMd = isMarkdownLike(displayPathOf(activeTab));
       const mode = isMd ? activeTab.editorMode : "markdown";
 
       if (mode === "preview") {
@@ -142,8 +144,12 @@ export const EditorContainer = React.memo(function EditorContainer() {
     );
   }
 
-  const language      = activeTab.language ?? getLanguageFromPath(activeTab.filePath);
-  const isMdNote      = isMarkdownLike(activeTab.filePath) && !activeTab.language;
+  // Secure Vault: a locked note shows no content at all — only the unlock screen.
+  if (activeTab.vaultLocked) return <LockedNoteView tab={activeTab} />;
+
+  const shownPath     = displayPathOf(activeTab);
+  const language      = activeTab.language ?? getLanguageFromPath(shownPath);
+  const isMdNote      = isMarkdownLike(shownPath) && !activeTab.language;
   const { id, content, editorMode } = activeTab;
   const effectiveMode = isMdNote ? editorMode : "markdown";
 

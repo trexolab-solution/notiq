@@ -1,4 +1,8 @@
-import { NotepadText, List, Sparkles, MessageSquare } from "lucide-react";
+import { useState } from "react";
+import { NotepadText, List, Sparkles, MessageSquare, MoreHorizontal } from "lucide-react";
+import { useAppStore } from "../../store";
+import { ContextMenu, type ContextMenuItem } from "../ui/ContextMenu";
+import { MODES } from "./TitlebarModePicker";
 import { openStickyNote, openStickyNotesList } from "../../lib/stickyNote";
 import type { Tab, AppView } from "../../types";
 
@@ -40,6 +44,24 @@ export function AppTitlebar({
   onShowGraph, onShowEditor, requestClose, activeView, activeTab, isMdNote,
   aiOnboarded, aiEnabled, aiChatOpen, onAIClick, onOpenAISettings, onToggleAiChat,
 }: Props) {
+  const [more, setMore] = useState<{ x: number; y: number } | null>(null);
+  const updateTabEditorMode = useAppStore((s) => s.updateTabEditorMode);
+
+  // Items that collapse out of the bar on narrow windows (see layout.css).
+  const moreItems: ContextMenuItem[] = [
+    { type: "item", label: "New Sticky Note", icon: <NotepadText size={13} />, onClick: () => openStickyNote() },
+    { type: "item", label: "Sticky Notes List", icon: <List size={13} />, onClick: () => openStickyNotesList() },
+    ...(activeView === "editor" && activeTab?.kind === "note" && isMdNote ? [
+      { type: "separator" as const },
+      { type: "label" as const, label: "Editor mode" },
+      ...MODES.map((m) => ({
+        type: "item" as const, label: m.label, icon: m.icon,
+        disabled: activeTab.editorMode === m.id,
+        onClick: () => updateTabEditorMode(activeTab.id, m.id),
+      })),
+    ] : []),
+  ];
+
   return (
     <header className="app-header" onMouseDown={onHeaderMouseDown}>
       <div className="header-left">
@@ -99,16 +121,29 @@ export function AppTitlebar({
           </button>
         </Tooltip>
         <Tooltip content="New Sticky Note">
-          <button className="titlebar-tool-btn" aria-label="New Sticky Note" onClick={() => openStickyNote()}>
+          <button className="titlebar-tool-btn titlebar-opt" aria-label="New Sticky Note" onClick={() => openStickyNote()}>
             <NotepadText size={15} strokeWidth={1.7} />
           </button>
         </Tooltip>
         <Tooltip content="Sticky Notes List">
-          <button className="titlebar-tool-btn" aria-label="Sticky Notes List" onClick={() => openStickyNotesList()}>
+          <button className="titlebar-tool-btn titlebar-opt" aria-label="Sticky Notes List" onClick={() => openStickyNotesList()}>
             <List size={15} strokeWidth={1.7} />
           </button>
         </Tooltip>
+        <button
+          className="titlebar-tool-btn titlebar-more"
+          aria-label="More"
+          aria-haspopup="menu"
+          onClick={(e) => {
+            const r = e.currentTarget.getBoundingClientRect();
+            setMore({ x: r.right - 180, y: r.bottom + 4 });
+          }}
+        >
+          <MoreHorizontal size={15} strokeWidth={1.7} />
+        </button>
       </div>
+
+      {more && <ContextMenu x={more.x} y={more.y} items={moreItems} onClose={() => setMore(null)} />}
 
       <WindowControls />
     </header>

@@ -1,5 +1,6 @@
 import type * as monacoNs from "monaco-editor";
 import { useAppStore } from "../../store";
+import { isVaultPath } from "../vault";
 import { aiComplete, cleanCompletion, ensureMermaidBlock, stripCodeFences } from "./client";
 import { buildAutocompleteMessages, buildDiagramMessages, detectDiagramIntent, fixMermaidSystem } from "./prompts";
 import { buildContext, lineMode } from "./context";
@@ -22,6 +23,8 @@ export function ensureInlineProvider(monaco: typeof monacoNs): void {
       const s = useAppStore.getState();
       const empty = { items: [] };
       if (!s.aiEnabled || !s.aiAutocompleteEnabled || !s.aiModel) return empty;
+      // Vault notes never leave the device — no autocomplete requests for them.
+      if (isVaultPath(s.tabs.find((t) => t.id === s.activeTabId)?.filePath)) return empty;
 
       const isExplicit =
         context.triggerKind === monaco.languages.InlineCompletionTriggerKind.Explicit;

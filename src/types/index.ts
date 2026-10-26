@@ -69,6 +69,12 @@ export interface Tab {
   /** Pasted-image attachments. Key = relative path used in markdown (e.g. "assets/img-1.png");
    *  value = absolute fs path (temp folder for unsaved notes, <note-dir>/<rel> for saved). */
   attachments?: Record<string, string>;
+  /** Secure Vault: this `.nqv` tab is locked — `content` is empty and the
+   *  editor shows the unlock screen instead. Never persisted as unlocked. */
+  vaultLocked?: boolean;
+  /** Secure Vault: original file type of a `.nqv` note (e.g. "md"). Drives
+   *  language / markdown mode, since the `.nqv` extension carries no type. */
+  vaultExt?: string;
 }
 
 export interface GraphNode {

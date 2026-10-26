@@ -7,8 +7,7 @@ import { restoreStateCurrent, StateFlags } from "@tauri-apps/plugin-window-state
 import { useAppStore } from "./store";
 import { openStickyNote, openStickyNotesList } from "./lib/stickyNote";
 import { listen } from "@tauri-apps/api/event";
-import { readTextFile } from "@tauri-apps/plugin-fs";
-import { getFileName } from "./lib/pathUtils";
+import { readFileEntry } from "./lib/fileOps";
 
 export function initMainApp() {
   // Listen for "New Sticky Note" from tray menu — registered early so no
@@ -25,10 +24,7 @@ export function initMainApp() {
     const filePath = event.payload;
     if (!filePath) return;
     try {
-      const content = await readTextFile(filePath);
-      const name = getFileName(filePath) || "Note";
-      const title = name.replace(/\.(md|markdown|txt|notiq)$/i, "");
-      useAppStore.getState().openFilesAsTabs([{ path: filePath, content, title }]);
+      useAppStore.getState().openFilesAsTabs([await readFileEntry(filePath)]);
     } catch { /* file unreadable — ignore */ }
   }).catch((e) => console.warn("Failed to listen for open-file:", e));
 

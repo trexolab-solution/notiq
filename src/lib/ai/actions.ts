@@ -7,6 +7,7 @@ import { aiActivity } from "./activity";
 import { validateMermaid } from "./mermaid";
 import { showReview } from "./reviewEdit";
 import { toast } from "../toast";
+import { isVaultPath, AI_BLOCKED_FOR_VAULT_MSG } from "../vault";
 import * as P from "./prompts";
 
 type Editor = monacoNs.editor.ICodeEditor;
@@ -18,6 +19,8 @@ function ready(): boolean {
   const s = useAppStore.getState();
   if (!s.aiEnabled) { toast.warning("AI is off — turn it on in Settings → AI"); return false; }
   if (!s.aiModel) { toast.warning("Pick a model in Settings → AI"); return false; }
+  const active = s.tabs.find((t) => t.id === s.activeTabId);
+  if (isVaultPath(active?.filePath)) { toast.warning(AI_BLOCKED_FOR_VAULT_MSG); return false; }
   return true;
 }
 

@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/shallow";
 import { useAppStore } from "../../../store";
+import { isVaultPath } from "../../../lib/vault";
 import { seedContextTabIds } from "./contextFiles";
 
 /**
@@ -15,7 +16,8 @@ export function useContextFiles() {
   );
 
   // Open note/file tabs — the pool the context picker chooses from.
-  const noteTabs = useAppStore(useShallow((s) => s.tabs.filter((t) => t.kind === "note")));
+  // Vault notes are never offered: their text must not reach an AI provider.
+  const noteTabs = useAppStore(useShallow((s) => s.tabs.filter((t) => t.kind === "note" && !isVaultPath(t.filePath))));
 
   // Which open tabs are included as chat context. Seeded to just the active
   // tab (matches the old single-file behavior); reset on New chat/load chat,

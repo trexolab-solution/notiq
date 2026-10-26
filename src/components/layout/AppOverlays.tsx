@@ -8,6 +8,8 @@ import { SettingsModal } from "../ui/SettingsModal";
 import { UpdateDialog } from "../ui/UpdateDialog";
 import { FileSelectionModal } from "../ui/FileSelectionModal";
 import { ToastProvider } from "../ui/Toast";
+import { VaultDialog } from "../vault/VaultDialog";
+import { VaultDestinationDialog } from "../vault/VaultDestinationDialog";
 
 import type { CtxMenuState } from "../../hooks/useGlobalContextMenu";
 import type { Tab, AppView } from "../../types";
@@ -167,6 +169,9 @@ export function AppOverlays({
       )}
 
       <UpdateDialog />
+
+      <VaultDialog />
+      <VaultDestinationDialog />
 
       <ToastProvider />
 

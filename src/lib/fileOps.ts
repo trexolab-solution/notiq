@@ -1,8 +1,23 @@
 import { readTextFile, writeTextFile, writeFile as writeFileBytes, readDir } from "@tauri-apps/plugin-fs";
 import { open, save } from "@tauri-apps/plugin-dialog";
-import { getFileStem } from "./pathUtils";
+import { getFileName, getFileStem } from "./pathUtils";
+import { isVaultPath } from "./vault";
 
 export type FileEntry = { path: string; content: string; title: string };
+
+/**
+ * Builds a FileEntry for a path coming from any "open file" entry point
+ * (dialog, drag-drop, file association, second instance).
+ * `.nqv` vault files are binary ciphertext: they are NOT read here — the entry
+ * carries empty content and the store opens the tab locked.
+ */
+export async function readFileEntry(path: string): Promise<FileEntry> {
+  const norm  = path.replace(/\\/g, "/");
+  const name  = getFileName(norm) || "Note";
+  const title = name.replace(/\.(md|markdown|txt|notiq|nqv)$/i, "");
+  if (isVaultPath(norm)) return { path: norm, content: "", title };
+  return { path: norm, content: await readTextFile(norm), title };
+}
 
 const TEXT_EXTS = /\.(md|markdown|txt|js|jsx|ts|tsx|html|htm|css|scss|less|json|xml|yaml|yml|toml|ini|sh|bash|zsh|py|rb|php|go|rs|java|c|h|cpp|cs|swift|kt|lua|sql|r|dart)$/i;
 
@@ -23,6 +38,7 @@ export async function pickAndReadMultipleFiles(): Promise<FileEntry[]> {
     multiple: true,
     filters: [
       { name: "Text / Markdown", extensions: ["md", "markdown", "txt"] },
+      { name: "Notiq Vault", extensions: ["nqv"] },
       { name: "All Files", extensions: ["*"] },
     ],
   });
@@ -31,6 +47,10 @@ export async function pickAndReadMultipleFiles(): Promise<FileEntry[]> {
   const results: FileEntry[] = [];
   for (const p of paths) {
     try {
+      if (isVaultPath(p)) {
+        results.push(await readFileEntry(p));
+        continue;
+      }
       const content = await readTextFile(p);
       const title   = getFileStem(p);
       results.push({ path: p.replace(/\\/g, "/"), content, title });
@@ -98,6 +118,17 @@ export async function pickSavePath(suggestedName: string): Promise<string | null
     defaultPath,
   });
   return result ?? null;
+}
+
+/** Save dialog for a new vault note; returns a path ending in `.nqv`, or null. */
+export async function pickVaultSavePath(suggestedName: string): Promise<string | null> {
+  const base = suggestedName.replace(/\.[^.\\/]+$/, "") || "Untitled";
+  const result = await save({
+    filters: [{ name: "Notiq Vault", extensions: ["nqv"] }],
+    defaultPath: `${base}.nqv`,
+  });
+  if (!result) return null;
+  return /\.nqv$/i.test(result) ? result : `${result}.nqv`;
 }
 
 /** Write text to a file path. */

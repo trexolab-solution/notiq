@@ -1,5 +1,6 @@
 import React from "react";
 import { ALL_SHORTCUTS, SHORTCUT_GROUPS } from "./settingsConstants";
+import { getPanicShortcut } from "../../../lib/vaultPrefs";
 
 export const ShortcutsSection = React.memo(function ShortcutsSection() {
   return (
@@ -21,7 +22,7 @@ export const ShortcutsSection = React.memo(function ShortcutsSection() {
                 >
                   <span className="text-sm text-[var(--color-text)]">{s.label}</span>
                   <kbd className="font-mono text-xs px-2 py-0.5 rounded bg-[var(--color-bg-tertiary)] border border-[var(--color-border)] text-[var(--color-text-muted)]">
-                    {s.key}
+                    {s.label === "Lock vault now" ? getPanicShortcut() : s.key}
                   </kbd>
                 </div>
               ))}

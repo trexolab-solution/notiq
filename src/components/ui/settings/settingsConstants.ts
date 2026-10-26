@@ -132,6 +132,7 @@ export const ALL_SHORTCUTS: ShortcutEntry[] = [
   { section: "Format", key: "Ctrl+Shift+T", label: "Table" },
   { section: "Format", key: "Ctrl+Z",       label: "Undo" },
   { section: "Format", key: "Ctrl+Y",       label: "Redo" },
+  { section: "Vault",  key: "Ctrl+Alt+L",  label: "Lock vault now" },
   { section: "Terminal", key: "Ctrl+`",        label: "Toggle terminal" },
   { section: "Terminal", key: "Ctrl+⇧+`",  label: "New terminal" },
   { section: "Terminal", key: "Ctrl+J",        label: "Focus terminal" },
@@ -140,7 +141,7 @@ export const ALL_SHORTCUTS: ShortcutEntry[] = [
 ];
 
 /** Order of the groups in the Shortcuts UI. */
-export const SHORTCUT_GROUPS = ["File", "Tabs", "Editor", "Format", "Terminal"];
+export const SHORTCUT_GROUPS = ["File", "Tabs", "Editor", "Format", "Vault", "Terminal"];
 
 /** Common heading style for sub-sections inside settings panes. */
 export const SUB_HEADING_CLASS = "text-xs font-bold uppercase tracking-wider mt-2 mb-1";
