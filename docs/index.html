@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Notiq — local-first notes with an encrypted vault</title>
+<meta name="description" content="Notiq is a fast desktop Markdown editor, whiteboard and knowledge graph. Your notes stay on your machine; lock the private ones in an encrypted vault.">
+<link rel="icon" href="logo.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <a class="brand" href="./"><img src="logo.png" alt="">Notiq</a>
+    <nav><a href="#vault">Vault</a><a href="#sync">Sync</a><a href="privacy.html">Privacy</a><a href="https://github.com/trexolab-solution/notiq">GitHub</a></nav>
+  </header>
+
+  <div class="hero">
+    <div>
+      <h1>Notes that stay on your machine.</h1>
+      <p class="lead">A fast Markdown editor, whiteboard and knowledge graph for your desktop. Lock the private ones in an encrypted vault.</p>
+      <div class="cta">
+        <a class="btn primary" href="https://github.com/trexolab-solution/notiq/releases/latest">Download for Windows, macOS, Linux</a>
+        <a class="btn" href="https://github.com/trexolab-solution/notiq">View source</a>
+      </div>
+      <p class="note">Free and open source (MIT). No account, no telemetry.</p>
+    </div>
+    <div class="files" aria-label="What a locked note looks like on disk">
+      <p class="cap">ssh-prod-server.md &nbsp;— what you see</p>
+      <div class="row">host prod-1
+user deploy
+key  ~/.ssh/prod_ed25519</div>
+      <hr>
+      <p class="cap">3f9a…c1.nqv &nbsp;— what is on disk, and what is ever uploaded</p>
+      <div class="row"><span class="ok">NQV1</span> 9c e4 71 a8 0b d2 3e 5f f6 12 8a c4 37 b9 60 d1 4a 8e 02 77 e3 19 bc 55 a0 6d f8 2c 91 4e b3 07 d6 …</div>
+    </div>
+  </div>
+
+  <section id="vault">
+    <div class="cols">
+      <div>
+        <h2>A vault for the notes you wouldn't paste into a chat.</h2>
+      </div>
+      <div>
+        <p><strong>Lock any note</strong> and it becomes an encrypted <code>.nqv</code> file in a folder you choose. Group them: SSH, Logins, Recovery codes, whatever you use.</p>
+        <p><strong>Strong by default.</strong> Argon2id turns your master password into a key; XChaCha20-Poly1305 encrypts every note. A separate recovery key is shown once, at setup.</p>
+        <p><strong>Auto-lock</strong> after idle time or when the app goes to the tray, plus a panic shortcut you can set yourself.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="sync">
+    <div class="cols">
+      <div>
+        <h2>Sync it across machines without trusting a server.</h2>
+      </div>
+      <div>
+        <p>Connect your own Telegram bot and the vault syncs both ways between your computers. Only ciphertext is uploaded, under random file names, so titles and folders never leave the app. Google Drive is next.</p>
+        <p>On a new machine: install Notiq, choose <strong>Restore from Telegram</strong>, enter the bot token and your master password. That's it.</p>
+        <p>The bot token lives in your system keychain. Conflicts keep both versions; nothing is ever deleted by sync.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Everything else you'd expect</h2>
+    <dl class="facts">
+      <dt>Editor</dt><dd>Monaco-based Markdown editing with live preview, tabs and a built-in terminal.</dd>
+      <dt>Whiteboard</dt><dd>Sketch next to your notes; drawings stay with the tab.</dd>
+      <dt>Knowledge graph</dt><dd>Link notes with wiki-style links and see how they connect.</dd>
+      <dt>Local-first</dt><dd>Files on your disk. AI is optional, off by default, and only talks to the Ollama endpoint you configure.</dd>
+    </dl>
+  </section>
+
+  <section>
+    <h2>Get started</h2>
+    <ol class="steps">
+      <li><b>Download</b> the installer for your system from the <a href="https://github.com/trexolab-solution/notiq/releases/latest">latest release</a>.</li>
+      <li><b>Write</b> as usual. When a note is private, lock it and pick a vault folder.</li>
+      <li><b>Optional:</b> connect Telegram in Settings → Vault to keep your other machines in step.</li>
+    </ol>
+  </section>
+
+  <footer>
+    <div><a href="privacy.html">Privacy policy</a><a href="https://github.com/trexolab-solution/notiq/issues">Report an issue</a><a href="https://github.com/trexolab-solution/notiq/blob/main/LICENSE">MIT license</a></div>
+    <div>Notiq</div>
+  </footer>
+</div>
+</body>
+</html>

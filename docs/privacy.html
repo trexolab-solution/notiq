@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Privacy policy — Notiq</title>
+<meta name="description" content="How Notiq handles your data: locally, with optional encrypted sync to your own Telegram bot or Google Drive.">
+<link rel="icon" href="logo.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <a class="brand" href="./"><img src="logo.png" alt="">Notiq</a>
+    <nav><a href="./">Home</a><a href="https://github.com/trexolab-solution/notiq">GitHub</a></nav>
+  </header>
+
+  <main class="doc">
+    <h1>Privacy policy</h1>
+    <p class="meta">Last updated: 27 October 2026</p>
+
+    <p>Notiq is a desktop app that runs on your computer. We do not run a server for it, and we do not receive your notes, files or account details.</p>
+
+    <h2>What stays on your device</h2>
+    <ul>
+      <li>Your notes, whiteboards and settings are stored locally.</li>
+      <li>Vault notes are encrypted on your device with a key derived from your master password. The password and the decrypted key are never sent anywhere.</li>
+      <li>Notiq has no analytics, crash reporting or advertising.</li>
+    </ul>
+
+    <h2>Optional sync (you choose, off until you connect it)</h2>
+    <p><strong>Telegram.</strong> If you connect your own Telegram bot, Notiq uploads encrypted <code>.nqv</code> files and one small sync-state file to your private chat with that bot. File names are random. The sync-state file contains your vault key file (your vault key wrapped by your master password and recovery key) and a list of notes sealed with your vault key. Your bot token is stored in your operating system's keychain.</p>
+    <p><strong>Google Drive.</strong> If you connect Google Drive, Notiq asks for one permission, <code>drive.appdata</code>. It lets the app read and write only its own hidden application folder in your Drive. Notiq cannot see your other files. The same encrypted files and sync-state file described above are stored there. Your Google sign-in token is stored in your operating system's keychain.</p>
+    <p>Notiq's use and transfer of information received from Google APIs adheres to the Google API Services User Data Policy, including the Limited Use requirements. Data from Google is used only to provide sync, is not shared with anyone, and is not used for advertising or to train AI models.</p>
+
+    <h2>Optional AI features</h2>
+    <p>AI is off by default. When you turn it on, only the text needed for a request is sent to the Ollama endpoint you configure: your own machine, or Ollama Cloud if you add an API key. Nothing is sent while AI is off.</p>
+
+    <h2>What we can see</h2>
+    <p>Nothing. The developers have no access to your notes, your vault, your Telegram chat or your Google Drive. Telegram and Google process the encrypted files under their own privacy policies.</p>
+
+    <h2>Your control</h2>
+    <ul>
+      <li>Disconnect Telegram or Google Drive in Settings at any time. This removes the stored token from your device.</li>
+      <li>Delete the synced files from your Telegram chat or from Google Drive's app data (Google Account → Manage third-party access) whenever you like.</li>
+      <li>If you lose both your master password and recovery key, nobody, including us, can recover your vault.</li>
+    </ul>
+
+    <h2>Children</h2>
+    <p>Notiq is not directed at children and does not knowingly collect data from anyone.</p>
+
+    <h2>Changes and contact</h2>
+    <p>If this policy changes, the new version will be posted on this page with an updated date. Questions or concerns: open an issue at <a href="https://github.com/trexolab-solution/notiq/issues">github.com/trexolab-solution/notiq/issues</a>.</p>
+  </main>
+
+  <footer>
+    <div><a href="./">Home</a><a href="https://github.com/trexolab-solution/notiq/blob/main/LICENSE">MIT license</a></div>
+    <div>Notiq</div>
+  </footer>
+</div>
+</body>
+</html>
