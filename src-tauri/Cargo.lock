@@ -2530,7 +2530,7 @@ dependencies = [
 
 [[package]]
 name = "notiq"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "argon2",
  "base64 0.22.1",
