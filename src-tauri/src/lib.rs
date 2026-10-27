@@ -3,6 +3,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::Manager;
 
 mod ai;
+pub mod autofill;
 mod vault;
 mod vault_core;
 mod gdrive;
@@ -648,6 +649,7 @@ pub fn run() {
         telegram::tg_bootstrap,
         gdrive::gdrive_connect,
         gdrive::gdrive_bootstrap,
+        autofill::autofill_reply,
     ]);
 
     #[cfg(not(desktop))]
@@ -677,6 +679,7 @@ pub fn run() {
         telegram::tg_bootstrap,
         gdrive::gdrive_connect,
         gdrive::gdrive_bootstrap,
+        autofill::autofill_reply,
     ]);
 
     #[cfg(desktop)]
@@ -705,6 +708,9 @@ pub fn run() {
                     file_assoc::register(&exe);
                 }
             }
+
+            #[cfg(desktop)]
+            autofill::start(app.handle());
 
             #[cfg(desktop)]
             setup_tray(app)?;

@@ -9,6 +9,7 @@ import { UpdateDialog } from "../ui/UpdateDialog";
 import { FileSelectionModal } from "../ui/FileSelectionModal";
 import { ToastProvider } from "../ui/Toast";
 import { VaultDialog } from "../vault/VaultDialog";
+import { AutofillPrompt } from "../vault/AutofillPrompt";
 import { VaultDestinationDialog } from "../vault/VaultDestinationDialog";
 
 import type { CtxMenuState } from "../../hooks/useGlobalContextMenu";
@@ -171,6 +172,7 @@ export function AppOverlays({
       <UpdateDialog />
 
       <VaultDialog />
+      <AutofillPrompt />
       <VaultDestinationDialog />
 
       <ToastProvider />

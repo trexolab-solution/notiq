@@ -21,6 +21,7 @@ Thanks for updating! Here's what's new in this release.
 - **Organised storage** — a new 🔒 panel in the left bar shows your vault folder. Pick where it lives and file notes into folders like *SSH* or *Logins*.
 - **Safer by design** — auto-lock on idle or when the window closes, a customizable panic-lock shortcut (default **Ctrl+Alt+L**), and a recovery key.
 - **Sync across your devices (optional)** — Google Drive or Telegram, two-way and automatic. Only encrypted files leave the app. On a new computer choose **Restore** on the vault setup screen. Set it up in **Settings → Vault**.
+- **Logins & browser autofill** — save structured logins (password generator, 2-step codes, auto-clearing copy) and fill them into Chrome, Edge or Brave with the Notiq Autofill extension. Every fill needs your approval in Notiq. Extension is in the repo (browser-extension folder).
 - **Smarter title bar** — buttons collapse into **⋯** menus on narrow windows, and the editor-mode switcher shrinks to icons.
 - **Terminal feels native** — proper multi-line paste (great for TUIs like Claude Code), Ctrl+C to copy a selection, right-click copy/paste, and no more garbled characters.
 

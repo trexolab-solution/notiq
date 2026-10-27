@@ -407,6 +407,8 @@ Lock individual notes behind a master password. A locked note is stored as a `.n
 - **Building with Drive sync:** set `NOTIQ_GOOGLE_CLIENT_SECRET` (the Desktop OAuth client secret) at build time; it is not stored in the repo.
 - **Not covered:** titles of locked notes are visible in tabs/sidebar, images pasted into `assets/` stay unencrypted, unsaved edits to a locked note are discarded on restart, and a compromised OS (keylogger, memory dump while unlocked) defeats any in-app encryption.
 
+**Logins & browser autofill.** Create a *Login* entry (site, username, password, optional 2-step secret) from the vault panel. The `browser-extension/` folder holds a Chrome/Edge/Brave extension that fills them into pages through a local native-messaging bridge; the vault must be unlocked and each fill is approved inside Notiq. See `browser-extension/README.md`.
+
 **Losing both your master password and recovery key means the notes cannot be recovered.**
 
 ## Data & Privacy

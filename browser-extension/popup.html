@@ -1,0 +1,18 @@
+<!doctype html>
+<meta charset="utf-8">
+<style>
+  :root { color-scheme: light dark; }
+  body { width: 280px; margin: 0; padding: 14px; font: 13px system-ui, sans-serif; }
+  h1 { font-size: 14px; margin: 0 0 8px; }
+  p { margin: 6px 0; opacity: .8; line-height: 1.4; }
+  button { width: 100%; padding: 9px; border: 0; border-radius: 8px; background: #6366f1; color: #fff; font: inherit; font-weight: 600; cursor: pointer; }
+  button:disabled { opacity: .6; cursor: default; }
+  #msg { min-height: 18px; }
+  #msg.err { color: #ef4444; opacity: 1; }
+  #msg.ok { color: #22c55e; opacity: 1; }
+</style>
+<h1>Notiq Autofill</h1>
+<button id="fill">Fill login for this site</button>
+<p id="msg"></p>
+<p>Notiq will ask you to approve before anything is filled. Shortcut: Alt+Shift+L.</p>
+<script src="popup.js"></script>

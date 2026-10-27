@@ -1,0 +1,87 @@
+import { useEffect, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
+import { ShieldCheck } from "lucide-react";
+import { Modal } from "../ui/Modal";
+import { Button } from "../ui/Button";
+import { useVaultStore } from "../../store/vaultStore";
+import { credentialsFor, findLogins, type LoginMatch } from "../../lib/autofill";
+
+interface Req { id: string; host: string }
+
+const reply = (id: string, payload: unknown) => invoke("autofill_reply", { id, payload });
+
+/**
+ * A browser extension asked to fill a login. Nothing is released until the
+ * vault is unlocked and the user presses Allow here.
+ */
+export function AutofillPrompt() {
+  const [req, setReq] = useState<Req | null>(null);
+  const [matches, setMatches] = useState<LoginMatch[]>([]);
+  const [pick, setPick] = useState(0);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    const un = listen<Req>("autofill:request", async (e) => {
+      const r = e.payload;
+      if (!useVaultStore.getState().unlocked && !(await useVaultStore.getState().ensureUnlocked())) {
+        await reply(r.id, { error: "locked" });
+        return;
+      }
+      try {
+        const found = await findLogins(r.host);
+        if (!found.length) { await reply(r.id, { error: "no_match" }); return; }
+        setMatches(found); setPick(0); setReq(r);
+      } catch {
+        await reply(r.id, { error: "failed" });
+      }
+    });
+    return () => { void un.then((f) => f()); };
+  }, []);
+
+  // Locking the vault while a prompt is open cancels it.
+  const unlocked = useVaultStore((s) => s.unlocked);
+  useEffect(() => {
+    if (!unlocked && req) { void reply(req.id, { error: "locked" }); setReq(null); setMatches([]); }
+  }, [unlocked, req]);
+
+  if (!req) return null;
+
+  const done = () => { setReq(null); setMatches([]); };
+  const deny = async () => { await reply(req.id, { error: "denied" }); done(); };
+  const allow = async () => {
+    if (busy) return;
+    setBusy(true);
+    try { await reply(req.id, { ok: true, ...(await credentialsFor(matches[pick])) }); }
+    finally { setBusy(false); done(); }
+  };
+
+  return (
+    <Modal onClose={() => void deny()} zClassName="z-[80]">
+      <div className="w-[400px] max-w-[92vw] rounded-xl p-5 bg-[var(--color-bg-secondary)] border border-[var(--color-border)] shadow-2xl text-[var(--color-text)]"
+           role="dialog" aria-modal="true" aria-label="Allow autofill">
+        <div className="flex items-center gap-2 mb-2">
+          <ShieldCheck size={18} style={{ color: "var(--color-primary)" }} />
+          <h2 className="text-sm font-semibold">Fill login in your browser?</h2>
+        </div>
+        <p className="text-xs mb-3 text-[var(--color-text-muted)]">
+          Your browser is on <strong className="text-[var(--color-text)]">{req.host}</strong> and asked for a saved login.
+          Only allow this if you just pressed Fill there.
+        </p>
+        <div className="flex flex-col gap-1 mb-4">
+          {matches.map((m, i) => (
+            <label key={m.path} className="flex items-center gap-2 text-xs px-2 py-1.5 rounded cursor-pointer border border-[var(--color-border)]">
+              <input type="radio" name="login" checked={pick === i} onChange={() => setPick(i)} />
+              <span className="font-medium">{m.entry.title || m.entry.url}</span>
+              <span className="text-[var(--color-text-muted)] truncate">{m.entry.username}</span>
+            </label>
+          ))}
+        </div>
+        <div className="flex gap-2 justify-end">
+          <Button onClick={() => void deny()}>Deny</Button>
+          <Button variant="primary" disabled={busy} onClick={() => void allow()}>Allow</Button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
