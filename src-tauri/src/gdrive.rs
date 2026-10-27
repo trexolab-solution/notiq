@@ -29,7 +29,7 @@ use tauri_plugin_opener::OpenerExt;
 use crate::sync::{self, data_file, random_name, Backend, MAX_FILE};
 use crate::vault::atomic_write;
 
-const CLIENT_ID: &str = "639536443788-1dru69jrppkefdfqph1hjn7enhta2471.apps.googleusercontent.com";
+const CLIENT_ID: &str = "639536443788-jo6ec87mf9qfafpbb1qqskoj0gca8jra.apps.googleusercontent.com";
 const CLIENT_SECRET: Option<&str> = option_env!("NOTIQ_GOOGLE_CLIENT_SECRET");
 const SCOPES: &str = "https://www.googleapis.com/auth/drive.appdata openid email";
 const AUTH_URL: &str = "https://accounts.google.com/o/oauth2/v2/auth";
