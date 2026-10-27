@@ -371,6 +371,11 @@ pub struct SyncReport {
 /// Requires the vault to be unlocked (the manifest is sealed with its key).
 #[tauri::command]
 pub async fn sync_run(app: AppHandle, state: State<'_, VaultState>, root: String) -> Result<SyncReport, String> {
+    // One sync at a time: auto-sync, "Sync now" and sync-before-lock would otherwise
+    // race on the index and overwrite each other's manifest.
+    static SYNC_LOCK: std::sync::OnceLock<tauri::async_runtime::Mutex<()>> = std::sync::OnceLock::new();
+    let _guard = SYNC_LOCK.get_or_init(|| tauri::async_runtime::Mutex::new(())).lock().await;
+
     let (_, backend) = load_backend(&app)?.ok_or("Storage isn't set up yet")?;
     state.with_unlocked(|_, _| Ok(()))?;
 
@@ -413,6 +418,11 @@ pub async fn sync_run(app: AppHandle, state: State<'_, VaultState>, root: String
     // 3. Execute the plan.
     let mut manifest_changed = false;
     let ts = now_secs();
+    // Blobs replaced by this run: deleted only once the new manifest is published,
+    // otherwise other devices would be left pointing at a deleted blob.
+    let mut stale: Vec<String> = vec![];
+    let mut fresh: Vec<String> = vec![]; // blobs uploaded by this run
+    let mut failed_rels: Vec<String> = vec![];
     for action in plan(&locals, &remote, &idx.files) {
         let (rel, upload, download, conflict) = match action {
             Action::InSync(_) => { rep.skipped += 1; continue; }
@@ -438,7 +448,8 @@ pub async fn sync_run(app: AppHandle, state: State<'_, VaultState>, root: String
                 let bytes = fs::read(&target).map_err(|e| e.to_string())?;
                 if sha_hex(&bytes) != lf.hash { return Err("changed while syncing, will retry".into()); }
                 let id = backend.put(bytes).await?;
-                if let Some(old) = remote.get(&rel) { backend.delete(&old.id).await; }
+                if let Some(old) = remote.get(&rel) { stale.push(old.id.clone()); }
+                fresh.push(id.clone());
                 remote.insert(rel.clone(), Entry { id, hash: lf.hash.clone(), updated: lf.updated });
                 rep.uploaded += 1;
                 manifest_changed = true;
@@ -456,21 +467,47 @@ pub async fn sync_run(app: AppHandle, state: State<'_, VaultState>, root: String
             Ok(())
         }
         .await;
-        if let Err(e) = result { rep.failed.push(format!("{rel}: {e}")); }
-    }
-
-    // 4. Publish the merged manifest (+ key file) as the new sync state.
-    if manifest_changed || need_state_upload {
-        let manifest = Manifest { v: 2, files: remote.clone() };
-        let plain = serde_json::to_vec(&manifest).map_err(|e| e.to_string())?;
-        let sealed = state.with_unlocked(|k, id| vc::seal(k, id, "json", &plain).map_err(|e| e.to_string()))?;
-        let vault_json = vault::read_meta_json(&app)?.ok_or("No vault on this device")?;
-        if let Err(e) = backend.write_state(pack_state(&vault_json, &sealed)).await {
-            rep.failed.push(format!("sync state: {e}"));
+        if let Err(e) = result {
+            rep.failed.push(format!("{rel}: {e}"));
+            failed_rels.push(rel);
         }
     }
 
-    idx.files = remote;
+    // 4. Publish the merged manifest (+ key file) as the new sync state.
+    let mut published = true;
+    if manifest_changed || need_state_upload {
+        let manifest = Manifest { v: 2, files: remote.clone() };
+        let sent: Result<(), String> = async {
+            let plain = serde_json::to_vec(&manifest).map_err(|e| e.to_string())?;
+            // Fails if the vault locked mid-sync; nothing is recorded, so the next run retries.
+            let sealed = state.with_unlocked(|k, id| vc::seal(k, id, "json", &plain).map_err(|e| e.to_string()))?;
+            let vault_json = vault::read_meta_json(&app)?.ok_or("No vault on this device")?;
+            backend.write_state(pack_state(&vault_json, &sealed)).await
+        }
+        .await;
+        if let Err(e) = sent {
+            published = false;
+            rep.failed.push(format!("sync state: {e}"));
+        }
+    }
+    if published {
+        for id in &stale { backend.delete(id).await; }
+    } else {
+        // New blobs are orphaned (the manifest never pointed at them): best-effort cleanup.
+        for id in &fresh { backend.delete(id).await; }
+        return Ok(rep); // keep the old merge base; the next run redoes the work
+    }
+
+    // The merge base only advances for notes that actually synced; a failed note keeps
+    // its old base so it isn't mistaken for "only the other side changed" next time.
+    let mut base = remote;
+    for rel in &failed_rels {
+        match idx.files.get(rel) {
+            Some(old) => { base.insert(rel.clone(), old.clone()); }
+            None => { base.remove(rel); }
+        }
+    }
+    idx.files = base;
     idx.last_sync = Some(now_secs());
     save_index(&app, &idx)?;
     Ok(rep)

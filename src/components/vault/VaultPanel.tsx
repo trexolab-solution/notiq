@@ -10,7 +10,7 @@ import { getVaultDir } from "../../lib/vaultPrefs";
 import { toast } from "../../lib/toast";
 import { createVaultEntry, NEW_ENTRY_OPTIONS } from "../../lib/vaultCreate";
 import { backupDismissedForever } from "../../lib/backupPrompt";
-import { TG_EVENT, FILE_SAVED_EVENT, errText, runSync, tgStatus, tgSyncState } from "../../lib/telegram";
+import { TG_EVENT, FILE_SAVED_EVENT, errText, failedText, runSync, tgStatus, tgSyncState } from "../../lib/telegram";
 
 const NQV = /\.nqv$/i;
 const baseName = (p: string) => p.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || p;
@@ -92,7 +92,7 @@ export function VaultPanel() {
     try {
       const r = await runSync();
       if (r) toast.info(`Sync: ${r.uploaded} uploaded, ${r.downloaded.length} downloaded, ${r.skipped} unchanged`);
-      if (r?.failed.length) toast.error(r.failed[0]);
+      if (r?.failed.length) toast.error(failedText(r.failed));
     } catch (e) {
       toast.error(errText(e));
     } finally {

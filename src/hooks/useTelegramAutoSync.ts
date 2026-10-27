@@ -3,7 +3,7 @@ import { useVaultStore } from "../store/vaultStore";
 import { useAppStore } from "../store";
 import { toast } from "../lib/toast";
 import { backupReminderDue } from "../lib/backupPrompt";
-import { FILE_SAVED_EVENT, PULLED_EVENT, errText, getTgAutoSync, runSync, tgStatus } from "../lib/telegram";
+import { FILE_SAVED_EVENT, PULLED_EVENT, errText, failedText, getTgAutoSync, runSync, tgStatus } from "../lib/telegram";
 
 const DEBOUNCE_MS = 8000;
 const PERIODIC_MS = 5 * 60 * 1000;
@@ -27,7 +27,7 @@ export function useTelegramAutoSync() {
         if (!rep) return;
         if (rep.downloaded.length) toast.info(`Sync: ${rep.downloaded.length} note${rep.downloaded.length > 1 ? "s" : ""} updated from another device`);
         if (rep.conflicts) toast.info(`Sync: ${rep.conflicts} note${rep.conflicts > 1 ? "s were" : " was"} edited on two devices — the older version was kept as "(conflict …)"`);
-        if (rep.failed.length) toast.error(`Sync: ${rep.failed[0]}`);
+        if (rep.failed.length) toast.error(failedText(rep.failed));
       } catch (e) {
         toast.error(`Sync failed: ${errText(e)}`);
       } finally {
