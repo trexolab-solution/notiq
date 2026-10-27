@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { vaultStatus } from "../lib/vault";
+import { ensureVaultDir } from "../lib/vaultDir";
 
 export type VaultDialogMode = "setup" | "unlock" | "recover";
 
@@ -37,6 +38,7 @@ export const useVaultStore = create<VaultUiState>((set, get) => ({
 
   async refresh() {
     try {
+      await ensureVaultDir(); // tells the backend where vault.nqdb lives, before any vault command
       const s = await vaultStatus();
       set({ exists: s.exists, unlocked: s.unlocked });
     } catch (e) {
