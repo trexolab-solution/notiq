@@ -27,7 +27,7 @@ export default function App() {
   const { pendingTab, requestClose, handleSaveAndClose, handleDiscardAndClose, handleCancelClose } = useCloseTab();
 
   const [showSettings,  setShowSettings]  = useState(false);
-  const [settingsSection, setSettingsSection] = useState<"ai" | undefined>(undefined);
+  const [settingsSection, setSettingsSection] = useState<"ai" | "vault" | undefined>(undefined);
   const [showAIOnboarding, setShowAIOnboarding] = useState(false);
   const [showTour, setShowTour] = useState(false);
   const [showPalette,   setShowPalette]   = useState(false);
@@ -64,6 +64,17 @@ export default function App() {
     setAiEnabled(next);
     toast.info(next ? "AI assistance enabled" : "AI assistance disabled");
   }, [aiOnboarded, aiEnabled, setAiEnabled]);
+
+  // Other parts of the app (e.g. the backup reminder) can ask for a settings page.
+  useEffect(() => {
+    const h = (e: Event) => {
+      const section = (e as CustomEvent<"ai" | "vault">).detail;
+      setSettingsSection(section);
+      setShowSettings(true);
+    };
+    window.addEventListener("app:open-settings", h);
+    return () => window.removeEventListener("app:open-settings", h);
+  }, []);
 
   // Right-click the ✨ button → open the AI settings page.
   const openAISettings = useCallback(() => {

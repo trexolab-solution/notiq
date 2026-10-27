@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { useVaultStore } from "../store/vaultStore";
 import { useAppStore } from "../store";
 import { toast } from "../lib/toast";
+import { backupReminderDue } from "../lib/backupPrompt";
 import { FILE_SAVED_EVENT, PULLED_EVENT, errText, getTgAutoSync, runSync, tgStatus } from "../lib/telegram";
 
 const DEBOUNCE_MS = 8000;
@@ -43,7 +44,17 @@ export function useTelegramAutoSync() {
 
     // Pull as soon as the vault unlocks (also covers app start + new-device restore).
     const unsub = useVaultStore.subscribe((s, prev) => {
-      if (s.unlocked && !prev.unlocked) setTimeout(() => { void fire(); }, 1500);
+      if (s.unlocked && !prev.unlocked) {
+        setTimeout(() => { void fire(); }, 1500);
+        // Not backed up? Remind (at most every few days).
+        setTimeout(async () => {
+          try {
+            if (!(await tgStatus()).configured && backupReminderDue() && !useVaultStore.getState().dialog) {
+              useVaultStore.getState().setBackupPrompt(true);
+            }
+          } catch { /* ignore */ }
+        }, 4000);
+      }
     });
     const interval = setInterval(() => { void fire(); }, PERIODIC_MS);
 

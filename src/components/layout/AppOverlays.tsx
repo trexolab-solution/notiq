@@ -26,8 +26,8 @@ interface Props {
 
   showSettings:          boolean;
   setShowSettings:       (show: boolean) => void;
-  settingsSection:       "ai" | undefined;
-  setSettingsSection:    (section: "ai" | undefined) => void;
+  settingsSection:       "ai" | "vault" | undefined;
+  setSettingsSection:    (section: "ai" | "vault" | undefined) => void;
 
   showAIOnboarding:      boolean;
   setShowAIOnboarding:   (show: boolean) => void;

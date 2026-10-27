@@ -9,6 +9,7 @@ import { useVaultStore, type VaultDialogMode } from "../../store/vaultStore";
 import { useAppStore } from "../../store";
 import { useVaultAutoLock } from "../../hooks/useVaultAutoLock";
 import { useTelegramAutoSync } from "../../hooks/useTelegramAutoSync";
+import { BackupPromptDialog } from "./BackupPromptDialog";
 import {
   vaultCreate, vaultUnlock, vaultUnlockWithRecovery, vaultErrorMessage,
 } from "../../lib/vault";
@@ -24,9 +25,13 @@ export function VaultDialog() {
   // vault's global behaviour (idle / close-to-tray auto-lock).
   useVaultAutoLock();
   useTelegramAutoSync();
-  if (!mode) return null;
   // key={mode} remounts on mode switch so passwords never leak between steps.
-  return <VaultDialogInner key={mode} mode={mode} />;
+  return (
+    <>
+      {mode && <VaultDialogInner key={mode} mode={mode} />}
+      <BackupPromptDialog />
+    </>
+  );
 }
 
 function VaultDialogInner({ mode }: { mode: VaultDialogMode }) {
@@ -134,7 +139,12 @@ function VaultDialogInner({ mode }: { mode: VaultDialogMode }) {
             <Button
               variant="primary"
               disabled={!saved}
-              onClick={async () => { setRecoveryKey(null); await succeed(); }}
+              onClick={async () => {
+                setRecoveryKey(null);
+                await succeed();
+                // New vault: offer a backup straight away (first-run onboarding).
+                useVaultStore.getState().setBackupPrompt(true);
+              }}
             >
               Done
             </Button>

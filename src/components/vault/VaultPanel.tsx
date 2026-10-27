@@ -9,6 +9,7 @@ import { ensureVaultDir, pickVaultDir, resetVaultDir, VAULT_DIR_EVENT } from "..
 import { getVaultDir } from "../../lib/vaultPrefs";
 import { toast } from "../../lib/toast";
 import { pickVaultDestination } from "../../lib/vaultDest";
+import { backupDismissedForever } from "../../lib/backupPrompt";
 import { TG_EVENT, FILE_SAVED_EVENT, errText, runSync, tgStatus, tgSyncState } from "../../lib/telegram";
 
 const NQV = /\.nqv$/i;
@@ -21,6 +22,7 @@ export function VaultPanel() {
   const [files, setFiles] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [tg, setTg] = useState(false);
+  const [tgKnown, setTgKnown] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [states, setStates] = useState<Record<string, string>>({});
   const custom = getVaultDir() !== null;
@@ -46,6 +48,7 @@ export function VaultPanel() {
       try {
         const s = await tgStatus();
         setTg(s.configured);
+        setTgKnown(true);
         const m: Record<string, string> = {};
         if (s.configured) for (const f of await tgSyncState(d)) m[f.rel] = f.state;
         setStates(m);
@@ -149,6 +152,16 @@ export function VaultPanel() {
           </button>
         )}
       </div>
+
+      {tgKnown && !tg && !backupDismissedForever() && (
+        <div className="mx-3 mb-2 rounded-md p-2 text-[11px] border border-[var(--color-border)] bg-[var(--color-bg-tertiary)] text-[var(--color-text-muted)]">
+          <b className="text-[var(--color-text)]">Not backed up.</b> These notes exist only on this computer.
+          <button type="button" className="block mt-1 underline cursor-pointer text-[var(--color-text)]"
+                  onClick={() => useVaultStore.getState().setBackupPrompt(true)}>
+            Set up backup
+          </button>
+        </div>
+      )}
 
       <div className="flex-1 overflow-y-auto px-1.5 pb-2">
         {error && <p className="px-2 text-xs text-[var(--color-danger)]">{error}</p>}
