@@ -14,12 +14,13 @@ use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tauri::{AppHandle, Manager, State};
-use zeroize::Zeroizing;
+
 
 use crate::gdrive::GDrive;
 use crate::telegram::TgStore;
 use crate::vault::{self, atomic_write, VaultState};
 use crate::vault_core as vc;
+use crate::vault_db::{self as vdb, DB_EXT};
 
 const INDEX_FILE: &str = "sync_index.json";
 const PROVIDER_FILE: &str = "sync_provider.json";
@@ -37,13 +38,6 @@ pub enum Backend {
 }
 
 impl Backend {
-    /// Store a blob under a random name; returns a provider-specific id.
-    pub async fn put(&self, bytes: Vec<u8>) -> Result<String, String> {
-        match self {
-            Backend::Telegram(b) => b.put(bytes).await,
-            Backend::Drive(b) => b.put(bytes).await,
-        }
-    }
     pub async fn get(&self, id: &str) -> Result<Vec<u8>, String> {
         match self {
             Backend::Telegram(b) => b.get(id).await,
@@ -124,7 +118,7 @@ struct Manifest { v: u32, files: HashMap<String, Entry> }
 struct Index {
     /// What was in sync at the end of the last successful run (the merge base).
     #[serde(default)]
-    files: HashMap<String, Entry>,
+    entries: HashMap<String, String>,
     #[serde(default)]
     last_sync: Option<u64>,
 }
@@ -174,36 +168,8 @@ fn now_secs() -> u64 {
         .unwrap_or(0)
 }
 
-fn mtime_secs(path: &Path) -> u64 {
-    fs::metadata(path)
-        .and_then(|m| m.modified())
-        .ok()
-        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
-}
-
-/// A manifest path must be a plain relative `.nqv` path — never `..`, never absolute.
-fn safe_rel(rel: &str) -> bool {
-    !rel.is_empty()
-        && rel.to_ascii_lowercase().ends_with(".nqv")
-        && !rel.starts_with('/')
-        && !rel.contains('\\')
-        && !rel.contains(':')
-        && rel.split('/').all(|c| !c.is_empty() && c != "." && c != "..")
-}
-
-/// `<dir>/<stem> (conflict <ts>).nqv` next to the original.
-fn conflict_rel(rel: &str, ts: u64) -> String {
-    let stem = rel
-        .strip_suffix(".nqv")
-        .or_else(|| rel.strip_suffix(".NQV"))
-        .unwrap_or(rel);
-    format!("{stem} (conflict {ts}).nqv")
-}
-
 /// All `.nqv` files under `root` as (relative path with `/`, absolute path).
-fn collect(root: &Path, dir: &Path, depth: usize, out: &mut Vec<(String, PathBuf)>) {
+pub(crate) fn collect(root: &Path, dir: &Path, depth: usize, out: &mut Vec<(String, PathBuf)>) {
     if depth > MAX_DEPTH { return; }
     let Ok(rd) = fs::read_dir(dir) else { return };
     for ent in rd.flatten() {
@@ -223,7 +189,8 @@ fn collect(root: &Path, dir: &Path, depth: usize, out: &mut Vec<(String, PathBuf
 }
 
 // ─── sync state document ─────────────────────────────────────────────────────
-// "NQS1" | u32 BE len | vault.json bytes | sealed manifest
+// "NQS1" | u32 BE len | vault.json bytes | sealed vault database
+// (backups from older versions hold a sealed per-note manifest instead)
 
 fn pack_state(vault_json: &str, sealed: &[u8]) -> Vec<u8> {
     let vj = vault_json.as_bytes();
@@ -255,51 +222,6 @@ pub(crate) async fn bootstrap(app: &AppHandle, backend: &Backend) -> Result<(), 
     let (vault_json, _) = unpack_state(&bytes)
         .map_err(|_| "That isn't a Notiq backup (was it made by an older version? Sync once from your original device first)".to_string())?;
     vault::install_meta_json(app, &vault_json)
-}
-
-// ─── merge planning (pure, unit-tested) ──────────────────────────────────────
-
-#[derive(Debug, Clone)]
-struct LocalFile { rel: String, hash: String, updated: u64 }
-
-#[derive(Debug, PartialEq)]
-enum Action {
-    InSync(String),
-    Upload(String),
-    Download(String),
-    /// Both sides changed; local is newer → keep local, save remote as a conflict copy.
-    ConflictKeepLocal(String),
-    /// Both sides changed; remote is newer → take remote, save local as a conflict copy.
-    ConflictKeepRemote(String),
-}
-
-/// Three-way decision per note. `base` is what was in sync after the last run.
-fn plan(local: &[LocalFile], remote: &HashMap<String, Entry>, base: &HashMap<String, Entry>) -> Vec<Action> {
-    let l: HashMap<&str, &LocalFile> = local.iter().map(|f| (f.rel.as_str(), f)).collect();
-    let mut rels: Vec<&str> = l.keys().copied().chain(remote.keys().map(|s| s.as_str())).collect();
-    rels.sort_unstable();
-    rels.dedup();
-    rels.into_iter()
-        .filter_map(|rel| match (l.get(rel), remote.get(rel)) {
-            (Some(_), None) => Some(Action::Upload(rel.into())),
-            (None, Some(_)) => Some(Action::Download(rel.into())),
-            (Some(lf), Some(re)) => Some(if lf.hash == re.hash {
-                Action::InSync(rel.into())
-            } else {
-                let b = base.get(rel).map(|e| e.hash.as_str());
-                if b == Some(re.hash.as_str()) {
-                    Action::Upload(rel.into()) // only we changed
-                } else if b == Some(lf.hash.as_str()) {
-                    Action::Download(rel.into()) // only they changed
-                } else if lf.updated >= re.updated {
-                    Action::ConflictKeepLocal(rel.into())
-                } else {
-                    Action::ConflictKeepRemote(rel.into())
-                }
-            }),
-            (None, None) => None,
-        })
-        .collect()
 }
 
 // ─── commands ────────────────────────────────────────────────────────────────
@@ -336,180 +258,169 @@ pub fn sync_disconnect(app: AppHandle) -> Result<(), String> {
 #[derive(Serialize)]
 pub struct FileState { rel: String, state: &'static str }
 
-/// Per-file sync badge: "synced", "modified" (changed since last sync) or "new".
+/// Per-note sync badge: "synced", "modified" (changed since last sync) or "new".
+/// Names are encrypted, so while the vault is locked there is nothing to show.
 #[tauri::command]
-pub fn sync_state(app: AppHandle, root: String) -> Result<Vec<FileState>, String> {
+pub fn sync_state(app: AppHandle, state: State<'_, VaultState>, root: String) -> Result<Vec<FileState>, String> {
     if !sync_status(app.clone())?.configured { return Ok(vec![]); }
+    state.set_root(PathBuf::from(root));
     let idx = load_index(&app)?;
-    let root = PathBuf::from(root);
-    let mut files = vec![];
-    collect(&root, &root, 0, &mut files);
-    Ok(files
-        .into_iter()
-        .map(|(rel, path)| {
-            let state = match (idx.files.get(&rel), fs::read(&path)) {
-                (Some(e), Ok(b)) if e.hash == sha_hex(&b) => "synced",
-                (Some(_), _) => "modified",
-                (None, _) => "new",
-            };
-            FileState { rel, state }
-        })
-        .collect())
+    match state.with_db(|db, _, _, _| {
+        let v = db
+            .entries
+            .values()
+            .filter(|e| !e.deleted && !e.dir)
+            .map(|e| FileState {
+                rel: e.path.clone(),
+                state: match idx.entries.get(&e.id) {
+                    Some(h) if *h == e.hash() => "synced",
+                    Some(_) => "modified",
+                    None => "new",
+                },
+            })
+            .collect::<Vec<_>>();
+        Ok((v, false))
+    }) {
+        Err(e) if e == "VAULT_LOCKED" => Ok(vec![]),
+        r => r,
+    }
 }
 
 #[derive(Serialize, Default)]
 pub struct SyncReport {
+    /// Notes changed on this device that were pushed to the backup.
     uploaded: u32,
-    /// Relative paths replaced/created locally (so the UI can reload open tabs).
+    /// Notes created/updated here from another device (so the UI can reload open tabs).
     downloaded: Vec<String>,
     conflicts: u32,
     skipped: u32,
     failed: Vec<String>,
 }
 
-/// Two-way sync: pull what changed elsewhere, push what changed here.
-/// Requires the vault to be unlocked (the manifest is sealed with its key).
+/// What one merge pass decided (computed under the DB lock, used after it).
+struct Pass {
+    pulled: Vec<String>,
+    conflicts: u32,
+    /// Sealed sync-state document to publish, if the backup is out of date.
+    push: Option<Vec<u8>>,
+    prints: HashMap<String, String>,
+    changed: u32,
+    total: u32,
+}
+
+/// Two-way sync of the single vault database: download the backup, merge it into the
+/// local database entry by entry, and publish the result if it differs from the backup.
+/// Requires the vault to be unlocked (the database is sealed with its key).
 #[tauri::command]
 pub async fn sync_run(app: AppHandle, state: State<'_, VaultState>, root: String) -> Result<SyncReport, String> {
     // One sync at a time: auto-sync, "Sync now" and sync-before-lock would otherwise
-    // race on the index and overwrite each other's manifest.
+    // race on the index and overwrite each other's work.
     static SYNC_LOCK: std::sync::OnceLock<tauri::async_runtime::Mutex<()>> = std::sync::OnceLock::new();
     let _guard = SYNC_LOCK.get_or_init(|| tauri::async_runtime::Mutex::new(())).lock().await;
 
     let (_, backend) = load_backend(&app)?.ok_or("Storage isn't set up yet")?;
     state.with_unlocked(|_, _| Ok(()))?;
-
-    let root = PathBuf::from(root);
+    state.set_root(PathBuf::from(root));
     let mut idx = load_index(&app)?;
     let mut rep = SyncReport::default();
 
-    // 1. Remote state (manifest sealed with the vault key).
-    let mut need_state_upload = false;
-    let mut remote: HashMap<String, Entry> = HashMap::new();
-    match backend.read_state().await? {
-        Some(bytes) => match unpack_state(&bytes) {
-            Ok((_vault_json, sealed)) => {
-                let (_ext, plain): (String, Zeroizing<Vec<u8>>) = state
-                    .with_unlocked(|k, id| vc::open(k, id, &sealed).map_err(|e| e.to_string()))
-                    .map_err(|_| "This backup belongs to a different vault or is corrupted".to_string())?;
-                let m: Manifest = serde_json::from_slice(&plain).map_err(|e| e.to_string())?;
-                remote = m.files;
-            }
-            // Unknown content: replace it with a proper state document.
-            Err(_) => need_state_upload = true,
-        },
-        None => need_state_upload = true,
-    }
+    // A second device may publish while we merge; re-merge (a few times) rather than overwrite it.
+    for attempt in 0..3 {
+        // 1. The backup, as published.
+        let remote_bytes = backend.read_state().await?;
+        let remote_sha = remote_bytes.as_deref().map(sha_hex);
+        let sealed = remote_bytes.as_deref().and_then(|b| unpack_state(b).ok()).map(|(_, s)| s);
 
-    // 2. Local files.
-    let mut found = vec![];
-    collect(&root, &root, 0, &mut found);
-    found.sort();
-    let mut locals = vec![];
-    for (rel, path) in found {
-        match fs::read(&path) {
-            Ok(b) if b.len() as u64 > MAX_FILE => rep.failed.push(format!("{rel}: larger than 19 MB")),
-            Ok(b) => locals.push(LocalFile { rel, hash: sha_hex(&b), updated: mtime_secs(&path) }),
-            Err(e) => rep.failed.push(format!("{rel}: {e}")),
-        }
-    }
-    let local_map: HashMap<String, LocalFile> = locals.iter().cloned().map(|f| (f.rel.clone(), f)).collect();
-
-    // 3. Execute the plan.
-    let mut manifest_changed = false;
-    let ts = now_secs();
-    // Blobs replaced by this run: deleted only once the new manifest is published,
-    // otherwise other devices would be left pointing at a deleted blob.
-    let mut stale: Vec<String> = vec![];
-    let mut fresh: Vec<String> = vec![]; // blobs uploaded by this run
-    let mut failed_rels: Vec<String> = vec![];
-    for action in plan(&locals, &remote, &idx.files) {
-        let (rel, upload, download, conflict) = match action {
-            Action::InSync(_) => { rep.skipped += 1; continue; }
-            Action::Upload(r) => (r, true, false, false),
-            Action::ConflictKeepLocal(r) => (r, true, false, true),
-            Action::Download(r) => (r, false, true, false),
-            Action::ConflictKeepRemote(r) => (r, false, true, true),
-        };
-        let result: Result<(), String> = async {
-            if !safe_rel(&rel) { return Err("unsafe path skipped".into()); }
-            let target = root.join(&rel);
-            if upload {
-                if conflict {
-                    // Keep the other device's version beside ours before replacing it remotely.
-                    let r = remote.get(&rel).ok_or("missing remote entry")?;
-                    let bytes = backend.get(&r.id).await?;
-                    if sha_hex(&bytes) == r.hash {
-                        atomic_write(&root.join(conflict_rel(&rel, ts)), &bytes)?;
-                        rep.conflicts += 1;
+        // 2. Backups made by older versions stored one blob per note plus a sealed manifest.
+        let mut legacy: Vec<(String, Vec<u8>)> = vec![];
+        let mut legacy_ids: Vec<String> = vec![];
+        if let Some(s) = &sealed {
+            let opened = state
+                .with_unlocked(|k, id| vc::open(k, id, s).map_err(|e| e.to_string()))
+                .map_err(|_| "This backup belongs to a different vault or is corrupted".to_string())?;
+            if opened.0 != DB_EXT {
+                let m: Manifest = serde_json::from_slice(&opened.1).map_err(|e| e.to_string())?;
+                for (rel, e) in m.files {
+                    legacy_ids.push(e.id.clone());
+                    match backend.get(&e.id).await {
+                        Ok(b) if sha_hex(&b) == e.hash => legacy.push((rel, b)),
+                        Ok(_) => rep.failed.push(format!("{rel}: checksum mismatch, not imported")),
+                        Err(err) => rep.failed.push(format!("{rel}: {err}")),
                     }
                 }
-                let lf = local_map.get(&rel).ok_or("local file vanished")?;
-                let bytes = fs::read(&target).map_err(|e| e.to_string())?;
-                if sha_hex(&bytes) != lf.hash { return Err("changed while syncing, will retry".into()); }
-                let id = backend.put(bytes).await?;
-                if let Some(old) = remote.get(&rel) { stale.push(old.id.clone()); }
-                fresh.push(id.clone());
-                remote.insert(rel.clone(), Entry { id, hash: lf.hash.clone(), updated: lf.updated });
-                rep.uploaded += 1;
-                manifest_changed = true;
-            } else if download {
-                let r = remote.get(&rel).ok_or("missing remote entry")?.clone();
-                let bytes = backend.get(&r.id).await?;
-                if sha_hex(&bytes) != r.hash { return Err("checksum mismatch, not downloaded".into()); }
-                if conflict && target.exists() {
-                    fs::copy(&target, root.join(conflict_rel(&rel, ts))).map_err(|e| e.to_string())?;
-                    rep.conflicts += 1;
-                }
-                atomic_write(&target, &bytes)?;
-                rep.downloaded.push(rel.clone());
             }
-            Ok(())
         }
-        .await;
-        if let Err(e) = result {
-            rep.failed.push(format!("{rel}: {e}"));
-            failed_rels.push(rel);
-        }
-    }
+        let is_legacy = !legacy_ids.is_empty();
 
-    // 4. Publish the merged manifest (+ key file) as the new sync state.
-    let mut published = true;
-    if manifest_changed || need_state_upload {
-        let manifest = Manifest { v: 2, files: remote.clone() };
-        let sent: Result<(), String> = async {
-            let plain = serde_json::to_vec(&manifest).map_err(|e| e.to_string())?;
-            // Fails if the vault locked mid-sync; nothing is recorded, so the next run retries.
-            let sealed = state.with_unlocked(|k, id| vc::seal(k, id, "json", &plain).map_err(|e| e.to_string()))?;
-            let vault_json = vault::read_meta_json(&app)?.ok_or("No vault on this device")?;
-            backend.write_state(pack_state(&vault_json, &sealed)).await
-        }
-        .await;
-        if let Err(e) = sent {
-            published = false;
-            rep.failed.push(format!("sync state: {e}"));
-        }
-    }
-    if published {
-        for id in &stale { backend.delete(id).await; }
-    } else {
-        // New blobs are orphaned (the manifest never pointed at them): best-effort cleanup.
-        for id in &fresh { backend.delete(id).await; }
-        return Ok(rep); // keep the old merge base; the next run redoes the work
-    }
+        // 3. Merge into the local database.
+        let base = idx.entries.clone();
+        let sealed_ref = sealed.as_deref();
+        let vault_json = vault::read_meta_json(&app)?.ok_or("No vault on this device")?;
+        let pass = state.with_db(|db, _, key, id| {
+            let before = db.fingerprints();
+            let remote_db = match sealed_ref {
+                Some(s) => vdb::Db::open(key, id, s)?,
+                None => None,
+            };
+            let (merged, stats) = match &remote_db {
+                Some(r) => vdb::merge(db, r, &base),
+                None => {
+                    let mut m = db.clone();
+                    for (rel, bytes) in &legacy {
+                        let Ok((ext, plain)) = vc::open(key, id, bytes) else { continue };
+                        let Ok(text) = String::from_utf8(plain.to_vec()) else { continue };
+                        if m.get(rel).is_none() { let _ = m.put(rel, &ext, &text); }
+                    }
+                    (m, vdb::MergeStats::default())
+                }
+            };
+            let prints = merged.fingerprints();
+            let pulled: Vec<String> = merged
+                .entries
+                .values()
+                .filter(|e| !e.deleted && !e.dir && before.get(&e.id) != Some(&e.hash()))
+                .map(|e| e.path.clone())
+                .collect();
+            let remote_prints = remote_db.as_ref().map(|r| r.fingerprints());
+            let up_to_date = remote_prints.as_ref() == Some(&prints) && !is_legacy;
+            let push = if up_to_date {
+                None
+            } else {
+                Some(pack_state(&vault_json, &merged.seal(key, id)?))
+            };
+            let changed = prints.iter().filter(|(k, v)| base.get(*k) != Some(*v)).count() as u32;
+            let total = merged.entries.values().filter(|e| !e.deleted && !e.dir).count() as u32;
+            let dirty = prints != before;
+            *db = merged;
+            Ok((Pass { pulled, conflicts: stats.conflicts, push, prints, changed, total }, dirty))
+        })?;
 
-    // The merge base only advances for notes that actually synced; a failed note keeps
-    // its old base so it isn't mistaken for "only the other side changed" next time.
-    let mut base = remote;
-    for rel in &failed_rels {
-        match idx.files.get(rel) {
-            Some(old) => { base.insert(rel.clone(), old.clone()); }
-            None => { base.remove(rel); }
+        // 4. Publish (unless someone else just did).
+        if let Some(bytes) = pass.push {
+            if bytes.len() as u64 > MAX_FILE {
+                rep.failed.push("vault: the encrypted vault is larger than 19 MB, so it can't be backed up".into());
+                return Ok(rep);
+            }
+            if attempt < 2 && backend.read_state().await?.as_deref().map(sha_hex) != remote_sha {
+                continue; // changed under us; merge again
+            }
+            if let Err(e) = backend.write_state(bytes).await {
+                rep.failed.push(format!("sync state: {e}"));
+                return Ok(rep); // keep the old merge base; the next run redoes the work
+            }
+            for old in &legacy_ids { backend.delete(old).await; } // best effort: superseded blobs
+            rep.uploaded = pass.changed;
+        } else {
+            rep.skipped = pass.total;
         }
+        rep.downloaded = pass.pulled;
+        rep.conflicts = pass.conflicts;
+        idx.entries = pass.prints;
+        idx.last_sync = Some(now_secs());
+        save_index(&app, &idx)?;
+        return Ok(rep);
     }
-    idx.files = base;
-    idx.last_sync = Some(now_secs());
-    save_index(&app, &idx)?;
+    rep.failed.push("another device kept changing the backup; will retry".into());
     Ok(rep)
 }
 
@@ -519,64 +430,6 @@ pub async fn sync_run(app: AppHandle, state: State<'_, VaultState>, root: String
 mod tests {
     use super::*;
 
-    fn e(hash: &str, updated: u64) -> Entry {
-        Entry { id: "x".into(), hash: hash.into(), updated }
-    }
-    fn l(rel: &str, hash: &str, updated: u64) -> LocalFile {
-        LocalFile { rel: rel.into(), hash: hash.into(), updated }
-    }
-    fn map(items: &[(&str, Entry)]) -> HashMap<String, Entry> {
-        items.iter().map(|(k, v)| (k.to_string(), v.clone())).collect()
-    }
-
-    #[test]
-    fn new_local_is_uploaded_new_remote_is_downloaded() {
-        let a = plan(&[l("a.nqv", "h1", 1)], &map(&[("b.nqv", e("h2", 1))]), &HashMap::new());
-        assert_eq!(a, vec![Action::Upload("a.nqv".into()), Action::Download("b.nqv".into())]);
-    }
-
-    #[test]
-    fn identical_is_in_sync() {
-        let a = plan(&[l("a.nqv", "h", 5)], &map(&[("a.nqv", e("h", 9))]), &HashMap::new());
-        assert_eq!(a, vec![Action::InSync("a.nqv".into())]);
-    }
-
-    #[test]
-    fn only_local_changed_uploads() {
-        let base = map(&[("a.nqv", e("old", 1))]);
-        let a = plan(&[l("a.nqv", "new", 5)], &map(&[("a.nqv", e("old", 1))]), &base);
-        assert_eq!(a, vec![Action::Upload("a.nqv".into())]);
-    }
-
-    #[test]
-    fn only_remote_changed_downloads() {
-        let base = map(&[("a.nqv", e("old", 1))]);
-        let a = plan(&[l("a.nqv", "old", 1)], &map(&[("a.nqv", e("new", 9))]), &base);
-        assert_eq!(a, vec![Action::Download("a.nqv".into())]);
-    }
-
-    #[test]
-    fn both_changed_newer_side_wins() {
-        let base = map(&[("a.nqv", e("old", 1))]);
-        let keep_local = plan(&[l("a.nqv", "x", 10)], &map(&[("a.nqv", e("y", 5))]), &base);
-        assert_eq!(keep_local, vec![Action::ConflictKeepLocal("a.nqv".into())]);
-        let keep_remote = plan(&[l("a.nqv", "x", 5)], &map(&[("a.nqv", e("y", 10))]), &base);
-        assert_eq!(keep_remote, vec![Action::ConflictKeepRemote("a.nqv".into())]);
-    }
-
-    #[test]
-    fn differing_without_a_base_is_a_conflict() {
-        let a = plan(&[l("a.nqv", "x", 3)], &map(&[("a.nqv", e("y", 4))]), &HashMap::new());
-        assert_eq!(a, vec![Action::ConflictKeepRemote("a.nqv".into())]);
-    }
-
-    #[test]
-    fn locally_deleted_notes_come_back_never_deleted_remotely() {
-        let base = map(&[("a.nqv", e("h", 1))]);
-        let a = plan(&[], &map(&[("a.nqv", e("h", 1))]), &base);
-        assert_eq!(a, vec![Action::Download("a.nqv".into())]);
-    }
-
     #[test]
     fn state_document_round_trips() {
         let packed = pack_state("{\"v\":1}", &[1, 2, 3]);
@@ -585,13 +438,6 @@ mod tests {
         assert_eq!(sealed, vec![1, 2, 3]);
         assert!(unpack_state(b"nope").is_err());
         assert!(unpack_state(b"NQS1\x00\x00\x00\xffxx").is_err());
-    }
-
-    #[test]
-    fn rel_paths_are_validated_and_conflict_names_stay_beside_the_original() {
-        assert!(safe_rel("SSH/server.nqv"));
-        assert!(!safe_rel("../x.nqv") && !safe_rel("/abs.nqv") && !safe_rel("a\\b.nqv") && !safe_rel("a.txt"));
-        assert_eq!(conflict_rel("SSH/server.nqv", 7), "SSH/server (conflict 7).nqv");
     }
 
     #[test]

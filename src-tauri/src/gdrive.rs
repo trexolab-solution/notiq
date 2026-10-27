@@ -26,7 +26,7 @@ use sha2::{Digest, Sha256};
 use tauri::AppHandle;
 use tauri_plugin_opener::OpenerExt;
 
-use crate::sync::{self, data_file, random_name, Backend, MAX_FILE};
+use crate::sync::{self, data_file, Backend, MAX_FILE};
 use crate::vault::atomic_write;
 
 const CLIENT_ID: &str = "639536443788-jo6ec87mf9qfafpbb1qqskoj0gca8jra.apps.googleusercontent.com";
@@ -137,10 +137,6 @@ impl GDrive {
             .body(body).send().await.map_err(net)?;
         let v: Value = Self::check(resp).await?.json().await.map_err(net)?;
         v["id"].as_str().map(str::to_string).ok_or_else(|| "Unexpected reply from Google Drive".to_string())
-    }
-
-    pub(crate) async fn put(&self, bytes: Vec<u8>) -> Result<String, String> {
-        self.create(&random_name(), bytes).await
     }
 
     pub(crate) async fn get(&self, id: &str) -> Result<Vec<u8>, String> {
