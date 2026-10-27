@@ -18,7 +18,7 @@
 <div class="wrap">
   <header class="top">
     <a class="brand" href="./"><img src="logo.png" alt="">Notiq</a>
-    <nav><a href="#story">How it works</a><a href="privacy.html">Privacy</a><a href="https://github.com/trexolab-solution/notiq">GitHub</a></nav>
+    <nav><a href="#story">How it works</a><a href="#google-drive">Google Drive</a><a href="privacy.html">Privacy</a><a href="https://github.com/trexolab-solution/notiq">GitHub</a></nav>
   </header>
 
   <div class="hero">
@@ -29,7 +29,7 @@
         <a class="btn primary" href="https://github.com/trexolab-solution/notiq/releases/latest">Download for Windows, macOS, Linux</a>
         <a class="btn" href="https://github.com/trexolab-solution/notiq">View source</a>
       </div>
-      <p class="note">Free and open source (MIT). No account, no telemetry.</p>
+      <p class="note">Free and open source (MIT). No account, no telemetry. <a href="https://trexolab-solution.github.io/notiq/privacy.html">Privacy policy</a></p>
     </div>
     <div class="files" aria-label="What a locked note looks like on disk">
       <p class="cap">ssh-prod-server.md &nbsp;— what you see</p>
@@ -48,8 +48,8 @@ key  ~/.ssh/prod_ed25519</div>
         <ol>
           <li data-s="0"><h2>Write it like any note.</h2><p>Markdown, tabs, a terminal beside it. Nothing special until the note is one you wouldn't paste into a chat.</p></li>
           <li data-s="1"><h2>Lock it.</h2><p>Pick a folder: SSH, Logins, Recovery codes. The note becomes an encrypted <code>.nqv</code> file. Argon2id and XChaCha20-Poly1305, with a recovery key shown once.</p></li>
-          <li data-s="2"><h2>Sync only ciphertext.</h2><p>Connect your own Telegram bot (Google Drive is next). Files go up under random names, so titles and folders never leave the app.</p></li>
-          <li data-s="3"><h2>Open it on another machine.</h2><p>Install Notiq, choose <b>Restore from Telegram</b>, enter your master password. Conflicts keep both versions; sync never deletes anything.</p></li>
+          <li data-s="2"><h2>Sync only ciphertext.</h2><p>Connect Google Drive or your own Telegram bot. Files go up under random names, so titles and folders never leave the app.</p></li>
+          <li data-s="3"><h2>Open it on another machine.</h2><p>Install Notiq, choose <b>Restore</b>, sign in again, enter your master password. Conflicts keep both versions; sync never deletes anything.</p></li>
         </ol>
       </div>
       <div class="stage" id="stage" data-step="0" aria-hidden="true">
@@ -77,17 +77,29 @@ key  ~/.ssh/prod_ed25519</pre></div><div class="lock">🔒 Locked</div></div>
     </dl>
   </section>
 
+  <section id="google-drive" class="reveal">
+    <h2>Google Drive sync, in plain terms</h2>
+    <dl class="facts">
+      <dt>What Notiq asks for</dt><dd>One Google Drive permission, <code>drive.appdata</code>, plus your account email so the app can show which account is connected.</dd>
+      <dt>What it can see</dt><dd>Only Notiq's own hidden app folder in your Drive. It cannot see, list or change any other file.</dd>
+      <dt>What is stored there</dt><dd>Your locked notes as encrypted <code>.nqv</code> files under random names, and one sync-state file with your wrapped vault key. Nothing readable without your master password.</dd>
+      <dt>Where the sign-in lives</dt><dd>The Google refresh token stays in your operating system's keychain on your computer. Notiq has no server and never receives your data.</dd>
+      <dt>Your control</dt><dd>Disconnect in Settings, or remove access any time at <a href="https://myaccount.google.com/permissions">myaccount.google.com/permissions</a>.</dd>
+    </dl>
+    <p class="note">Notiq's use and transfer of information received from Google APIs adheres to the <a href="https://developers.google.com/terms/api-services-user-data-policy#limited-use">Google API Services User Data Policy</a>, including the Limited Use requirements. Read the full <a href="https://trexolab-solution.github.io/notiq/privacy.html">privacy policy</a>.</p>
+  </section>
+
   <section class="reveal">
     <h2>Get started</h2>
     <ol class="steps">
       <li><b>Download</b> the installer for your system from the <a href="https://github.com/trexolab-solution/notiq/releases/latest">latest release</a>.</li>
       <li><b>Write</b> as usual. When a note is private, lock it and pick a vault folder.</li>
-      <li><b>Optional:</b> connect Telegram in Settings → Vault to keep your other machines in step.</li>
+      <li><b>Optional:</b> connect Google Drive or Telegram in Settings → Vault to keep your other machines in step.</li>
     </ol>
   </section>
 
   <footer>
-    <div><a href="privacy.html">Privacy policy</a><a href="https://github.com/trexolab-solution/notiq/issues">Report an issue</a><a href="https://github.com/trexolab-solution/notiq/blob/main/LICENSE">MIT license</a></div>
+    <div><a href="https://trexolab-solution.github.io/notiq/privacy.html">Privacy policy</a><a href="https://github.com/trexolab-solution/notiq/issues">Report an issue</a><a href="https://github.com/trexolab-solution/notiq/blob/main/LICENSE">MIT license</a></div>
     <div>Notiq</div>
   </footer>
 </div>

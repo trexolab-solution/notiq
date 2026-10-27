@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Cloud } from "lucide-react";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { SettingRow } from "../SettingRow";
 import { Button } from "../Button";
 import { Toggle } from "../Toggle";
@@ -83,7 +84,11 @@ export function TelegramSection() {
             <>
               <p className="text-xs text-[var(--color-text-muted)]">
                 Sign in with Google in your browser. Notiq asks only for access to its own hidden app folder in your Drive,
-                never your other files. No bot or token needed.
+                never your other files. No bot or token needed.{" "}
+                <button type="button" className="underline cursor-pointer"
+                        onClick={() => { void openUrl("https://trexolab-solution.github.io/notiq/privacy.html"); }}>
+                  Privacy policy
+                </button>
               </p>
               <div>
                 <Button variant="primary" size="sm" disabled={!!busy} onClick={() => void connectDrive()}>

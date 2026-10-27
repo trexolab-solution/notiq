@@ -18,7 +18,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use base64::{engine::general_purpose::URL_SAFE_NO_PAD as B64, Engine};
+use base64::{engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD as B64}, Engine};
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -254,23 +254,59 @@ fn wait_for_code(listener: TcpListener, want_state: &str) -> Result<String, Stri
         let Ok(u) = reqwest::Url::parse(&format!("http://127.0.0.1{path}")) else { continue };
         let pairs: Vec<(String, String)> = u.query_pairs().map(|(k, v)| (k.into_owned(), v.into_owned())).collect();
         let get = |k: &str| pairs.iter().find(|(a, _)| a == k).map(|(_, b)| b.clone());
-        let mut reply = |body: &str| {
-            let html = format!("<!doctype html><meta charset=utf-8><title>Notiq</title><body style=\"font:16px system-ui;padding:3rem;background:#14130f;color:#ece8dc\">{body}</body>");
-            let _ = s.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{html}", html.len()).as_bytes());
+        let mut reply = |ok: bool, heading: &str, text: &str| {
+            let html = callback_page(ok, heading, text);
+            let _ = s.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nCache-Control: no-store\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{html}", html.len()).as_bytes());
         };
         if let Some(err) = get("error") {
-            reply("Sign-in was cancelled. You can close this tab.");
+            reply(false, "Sign-in was cancelled", "Nothing was connected. You can close this tab and try again from Notiq.");
             return Err(format!("Google sign-in was cancelled ({err})"));
         }
         match (get("code"), get("state")) {
             (Some(code), Some(st)) if st == want_state => {
-                reply("<h2>Notiq is connected to Google Drive</h2><p>You can close this tab and return to the app.</p>");
+                reply(true, "Notiq is connected to Google Drive", "Your encrypted notes will sync to Notiq's private app folder. Notiq can't see any other file in your Drive.");
                 return Ok(code);
             }
-            (Some(_), _) => { reply("Invalid sign-in response."); return Err("Sign-in response didn't match this request".into()); }
-            _ => reply("Waiting for sign-in…"), // favicon or probe request
+            (Some(_), _) => { reply(false, "Sign-in didn't match", "This response wasn't for the sign-in Notiq started. Close this tab and try again from the app."); return Err("Sign-in response didn't match this request".into()); }
+            _ => reply(false, "Waiting for sign-in", "Finish signing in with Google, then return here."), // favicon or probe request
         }
     }
+}
+
+/// The page the browser lands on after Google redirects back to the loopback port.
+fn callback_page(ok: bool, heading: &str, text: &str) -> String {
+    let icon = STANDARD.encode(include_bytes!("callback-icon.png"));
+    let mark = if ok {
+        r##"<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>"##
+    } else {
+        r##"<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 7v6M12 17v.01"/></svg>"##
+    };
+    format!(
+        r##"<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Notiq</title>
+<style>
+:root{{--bg:#fbfaf8;--text:#1d1b17;--muted:#6a655b;--line:#dcd8ce;--accent:#9a6a0a}}
+@media(prefers-color-scheme:dark){{:root{{--bg:#14130f;--text:#ece8dc;--muted:#a09a8a;--line:#2e2b22;--accent:#c9a84c}}}}
+*{{box-sizing:border-box}}
+body{{margin:0;min-height:100vh;display:grid;place-items:center;background:var(--bg);color:var(--text);
+font:17px/1.6 -apple-system,"Segoe UI",system-ui,sans-serif;-webkit-font-smoothing:antialiased}}
+main{{width:min(460px,calc(100vw - 48px))}}
+.brand{{display:flex;align-items:center;gap:10px;font-weight:700;font-size:18px;margin-bottom:40px}}
+.brand img{{width:30px;height:30px;border-radius:8px}}
+.badge{{display:grid;place-items:center;width:44px;height:44px;border-radius:50%;border:1.5px solid var(--accent);color:var(--accent);margin-bottom:20px;animation:pop .5s cubic-bezier(.2,.9,.3,1.2) both}}
+h1{{font-size:1.65rem;line-height:1.2;letter-spacing:-.02em;margin:0 0 12px}}
+p{{margin:0;color:var(--muted)}}
+.hint{{margin-top:28px;padding-top:18px;border-top:1px solid var(--line);font-size:14px}}
+@keyframes pop{{from{{transform:scale(.6);opacity:0}}to{{transform:none;opacity:1}}}}
+@media(prefers-reduced-motion:reduce){{.badge{{animation:none}}}}
+</style></head><body><main>
+<div class="brand"><img src="data:image/png;base64,{icon}" alt="">Notiq</div>
+<div class="badge">{mark}</div>
+<h1>{heading}</h1>
+<p>{text}</p>
+<p class="hint">You can close this tab and return to the Notiq window.</p>
+</main></body></html>"##
+    )
 }
 
 fn persist(app: &AppHandle, refresh: &str, email: &str) -> Result<(), String> {
@@ -310,6 +346,13 @@ mod tests {
         let payload = B64.encode(br#"{"email":"a@b.co","sub":"1"}"#);
         assert_eq!(email_from_id_token(&format!("h.{payload}.s")).as_deref(), Some("a@b.co"));
         assert_eq!(email_from_id_token("garbage"), None);
+    }
+
+    #[test]
+    fn callback_page_is_self_contained_html() {
+        let p = callback_page(true, "Connected", "ok");
+        assert!(p.contains("<h1>Connected</h1>") && p.contains("data:image/png;base64,"));
+        assert!(!p.contains("http://") && !p.contains("https://"));
     }
 
     #[test]

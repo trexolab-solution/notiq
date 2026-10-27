@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { HardDrive, SquareTerminal, Loader2 } from "lucide-react";
 import { useAppStore } from "../../store";
+import { isVaultPath } from "../../lib/vault";
 import { Tooltip } from "../ui/Tooltip";
 import { subscribeBusyDelayed } from "../../lib/ai/activity";
 import { APP_NAME, APP_VERSION } from "../../config/app";
@@ -49,6 +50,8 @@ export const StatusBar = React.memo(function StatusBar({
   const shortPath = useMemo(() => {
     if (!activeTab?.filePath) return null;
     const parts = activeTab.filePath.replace(/\\/g, "/").split("/");
+    // Locked notes: show only the note's name, never where the vault lives on disk.
+    if (isVaultPath(activeTab.filePath)) return (parts[parts.length - 1] ?? "").replace(/\.nqv$/i, "");
     return parts.length > 2 ? `\u2026/${parts.slice(-2).join("/")}` : activeTab.filePath;
   }, [activeTab]);
 
@@ -94,7 +97,7 @@ export const StatusBar = React.memo(function StatusBar({
             ) : activeTab.isDirty ? (
               <span className="status-item unsaved">● Unsaved</span>
             ) : shortPath ? (
-              <span className="status-item saved" title={activeTab.filePath ?? undefined}>
+              <span className="status-item saved" title={isVaultPath(activeTab.filePath) ? shortPath ?? undefined : activeTab.filePath ?? undefined}>
                 <HardDrive size={9} />
                 {shortPath}
               </span>

@@ -18,7 +18,7 @@
 
   <main class="doc">
     <h1>Privacy policy</h1>
-    <p class="meta">Last updated: 27 October 2026</p>
+    <p class="meta">Last updated: 27 October 2026 · App: Notiq · Developer: TrexoLab</p>
 
     <p>Notiq is a desktop app that runs on your computer. We do not run a server for it, and we do not receive your notes, files or account details.</p>
 
@@ -26,26 +26,30 @@
     <ul>
       <li>Your notes, whiteboards and settings are stored locally.</li>
       <li>Vault notes are encrypted on your device with a key derived from your master password. The password and the decrypted key are never sent anywhere.</li>
-      <li>Notiq has no analytics, crash reporting or advertising.</li>
+      <li>Notiq has no analytics, crash reporting or advertising, and the developers run no server that receives your data.</li>
     </ul>
 
-    <h2>Optional sync (you choose, off until you connect it)</h2>
-    <p><strong>Telegram.</strong> If you connect your own Telegram bot, Notiq uploads encrypted <code>.nqv</code> files and one small sync-state file to your private chat with that bot. File names are random. The sync-state file contains your vault key file (your vault key wrapped by your master password and recovery key) and a list of notes sealed with your vault key. Your bot token is stored in your operating system's keychain.</p>
-    <p><strong>Google Drive.</strong> If you connect Google Drive, Notiq asks for one permission, <code>drive.appdata</code>. It lets the app read and write only its own hidden application folder in your Drive. Notiq cannot see your other files. Notiq also reads your account email address (the standard <code>openid email</code> scopes) only to show which account is connected. The same encrypted files and sync-state file described above are stored there. Your Google sign-in token is stored in your operating system's keychain.</p>
-    <p>Notiq's use and transfer of information received from Google APIs adheres to the Google API Services User Data Policy, including the Limited Use requirements. Data from Google is used only to provide sync, is not shared with anyone, and is not used for advertising or to train AI models.</p>
+    <h2>Google user data</h2>
+    <p>Notiq offers optional sync through Google Drive. If you connect it, Notiq requests these scopes:</p>
+    <ul>
+      <li><code>https://www.googleapis.com/auth/drive.appdata</code>: access to Notiq's own hidden application data folder in your Google Drive. It does not grant access to any other file.</li>
+      <li><code>openid</code> and <code>email</code>: your Google account email address, used only to show which account is connected.</li>
+    </ul>
+    <p><strong>What we access.</strong> Only the files Notiq itself creates in its app data folder, and your email address.</p>
+    <p><strong>How we use it.</strong> To store and fetch your encrypted notes and one sync-state file so that your devices stay in step. We use Google user data for no other purpose.</p>
+    <p><strong>How it is stored.</strong> Files in your Drive are encrypted <code>.nqv</code> files under random names, plus a sync-state file that contains your vault key wrapped by your master password and recovery key, and a list of notes sealed with your vault key. The Google refresh token is stored only in your operating system's keychain, and your email is saved only in a local settings file on your device.</p>
+    <p><strong>How it is shared.</strong> It is not shared, sold or transferred to anyone. Notiq talks directly from your computer to Google; no Notiq server is involved, and no person on our side can read your data. We do not use Google user data for advertising, and not to develop, improve or train AI or machine-learning models.</p>
+    <p><strong>Retention and deletion.</strong> Data stays in your Drive app folder until you delete it. Choosing Disconnect in Notiq's Settings removes the token and email from your device. You can revoke Notiq's access at any time at <a href="https://myaccount.google.com/permissions">myaccount.google.com/permissions</a>; removing the app there also lets you delete its hidden app data. If you lose both your master password and recovery key, nobody, including us, can recover your vault.</p>
+    <p>Notiq's use and transfer of information received from Google APIs adheres to the <a href="https://developers.google.com/terms/api-services-user-data-policy#limited-use">Google API Services User Data Policy</a>, including the Limited Use requirements.</p>
+
+    <h2>Telegram sync (optional)</h2>
+    <p>If you connect your own Telegram bot, Notiq uploads the same encrypted files and sync-state file to your private chat with that bot, under random file names. Your bot token is stored in your operating system's keychain. Telegram processes these files under its own privacy policy.</p>
 
     <h2>Optional AI features</h2>
-    <p>AI is off by default. When you turn it on, only the text needed for a request is sent to the Ollama endpoint you configure: your own machine, or Ollama Cloud if you add an API key. Nothing is sent while AI is off.</p>
+    <p>AI is off by default. When you turn it on, only the text needed for a request is sent to the Ollama endpoint you configure: your own machine, or Ollama Cloud if you add an API key. Nothing is sent while AI is off, and locked vault notes are never sent.</p>
 
     <h2>What we can see</h2>
-    <p>Nothing. The developers have no access to your notes, your vault, your Telegram chat or your Google Drive. Telegram and Google process the encrypted files under their own privacy policies.</p>
-
-    <h2>Your control</h2>
-    <ul>
-      <li>Disconnect Telegram or Google Drive in Settings at any time. This removes the stored token from your device.</li>
-      <li>Delete the synced files from your Telegram chat or from Google Drive's app data (Google Account → Manage third-party access) whenever you like.</li>
-      <li>If you lose both your master password and recovery key, nobody, including us, can recover your vault.</li>
-    </ul>
+    <p>Nothing. The developers have no access to your notes, your vault, your Telegram chat or your Google Drive.</p>
 
     <h2>Children</h2>
     <p>Notiq is not directed at children and does not knowingly collect data from anyone.</p>
