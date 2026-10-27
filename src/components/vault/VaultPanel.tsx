@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { FolderOpen, Folder, FilePlus2, RefreshCw, Lock, LockOpen, RotateCcw, CloudUpload } from "lucide-react";
+import { FolderOpen, Folder, FilePlus2, RefreshCw, Lock, LockOpen, RotateCcw, CloudUpload, KeyRound } from "lucide-react";
 import { readDir } from "@tauri-apps/plugin-fs";
 import { useAppStore } from "../../store";
 import { useVaultStore } from "../../store/vaultStore";
@@ -8,6 +8,7 @@ import { vaultWriteFile, vaultErrorMessage } from "../../lib/vault";
 import { ensureVaultDir, pickVaultDir, resetVaultDir, VAULT_DIR_EVENT } from "../../lib/vaultDir";
 import { getVaultDir } from "../../lib/vaultPrefs";
 import { toast } from "../../lib/toast";
+import { LOGIN_EXT, emptyLogin, serializeLogin } from "../../lib/loginEntry";
 import { pickVaultDestination } from "../../lib/vaultDest";
 import { backupDismissedForever } from "../../lib/backupPrompt";
 import { TG_EVENT, FILE_SAVED_EVENT, errText, runSync, tgStatus, tgSyncState } from "../../lib/telegram";
@@ -113,6 +114,21 @@ export function VaultPanel() {
     }
   };
 
+  const newLogin = async () => {
+    if (!(await useVaultStore.getState().ensureUnlocked())) return;
+    try {
+      await ensureVaultDir();
+      const path = await pickVaultDestination("New login");
+      if (!path) return;
+      const title = baseName(path).replace(/\.nqv$/i, "");
+      await vaultWriteFile(path, serializeLogin(emptyLogin(title)), LOGIN_EXT);
+      await load();
+      await openNote(path);
+    } catch (e) {
+      toast.error(vaultErrorMessage(e));
+    }
+  };
+
   const iconBtn = "p-1 rounded cursor-pointer text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-bg-tertiary)]";
 
   return (
@@ -126,6 +142,9 @@ export function VaultPanel() {
         <span className="text-xs font-semibold flex-1">Secure Vault</span>
         <button className={iconBtn} title="New locked note" aria-label="New locked note" onClick={() => void newNote()}>
           <FilePlus2 size={14} />
+        </button>
+        <button className={iconBtn} title="New login (username & password)" aria-label="New login" onClick={() => void newLogin()}>
+          <KeyRound size={14} />
         </button>
         {tg && (
           <button className={iconBtn} title="Sync now" aria-label="Sync now"
