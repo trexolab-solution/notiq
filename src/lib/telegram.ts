@@ -5,8 +5,7 @@ import { useVaultStore } from "../store/vaultStore";
 /** Telegram backup of vault notes — wrappers over the Rust `tg_*` commands. */
 
 export interface TgStatus      { configured: boolean; chat_id: number | null; last_sync: number | null }
-export interface SyncReport    { uploaded: number; skipped: number; failed: string[] }
-export interface RestoreReport { restored: number; skipped: number; conflicts: number; failed: string[] }
+export interface SyncReport    { uploaded: number; downloaded: string[]; conflicts: number; skipped: number; failed: string[] }
 export interface FileState     { rel: string; state: "synced" | "modified" | "new" }
 
 export const TG_EVENT = "telegram:changed";
@@ -18,27 +17,26 @@ export const tgSaveConfig  = (token: string, chatId: number) => invoke<string>("
 export const tgClear       = () => invoke<void>("tg_clear");
 export const tgSyncState   = (root: string) => invoke<FileState[]>("tg_sync_state", { root });
 export const tgSync        = (root: string) => invoke<SyncReport>("tg_sync", { root });
-export const tgRestore     = (root: string) => invoke<RestoreReport>("tg_restore", { root });
+export const tgBootstrap   = (token: string, chatId: number) => invoke<void>("tg_bootstrap", { token, chatId });
 
 const KEY_AUTO = "pref:tgAutoSync";
-export const getTgAutoSync = (): boolean => { try { return localStorage.getItem(KEY_AUTO) === "true"; } catch { return false; } };
+export const getTgAutoSync = (): boolean => { try { return localStorage.getItem(KEY_AUTO) !== "false"; } catch { return true; } };
 export const setTgAutoSync = (v: boolean) => { try { localStorage.setItem(KEY_AUTO, String(v)); } catch { /* unavailable */ } };
 
 const changed = () => window.dispatchEvent(new Event(TG_EVENT));
 
-/** Unlocks if needed, then uploads new/changed notes. Null if the user cancelled. */
+/** Fired after a sync pulled notes, so open tabs and the sidebar can refresh. */
+export const PULLED_EVENT = "vault:pulled";
+
+/** Unlocks if needed, then merges with Telegram both ways. Null if the user cancelled. */
 export async function runSync(): Promise<SyncReport | null> {
   if (!(await useVaultStore.getState().ensureUnlocked())) return null;
   const rep = await tgSync(await ensureVaultDir());
   changed();
-  return rep;
-}
-
-export async function runRestore(): Promise<RestoreReport | null> {
-  if (!(await useVaultStore.getState().ensureUnlocked())) return null;
-  const rep = await tgRestore(await ensureVaultDir());
-  changed();
-  window.dispatchEvent(new Event("vault:dir-changed")); // refresh the sidebar list
+  if (rep.downloaded.length || rep.conflicts) {
+    window.dispatchEvent(new Event("vault:dir-changed")); // refresh the sidebar list
+    window.dispatchEvent(new Event(PULLED_EVENT));
+  }
   return rep;
 }
 

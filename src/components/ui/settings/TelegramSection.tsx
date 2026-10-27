@@ -7,7 +7,7 @@ import { Input } from "../Input";
 import { PasswordInput } from "../PasswordInput";
 import { toast } from "../../../lib/toast";
 import {
-  TG_EVENT, errText, getTgAutoSync, setTgAutoSync, runSync, runRestore,
+  TG_EVENT, errText, getTgAutoSync, setTgAutoSync, runSync,
   tgClear, tgDetectChat, tgSaveConfig, tgStatus, type TgStatus,
 } from "../../../lib/telegram";
 
@@ -51,14 +51,7 @@ export function TelegramSection() {
   const sync = () => run("sync", async () => {
     const r = await runSync();
     if (!r) return;
-    toast.info(`Telegram: ${r.uploaded} uploaded, ${r.skipped} unchanged${r.failed.length ? `, ${r.failed.length} failed` : ""}`);
-    if (r.failed.length) toast.error(r.failed[0]);
-  });
-
-  const restore = () => run("restore", async () => {
-    const r = await runRestore();
-    if (!r) return;
-    toast.info(`Restored ${r.restored}, ${r.skipped} already up to date${r.conflicts ? `, ${r.conflicts} saved as copies` : ""}`);
+    toast.info(`Telegram: ${r.uploaded} uploaded, ${r.downloaded.length} downloaded, ${r.skipped} unchanged${r.conflicts ? `, ${r.conflicts} conflict copies` : ""}${r.failed.length ? `, ${r.failed.length} failed` : ""}`);
     if (r.failed.length) toast.error(r.failed[0]);
   });
 
@@ -103,9 +96,6 @@ export function TelegramSection() {
             <Button variant="primary" size="sm" disabled={!!busy} onClick={() => void sync()}>
               {busy === "sync" ? "Syncing…" : "Sync now"}
             </Button>
-            <Button size="sm" disabled={!!busy} onClick={() => void restore()}>
-              {busy === "restore" ? "Restoring…" : "Restore from Telegram"}
-            </Button>
             {confirmOff ? (
               <>
                 <Button size="sm" variant="ghost" onClick={() => void disconnect()}>Yes, disconnect</Button>
@@ -115,7 +105,7 @@ export function TelegramSection() {
               <Button size="sm" variant="ghost" disabled={!!busy} onClick={() => setConfirmOff(true)}>Disconnect</Button>
             )}
           </div>
-          <SettingRow label="Auto-sync after saving" description="Uploads changed notes a few seconds after you save, and once more just before the vault locks (not for the panic shortcut).">
+          <SettingRow label="Auto-sync" description="Two-way sync with your other devices: on unlock, a few seconds after you save, every few minutes, and just before the vault locks (not for the panic shortcut).">
             <Toggle aria-label="Auto-sync after saving" value={auto} onChange={(v) => { setAuto(v); setTgAutoSync(v); }} />
           </SettingRow>
         </>
@@ -123,7 +113,7 @@ export function TelegramSection() {
 
       <p className="text-xs text-[var(--color-text-muted)]">
         Only encrypted <code>.nqv</code> files are uploaded, under random names. Telegram never sees titles, folders or
-        content. Restore needs the same vault (your master password or recovery key), so keep your recovery key safe.
+        content. To use the same vault on another device, install Notiq there and choose "Restore from Telegram" on the vault setup screen — you'll need the bot token and your master password. Anyone with the bot token could try to guess your master password offline, so make it long and unique.
       </p>
     </div>
   );

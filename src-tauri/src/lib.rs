@@ -643,7 +643,7 @@ pub fn run() {
         telegram::tg_clear,
         telegram::tg_sync_state,
         telegram::tg_sync,
-        telegram::tg_restore,
+        telegram::tg_bootstrap,
     ]);
 
     #[cfg(not(desktop))]
@@ -670,7 +670,7 @@ pub fn run() {
         telegram::tg_clear,
         telegram::tg_sync_state,
         telegram::tg_sync,
-        telegram::tg_restore,
+        telegram::tg_bootstrap,
     ]);
 
     #[cfg(desktop)]

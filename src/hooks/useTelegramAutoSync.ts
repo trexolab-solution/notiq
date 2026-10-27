@@ -1,34 +1,58 @@
 import { useEffect } from "react";
 import { useVaultStore } from "../store/vaultStore";
+import { useAppStore } from "../store";
 import { toast } from "../lib/toast";
-import { FILE_SAVED_EVENT, errText, getTgAutoSync, runSync, tgStatus } from "../lib/telegram";
+import { FILE_SAVED_EVENT, PULLED_EVENT, errText, getTgAutoSync, runSync, tgStatus } from "../lib/telegram";
 
 const DEBOUNCE_MS = 8000;
+const PERIODIC_MS = 5 * 60 * 1000;
 
-/** Optional: back up to Telegram a few seconds after a vault note is saved. */
+/**
+ * Two-way Telegram sync (on by default once Telegram is connected): when the
+ * vault unlocks, a few seconds after a note is saved, and every few minutes.
+ */
 export function useTelegramAutoSync() {
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | undefined;
     let running = false;
+    let again = false;
     const fire = async () => {
-      if (running || !getTgAutoSync() || !useVaultStore.getState().unlocked) return;
+      if (!getTgAutoSync() || !useVaultStore.getState().unlocked) return;
+      if (running) { again = true; return; }
       running = true;
       try {
         if (!(await tgStatus()).configured) return;
         const rep = await runSync();
-        if (rep && rep.failed.length) toast.error(`Telegram sync: ${rep.failed[0]}`);
+        if (!rep) return;
+        if (rep.downloaded.length) toast.info(`Telegram: ${rep.downloaded.length} note${rep.downloaded.length > 1 ? "s" : ""} updated from another device`);
+        if (rep.conflicts) toast.info(`Telegram: ${rep.conflicts} note${rep.conflicts > 1 ? "s were" : " was"} edited on two devices — the older version was kept as "(conflict …)"`);
+        if (rep.failed.length) toast.error(`Telegram sync: ${rep.failed[0]}`);
       } catch (e) {
         toast.error(`Telegram sync failed: ${errText(e)}`);
       } finally {
         running = false;
+        if (again) { again = false; schedule(); }
       }
     };
-    const onSaved = () => {
-      if (!getTgAutoSync()) return;
+    const schedule = () => {
       clearTimeout(timer);
       timer = setTimeout(() => { void fire(); }, DEBOUNCE_MS);
     };
+    const onSaved = () => { if (getTgAutoSync()) schedule(); };
+    const onPulled = () => { void useAppStore.getState().refreshVaultTabs(); };
+
+    // Pull as soon as the vault unlocks (also covers app start + new-device restore).
+    const unsub = useVaultStore.subscribe((s, prev) => {
+      if (s.unlocked && !prev.unlocked) setTimeout(() => { void fire(); }, 1500);
+    });
+    const interval = setInterval(() => { void fire(); }, PERIODIC_MS);
+
     window.addEventListener(FILE_SAVED_EVENT, onSaved);
-    return () => { window.removeEventListener(FILE_SAVED_EVENT, onSaved); clearTimeout(timer); };
+    window.addEventListener(PULLED_EVENT, onPulled);
+    return () => {
+      window.removeEventListener(FILE_SAVED_EVENT, onSaved);
+      window.removeEventListener(PULLED_EVENT, onPulled);
+      unsub(); clearInterval(interval); clearTimeout(timer);
+    };
   }, []);
 }

@@ -12,6 +12,7 @@ import { useTelegramAutoSync } from "../../hooks/useTelegramAutoSync";
 import {
   vaultCreate, vaultUnlock, vaultUnlockWithRecovery, vaultErrorMessage,
 } from "../../lib/vault";
+import { errText, tgBootstrap, tgDetectChat } from "../../lib/telegram";
 
 const MIN_LEN = 8;
 
@@ -37,6 +38,9 @@ function VaultDialogInner({ mode }: { mode: VaultDialogMode }) {
   // After setup succeeds we show the recovery key once.
   const [recoveryKey, setRecoveryKey] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  // New device: fetch the key file from the user's Telegram backup instead of creating a vault.
+  const [restoring, setRestoring] = useState(false);
+  const [tgToken, setTgToken] = useState("");
 
   const cancel = () => useVaultStore.getState().finish(false);
 
@@ -139,6 +143,56 @@ function VaultDialogInner({ mode }: { mode: VaultDialogMode }) {
     );
   }
 
+  const restoreFromTelegram = async () => {
+    if (busy) return;
+    const token = tgToken.trim();
+    if (!token) { setError("Enter your bot token"); return; }
+    setBusy(true); setError(null);
+    try {
+      const chatId = await tgDetectChat(token);
+      await tgBootstrap(token, chatId);
+      setTgToken("");
+      await useVaultStore.getState().refresh();
+      toast.info("Vault found. Enter your master password — your notes will sync after you unlock.");
+      useVaultStore.getState().setDialog("unlock");
+    } catch (err) {
+      setError(errText(err));
+      setBusy(false);
+    }
+  };
+
+  if (mode === "setup" && restoring) {
+    return (
+      <Modal onClose={cancel} zClassName="z-[70]">
+        <form className={panel} onSubmit={(e) => { e.preventDefault(); void restoreFromTelegram(); }}
+              role="dialog" aria-modal="true" aria-label="Restore vault from Telegram">
+          <div className="flex items-center gap-2 mb-1">
+            <Lock size={18} style={{ color: "var(--color-primary)" }} />
+            <h2 className="text-sm font-semibold">Restore vault from Telegram</h2>
+          </div>
+          <p className="text-xs mb-4 text-[var(--color-text-muted)]">
+            Paste the bot token you used on your other device. Notiq downloads your encrypted key file;
+            then unlock with your master password and your notes sync down.
+          </p>
+          <label className={label} htmlFor="vault-tg-token">Bot token</label>
+          <PasswordInput id="vault-tg-token" autoFocus autoComplete="off" spellCheck={false}
+                         value={tgToken} onChange={(e) => setTgToken(e.target.value)} />
+          {error && <p role="alert" className="text-xs mt-3 text-[var(--color-danger)]">{error}</p>}
+          <div className="flex items-center justify-between mt-4">
+            <button type="button" className="text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text)] underline cursor-pointer"
+                    onClick={() => { setRestoring(false); setError(null); }}>
+              Back
+            </button>
+            <div className="flex gap-2">
+              <Button type="button" onClick={cancel}>Cancel</Button>
+              <Button type="submit" variant="primary" disabled={busy}>{busy ? "Working…" : "Restore"}</Button>
+            </div>
+          </div>
+        </form>
+      </Modal>
+    );
+  }
+
   const title =
     mode === "setup" ? "Set up Secure Vault" :
     mode === "unlock" ? "Unlock vault" : "Reset with recovery key";
@@ -198,6 +252,14 @@ function VaultDialogInner({ mode }: { mode: VaultDialogMode }) {
               onClick={() => useVaultStore.getState().setDialog("recover")}
             >
               Forgot password?
+            </button>
+          ) : mode === "setup" ? (
+            <button
+              type="button"
+              className="text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text)] underline cursor-pointer"
+              onClick={() => { setRestoring(true); setError(null); }}
+            >
+              Restore from Telegram
             </button>
           ) : <span />}
           <div className="flex gap-2">

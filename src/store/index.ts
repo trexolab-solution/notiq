@@ -116,6 +116,8 @@ export interface AppState {
   lockTabToVault: (id: string) => Promise<{ ok: boolean; plainPath?: string }>;
   /** Decrypts every locked `.nqv` tab (vault must be unlocked). */
   unlockVaultTabs: () => Promise<void>;
+  /** Re-reads open, unlocked, clean vault tabs from disk (after a sync pulled changes). */
+  refreshVaultTabs: () => Promise<void>;
   /** Saves dirty vault tabs, drops the key from memory, blanks vault tabs. */
   /** `skipSync`: lock instantly (panic) without the pre-lock Telegram backup. */
   lockVault: (opts?: { skipSync?: boolean }) => Promise<boolean>;
@@ -540,6 +542,18 @@ export const useAppStore = create<AppState>((set, get) => {
       }
       debounceGraphRebuild(() => get().rebuildGraph());
       persist();
+    },
+
+    async refreshVaultTabs() {
+      const targets = get().tabs.filter((t) => isVaultPath(t.filePath) && !t.vaultLocked && !t.isDirty);
+      for (const t of targets) {
+        try {
+          const file = await vaultReadFile(t.filePath!);
+          const cur = get().tabs.find((x) => x.id === t.id);
+          if (!cur || cur.isDirty || cur.vaultLocked || cur.content === file.content) continue;
+          updateTab(t.id, { content: file.content, vaultExt: file.ext || "md", isDirty: false });
+        } catch { /* file may not exist (yet) */ }
+      }
     },
 
     async lockVault(opts) {
