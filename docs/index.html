@@ -5,14 +5,20 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Notiq — local-first notes with an encrypted vault</title>
 <meta name="description" content="Notiq is a fast desktop Markdown editor, whiteboard and knowledge graph. Your notes stay on your machine; lock the private ones in an encrypted vault.">
-<link rel="icon" href="logo.png">
+<link rel="icon" href="favicon.ico" sizes="any">
+<link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta property="og:title" content="Notiq — local-first notes with an encrypted vault">
+<meta property="og:description" content="Fast Markdown editor, whiteboard and knowledge graph. Lock private notes in an encrypted vault and sync them without trusting a server.">
+<meta property="og:image" content="https://trexolab-solution.github.io/notiq/og.png">
+<meta name="theme-color" content="#14130f">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 <div class="wrap">
   <header class="top">
     <a class="brand" href="./"><img src="logo.png" alt="">Notiq</a>
-    <nav><a href="#vault">Vault</a><a href="#sync">Sync</a><a href="privacy.html">Privacy</a><a href="https://github.com/trexolab-solution/notiq">GitHub</a></nav>
+    <nav><a href="#story">How it works</a><a href="privacy.html">Privacy</a><a href="https://github.com/trexolab-solution/notiq">GitHub</a></nav>
   </header>
 
   <div class="hero">
@@ -36,33 +42,32 @@ key  ~/.ssh/prod_ed25519</div>
     </div>
   </div>
 
-  <section id="vault">
-    <div class="cols">
-      <div>
-        <h2>A vault for the notes you wouldn't paste into a chat.</h2>
+  <section id="story" class="story" aria-label="How the vault works">
+    <div class="story-sticky">
+      <div class="story-text">
+        <ol>
+          <li data-s="0"><h2>Write it like any note.</h2><p>Markdown, tabs, a terminal beside it. Nothing special until the note is one you wouldn't paste into a chat.</p></li>
+          <li data-s="1"><h2>Lock it.</h2><p>Pick a folder: SSH, Logins, Recovery codes. The note becomes an encrypted <code>.nqv</code> file. Argon2id and XChaCha20-Poly1305, with a recovery key shown once.</p></li>
+          <li data-s="2"><h2>Sync only ciphertext.</h2><p>Connect your own Telegram bot (Google Drive is next). Files go up under random names, so titles and folders never leave the app.</p></li>
+          <li data-s="3"><h2>Open it on another machine.</h2><p>Install Notiq, choose <b>Restore from Telegram</b>, enter your master password. Conflicts keep both versions; sync never deletes anything.</p></li>
+        </ol>
       </div>
-      <div>
-        <p><strong>Lock any note</strong> and it becomes an encrypted <code>.nqv</code> file in a folder you choose. Group them: SSH, Logins, Recovery codes, whatever you use.</p>
-        <p><strong>Strong by default.</strong> Argon2id turns your master password into a key; XChaCha20-Poly1305 encrypts every note. A separate recovery key is shown once, at setup.</p>
-        <p><strong>Auto-lock</strong> after idle time or when the app goes to the tray, plus a panic shortcut you can set yourself.</p>
+      <div class="stage" id="stage" data-step="0" aria-hidden="true">
+        <div class="node a"><span class="lbl">Your laptop</span><div class="doc"><b id="docname">ssh-prod-server.md</b><pre id="doctext">host prod-1
+user deploy
+key  ~/.ssh/prod_ed25519</pre></div><div class="lock">🔒 Locked</div></div>
+        <div class="pipe"><i class="packet"></i></div>
+        <div class="node tg"><span class="lbl">Telegram</span><div class="doc cipher"><b>3f9a…c1.nqv</b><pre>NQV1 9c e4 71 a8
+0b d2 3e 5f f6 12</pre></div><small>Only this is stored</small></div>
+        <div class="pipe p2"><i class="packet"></i></div>
+        <div class="node b"><span class="lbl">Your desktop</span><div class="doc"><b>ssh-prod-server.md</b><pre id="doctext2">••••••••••••
+••••••••••••••••
+••••••••••••••••••••</pre></div><div class="pw">Master password ••••••••</div></div>
       </div>
     </div>
   </section>
 
-  <section id="sync">
-    <div class="cols">
-      <div>
-        <h2>Sync it across machines without trusting a server.</h2>
-      </div>
-      <div>
-        <p>Connect your own Telegram bot and the vault syncs both ways between your computers. Only ciphertext is uploaded, under random file names, so titles and folders never leave the app. Google Drive is next.</p>
-        <p>On a new machine: install Notiq, choose <strong>Restore from Telegram</strong>, enter the bot token and your master password. That's it.</p>
-        <p>The bot token lives in your system keychain. Conflicts keep both versions; nothing is ever deleted by sync.</p>
-      </div>
-    </div>
-  </section>
-
-  <section>
+  <section class="reveal">
     <h2>Everything else you'd expect</h2>
     <dl class="facts">
       <dt>Editor</dt><dd>Monaco-based Markdown editing with live preview, tabs and a built-in terminal.</dd>
@@ -72,7 +77,7 @@ key  ~/.ssh/prod_ed25519</div>
     </dl>
   </section>
 
-  <section>
+  <section class="reveal">
     <h2>Get started</h2>
     <ol class="steps">
       <li><b>Download</b> the installer for your system from the <a href="https://github.com/trexolab-solution/notiq/releases/latest">latest release</a>.</li>
@@ -86,5 +91,41 @@ key  ~/.ssh/prod_ed25519</div>
     <div>Notiq</div>
   </footer>
 </div>
+<script>
+(function(){
+  var reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var root=document.documentElement; root.classList.add('js');
+  // reveal on scroll
+  var io=new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting){e.target.classList.add('in');io.unobserve(e.target);}});},{threshold:.15});
+  document.querySelectorAll('.reveal,.hero>*').forEach(function(el){io.observe(el);});
+  // scroll story
+  var sec=document.getElementById('story'),stage=document.getElementById('stage');
+  var items=sec.querySelectorAll('.story-text li');
+  var plain1="host prod-1\nuser deploy\nkey  ~/.ssh/prod_ed25519";
+  var plain2="host prod-1\nuser deploy\nkey  ~/.ssh/prod_ed25519";
+  var t1=document.getElementById('doctext'),t2=document.getElementById('doctext2'),nm=document.getElementById('docname');
+  var hex="0123456789abcdef",cur=-1,timer;
+  function scramble(el,target,done){
+    if(reduce){el.textContent=target;return;}
+    clearInterval(timer);var n=0,len=target.length;
+    timer=setInterval(function(){n+=3;var out="";
+      for(var i=0;i<len;i++){var c=target[i];out+=(c==="\n"||c===" "||i<n)?c:hex[Math.random()*16|0];}
+      el.textContent=out;if(n>=len){clearInterval(timer);el.textContent=target;}},30);
+  }
+  function setStep(n){
+    if(n===cur)return;cur=n;stage.dataset.step=n;
+    items.forEach(function(li,i){li.classList.toggle('on',i===n);});
+    if(n===0){nm.textContent="ssh-prod-server.md";t1.textContent=plain1;}
+    if(n>=1){nm.textContent="3f9a…c1.nqv";var c="NQV1 9c e4 71 a8 0b d2\n3e 5f f6 12 8a c4 37\nb9 60 d1 4a 8e 02 77";if(n===1)scramble(t1,c);else t1.textContent=c;}
+    if(n===3){scramble(t2,plain2);} else if(n<3){t2.textContent="••••••••••••\n••••••••••••••••\n••••••••••••••••••••";}
+  }
+  function onScroll(){
+    var r=sec.getBoundingClientRect(),h=sec.offsetHeight-innerHeight;
+    var p=Math.min(1,Math.max(0,-r.top/h));
+    setStep(Math.min(3,Math.floor(p*4)));
+  }
+  addEventListener('scroll',onScroll,{passive:true});addEventListener('resize',onScroll);onScroll();
+})();
+</script>
 </body>
 </html>
