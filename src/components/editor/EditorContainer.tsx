@@ -2,6 +2,8 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { LoginEntryEditor } from "../vault/LoginEntryEditor";
 import { LOGIN_EXT } from "../../lib/loginEntry";
 import { isVaultPath } from "../../lib/vault";
+import { SECRET_KINDS } from "../../lib/secretEntry";
+import { SecretEntryEditor } from "../vault/SecretEntryEditor";
 import { FileText, Plus } from "lucide-react";
 import { useAppStore } from "../../store";
 import { MonacoMarkdownEditor, type MonacoEditorHandle } from "./MonacoMarkdownEditor";
@@ -150,6 +152,9 @@ export const EditorContainer = React.memo(function EditorContainer() {
   // Secure Vault: a locked note shows no content at all — only the unlock screen.
   if (activeTab.vaultLocked) return <LockedNoteView tab={activeTab} />;
   if (activeTab.vaultExt === LOGIN_EXT && isVaultPath(activeTab.filePath)) return <LoginEntryEditor tab={activeTab} />;
+  if (activeTab.vaultExt && SECRET_KINDS[activeTab.vaultExt] && isVaultPath(activeTab.filePath)) {
+    return <SecretEntryEditor tab={activeTab} kind={activeTab.vaultExt} />;
+  }
 
   const shownPath     = displayPathOf(activeTab);
   const language      = activeTab.language ?? getLanguageFromPath(shownPath);

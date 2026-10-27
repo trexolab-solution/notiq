@@ -7,6 +7,7 @@ import {
 import type { Command } from "../components/ui/CommandPalette";
 import { useAppStore } from "../store";
 import { useVaultStore } from "../store/vaultStore";
+import { createVaultEntry, NEW_ENTRY_OPTIONS } from "../lib/vaultCreate";
 import type { Tab, AppView, ThemeId } from "../types";
 import { THEMES } from "../lib/themes";
 import { getActiveEditor } from "../lib/activeEditor";
@@ -68,6 +69,10 @@ export function useCommands(deps: UseCommandsDeps): () => Command[] {
       { id: "act:graph", label: "Knowledge Graph", group: "Actions", icon: <NetworkIcon size={14} />, run: () => setActiveView("graph") },
       { id: "act:editor", label: "Editor View", group: "Actions", icon: <FileIcon size={14} />, run: () => setActiveView("editor") },
       { id: "act:chat", label: "Toggle AI Chat", group: "Actions", icon: <ChatIcon size={14} />, run: toggleAiChat },
+      ...NEW_ENTRY_OPTIONS.map((o) => ({
+        id: `vault:new-${o.kind}`, label: `Vault: New ${o.label}`, group: "Vault", icon: <LockIcon size={14} />,
+        run: () => { void createVaultEntry(o.kind); },
+      })),
       { id: "vault:lock-note", label: "Vault: Lock This Note", group: "Vault", icon: <LockIcon size={14} />, run: () => { if (activeTabId) void useAppStore.getState().lockTabToVault(activeTabId); } },
       { id: "vault:lock", label: "Vault: Lock Now", group: "Vault", icon: <LockIcon size={14} />, run: () => { void useAppStore.getState().lockVault(); } },
       { id: "vault:unlock", label: "Vault: Unlock", group: "Vault", icon: <UnlockIcon size={14} />, run: () => { void useVaultStore.getState().ensureUnlocked(); } },
