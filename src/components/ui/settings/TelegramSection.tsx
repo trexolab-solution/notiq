@@ -143,8 +143,8 @@ export function TelegramSection() {
       )}
 
       <p className="text-xs text-[var(--color-text-muted)]">
-        Only encrypted <code>.nqv</code> files are uploaded, under random names. Your storage provider never sees titles, folders or
-        content. To use the same vault on another device, install Notiq there and choose "Restore" on the vault setup screen —
+        All your locked notes live in ONE encrypted vault file (<code>vault.nqdb</code>), and that single file is what gets backed up. Your
+        storage provider never sees titles, folders or content. To use the same vault on another device, install Notiq there and choose "Restore" on the vault setup screen —
         you'll need your Google sign-in (or the Telegram bot token) and your master password. Anyone who can read the backup could
         try to guess your master password offline, so make it long and unique.
       </p>

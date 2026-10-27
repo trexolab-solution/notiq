@@ -1,6 +1,7 @@
 import { documentDir, homeDir, join } from "@tauri-apps/api/path";
 import { exists, mkdir } from "@tauri-apps/plugin-fs";
 import { open } from "@tauri-apps/plugin-dialog";
+import { invoke } from "@tauri-apps/api/core";
 import { getVaultDir, setVaultDir, clearVaultDir } from "./vaultPrefs";
 
 export const VAULT_DIR_EVENT = "vault:dir-changed";
@@ -19,12 +20,15 @@ async function mk(dir: string): Promise<string> {
 /** Creates the storage folder if needed. Default falls back to ~/Notiq Vault if Documents isn't writable. */
 export async function ensureVaultDir(): Promise<string> {
   const dir = await resolveVaultDir();
+  let out: string;
   try {
-    return await mk(dir);
+    out = await mk(dir);
   } catch (e) {
     if (getVaultDir()) throw e;
-    return mk(await join(await homeDir(), "Notiq Vault"));
+    out = await mk(await join(await homeDir(), "Notiq Vault"));
   }
+  await invoke<void>("vault_set_root", { root: out });
+  return out;
 }
 
 export async function pickVaultDir(): Promise<string | null> {

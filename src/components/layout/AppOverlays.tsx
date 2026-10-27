@@ -11,6 +11,7 @@ import { ToastProvider } from "../ui/Toast";
 import { VaultDialog } from "../vault/VaultDialog";
 import { AutofillPrompt } from "../vault/AutofillPrompt";
 import { VaultDestinationDialog } from "../vault/VaultDestinationDialog";
+import { LegacyVaultImport } from "../vault/LegacyVaultImport";
 
 import type { CtxMenuState } from "../../hooks/useGlobalContextMenu";
 import type { Tab, AppView } from "../../types";
@@ -174,6 +175,7 @@ export function AppOverlays({
       <VaultDialog />
       <AutofillPrompt />
       <VaultDestinationDialog />
+      <LegacyVaultImport />
 
       <ToastProvider />
 
