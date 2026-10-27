@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Send } from "lucide-react";
+import { Cloud } from "lucide-react";
 import { SettingRow } from "../SettingRow";
 import { Button } from "../Button";
 import { Toggle } from "../Toggle";
@@ -8,7 +8,7 @@ import { PasswordInput } from "../PasswordInput";
 import { toast } from "../../../lib/toast";
 import {
   TG_EVENT, errText, getTgAutoSync, setTgAutoSync, runSync,
-  tgClear, tgDetectChat, tgSaveConfig, tgStatus, type TgStatus,
+  gdriveConnect, tgClear, tgDetectChat, tgSaveConfig, tgStatus, type TgStatus,
 } from "../../../lib/telegram";
 
 /** Settings → Vault: back up encrypted notes to the user's own Telegram bot. */
@@ -19,6 +19,7 @@ export function TelegramSection() {
   const [busy, setBusy]     = useState<string | null>(null);
   const [auto, setAuto]     = useState(getTgAutoSync);
   const [confirmOff, setConfirmOff] = useState(false);
+  const [prov, setProv]     = useState<"telegram" | "gdrive">("gdrive");
 
   const refresh = useCallback(() => { tgStatus().then(setSt).catch(() => setSt(null)); }, []);
   useEffect(() => {
@@ -48,6 +49,13 @@ export function TelegramSection() {
     refresh();
   });
 
+  const connectDrive = () => run("gdrive", async () => {
+    toast.info("Finish signing in in your browser…");
+    const email = await gdriveConnect();
+    toast.info(`Connected to Google Drive (${email}). Notiq can only see its own hidden app folder.`);
+    refresh();
+  });
+
   const sync = () => run("sync", async () => {
     const r = await runSync();
     if (!r) return;
@@ -62,11 +70,28 @@ export function TelegramSection() {
   return (
     <div className="flex flex-col gap-4">
       <h3 className="text-sm font-semibold text-[var(--color-text)] flex items-center gap-2">
-        <Send size={14} /> Telegram backup
+        <Cloud size={14} /> Cloud sync
       </h3>
 
       {!st?.configured ? (
         <div className="flex flex-col gap-3">
+          <div className="flex gap-2" role="tablist" aria-label="Storage provider">
+            <Button size="sm" variant={prov === "gdrive" ? "primary" : "ghost"} onClick={() => setProv("gdrive")}>Google Drive</Button>
+            <Button size="sm" variant={prov === "telegram" ? "primary" : "ghost"} onClick={() => setProv("telegram")}>Telegram</Button>
+          </div>
+          {prov === "gdrive" ? (
+            <>
+              <p className="text-xs text-[var(--color-text-muted)]">
+                Sign in with Google in your browser. Notiq asks only for access to its own hidden app folder in your Drive,
+                never your other files. No bot or token needed.
+              </p>
+              <div>
+                <Button variant="primary" size="sm" disabled={!!busy} onClick={() => void connectDrive()}>
+                  {busy === "gdrive" ? "Waiting for sign-in…" : "Connect Google Drive"}
+                </Button>
+              </div>
+            </>
+          ) : (<>
           <ol className="text-xs list-decimal pl-4 flex flex-col gap-1 text-[var(--color-text-muted)]">
             <li>In Telegram, open <b>@BotFather</b> → <code>/newbot</code> and copy the bot token.</li>
             <li>Open your new bot and press <b>Start</b>.</li>
@@ -85,11 +110,12 @@ export function TelegramSection() {
               {busy === "connect" ? "Connecting…" : "Connect"}
             </Button>
           </div>
+          </>)}
         </div>
       ) : (
         <>
           <p className="text-xs text-[var(--color-text-muted)]">
-            Connected · chat {st.chat_id} ·{" "}
+            Connected · {st.detail} ·{" "}
             {st.last_sync ? `last sync ${new Date(st.last_sync * 1000).toLocaleString()}` : "not synced yet"}
           </p>
           <div className="flex flex-wrap gap-2">
@@ -112,8 +138,10 @@ export function TelegramSection() {
       )}
 
       <p className="text-xs text-[var(--color-text-muted)]">
-        Only encrypted <code>.nqv</code> files are uploaded, under random names. Telegram never sees titles, folders or
-        content. To use the same vault on another device, install Notiq there and choose "Restore from Telegram" on the vault setup screen — you'll need the bot token and your master password. Anyone with the bot token could try to guess your master password offline, so make it long and unique.
+        Only encrypted <code>.nqv</code> files are uploaded, under random names. Your storage provider never sees titles, folders or
+        content. To use the same vault on another device, install Notiq there and choose "Restore" on the vault setup screen —
+        you'll need your Google sign-in (or the Telegram bot token) and your master password. Anyone who can read the backup could
+        try to guess your master password offline, so make it long and unique.
       </p>
     </div>
   );

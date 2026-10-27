@@ -12,7 +12,7 @@ import { useTelegramAutoSync } from "../../hooks/useTelegramAutoSync";
 import {
   vaultCreate, vaultUnlock, vaultUnlockWithRecovery, vaultErrorMessage,
 } from "../../lib/vault";
-import { errText, tgBootstrap, tgDetectChat } from "../../lib/telegram";
+import { errText, gdriveBootstrap, tgBootstrap, tgDetectChat } from "../../lib/telegram";
 
 const MIN_LEN = 8;
 
@@ -41,6 +41,7 @@ function VaultDialogInner({ mode }: { mode: VaultDialogMode }) {
   // New device: fetch the key file from the user's Telegram backup instead of creating a vault.
   const [restoring, setRestoring] = useState(false);
   const [tgToken, setTgToken] = useState("");
+  const [restoreVia, setRestoreVia] = useState<"gdrive" | "telegram">("gdrive");
 
   const cancel = () => useVaultStore.getState().finish(false);
 
@@ -143,14 +144,19 @@ function VaultDialogInner({ mode }: { mode: VaultDialogMode }) {
     );
   }
 
-  const restoreFromTelegram = async () => {
+  const restoreFromCloud = async () => {
     if (busy) return;
     const token = tgToken.trim();
-    if (!token) { setError("Enter your bot token"); return; }
+    if (restoreVia === "telegram" && !token) { setError("Enter your bot token"); return; }
     setBusy(true); setError(null);
     try {
-      const chatId = await tgDetectChat(token);
-      await tgBootstrap(token, chatId);
+      if (restoreVia === "gdrive") {
+        toast.info("Finish signing in in your browser…");
+        await gdriveBootstrap();
+      } else {
+        const chatId = await tgDetectChat(token);
+        await tgBootstrap(token, chatId);
+      }
       setTgToken("");
       await useVaultStore.getState().refresh();
       toast.info("Vault found. Enter your master password — your notes will sync after you unlock.");
@@ -164,19 +170,31 @@ function VaultDialogInner({ mode }: { mode: VaultDialogMode }) {
   if (mode === "setup" && restoring) {
     return (
       <Modal onClose={cancel} zClassName="z-[70]">
-        <form className={panel} onSubmit={(e) => { e.preventDefault(); void restoreFromTelegram(); }}
-              role="dialog" aria-modal="true" aria-label="Restore vault from Telegram">
+        <form className={panel} onSubmit={(e) => { e.preventDefault(); void restoreFromCloud(); }}
+              role="dialog" aria-modal="true" aria-label="Restore vault">
           <div className="flex items-center gap-2 mb-1">
             <Lock size={18} style={{ color: "var(--color-primary)" }} />
-            <h2 className="text-sm font-semibold">Restore vault from Telegram</h2>
+            <h2 className="text-sm font-semibold">Restore your vault</h2>
           </div>
-          <p className="text-xs mb-4 text-[var(--color-text-muted)]">
-            Paste the bot token you used on your other device. Notiq downloads your encrypted key file;
+          <p className="text-xs mb-3 text-[var(--color-text-muted)]">
+            Reconnect the storage you used on your other device. Notiq downloads your encrypted key file;
             then unlock with your master password and your notes sync down.
           </p>
-          <label className={label} htmlFor="vault-tg-token">Bot token</label>
-          <PasswordInput id="vault-tg-token" autoFocus autoComplete="off" spellCheck={false}
-                         value={tgToken} onChange={(e) => setTgToken(e.target.value)} />
+          <div className="flex gap-2 mb-3">
+            <Button type="button" size="sm" variant={restoreVia === "gdrive" ? "primary" : "ghost"} onClick={() => setRestoreVia("gdrive")}>Google Drive</Button>
+            <Button type="button" size="sm" variant={restoreVia === "telegram" ? "primary" : "ghost"} onClick={() => setRestoreVia("telegram")}>Telegram</Button>
+          </div>
+          {restoreVia === "telegram" ? (
+            <>
+              <label className={label} htmlFor="vault-tg-token">Bot token</label>
+              <PasswordInput id="vault-tg-token" autoFocus autoComplete="off" spellCheck={false}
+                             value={tgToken} onChange={(e) => setTgToken(e.target.value)} />
+            </>
+          ) : (
+            <p className="text-xs text-[var(--color-text-muted)]">
+              A browser window opens so you can sign in to the Google account you used before.
+            </p>
+          )}
           {error && <p role="alert" className="text-xs mt-3 text-[var(--color-danger)]">{error}</p>}
           <div className="flex items-center justify-between mt-4">
             <button type="button" className="text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text)] underline cursor-pointer"
@@ -185,7 +203,7 @@ function VaultDialogInner({ mode }: { mode: VaultDialogMode }) {
             </button>
             <div className="flex gap-2">
               <Button type="button" onClick={cancel}>Cancel</Button>
-              <Button type="submit" variant="primary" disabled={busy}>{busy ? "Working…" : "Restore"}</Button>
+              <Button type="submit" variant="primary" disabled={busy}>{busy ? "Working…" : restoreVia === "gdrive" ? "Sign in & restore" : "Restore"}</Button>
             </div>
           </div>
         </form>
@@ -259,7 +277,7 @@ function VaultDialogInner({ mode }: { mode: VaultDialogMode }) {
               className="text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text)] underline cursor-pointer"
               onClick={() => { setRestoring(true); setError(null); }}
             >
-              Restore from Telegram
+              Restore from Google Drive / Telegram
             </button>
           ) : <span />}
           <div className="flex gap-2">

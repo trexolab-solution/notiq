@@ -5,6 +5,8 @@ use tauri::Manager;
 mod ai;
 mod vault;
 mod vault_core;
+mod gdrive;
+mod sync;
 mod telegram;
 #[cfg(desktop)]
 use tauri::{
@@ -637,13 +639,15 @@ pub fn run() {
         vault::vault_lock,
         vault::vault_write_file,
         vault::vault_read_file,
-        telegram::tg_status,
+        sync::sync_status,
+        sync::sync_disconnect,
+        sync::sync_state,
+        sync::sync_run,
         telegram::tg_detect_chat,
-        telegram::tg_save_config,
-        telegram::tg_clear,
-        telegram::tg_sync_state,
-        telegram::tg_sync,
+        telegram::tg_connect,
         telegram::tg_bootstrap,
+        gdrive::gdrive_connect,
+        gdrive::gdrive_bootstrap,
     ]);
 
     #[cfg(not(desktop))]
@@ -664,13 +668,15 @@ pub fn run() {
         vault::vault_lock,
         vault::vault_write_file,
         vault::vault_read_file,
-        telegram::tg_status,
+        sync::sync_status,
+        sync::sync_disconnect,
+        sync::sync_state,
+        sync::sync_run,
         telegram::tg_detect_chat,
-        telegram::tg_save_config,
-        telegram::tg_clear,
-        telegram::tg_sync_state,
-        telegram::tg_sync,
+        telegram::tg_connect,
         telegram::tg_bootstrap,
+        gdrive::gdrive_connect,
+        gdrive::gdrive_bootstrap,
     ]);
 
     #[cfg(desktop)]

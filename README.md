@@ -403,7 +403,8 @@ Lock individual notes behind a master password. A locked note is stored as a `.n
 - **Locking:** manual, a customizable panic shortcut (default `Ctrl+Alt+L`), idle timeout, and when the window is closed to the tray.
 - **AI & search:** locked notes are excluded from AI chat/actions/autocomplete, global search and the graph.
 - **Brute force:** repeated wrong passwords are throttled in-app; offline resistance comes from the Argon2 cost, so choose a long password.
-- **Telegram backup (optional):** only the encrypted `.nqv` files are uploaded to your own bot, under random names, plus an encrypted manifest. The bot token is kept in the OS keychain. Restore requires the same vault.
+- **Cloud sync (optional, Google Drive or Telegram):** two-way sync between your devices. Only encrypted `.nqv` files are uploaded, under random names, plus one sync-state file holding the key file (your vault key wrapped by your master password and recovery key) and a manifest sealed with the vault key. Drive uses only the hidden `drive.appdata` folder; tokens live in the OS keychain. Newest edit wins on conflicts and the other copy is kept as `(conflict …)`; sync never deletes notes. On a new device choose **Restore** on the vault setup screen. Anyone who can read the backup can try to guess the master password offline, so make it long and unique.
+- **Building with Drive sync:** set `NOTIQ_GOOGLE_CLIENT_SECRET` (the Desktop OAuth client secret) at build time; it is not stored in the repo.
 - **Not covered:** titles of locked notes are visible in tabs/sidebar, images pasted into `assets/` stay unencrypted, unsaved edits to a locked note are discarded on restart, and a compromised OS (keylogger, memory dump while unlocked) defeats any in-app encryption.
 
 **Losing both your master password and recovery key means the notes cannot be recovered.**

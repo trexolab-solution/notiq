@@ -101,7 +101,7 @@ export function VaultPanel() {
     setSyncing(true);
     try {
       const r = await runSync();
-      if (r) toast.info(`Telegram: ${r.uploaded} uploaded, ${r.skipped} unchanged`);
+      if (r) toast.info(`Sync: ${r.uploaded} uploaded, ${r.downloaded.length} downloaded, ${r.skipped} unchanged`);
       if (r?.failed.length) toast.error(r.failed[0]);
     } catch (e) {
       toast.error(errText(e));
@@ -125,7 +125,7 @@ export function VaultPanel() {
           <FilePlus2 size={14} />
         </button>
         {tg && (
-          <button className={iconBtn} title="Back up to Telegram" aria-label="Back up to Telegram"
+          <button className={iconBtn} title="Sync now" aria-label="Sync now"
                   disabled={syncing} onClick={() => void syncNow()}>
             <CloudUpload size={14} />
           </button>

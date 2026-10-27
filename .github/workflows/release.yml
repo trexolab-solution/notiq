@@ -53,6 +53,8 @@ jobs:
           # The updater signing key has no password, so pass an empty string.
           # (It is not a secret, and GitHub won't store an empty-valued secret.)
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
+          # Google Drive sync: Desktop OAuth client secret (not confidential per Google, but kept out of the repo).
+          NOTIQ_GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "Notiq ${{ github.ref_name }}"

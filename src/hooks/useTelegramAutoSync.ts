@@ -8,7 +8,7 @@ const DEBOUNCE_MS = 8000;
 const PERIODIC_MS = 5 * 60 * 1000;
 
 /**
- * Two-way Telegram sync (on by default once Telegram is connected): when the
+ * Two-way Sync (on by default once Telegram is connected): when the
  * vault unlocks, a few seconds after a note is saved, and every few minutes.
  */
 export function useTelegramAutoSync() {
@@ -24,11 +24,11 @@ export function useTelegramAutoSync() {
         if (!(await tgStatus()).configured) return;
         const rep = await runSync();
         if (!rep) return;
-        if (rep.downloaded.length) toast.info(`Telegram: ${rep.downloaded.length} note${rep.downloaded.length > 1 ? "s" : ""} updated from another device`);
-        if (rep.conflicts) toast.info(`Telegram: ${rep.conflicts} note${rep.conflicts > 1 ? "s were" : " was"} edited on two devices — the older version was kept as "(conflict …)"`);
-        if (rep.failed.length) toast.error(`Telegram sync: ${rep.failed[0]}`);
+        if (rep.downloaded.length) toast.info(`Sync: ${rep.downloaded.length} note${rep.downloaded.length > 1 ? "s" : ""} updated from another device`);
+        if (rep.conflicts) toast.info(`Sync: ${rep.conflicts} note${rep.conflicts > 1 ? "s were" : " was"} edited on two devices — the older version was kept as "(conflict …)"`);
+        if (rep.failed.length) toast.error(`Sync: ${rep.failed[0]}`);
       } catch (e) {
-        toast.error(`Telegram sync failed: ${errText(e)}`);
+        toast.error(`Sync failed: ${errText(e)}`);
       } finally {
         running = false;
         if (again) { again = false; schedule(); }

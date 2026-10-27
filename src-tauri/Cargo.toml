@@ -31,6 +31,7 @@ chacha20poly1305 = "0.10"
 rand = "0.8"
 zeroize = "1"
 sha2 = "0.10"
+base64 = "0.22"
 
 
 [target.'cfg(any(target_os = "macos", windows, target_os = "linux"))'.dependencies]

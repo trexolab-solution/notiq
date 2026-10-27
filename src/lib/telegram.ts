@@ -4,19 +4,22 @@ import { useVaultStore } from "../store/vaultStore";
 
 /** Telegram backup of vault notes — wrappers over the Rust `tg_*` commands. */
 
-export interface TgStatus      { configured: boolean; chat_id: number | null; last_sync: number | null }
+export type Provider = "telegram" | "gdrive";
+export interface TgStatus      { configured: boolean; provider: Provider | null; detail: string | null; last_sync: number | null }
 export interface SyncReport    { uploaded: number; downloaded: string[]; conflicts: number; skipped: number; failed: string[] }
 export interface FileState     { rel: string; state: "synced" | "modified" | "new" }
 
 export const TG_EVENT = "telegram:changed";
 export const FILE_SAVED_EVENT = "vault:file-saved";
 
-export const tgStatus      = () => invoke<TgStatus>("tg_status");
+export const tgStatus      = () => invoke<TgStatus>("sync_status");
 export const tgDetectChat  = (token: string) => invoke<number>("tg_detect_chat", { token });
-export const tgSaveConfig  = (token: string, chatId: number) => invoke<string>("tg_save_config", { token, chatId });
-export const tgClear       = () => invoke<void>("tg_clear");
-export const tgSyncState   = (root: string) => invoke<FileState[]>("tg_sync_state", { root });
-export const tgSync        = (root: string) => invoke<SyncReport>("tg_sync", { root });
+export const tgSaveConfig  = (token: string, chatId: number) => invoke<string>("tg_connect", { token, chatId });
+export const gdriveConnect   = () => invoke<string>("gdrive_connect");
+export const gdriveBootstrap = () => invoke<void>("gdrive_bootstrap");
+export const tgClear       = () => invoke<void>("sync_disconnect");
+export const tgSyncState   = (root: string) => invoke<FileState[]>("sync_state", { root });
+export const tgSync        = (root: string) => invoke<SyncReport>("sync_run", { root });
 export const tgBootstrap   = (token: string, chatId: number) => invoke<void>("tg_bootstrap", { token, chatId });
 
 const KEY_AUTO = "pref:tgAutoSync";
