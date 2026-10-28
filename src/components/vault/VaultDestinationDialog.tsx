@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
 import { Folder, FolderPlus, Lock } from "lucide-react";
-import { exists } from "@tauri-apps/plugin-fs";
 import { Modal } from "../ui/Modal";
 import { Input } from "../ui/Input";
 import { Button } from "../ui/Button";
 import {
   useVaultDestStore, listVaultFolders, createVaultFolder, safeName, joinPath, getLastFolder, setLastFolder,
 } from "../../lib/vaultDest";
+import { vaultFileExists } from "../../lib/vault";
 
 const SUGGESTIONS = ["SSH", "Logins", "API keys"];
 
@@ -58,7 +58,7 @@ function Inner({ req }: { req: NonNullable<ReturnType<typeof useVaultDestStore.g
     if (!file) { setErr("Enter a file name"); return; }
     const path = joinPath(root, sel, `${file}.nqv`);
     try {
-      if (await exists(path)) { setErr(`"${file}" already exists in this folder`); return; }
+      if (await vaultFileExists(path, root)) { setErr(`"${file}" already exists in this folder`); return; }
     } catch { /* let the write report any real problem */ }
     setLastFolder(sel);
     finish(path);

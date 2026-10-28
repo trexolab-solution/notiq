@@ -1,16 +1,15 @@
 import { useCallback, useEffect, useState } from "react";
 import { FolderOpen, Folder, FilePlus2, RefreshCw, Lock, LockOpen, RotateCcw, CloudUpload } from "lucide-react";
-import { readDir } from "@tauri-apps/plugin-fs";
 import { useAppStore } from "../../store";
 import { useVaultStore } from "../../store/vaultStore";
 import { readFileEntry } from "../../lib/fileOps";
-import { vaultErrorMessage } from "../../lib/vault";
+import { ERR_LOCKED, vaultErrorMessage, vaultList, type VaultItem } from "../../lib/vault";
 import { ensureVaultDir, pickVaultDir, resetVaultDir, VAULT_DIR_EVENT } from "../../lib/vaultDir";
 import { getVaultDir } from "../../lib/vaultPrefs";
 import { toast } from "../../lib/toast";
 import { createVaultEntry, NEW_ENTRY_OPTIONS } from "../../lib/vaultCreate";
 import { backupDismissedForever } from "../../lib/backupPrompt";
-import { TG_EVENT, FILE_SAVED_EVENT, errText, runSync, tgStatus, tgSyncState } from "../../lib/telegram";
+import { TG_EVENT, FILE_SAVED_EVENT, errText, failedText, runSync, tgStatus, tgSyncState } from "../../lib/telegram";
 
 const NQV = /\.nqv$/i;
 const baseName = (p: string) => p.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || p;
@@ -21,6 +20,7 @@ export function VaultPanel() {
   const [dir, setDir]     = useState<string>("");
   const [files, setFiles] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [locked, setLocked] = useState(false);
   const [menu, setMenu] = useState(false);
   const [tg, setTg] = useState(false);
   const [tgKnown, setTgKnown] = useState(false);
@@ -32,19 +32,16 @@ export function VaultPanel() {
     try {
       const d = await ensureVaultDir();
       setDir(d);
-      const out: string[] = [];
-      const walk = async (rel: string, depth: number) => {
-        const entries = await readDir(rel ? `${d.replace(/\\/g, "/").replace(/\/+$/, "")}/${rel}` : d);
-        for (const e of entries) {
-          if (e.isFile && NQV.test(e.name)) out.push(rel ? `${rel}/${e.name}` : e.name);
-          else if (e.isDirectory && depth < 3 && !e.name.startsWith(".")) {
-            const sub = rel ? `${rel}/${e.name}` : e.name;
-            out.push(`${sub}/`); // keeps empty folders visible
-            await walk(sub, depth + 1);
-          }
-        }
-      };
-      await walk("", 0);
+      let items: VaultItem[] = [];
+      try {
+        items = await vaultList();
+        setLocked(false);
+      } catch (e) {
+        if (String(e).includes(ERR_LOCKED)) setLocked(true);
+        else throw e;
+      }
+      // Folders sort right before their children ("SSH/" < "SSH/a.nqv").
+      const out = items.map((i) => (i.dir ? `${i.rel}/` : i.rel));
       setFiles(out.sort((a, b) => a.localeCompare(b)));
       try {
         const s = await tgStatus();
@@ -73,7 +70,7 @@ export function VaultPanel() {
       window.removeEventListener(VAULT_DIR_EVENT, load);
       window.removeEventListener("focus", load);
     };
-  }, [load]);
+  }, [load, unlocked]); // names are encrypted while locked: reload when the vault opens/closes
 
   const pathOf = (name: string) => `${dir.replace(/\\/g, "/").replace(/\/+$/, "")}/${name}`;
 
@@ -92,7 +89,7 @@ export function VaultPanel() {
     try {
       const r = await runSync();
       if (r) toast.info(`Sync: ${r.uploaded} uploaded, ${r.downloaded.length} downloaded, ${r.skipped} unchanged`);
-      if (r?.failed.length) toast.error(r.failed[0]);
+      if (r?.failed.length) toast.error(failedText(r.failed));
     } catch (e) {
       toast.error(errText(e));
     } finally {
@@ -169,8 +166,17 @@ export function VaultPanel() {
       )}
 
       <div className="flex-1 overflow-y-auto px-1.5 pb-2">
+        {locked && !error && (
+          <div className="px-2 text-xs text-[var(--color-text-muted)]">
+            <p>Unlock to see your secrets.</p>
+            <button type="button" className="mt-2 px-2.5 py-1 rounded cursor-pointer border border-[var(--color-border)] text-[var(--color-text)] hover:bg-[var(--color-bg-tertiary)]"
+                    onClick={() => void useVaultStore.getState().ensureUnlocked()}>
+              Unlock
+            </button>
+          </div>
+        )}
         {error && <p className="px-2 text-xs text-[var(--color-danger)]">{error}</p>}
-        {!error && !files.some((f) => !f.endsWith("/")) && (
+        {!error && !locked && !files.some((f) => !f.endsWith("/")) && (
           <p className="px-2 text-xs text-[var(--color-text-muted)]">
             No locked notes here yet. Use + to create one, or right-click a tab → Lock with Vault.
           </p>

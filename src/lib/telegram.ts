@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { ensureVaultDir } from "./vaultDir";
 import { useVaultStore } from "../store/vaultStore";
+import { toast } from "./toast";
 
 /** Telegram backup of vault notes — wrappers over the Rust `tg_*` commands. */
 
@@ -50,12 +51,19 @@ export const errText = (e: unknown) => (typeof e === "string" ? e : e instanceof
  * Bounded by a timeout so locking is never held up for long; errors are ignored
  * (the note stays safely on disk and syncs next time).
  */
-export async function syncBeforeLock(timeoutMs = 8000): Promise<void> {
+export async function syncBeforeLock(timeoutMs = 20000): Promise<void> {
   if (!getTgAutoSync()) return;
   try {
     if (!(await tgStatus()).configured) return;
     const root = await ensureVaultDir();
-    await Promise.race([tgSync(root), new Promise((r) => setTimeout(r, timeoutMs))]);
+    const rep = await Promise.race([tgSync(root), new Promise<null>((r) => setTimeout(() => r(null), timeoutMs))]);
     changed();
-  } catch { /* best effort */ }
+    if (rep?.failed.length) toast.error(failedText(rep.failed));
+  } catch (e) {
+    toast.error(`Sync before lock failed: ${errText(e)}`);
+  }
 }
+
+/** Every failed note, not just the first, so nothing stays hidden. */
+export const failedText = (failed: string[]) =>
+  `Sync: ${failed.length} failed — ${failed.slice(0, 3).join("; ")}${failed.length > 3 ? "; …" : ""}`;

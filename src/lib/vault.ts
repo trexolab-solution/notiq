@@ -80,6 +80,19 @@ export const vaultSetStarred  = (path: string, starred: boolean) => invoke<void>
 /** Resolves the new entry's full virtual path. */
 export const vaultDuplicate   = (path: string) => invoke<string>("vault_duplicate", { path }).then(changed);
 
+export const vaultLegacyCount = () => invoke<number>("vault_legacy_count");
+export const vaultImportLegacy = () => invoke<number>("vault_import_legacy");
+export const vaultLegacyCleanup = () => invoke<number>("vault_legacy_cleanup");
+
+/** True when a file exists at this virtual vault path (case-insensitive). */
+export async function vaultFileExists(path: string, root: string): Promise<boolean> {
+  const base = root.replace(/[\\]/g, "/").replace(/\/+$/, "") + "/";
+  const p = path.replace(/[\\]/g, "/");
+  if (!p.startsWith(base)) return false;
+  const rel = p.slice(base.length).toLowerCase();
+  return (await vaultList()).some((i) => !i.dir && i.rel.toLowerCase() === rel);
+}
+
 /** Tauri rejects with a plain string; turn codes into friendly text. */
 export function vaultErrorMessage(e: unknown): string {
   const s = typeof e === "string" ? e : e instanceof Error ? e.message : String(e);

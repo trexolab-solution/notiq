@@ -1,6 +1,6 @@
 import { create } from "zustand";
-import { readDir, mkdir } from "@tauri-apps/plugin-fs";
 import { ensureVaultDir } from "./vaultDir";
+import { vaultList, vaultMkdir } from "./vault";
 
 /** Pending "where should this locked note go?" request (one at a time). */
 interface DestState { req: { name: string; resolve: (path: string | null) => void } | null }
@@ -35,8 +35,9 @@ export const joinPath = (...parts: string[]) =>
 /** Sub-folders directly inside the vault storage folder. */
 export async function listVaultFolders(): Promise<{ root: string; folders: string[] }> {
   const root = await ensureVaultDir();
-  const entries = await readDir(root);
-  const folders = entries.filter((e) => e.isDirectory && !e.name.startsWith(".")).map((e) => e.name)
+  let items: Awaited<ReturnType<typeof vaultList>> = [];
+  try { items = await vaultList(); } catch { /* locked: no folders to offer yet */ }
+  const folders = items.filter((i) => i.dir && !i.rel.includes("/") && !i.rel.startsWith(".")).map((i) => i.rel)
     .sort((a, b) => a.localeCompare(b));
   return { root, folders };
 }
@@ -45,6 +46,6 @@ export async function createVaultFolder(name: string): Promise<string> {
   const f = safeName(name);
   if (!f) throw new Error("Enter a folder name");
   const root = await ensureVaultDir();
-  await mkdir(joinPath(root, f), { recursive: true });
+  await vaultMkdir(joinPath(root, f));
   return f;
 }

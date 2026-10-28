@@ -128,11 +128,6 @@ impl TgStore {
         Ok(bytes.to_vec())
     }
 
-    pub(crate) async fn put(&self, bytes: Vec<u8>) -> Result<String, String> {
-        let (mid, fid) = self.send_document(bytes).await?;
-        Ok(format!("{mid}:{fid}"))
-    }
-
     pub(crate) async fn get(&self, id: &str) -> Result<Vec<u8>, String> {
         let (_, fid) = id.split_once(':').ok_or("Bad Telegram file id")?;
         self.download(fid).await

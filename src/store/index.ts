@@ -10,13 +10,13 @@ import { applyTheme } from "../lib/themes";
 import { saveSession } from "../lib/session";
 import { buildGraphData } from "../lib/graph";
 import { pickSavePath, writeFile, type FileEntry } from "../lib/fileOps";
-import { isVaultPath, extFromPath, vaultLock, vaultReadFile, vaultWriteFile, vaultErrorMessage } from "../lib/vault";
+import { isVaultPath, extFromPath, vaultLock, vaultReadFile, vaultWriteFile, vaultErrorMessage, vaultFileExists } from "../lib/vault";
 import { useVaultStore } from "./vaultStore";
 import { pickVaultDestination } from "../lib/vaultDest";
 import { syncBeforeLock } from "../lib/telegram";
 import { scrubMonacoModels } from "../lib/vaultMemory";
 import { isSameOrUnder, remapPath } from "../lib/vaultTree";
-import { exists } from "@tauri-apps/plugin-fs";
+import { ensureVaultDir } from "../lib/vaultDir";
 import { getFileName } from "../lib/pathUtils";
 import { migrateTempToSaveDir, cleanupTabTemp } from "../lib/attachments";
 import { toast } from "../lib/toast";
@@ -505,7 +505,7 @@ export const useAppStore = create<AppState>((set, get) => {
       if (!target) return { ok: false };
 
       try {
-        if (plainPath && (await exists(target))) {
+        if (plainPath && (await vaultFileExists(target, await ensureVaultDir()))) {
           toast.error(`"${target.split(/[\\/]/).pop()}" already exists — rename or remove it first`);
           return { ok: false };
         }
