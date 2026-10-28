@@ -119,20 +119,83 @@ fn ct_eq(a: &str, b: &str) -> bool {
     a.len() == b.len() && a.bytes().zip(b.bytes()).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
 }
 
+/// A validated "save this login" request from the browser.
+#[derive(Debug, PartialEq)]
+pub struct SaveReq {
+    pub host: String,
+    pub url: String,
+    pub username: String,
+    pub password: String,
+    pub title: String,
+}
+
+fn clean(s: &str) -> String {
+    s.chars().filter(|c| !c.is_control()).collect()
+}
+
+/// Strict validation of an untrusted `save` message. Never logs the password.
+pub fn validate_save(req: &Value) -> Result<SaveReq, &'static str> {
+    let get = |k: &str| req.get(k).and_then(|v| v.as_str());
+    let host = get("host").ok_or("bad_request")?;
+    if host.is_empty()
+        || host.len() > 253
+        || !host.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'.' || b == b'-')
+    {
+        return Err("bad_request");
+    }
+    let url = get("url").ok_or("bad_request")?;
+    let url_ok = url.starts_with("https://")
+        || url.starts_with("http://localhost")
+        || url.starts_with("http://127.0.0.1");
+    if url.len() > 2048 || !url_ok || url.chars().any(|c| c.is_control() || c.is_whitespace()) {
+        return Err("bad_request");
+    }
+    let username = clean(get("username").unwrap_or(""));
+    let password = get("password").ok_or("bad_request")?;
+    if username.chars().count() > 256 || password.is_empty() || password.len() > 1024 {
+        return Err("bad_request");
+    }
+    let title = clean(get("title").unwrap_or("")).trim().to_string();
+    if title.chars().count() > 80 {
+        return Err("bad_request");
+    }
+    Ok(SaveReq {
+        host: host.to_string(),
+        url: url.to_string(),
+        username,
+        password: password.to_string(),
+        title,
+    })
+}
+
 /// Forwards a request to the UI and waits for its answer.
 fn handle(app: &AppHandle, req: Value) -> Value {
     let op = req.get("op").and_then(|v| v.as_str()).unwrap_or("");
-    if op == "ping" {
-        return json!({ "ok": true });
-    }
-    if op != "fill" {
-        return json!({ "error": "unknown_op" });
-    }
-    let host = req.get("host").and_then(|v| v.as_str()).unwrap_or("");
-    if host.is_empty() || host.len() > 253 {
-        return json!({ "error": "bad_host" });
-    }
+    let (event, payload) = match op {
+        "ping" => return json!({ "ok": true }),
+        "fill" => {
+            let host = req.get("host").and_then(|v| v.as_str()).unwrap_or("");
+            if host.is_empty() || host.len() > 253 {
+                return json!({ "error": "bad_host" });
+            }
+            ("autofill:request", json!({ "host": host }))
+        }
+        "save" => match validate_save(&req) {
+            Ok(s) => (
+                "autofill:save",
+                json!({ "host": s.host, "url": s.url, "username": s.username, "password": s.password, "title": s.title }),
+            ),
+            Err(e) => return json!({ "error": e }),
+        },
+        _ => return json!({ "error": "unknown_op" }),
+    };
+    await_ui(app, event, payload)
+}
+
+/// Registers a pending id, brings the window forward, emits `event` and waits for the UI's reply.
+fn await_ui(app: &AppHandle, event: &str, mut payload: Value) -> Value {
     let id = random_token();
+    payload["id"] = json!(id);
     let (tx, rx) = channel();
     pending().lock().unwrap_or_else(|e| e.into_inner()).insert(id.clone(), tx);
     if let Some(w) = app.get_webview_window("main") {
@@ -140,7 +203,7 @@ fn handle(app: &AppHandle, req: Value) -> Value {
         let _ = w.show();
         let _ = w.set_focus();
     }
-    let _ = app.emit("autofill:request", json!({ "id": id, "host": host }));
+    let _ = app.emit(event, payload);
     let reply = rx.recv_timeout(ANSWER_TIMEOUT).unwrap_or_else(|_| json!({ "error": "timeout" }));
     pending().lock().unwrap_or_else(|e| e.into_inner()).remove(&id);
     reply
@@ -284,5 +347,49 @@ mod tests {
     #[test]
     fn unanswered_reply_is_ignored() {
         autofill_reply("nope".into(), json!({}));
+    }
+
+    fn good() -> Value {
+        json!({"op":"save","host":"login.example.com","url":"https://login.example.com/signin",
+               "username":"me@x.io","password":"hunter2","title":"Example"})
+    }
+
+    #[test]
+    fn save_accepts_valid_and_strips_control_chars() {
+        let mut v = good();
+        v["title"] = json!("Ex\u{0007}ample\n");
+        let r = validate_save(&v).unwrap();
+        assert_eq!(r.title, "Example");
+        assert_eq!(r.host, "login.example.com");
+        let mut v = good();
+        v["username"] = json!("");
+        v["host"] = json!("localhost");
+        v["url"] = json!("http://localhost:3000/login");
+        assert!(validate_save(&v).is_ok());
+        v["host"] = json!("127.0.0.1");
+        v["url"] = json!("http://127.0.0.1/x");
+        assert!(validate_save(&v).is_ok());
+    }
+
+    #[test]
+    fn save_rejects_bad_input() {
+        let bad = |k: &str, val: Value| {
+            let mut v = good();
+            v[k] = val;
+            assert_eq!(validate_save(&v), Err("bad_request"), "{k}");
+        };
+        bad("host", json!(""));
+        bad("host", json!("Example.com"));
+        bad("host", json!("a.com:8080"));
+        bad("host", json!("a".repeat(254)));
+        bad("url", json!("http://example.com/"));
+        bad("url", json!("javascript:alert(1)"));
+        bad("url", json!(format!("https://a.com/{}", "x".repeat(2048))));
+        bad("username", json!("u".repeat(257)));
+        bad("password", json!(""));
+        bad("password", json!("p".repeat(1025)));
+        bad("title", json!("t".repeat(81)));
+        bad("password", json!(5));
+        assert!(validate_save(&json!({"op":"save"})).is_err());
     }
 }
