@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Eye, EyeOff, FileUp, KeyRound, ShieldCheck, Terminal, TriangleAlert } from "lucide-react";
+import { ChevronRight, Eye, EyeOff, FileUp, KeyRound, ShieldCheck, Terminal, TriangleAlert } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { readTextFile } from "@tauri-apps/plugin-fs";
 import { Button } from "../ui/Button";
@@ -43,6 +43,29 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
+/** Section whose body can be folded away; the header shows what's inside while it's closed. */
+function CollapsibleSection({ title, summary, open, onToggle, children }: {
+  title: string; summary: string; open: boolean; onToggle: () => void; children: React.ReactNode;
+}) {
+  const id = "ssh-advanced";
+  return (
+    <section className="flex flex-col gap-3">
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-controls={id}
+        onClick={onToggle}
+        className="flex items-center gap-1.5 w-full text-left pb-1 border-b border-[var(--color-border)] cursor-pointer text-[var(--color-text-muted)] hover:text-[var(--color-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-primary)]/50 rounded-sm"
+      >
+        <ChevronRight size={13} aria-hidden className="shrink-0 transition-transform motion-reduce:transition-none" style={{ transform: open ? "rotate(90deg)" : "none" }} />
+        <span className="text-[11px] font-semibold uppercase tracking-wider">{title}</span>
+        {!open && <span className="ml-1 text-[11px] normal-case tracking-normal truncate opacity-70">{summary}</span>}
+      </button>
+      {open && <div id={id} className="flex flex-col gap-3">{children}</div>}
+    </section>
+  );
+}
+
 function RevealButton({ shown, onToggle, name }: { shown: boolean; onToggle: () => void; name: string }) {
   return (
     <Tooltip content={shown ? `Hide ${name}` : `Show ${name}`}>
@@ -60,6 +83,8 @@ export function SshEntryEditor({ tab }: { tab: Tab }) {
   const [showPass, setShowPass] = useState(false);
   const [showKey, setShowKey] = useState(false);
   const [showPhrase, setShowPhrase] = useState(false);
+  // Advanced starts folded, but opens by itself when it already holds something.
+  const [advOpen, setAdvOpen] = useState(() => !!(f.jump || f.fingerprint || f.notes));
 
   const save = (next: typeof entry) => useAppStore.getState().updateTabContent(tab.id, serializeSecret(next));
   const setField = (key: string, value: string) => save({ ...entry, fields: { ...f, [key]: value } });
@@ -190,7 +215,7 @@ export function SshEntryEditor({ tab }: { tab: Tab }) {
           )}
         </Section>
 
-        <Section title="More">
+        <CollapsibleSection title="Advanced" summary="Jump host, fingerprint, notes" open={advOpen} onToggle={() => setAdvOpen((v) => !v)}>
           <Row htmlFor="ssh-jump" text="Jump host" hint="· optional" actions={<CopyIconButton value={f.jump ?? ""} label="jump host" />}>
             <Input id="ssh-jump" value={f.jump ?? ""} placeholder="user@bastion.example.com" spellCheck={false} autoComplete="off"
                    onChange={(e) => setField("jump", e.target.value.trim())} />
@@ -205,7 +230,7 @@ export function SshEntryEditor({ tab }: { tab: Tab }) {
             <textarea id="ssh-notes" rows={4} value={f.notes ?? ""} className={area}
                       onChange={(e) => setField("notes", e.target.value)} />
           </div>
-        </Section>
+        </CollapsibleSection>
 
         <p className="text-xs text-[var(--color-text-muted)]">
           Saved with the vault when you save this tab (Ctrl+S). Copied values are cleared from the clipboard after 20 seconds.
