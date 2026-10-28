@@ -80,8 +80,8 @@ export const UpdatesSection = React.memo(function UpdatesSection() {
 
       <SettingRow
         label="Check automatically"
-        description="Look for updates each time Notiq starts."
-        help="On launch, Notiq quietly checks GitHub for a newer signed release and shows an Update button in the toolbar if one is available."
+        description="Look for updates when Notiq starts, and then every hour."
+        help="On launch and then once an hour while Notiq is running (it can sit in the tray for days), Notiq quietly checks GitHub for a newer signed release and shows an Update button in the toolbar if one is available."
       >
         <Toggle value={autoUpdateCheck} onChange={setAutoUpdateCheck} aria-label="Auto-check for updates" />
       </SettingRow>

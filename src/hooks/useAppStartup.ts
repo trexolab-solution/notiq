@@ -9,6 +9,7 @@ import { readFileEntry, type FileEntry } from "../lib/fileOps";
 import { WHATS_NEW } from "../config/whatsNew";
 import { APP_VERSION } from "../config/app";
 import { updater } from "../lib/updater";
+import { canAutoCheck, UPDATE_CHECK_INTERVAL_MS } from "../lib/updateSchedule";
 
 interface Options {
   setShowTour:     (show: boolean) => void;
@@ -55,12 +56,15 @@ export function useAppStartup({
   // Bootstrap auto-start on the very first launch of an installed build.
   useEffect(() => { bootstrapAutostart(); }, []);
 
-  // Auto-check for app updates shortly after startup (toggle in Settings →
-  // About). No-ops outside Tauri; if an update exists the topbar pill appears.
+  // Auto-check for app updates shortly after startup and then every hour (toggle in
+  // Settings → About) — the app can stay in the tray for days. No-ops outside Tauri;
+  // if an update exists the topbar pill appears.
   useEffect(() => {
     if (!autoUpdateCheck) return;
-    const t = setTimeout(() => { void updater.check({ silent: true }); }, 3000);
-    return () => clearTimeout(t);
+    const run = () => { if (canAutoCheck(updater.getState().status)) void updater.check({ silent: true }); };
+    const t = setTimeout(run, 3000);
+    const every = setInterval(run, UPDATE_CHECK_INTERVAL_MS);
+    return () => { clearTimeout(t); clearInterval(every); };
   }, [autoUpdateCheck]);
 
   // First-run welcome tour + post-update "What's New" note. Both gate on
