@@ -225,7 +225,8 @@ impl Db {
         Ok(())
     }
 
-    /// Delete a note, or a folder with everything in it (tombstones, so it syncs).
+    /// Delete a note, or a folder with everything in it. Only tests use this now; the app trashes (see `trash`).
+    #[cfg(test)]
     pub fn delete(&mut self, rel: &str) -> Result<(), String> {
         let prefix = format!("{rel}/");
         let now = now_ms();

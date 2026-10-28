@@ -198,7 +198,11 @@ fn await_ui(app: &AppHandle, event: &str, mut payload: Value) -> Value {
     payload["id"] = json!(id);
     let (tx, rx) = channel();
     pending().lock().unwrap_or_else(|e| e.into_inner()).insert(id.clone(), tx);
-    if let Some(w) = app.get_webview_window("main") {
+    // The prompt has to be reachable, but once it is answered the browser should get the focus back.
+    let win = app.get_webview_window("main");
+    let was_minimized = win.as_ref().and_then(|w| w.is_minimized().ok()).unwrap_or(false);
+    let browser = foreground_window();
+    if let Some(w) = &win {
         let _ = w.unminimize();
         let _ = w.show();
         let _ = w.set_focus();
@@ -206,8 +210,40 @@ fn await_ui(app: &AppHandle, event: &str, mut payload: Value) -> Value {
     let _ = app.emit(event, payload);
     let reply = rx.recv_timeout(ANSWER_TIMEOUT).unwrap_or_else(|_| json!({ "error": "timeout" }));
     pending().lock().unwrap_or_else(|e| e.into_inner()).remove(&id);
+    if was_minimized {
+        if let Some(w) = &win { let _ = w.minimize(); }
+    }
+    restore_foreground(browser);
     reply
 }
+
+/// The window that had the focus when the request arrived (normally the browser).
+#[cfg(windows)]
+type Foreground = windows_sys::Win32::Foundation::HWND;
+#[cfg(not(windows))]
+type Foreground = ();
+
+#[cfg(windows)]
+fn foreground_window() -> Foreground {
+    // SAFETY: plain query with no arguments.
+    unsafe { windows_sys::Win32::UI::WindowsAndMessaging::GetForegroundWindow() }
+}
+#[cfg(not(windows))]
+fn foreground_window() -> Foreground {}
+
+/// Hands the focus back to `prev` (our process is the foreground one at this point, so Windows allows it).
+#[cfg(windows)]
+fn restore_foreground(prev: Foreground) {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{IsWindow, SetForegroundWindow};
+    // SAFETY: both calls only read/act on a window handle and tolerate stale handles (checked with IsWindow).
+    unsafe {
+        if !prev.is_null() && IsWindow(prev) != 0 {
+            SetForegroundWindow(prev);
+        }
+    }
+}
+#[cfg(not(windows))]
+fn restore_foreground(_prev: Foreground) {}
 
 /// The UI answers a request (allowed credentials, or an error such as `denied`).
 #[tauri::command]
