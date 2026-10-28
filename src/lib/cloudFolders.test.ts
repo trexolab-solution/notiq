@@ -8,7 +8,7 @@ describe("cloudFolderName", () => {
     expect(cloudFolderName("/Users/me/Dropbox/vault")).toBe("Dropbox");
     expect(cloudFolderName("G:\\My Drive\\notes")).toBe("Google Drive");
     expect(cloudFolderName("/Users/me/Library/Mobile Documents/com~apple~CloudDocs/x")).toBe("iCloud Drive");
-    expect(cloudFolderName("D:\\pCloudDrive")).toBeNull(); // not a segment we know; keep false positives low
+    expect(cloudFolderName("D:\\pCloudDrive")).toBe("pCloud");
     expect(cloudFolderName("D:\\pCloud Drive\\x")).toBe("pCloud");
   });
 
