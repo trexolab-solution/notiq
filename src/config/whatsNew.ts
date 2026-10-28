@@ -17,13 +17,12 @@ Thanks for updating! Here's what's new in this release.
 
 ## ✨ Highlights
 
-- **Secure Vault** — lock any note with a master password. Locked notes are saved as encrypted **.nqv** files (Argon2id + XChaCha20-Poly1305) and are never sent to AI, search or the graph. Right-click a tab → **Lock with Vault**.
-- **One encrypted vault file** — all locked notes now live in a single encrypted database (**vault.nqdb**) instead of one file per note, so titles and folder names are hidden too, and everything stays on this device — nothing is synced or uploaded. Existing notes are moved over automatically the first time you unlock; Notiq asks before deleting the old files.
-- **Organised storage** — a new 🔒 panel in the left bar shows your vault folder. Pick where it lives and file notes into folders like *SSH* or *Logins*.
-- **One local encrypted vault** — all your locked notes live in a single encrypted vault file on this device, unlocked with one master password. Nothing is ever synced or uploaded.
-- **Logins & browser autofill** — save structured logins (password generator, 2-step codes, auto-clearing copy) and fill them into Chrome, Edge or Brave with the Notiq Autofill extension. Every fill, and every login the browser offers to save, needs your approval in Notiq. Extension is in the repo (browser-extension folder).
-- **Smarter title bar** — buttons collapse into **⋯** menus on narrow windows, and the editor-mode switcher shrinks to icons.
-- **Terminal feels native** — proper multi-line paste (great for TUIs like Claude Code), Ctrl+C to copy a selection, right-click copy/paste, and no more garbled characters.
+- **One encrypted vault file** — every locked note, login, SSH entry and API key now lives in a single encrypted database (**vault.nqdb**) unlocked by one master password. Titles, folders and tags are hidden too. Everything stays on this device: **cloud sync and backup have been removed**, so copy \`vault.nqdb\` and \`vault.json\` yourself if you want a backup. Notes from older versions are moved over automatically the first time you unlock, and Notiq asks before deleting the old files.
+- **A real file manager for secrets** — the 🔒 panel now has folders, drag-and-drop, rename, duplicate, tags with filtering, starred items, search and a **Recycle Bin** (restore, delete forever, auto-purge after 30 days).
+- **Smarter entries** — a new **SSH / server** editor (key or password sign-in, key analysis, a copyable \`ssh\` command, key file import), a **password generator** with options you can remember, and icon-only copy buttons that confirm and clear the clipboard after 20 seconds.
+- **Safer default location** — the vault now lives in Notiq's app-data folder by default, and you get a warning before choosing a folder synced by OneDrive, Dropbox, Google Drive or iCloud.
+- **Browser autofill, improved** — the Chrome / Edge / Brave extension (v0.2.0, in the repo's \`browser-extension\` folder) shows a Notiq icon on login fields and can offer to **save new logins** from the browser. Every fill and every save needs your approval in Notiq, and focus now returns to your browser afterwards.
+- **Fixes** — the Source / Preview / Split switch is back for locked notes, and the New-in-vault menu no longer gets cut off.
 
 ---
 
