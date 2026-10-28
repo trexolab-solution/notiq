@@ -1,220 +1,67 @@
-import { useCallback, useEffect, useState } from "react";
-import { FolderOpen, Folder, FilePlus2, RefreshCw, Lock, LockOpen, RotateCcw, CloudUpload } from "lucide-react";
-import { useAppStore } from "../../store";
+import { FolderOpen, HardDrive, Lock, RotateCcw } from "lucide-react";
 import { useVaultStore } from "../../store/vaultStore";
-import { readFileEntry } from "../../lib/fileOps";
-import { ERR_LOCKED, vaultErrorMessage, vaultList, type VaultItem } from "../../lib/vault";
-import { ensureVaultDir, pickVaultDir, resetVaultDir, VAULT_DIR_EVENT } from "../../lib/vaultDir";
+import { pickVaultDir, resetVaultDir } from "../../lib/vaultDir";
 import { getVaultDir } from "../../lib/vaultPrefs";
-import { toast } from "../../lib/toast";
-import { createVaultEntry, NEW_ENTRY_OPTIONS } from "../../lib/vaultCreate";
-import { backupDismissedForever } from "../../lib/backupPrompt";
-import { TG_EVENT, FILE_SAVED_EVENT, errText, failedText, runSync, tgStatus, tgSyncState } from "../../lib/telegram";
+import { useVaultItems } from "./sidebar/useVaultItems";
+import { PanelHeader } from "./sidebar/PanelHeader";
+import { VaultExplorer } from "./sidebar/VaultExplorer";
 
-const NQV = /\.nqv$/i;
 const baseName = (p: string) => p.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || p;
 
-/** Sidebar panel: the vault storage folder and the .nqv notes inside it. */
+/**
+ * Sidebar "Secure Vault" panel. A thin shell: locked state, or the explorer
+ * (tree, tags, trash) when unlocked, plus the storage-folder row.
+ */
 export function VaultPanel() {
   const unlocked = useVaultStore((s) => s.unlocked);
-  const [dir, setDir]     = useState<string>("");
-  const [files, setFiles] = useState<string[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const [locked, setLocked] = useState(false);
-  const [menu, setMenu] = useState(false);
-  const [tg, setTg] = useState(false);
-  const [tgKnown, setTgKnown] = useState(false);
-  const [syncing, setSyncing] = useState(false);
-  const [states, setStates] = useState<Record<string, string>>({});
+  const data = useVaultItems();
   const custom = getVaultDir() !== null;
 
-  const load = useCallback(async () => {
-    try {
-      const d = await ensureVaultDir();
-      setDir(d);
-      let items: VaultItem[] = [];
-      try {
-        items = await vaultList();
-        setLocked(false);
-      } catch (e) {
-        if (String(e).includes(ERR_LOCKED)) setLocked(true);
-        else throw e;
-      }
-      // Folders sort right before their children ("SSH/" < "SSH/a.nqv").
-      const out = items.map((i) => (i.dir ? `${i.rel}/` : i.rel));
-      setFiles(out.sort((a, b) => a.localeCompare(b)));
-      try {
-        const s = await tgStatus();
-        setTg(s.configured);
-        setTgKnown(true);
-        const m: Record<string, string> = {};
-        if (s.configured) for (const f of await tgSyncState(d)) m[f.rel] = f.state;
-        setStates(m);
-      } catch { setTg(false); setStates({}); }
-      setError(null);
-    } catch (e) {
-      setFiles([]);
-      setError(typeof e === "string" ? e : e instanceof Error ? e.message : "Can't read this folder");
-    }
-  }, []);
-
-  useEffect(() => {
-    void load();
-    window.addEventListener(VAULT_DIR_EVENT, load);
-    window.addEventListener("focus", load);
-    window.addEventListener(TG_EVENT, load);
-    window.addEventListener(FILE_SAVED_EVENT, load);
-    return () => {
-      window.removeEventListener(TG_EVENT, load);
-      window.removeEventListener(FILE_SAVED_EVENT, load);
-      window.removeEventListener(VAULT_DIR_EVENT, load);
-      window.removeEventListener("focus", load);
-    };
-  }, [load, unlocked]); // names are encrypted while locked: reload when the vault opens/closes
-
-  const pathOf = (name: string) => `${dir.replace(/\\/g, "/").replace(/\/+$/, "")}/${name}`;
-
-  const openNote = async (path: string) => {
-    try {
-      useAppStore.getState().openFilesAsTabs([await readFileEntry(path)]);
-      if (await useVaultStore.getState().ensureUnlocked()) await useAppStore.getState().unlockVaultTabs();
-    } catch (e) {
-      toast.error(vaultErrorMessage(e));
-    }
-  };
-
-  const syncNow = async () => {
-    if (syncing) return;
-    setSyncing(true);
-    try {
-      const r = await runSync();
-      if (r) toast.info(`Sync: ${r.uploaded} uploaded, ${r.downloaded.length} downloaded, ${r.skipped} unchanged`);
-      if (r?.failed.length) toast.error(failedText(r.failed));
-    } catch (e) {
-      toast.error(errText(e));
-    } finally {
-      setSyncing(false);
-    }
-  };
-
-  const iconBtn = "p-1 rounded cursor-pointer text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-bg-tertiary)]";
+  const storageRow = (
+    <div className="vt-footer-row" title={data.root ? `Stored in ${data.root}` : undefined}>
+      <HardDrive size={13} className="shrink-0" aria-hidden />
+      <span className="flex-1 min-w-0 truncate text-[11px]">
+        {data.root ? baseName(data.root) : "…"}{custom ? "" : " (default)"}
+      </span>
+      <button type="button" className="vt-icon-btn" style={{ width: 20, height: 20 }}
+              title="Choose storage folder" aria-label="Choose storage folder" onClick={() => void pickVaultDir()}>
+        <FolderOpen size={12} />
+      </button>
+      {custom && (
+        <button type="button" className="vt-icon-btn" style={{ width: 20, height: 20 }}
+                title="Use default folder" aria-label="Use default folder" onClick={resetVaultDir}>
+          <RotateCcw size={11} />
+        </button>
+      )}
+    </div>
+  );
 
   return (
-    <div
-      style={{ width: 220, flexShrink: 0, display: "flex", flexDirection: "column", minHeight: 0,
-               background: "var(--color-bg-secondary)", borderRight: "1px solid var(--color-border)" }}
-      aria-label="Vault storage"
-    >
-      <div className="flex items-center gap-1.5 px-3 pt-3 pb-1 text-[var(--color-text)]">
-        {unlocked ? <LockOpen size={14} style={{ color: "var(--color-primary)" }} /> : <Lock size={14} />}
-        <span className="text-xs font-semibold flex-1">Secure Vault</span>
-        <div className="relative">
-          <button className={iconBtn} title="New secret…" aria-label="New secret" aria-haspopup="menu" aria-expanded={menu}
-                  onClick={() => setMenu((v) => !v)}>
-            <FilePlus2 size={14} />
-          </button>
-          {menu && (
-            <>
-              <div className="fixed inset-0 z-40" onClick={() => setMenu(false)} />
-              <div role="menu" className="absolute left-0 top-full mt-1 z-50 w-56 rounded-lg p-1 shadow-xl border border-[var(--color-border)] bg-[var(--color-bg-secondary)]">
-                {NEW_ENTRY_OPTIONS.map((o) => (
-                  <button key={o.kind} role="menuitem" type="button"
-                          className="w-full text-left px-2 py-1.5 rounded cursor-pointer hover:bg-[var(--color-bg-tertiary)]"
-                          onClick={() => { setMenu(false); void createVaultEntry(o.kind).then(load); }}>
-                    <div className="text-xs font-medium text-[var(--color-text)]">{o.label}</div>
-                    <div className="text-[11px] text-[var(--color-text-muted)]">{o.hint}</div>
-                  </button>
-                ))}
-              </div>
-            </>
-          )}
-        </div>
-        {tg && (
-          <button className={iconBtn} title="Sync now" aria-label="Sync now"
-                  disabled={syncing} onClick={() => void syncNow()}>
-            <CloudUpload size={14} />
-          </button>
-        )}
-        <button className={iconBtn} title="Refresh" aria-label="Refresh" onClick={() => void load()}>
-          <RefreshCw size={13} />
-        </button>
-      </div>
-
-      <div className="flex items-center gap-1 px-3 pb-2">
-        <span className="text-[11px] flex-1 truncate text-[var(--color-text-muted)]" title={dir}>
-          {dir ? baseName(dir) : "…"}{custom ? "" : " (default)"}
-        </span>
-        <button className={iconBtn} title="Choose storage folder" aria-label="Choose storage folder"
-                onClick={() => void pickVaultDir()}>
-          <FolderOpen size={13} />
-        </button>
-        {custom && (
-          <button className={iconBtn} title="Use default folder" aria-label="Use default folder" onClick={resetVaultDir}>
-            <RotateCcw size={12} />
-          </button>
-        )}
-      </div>
-
-      {tgKnown && !tg && !backupDismissedForever() && (
-        <div className="mx-3 mb-2 rounded-md p-2 text-[11px] border border-[var(--color-border)] bg-[var(--color-bg-tertiary)] text-[var(--color-text-muted)]">
-          <b className="text-[var(--color-text)]">Not backed up.</b> These notes exist only on this computer.
-          <button type="button" className="block mt-1 underline cursor-pointer text-[var(--color-text)]"
-                  onClick={() => useVaultStore.getState().setBackupPrompt(true)}>
-            Set up backup
-          </button>
-        </div>
-      )}
-
-      <div className="flex-1 overflow-y-auto px-1.5 pb-2">
-        {locked && !error && (
-          <div className="px-2 text-xs text-[var(--color-text-muted)]">
-            <p>Unlock to see your secrets.</p>
-            <button type="button" className="mt-2 px-2.5 py-1 rounded cursor-pointer border border-[var(--color-border)] text-[var(--color-text)] hover:bg-[var(--color-bg-tertiary)]"
-                    onClick={() => void useVaultStore.getState().ensureUnlocked()}>
+    <section className="vt-panel" aria-label="Secure Vault">
+      {unlocked ? (
+        <VaultExplorer {...data} footer={storageRow} />
+      ) : (
+        <>
+          <PanelHeader unlocked={false} />
+          <div className="flex-1 min-h-0 flex flex-col items-center justify-center px-5 text-center gap-2">
+            <div className="w-10 h-10 rounded-full flex items-center justify-center bg-[var(--color-bg-tertiary)] text-[var(--color-text-muted)]">
+              <Lock size={17} aria-hidden />
+            </div>
+            <div className="text-[12.5px] font-semibold text-[var(--color-text)]">Unlock to see your secrets</div>
+            <p className="text-[11.5px] leading-relaxed text-[var(--color-text-muted)]">
+              Names, tags and contents are encrypted with your master password.
+            </p>
+            <button
+              type="button"
+              className="mt-1 px-3 py-1.5 rounded-md text-xs font-semibold cursor-pointer bg-[var(--color-primary)] text-[var(--color-bg)] hover:bg-[var(--color-primary-hover)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-primary)]"
+              onClick={() => void useVaultStore.getState().ensureUnlocked()}
+            >
               Unlock
             </button>
           </div>
-        )}
-        {error && <p className="px-2 text-xs text-[var(--color-danger)]">{error}</p>}
-        {!error && !locked && !files.some((f) => !f.endsWith("/")) && (
-          <p className="px-2 text-xs text-[var(--color-text-muted)]">
-            No locked notes here yet. Use + to create one, or right-click a tab → Lock with Vault.
-          </p>
-        )}
-        {files.map((rel) => {
-          const isDir = rel.endsWith("/");
-          const parts = rel.replace(/\/$/, "").split("/");
-          const indent = (parts.length - 1) * 12;
-          const label = parts[parts.length - 1];
-          if (isDir) {
-            return (
-              <div key={rel} className="flex items-center gap-1.5 px-2 pt-2 pb-0.5 text-[11px] font-semibold uppercase tracking-wide text-[var(--color-text-muted)]"
-                   style={{ paddingLeft: 8 + indent }}>
-                <Folder size={11} className="shrink-0" /> <span className="truncate">{label}</span>
-              </div>
-            );
-          }
-          return (
-            <button
-              key={rel}
-              onClick={() => void openNote(pathOf(rel))}
-              title={rel}
-              style={{ paddingLeft: 8 + indent }}
-              className="w-full flex items-center gap-2 pr-2 py-1.5 rounded text-left text-xs cursor-pointer text-[var(--color-text)] hover:bg-[var(--color-bg-tertiary)]"
-            >
-              <Lock size={12} className="shrink-0 text-[var(--color-text-muted)]" />
-              <span className="truncate flex-1">{label.replace(NQV, "")}</span>
-              {tg && (
-                <span
-                  title={states[rel] === "synced" ? "Backed up" : states[rel] === "modified" ? "Changed since backup" : "Not backed up yet"}
-                  style={{ width: 6, height: 6, borderRadius: 99, flexShrink: 0,
-                           background: states[rel] === "synced" ? "#3fb950" : "#d29922" }}
-                />
-              )}
-            </button>
-          );
-        })}
-      </div>
-    </div>
+          <div className="vt-footer">{storageRow}</div>
+        </>
+      )}
+    </section>
   );
 }

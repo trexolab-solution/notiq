@@ -48,8 +48,7 @@ export function useVaultItems(): VaultItemsState {
       setError(null);
     } catch (e) {
       if (my !== seq.current) return;
-      const s = typeof e === "string" ? e : "";
-      if (s === ERR_LOCKED) {
+      if (String(e).includes(ERR_LOCKED)) {
         // Backend locked behind our back (auto-lock) — mirror it.
         useVaultStore.getState().setUnlocked(false);
         setItems([]); setTrash([]); setError(null);
