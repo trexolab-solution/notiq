@@ -10,6 +10,7 @@ import { FileSelectionModal } from "../ui/FileSelectionModal";
 import { ToastProvider } from "../ui/Toast";
 import { VaultDialog } from "../vault/VaultDialog";
 import { AutofillPrompt } from "../vault/AutofillPrompt";
+import { AutofillSavePrompt } from "../vault/AutofillSavePrompt";
 import { VaultDestinationDialog } from "../vault/VaultDestinationDialog";
 import { LegacyVaultImport } from "../vault/LegacyVaultImport";
 
@@ -174,6 +175,7 @@ export function AppOverlays({
 
       <VaultDialog />
       <AutofillPrompt />
+      <AutofillSavePrompt />
       <VaultDestinationDialog />
       <LegacyVaultImport />
 
