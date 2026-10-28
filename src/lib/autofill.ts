@@ -1,6 +1,5 @@
-import { readDir } from "@tauri-apps/plugin-fs";
 import { ensureVaultDir } from "./vaultDir";
-import { vaultReadFile } from "./vault";
+import { vaultList, vaultReadFile } from "./vault";
 import { hostOf, LOGIN_EXT, parseLogin, totpCode, type LoginEntry } from "./loginEntry";
 
 export interface LoginMatch { path: string; entry: LoginEntry }
@@ -14,17 +13,7 @@ export function hostMatches(pageHost: string, savedHost: string): boolean {
 
 async function listVaultFiles(): Promise<string[]> {
   const root = (await ensureVaultDir()).replace(/\\/g, "/").replace(/\/+$/, "");
-  const out: string[] = [];
-  const walk = async (rel: string, depth: number) => {
-    const entries = await readDir(rel ? `${root}/${rel}` : root);
-    for (const e of entries) {
-      const r = rel ? `${rel}/${e.name}` : e.name;
-      if (e.isFile && /\.nqv$/i.test(e.name)) out.push(`${root}/${r}`);
-      else if (e.isDirectory && depth < 3 && !e.name.startsWith(".")) await walk(r, depth + 1);
-    }
-  };
-  await walk("", 0);
-  return out;
+  return (await vaultList()).filter((i) => !i.dir && /\.nqv$/i.test(i.rel)).map((i) => `${root}/${i.rel}`);
 }
 
 /** Saved logins whose site matches `pageHost`. Requires an unlocked vault. */

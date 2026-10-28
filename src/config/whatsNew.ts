@@ -18,8 +18,8 @@ Thanks for updating! Here's what's new in this release.
 ## ✨ Highlights
 
 - **Secure Vault** — lock any note with a master password. Locked notes are saved as encrypted **.nqv** files (Argon2id + XChaCha20-Poly1305) and are never sent to AI, search or the graph. Right-click a tab → **Lock with Vault**.
+- **One encrypted vault file** — all locked notes now live in a single encrypted database (**vault.nqdb**) instead of one file per note, so titles and folder names are hidden too, and everything stays on this device — nothing is synced or uploaded. Existing notes are moved over automatically the first time you unlock; Notiq asks before deleting the old files.
 - **Organised storage** — a new 🔒 panel in the left bar shows your vault folder. Pick where it lives and file notes into folders like *SSH* or *Logins*.
-- **Safer by design** — auto-lock on idle or when the window closes, a customizable panic-lock shortcut (default **Ctrl+Alt+L**), and a recovery key.
 - **One local encrypted vault** — all your locked notes live in a single encrypted vault file on this device, unlocked with one master password. Nothing is ever synced or uploaded.
 - **Logins & browser autofill** — save structured logins (password generator, 2-step codes, auto-clearing copy) and fill them into Chrome, Edge or Brave with the Notiq Autofill extension. Every fill needs your approval in Notiq. Extension is in the repo (browser-extension folder).
 - **Smarter title bar** — buttons collapse into **⋯** menus on narrow windows, and the editor-mode switcher shrinks to icons.

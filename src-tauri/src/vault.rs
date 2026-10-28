@@ -13,7 +13,7 @@ use std::{
     io::Write,
     path::{Path, PathBuf},
     sync::{Mutex, MutexGuard},
-    time::Instant,
+    time::{Instant, SystemTime},
 };
 
 use serde::Serialize;
@@ -21,11 +21,10 @@ use tauri::{AppHandle, Manager, State};
 use zeroize::Zeroizing;
 
 use crate::vault_core::{self as vc, KdfParams, Throttle, VaultError, VaultKey, VaultMeta, VAULT_ID_LEN};
+use crate::vault_db::{self as vdb, Db, ListItem};
 
 const META_FILE: &str = "vault.json";
 const NQV_EXT: &str = "nqv";
-/// Refuse to read absurdly large files into memory.
-const MAX_NQV_BYTES: u64 = 64 * 1024 * 1024;
 
 const ERR_NO_VAULT: &str = "NO_VAULT";
 const ERR_LOCKED: &str = "VAULT_LOCKED";
@@ -35,10 +34,21 @@ struct Unlocked {
     vault_id: [u8; VAULT_ID_LEN],
 }
 
+/// The storage folder and the decrypted database (cached while unlocked).
+#[derive(Default)]
+struct Store {
+    root: Option<PathBuf>,
+    db: Option<Db>,
+    /// Modification time of `vault.nqdb` when `db` was loaded/saved; a different time
+    /// on disk means another process (e.g. a folder-sync tool) replaced it.
+    stamp: Option<SystemTime>,
+}
+
 #[derive(Default)]
 pub struct VaultState {
     key: Mutex<Option<Unlocked>>,
     throttle: Mutex<Throttle>,
+    store: Mutex<Store>,
 }
 
 impl VaultState {
@@ -54,6 +64,52 @@ impl VaultState {
 
     fn set(&self, key: VaultKey, vault_id: [u8; VAULT_ID_LEN]) {
         *self.guard() = Some(Unlocked { key, vault_id });
+    }
+
+    /// Runs `f` on the vault database (loaded on first use). `f` returns its result and
+    /// whether it changed the DB; a changed DB is sealed and written back atomically
+    /// before this returns. Lock order is always key, then store.
+    pub(crate) fn with_db<T>(
+        &self,
+        f: impl FnOnce(&mut Db, &Path, &VaultKey, &[u8; VAULT_ID_LEN]) -> Result<(T, bool), String>,
+    ) -> Result<T, String> {
+        let kg = self.guard();
+        let u = kg.as_ref().ok_or(ERR_LOCKED)?;
+        let mut st = self.store.lock().unwrap_or_else(|e| e.into_inner());
+        let root = st.root.clone().ok_or("The vault folder isn't set yet")?;
+        let on_disk = fs::metadata(vdb::db_path(&root)).and_then(|m| m.modified()).ok();
+        if st.db.is_none() || st.stamp != on_disk {
+            st.db = Some(vdb::load(&root, &u.key, &u.vault_id)?);
+            st.stamp = on_disk;
+        }
+        let db = st.db.as_mut().expect("loaded above");
+        let (out, dirty) = match f(db, &root, &u.key, &u.vault_id) {
+            Ok(r) => r,
+            Err(e) => { st.db = None; return Err(e); } // never keep a half-applied change in memory
+        };
+        if dirty {
+            let saved = st.db.as_ref().expect("still loaded").seal(&u.key, &u.vault_id)
+                .and_then(|bytes| vdb::save(&root, &bytes));
+            if let Err(e) = saved { st.db = None; return Err(e); }
+            st.stamp = fs::metadata(vdb::db_path(&root)).and_then(|m| m.modified()).ok();
+        }
+        Ok(out)
+    }
+
+    /// Records the folder that holds vault.nqdb; a different folder drops the cached DB.
+    pub(crate) fn set_root(&self, root: PathBuf) {
+        let mut st = self.store.lock().unwrap_or_else(|e| e.into_inner());
+        if st.root.as_deref() != Some(root.as_path()) {
+            st.root = Some(root);
+            st.db = None;
+            st.stamp = None;
+        }
+    }
+
+    fn clear_db(&self) {
+        let mut st = self.store.lock().unwrap_or_else(|e| e.into_inner());
+        st.db = None; // dropping zeroises the contents
+        st.stamp = None;
     }
 }
 
@@ -254,41 +310,147 @@ pub async fn vault_change_password(
 #[tauri::command]
 pub fn vault_lock(state: State<'_, VaultState>) {
     *state.guard() = None;
+    state.clear_db();
 }
 
-/// Encrypts `content` and atomically writes it to `path` (must end in `.nqv`).
+// ─── the vault database (single encrypted file) ──────────────────────────────
+// Notes are addressed by their "virtual path" `<root>/<rel>.nqv`; nothing but
+// `<root>/vault.nqdb` exists on disk.
+
+/// Tells the backend which folder holds `vault.nqdb`. Works while locked.
+#[tauri::command]
+pub fn vault_set_root(state: State<'_, VaultState>, root: String) -> Result<(), String> {
+    state.set_root(PathBuf::from(root));
+    Ok(())
+}
+
+/// Encrypts `content` into the vault database under `path` (must end in `.nqv`).
 /// `ext` is the original file type, e.g. "md".
 #[tauri::command]
-pub fn vault_write_file(
-    state: State<'_, VaultState>,
-    path: String,
-    content: String,
-    ext: String,
-) -> Result<(), String> {
-    let path = check_nqv_path(&path)?;
-    let sealed = {
-        let guard = state.guard();
-        let u = guard.as_ref().ok_or(ERR_LOCKED)?;
-        vc::seal(&u.key, &u.vault_id, &ext, content.as_bytes()).map_err(|e| e.to_string())?
-    };
-    atomic_write(&path, &sealed)
+pub fn vault_write_file(state: State<'_, VaultState>, path: String, content: String, ext: String) -> Result<(), String> {
+    check_nqv_path(&path)?;
+    if ext.len() > 16 || !ext.bytes().all(|b| b.is_ascii_alphanumeric()) {
+        return Err("Invalid file type".into());
+    }
+    let content = Zeroizing::new(content);
+    state.with_db(|db, root, _, _| {
+        db.put(&vdb::rel_from_full(root, &path)?, &ext, &content)?;
+        Ok(((), true))
+    })
 }
 
-/// Reads and decrypts a `.nqv` file. Plaintext is returned to the caller only;
-/// nothing is written to disk.
+/// Decrypts one note from the vault database.
 #[tauri::command]
 pub fn vault_read_file(state: State<'_, VaultState>, path: String) -> Result<VaultFile, String> {
-    let path = check_nqv_path(&path)?;
-    let size = fs::metadata(&path).map_err(|e| e.to_string())?.len();
-    if size > MAX_NQV_BYTES {
-        return Err("Vault file is too large".into());
+    check_nqv_path(&path)?;
+    state.with_db(|db, root, _, _| {
+        let rel = vdb::rel_from_full(root, &path)?;
+        let e = db.get(&rel).ok_or("This note no longer exists in the vault")?;
+        Ok((VaultFile { content: e.content.clone(), ext: e.ext.clone() }, false))
+    })
+}
+
+#[tauri::command]
+pub fn vault_list(state: State<'_, VaultState>) -> Result<Vec<ListItem>, String> {
+    state.with_db(|db, _, _, _| Ok((db.list(), false)))
+}
+
+#[tauri::command]
+pub fn vault_mkdir(state: State<'_, VaultState>, path: String) -> Result<(), String> {
+    state.with_db(|db, root, _, _| {
+        db.mkdir(&vdb::rel_from_full(root, &path)?)?;
+        Ok(((), true))
+    })
+}
+
+#[tauri::command]
+pub fn vault_delete(state: State<'_, VaultState>, path: String) -> Result<(), String> {
+    state.with_db(|db, root, _, _| {
+        db.delete(&vdb::rel_from_full(root, &path)?)?;
+        Ok(((), true))
+    })
+}
+
+#[tauri::command]
+pub fn vault_rename(state: State<'_, VaultState>, from: String, to: String) -> Result<(), String> {
+    state.with_db(|db, root, _, _| {
+        db.rename(&vdb::rel_from_full(root, &from)?, &vdb::rel_from_full(root, &to)?)?;
+        Ok(((), true))
+    })
+}
+
+// ─── legacy per-note `.nqv` files ────────────────────────────────────────────
+
+const MAX_DEPTH: usize = 6;
+
+/// All `.nqv` files under `root` as (relative path with `/`, absolute path).
+fn collect(root: &Path, dir: &Path, depth: usize, out: &mut Vec<(String, PathBuf)>) {
+    if depth > MAX_DEPTH { return; }
+    let Ok(rd) = fs::read_dir(dir) else { return };
+    for ent in rd.flatten() {
+        let name = ent.file_name().to_string_lossy().to_string();
+        if name.starts_with('.') { continue; }
+        let path = ent.path();
+        let Ok(ft) = ent.file_type() else { continue };
+        if ft.is_dir() {
+            collect(root, &path, depth + 1, out);
+        } else if ft.is_file() && name.to_ascii_lowercase().ends_with(".nqv") {
+            if let Ok(rel) = path.strip_prefix(root) {
+                let rel = rel.to_string_lossy().replace('\\', "/");
+                out.push((rel, path.clone()));
+            }
+        }
     }
-    let data = fs::read(&path).map_err(|e| e.to_string())?;
-    let (ext, plain) = {
-        let guard = state.guard();
-        let u = guard.as_ref().ok_or(ERR_LOCKED)?;
-        vc::open(&u.key, &u.vault_id, &data).map_err(|e| e.to_string())?
-    };
-    let content = String::from_utf8(plain.to_vec()).map_err(|_| "Note is not valid UTF-8 text".to_string())?;
-    Ok(VaultFile { content, ext })
+}
+
+fn legacy_files(root: &Path) -> Vec<(String, PathBuf)> {
+    let mut v = vec![];
+    collect(root, root, 0, &mut v);
+    v.sort();
+    v
+}
+
+#[tauri::command]
+pub fn vault_legacy_count(state: State<'_, VaultState>) -> Result<u32, String> {
+    let st = state.store.lock().unwrap_or_else(|e| e.into_inner());
+    let root = st.root.clone().ok_or("The vault folder isn't set yet")?;
+    Ok(legacy_files(&root).len() as u32)
+}
+
+/// Copies every old `.nqv` file under the root into the database (originals are kept).
+/// A note whose path already exists with different content is imported beside it.
+#[tauri::command]
+pub fn vault_import_legacy(state: State<'_, VaultState>) -> Result<u32, String> {
+    state.with_db(|db, root, key, id| {
+        let mut n = 0;
+        for (rel, path) in legacy_files(root) {
+            let Ok(data) = fs::read(&path) else { continue };
+            let Ok((ext, plain)) = vc::open(key, id, &data) else { continue };
+            let Ok(text) = String::from_utf8(plain.to_vec()) else { continue };
+            let target = match db.get(&rel) {
+                Some(e) if e.content == text && e.ext == ext => continue,
+                Some(_) => format!("{} (imported).nqv", rel.trim_end_matches(".nqv")),
+                None => rel,
+            };
+            db.put(&target, &ext, &text)?;
+            n += 1;
+        }
+        db.legacy_imported = true;
+        Ok((n, true))
+    })
+}
+
+/// Deletes the old per-note files, but only those whose exact content is already in the database.
+#[tauri::command]
+pub fn vault_legacy_cleanup(state: State<'_, VaultState>) -> Result<u32, String> {
+    state.with_db(|db, root, key, id| {
+        let mut n = 0;
+        for (rel, path) in legacy_files(root) {
+            let Ok(data) = fs::read(&path) else { continue };
+            let Ok((ext, plain)) = vc::open(key, id, &data) else { continue };
+            let safe = db.entries.values().any(|e| !e.deleted && !e.dir && e.ext == ext && e.content.as_bytes() == plain.as_slice() && (e.path == rel || e.path.starts_with(&format!("{} (imported", rel.trim_end_matches(".nqv")))));
+            if safe && fs::remove_file(&path).is_ok() { n += 1; }
+        }
+        Ok((n, false))
+    })
 }

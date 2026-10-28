@@ -12,6 +12,9 @@ import { useAppStartup }           from "./hooks/useAppStartup";
 
 import { useAppStore }             from "./store";
 import { isMarkdownLike }          from "./lib/language";
+import { displayPathOf }           from "./lib/vault";
+import { LOGIN_EXT }               from "./lib/loginEntry";
+import { SECRET_KINDS }            from "./lib/secretEntry";
 import { appWin }                  from "./lib/tauriWindow";
 import { toast } from "./lib/toast";
 import { pickAndReadMultipleFiles, pickFolderAndReadFiles, type FileEntry } from "./lib/fileOps";
@@ -83,7 +86,11 @@ export default function App() {
   }, []);
 
   const activeTab = tabs.find((t) => t.id === activeTabId);
-  const isMdNote  = activeTab?.kind === "note" && isMarkdownLike(activeTab?.filePath);
+  // Locked notes live in `.nqv`; judge them by their original type. Login/secret
+  // entries use a form (no editor modes), and a locked tab shows only the unlock screen.
+  const isStructuredEntry = !!activeTab?.vaultExt && (activeTab.vaultExt === LOGIN_EXT || !!SECRET_KINDS[activeTab.vaultExt]);
+  const isMdNote  = activeTab?.kind === "note" && !activeTab.vaultLocked && !isStructuredEntry
+    && isMarkdownLike(displayPathOf(activeTab)) && !activeTab.language;
 
   // Toggle the AI chat; mount-once so the conversation persists across open/close.
   const toggleAiChat = useCallback(() => {

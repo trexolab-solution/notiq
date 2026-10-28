@@ -6,6 +6,7 @@ mod ai;
 pub mod autofill;
 mod vault;
 mod vault_core;
+mod vault_db;
 #[cfg(desktop)]
 use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem},
@@ -637,6 +638,14 @@ pub fn run() {
         vault::vault_lock,
         vault::vault_write_file,
         vault::vault_read_file,
+        vault::vault_set_root,
+        vault::vault_list,
+        vault::vault_mkdir,
+        vault::vault_delete,
+        vault::vault_rename,
+        vault::vault_legacy_count,
+        vault::vault_import_legacy,
+        vault::vault_legacy_cleanup,
         autofill::autofill_reply,
     ]);
 
@@ -658,6 +667,14 @@ pub fn run() {
         vault::vault_lock,
         vault::vault_write_file,
         vault::vault_read_file,
+        vault::vault_set_root,
+        vault::vault_list,
+        vault::vault_mkdir,
+        vault::vault_delete,
+        vault::vault_rename,
+        vault::vault_legacy_count,
+        vault::vault_import_legacy,
+        vault::vault_legacy_cleanup,
         autofill::autofill_reply,
     ]);
 
