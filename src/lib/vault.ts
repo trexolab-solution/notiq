@@ -45,6 +45,41 @@ export const vaultWriteFile = (path: string, content: string, ext: string) =>
   });
 export const vaultReadFile = (path: string) => invoke<VaultFile>("vault_read_file", { path });
 
+// ── Entry management (the sidebar file tree) ──────────────────────────────────
+// Every `path` is a FULL virtual path `<root>/<rel>` — the same shape as a tab's
+// filePath. `rel` uses "/" and entries end with ".nqv".
+
+/** One entry (note or folder) as listed by the backend. Names only — never content. */
+export interface VaultItem {
+  rel: string;
+  /** Original file type of a note ("md", "login", "ssh", "secret", …); "" for folders. */
+  ext: string;
+  /** Last modified, ms since epoch. */
+  updated: number;
+  dir: boolean;
+  tags: string[];
+  starred: boolean;
+  /** Set only for items in the Recycle Bin (ms since epoch). */
+  trashed_at: number | null;
+}
+
+/** Fired after anything in the vault tree changed (create/rename/move/trash/…). */
+export const VAULT_CHANGED_EVENT = "vault:dir-changed";
+const changed = <T>(v: T): T => { window.dispatchEvent(new Event(VAULT_CHANGED_EVENT)); return v; };
+
+export const vaultList        = () => invoke<VaultItem[]>("vault_list");
+export const vaultListTrash   = () => invoke<VaultItem[]>("vault_list_trash");
+export const vaultMkdir       = (path: string) => invoke<void>("vault_mkdir", { path }).then(changed);
+export const vaultRename      = (from: string, to: string) => invoke<void>("vault_rename", { from, to }).then(changed);
+export const vaultTrash       = (path: string) => invoke<void>("vault_trash", { path }).then(changed);
+export const vaultRestore     = (path: string) => invoke<void>("vault_restore", { path }).then(changed);
+export const vaultPurge       = (path: string) => invoke<void>("vault_purge", { path }).then(changed);
+export const vaultEmptyTrash  = () => invoke<void>("vault_empty_trash").then(changed);
+export const vaultSetTags     = (path: string, tags: string[]) => invoke<void>("vault_set_tags", { path, tags }).then(changed);
+export const vaultSetStarred  = (path: string, starred: boolean) => invoke<void>("vault_set_starred", { path, starred }).then(changed);
+/** Resolves the new entry's full virtual path. */
+export const vaultDuplicate   = (path: string) => invoke<string>("vault_duplicate", { path }).then(changed);
+
 /** Tauri rejects with a plain string; turn codes into friendly text. */
 export function vaultErrorMessage(e: unknown): string {
   const s = typeof e === "string" ? e : e instanceof Error ? e.message : String(e);
