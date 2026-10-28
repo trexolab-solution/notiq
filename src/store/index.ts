@@ -540,6 +540,8 @@ export const useAppStore = create<AppState>((set, get) => {
             isDirty: false,
           });
         } catch (e) {
+          // A tab restored from an earlier session whose entry is gone (deleted, or the vault was reset).
+          if (/no longer exists/i.test(vaultErrorMessage(e))) { get().closeVaultTabs(t.filePath!); continue; }
           toast.error(`Couldn't open "${t.title}": ${vaultErrorMessage(e)}`);
         }
       }
