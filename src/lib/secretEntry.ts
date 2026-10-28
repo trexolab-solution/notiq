@@ -13,6 +13,10 @@ export const SECRET_KINDS: Record<string, KindDef> = {
       { key: "password", label: "Password (if any)", type: "secret" },
       { key: "privateKey", label: "Private key", type: "multiline-secret", placeholder: "-----BEGIN OPENSSH PRIVATE KEY-----" },
       { key: "passphrase", label: "Key passphrase", type: "secret" },
+      // Used by the dedicated SSH editor (src/components/vault/SshEntryEditor.tsx):
+      { key: "auth", label: "Sign-in method", type: "text" },
+      { key: "jump", label: "Jump host", type: "text", placeholder: "user@bastion.example.com" },
+      { key: "fingerprint", label: "Host key fingerprint", type: "text", placeholder: "SHA256:…" },
       { key: "notes", label: "Notes", type: "multiline" },
     ],
   },
