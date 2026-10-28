@@ -1,13 +1,12 @@
 //! The Secure Vault database: every locked note lives in ONE encrypted file
-//! (`vault.nqdb`), so there is a single source of truth to back up and sync.
+//! (`vault.nqdb`), a single source of truth that stays on this device.
 //!
 //! This module is pure (no Tauri, no network): the in-memory [`Db`], its
-//! sealed on-disk form, path handling and the entry-level three-way [`merge`]
-//! used by sync. File names, folders and contents are all inside the sealed
-//! payload; the provider only ever sees one opaque blob.
+//! sealed on-disk form and path handling. File names, folders and contents are
+//! all inside the sealed payload.
 
 use std::{
-    collections::{BTreeMap, BTreeSet, HashMap},
+    collections::{BTreeMap},
     fs,
     path::{Path, PathBuf},
     time::SystemTime,
@@ -15,7 +14,6 @@ use std::{
 
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use zeroize::Zeroize;
 
 use crate::vault_core::{self as vc, VaultKey, VAULT_ID_LEN};
@@ -59,17 +57,6 @@ impl Entry {
     /// A live (not tombstoned, not trashed) entry.
     pub fn is_live(&self) -> bool {
         !self.deleted && self.trashed_at.is_none()
-    }
-
-    /// Content fingerprint (everything except the id and timestamp).
-    pub fn hash(&self) -> String {
-        let mut h = Sha256::new();
-        for part in [self.path.as_str(), &self.ext, &self.content] {
-            h.update(part.as_bytes());
-            h.update([0]);
-        }
-        h.update([self.deleted as u8, self.dir as u8]);
-        h.finalize().iter().map(|b| format!("{b:02x}")).collect()
     }
 }
 
@@ -169,10 +156,6 @@ pub fn rel_from_full(root: &Path, full: &str) -> Result<String, String> {
 
 fn stem_of(rel: &str) -> &str {
     rel.strip_suffix(NQV).or_else(|| rel.strip_suffix(".NQV")).unwrap_or(rel)
-}
-
-fn conflict_path(rel: &str, tag: &str, n: u64) -> String {
-    format!("{} ({tag} {n}){NQV}", stem_of(rel))
 }
 
 fn variant_path(rel: &str, tag: &str, n: u64, file: bool) -> String {
@@ -420,11 +403,6 @@ impl Db {
         self.set_tags(&to, src.tags.clone())?;
         Ok(to)
     }
-
-    /// id → fingerprint of every entry (the merge base after a sync).
-    pub fn fingerprints(&self) -> HashMap<String, String> {
-        self.entries.iter().map(|(k, e)| (k.clone(), e.hash())).collect()
-    }
 }
 
 // ─── sealed form ─────────────────────────────────────────────────────────────
@@ -501,91 +479,6 @@ pub fn save(root: &Path, bytes: &[u8]) -> Result<(), String> {
         }
     }
     crate::vault::atomic_write(&main, bytes)
-}
-
-// ─── merge ───────────────────────────────────────────────────────────────────
-
-#[derive(Debug, Default, PartialEq)]
-pub struct MergeStats {
-    /// Entries whose content on this device changed because of the remote copy.
-    pub pulled: u32,
-    /// Entries edited on both devices (the older version was kept as a "(conflict …)" note).
-    pub conflicts: u32,
-}
-
-/// Entry-level three-way merge of `remote` into `local`. `base` maps entry id → hash
-/// as of the last successful sync. The result keeps every entry from both sides; a
-/// delete never beats a later edit; same-entry edits on both sides keep the newer one
-/// and save the other beside it as a conflict note.
-pub fn merge(local: &Db, remote: &Db, base: &HashMap<String, String>) -> (Db, MergeStats) {
-    let mut out = Db::new();
-    out.legacy_imported = local.legacy_imported || remote.legacy_imported;
-    let mut stats = MergeStats::default();
-    let mut extra: Vec<Entry> = vec![];
-    let ids: BTreeSet<&String> = local.entries.keys().chain(remote.entries.keys()).collect();
-    for id in ids {
-        let chosen = match (local.entries.get(id), remote.entries.get(id)) {
-            (Some(l), None) => l.clone(),
-            (None, Some(r)) => { stats.pulled += !r.deleted as u32; r.clone() }
-            (Some(l), Some(r)) => {
-                let (lh, rh) = (l.hash(), r.hash());
-                let b = base.get(id).map(String::as_str);
-                if lh == rh {
-                    if l.updated >= r.updated { l.clone() } else { r.clone() }
-                } else if b == Some(rh.as_str()) {
-                    l.clone() // only this device changed it
-                } else if b == Some(lh.as_str()) {
-                    stats.pulled += 1;
-                    r.clone() // only the other device changed it
-                } else if l.deleted != r.deleted {
-                    // edit beats delete
-                    let live = if l.deleted { r } else { l };
-                    if l.deleted { stats.pulled += 1; }
-                    live.clone()
-                } else {
-                    let (win, lose) = if l.updated >= r.updated { (l, r) } else { (r, l) };
-                    // Same content, different path = just a rename (e.g. a duplicate moved aside): no copy.
-                    if !win.deleted && !lose.deleted && !lose.dir && (win.ext != lose.ext || win.content != lose.content) {
-                        stats.conflicts += 1;
-                        let mut c = lose.clone();
-                        c.id = new_id();
-                        c.path = conflict_path(&lose.path, "conflict", lose.updated / 1000);
-                        extra.push(c);
-                    }
-                    if std::ptr::eq(win, r) { stats.pulled += 1; }
-                    win.clone()
-                }
-            }
-            (None, None) => continue,
-        };
-        out.entries.insert(chosen.id.clone(), chosen);
-    }
-    for c in extra { out.entries.insert(c.id.clone(), c); }
-    dedupe_paths(&mut out, &mut stats);
-    (out, stats)
-}
-
-/// Two devices can each create a note at the same path; keep the newest in place and
-/// move the others to a "(copy …)" name so nothing is hidden or overwritten.
-fn dedupe_paths(db: &mut Db, stats: &mut MergeStats) {
-    let mut by_path: BTreeMap<(String, bool), Vec<(u64, String)>> = BTreeMap::new();
-    for e in db.entries.values().filter(|e| e.is_live()) {
-        by_path.entry((e.path.clone(), e.dir)).or_default().push((e.updated, e.id.clone()));
-    }
-    for ((_, dir), mut v) in by_path {
-        if v.len() < 2 { continue; }
-        v.sort_by(|a, b| b.cmp(a)); // newest first stays put
-        for (n, (_, id)) in v.into_iter().enumerate().skip(1) {
-            let e = db.entries.get_mut(&id).expect("id from the same map");
-            if dir {
-                e.deleted = true; // duplicate empty folders just collapse
-            } else {
-                e.path = conflict_path(&e.path, "copy", n as u64);
-                e.updated = now_ms(); // newer than the other device's copy, so the rename wins there
-                stats.conflicts += 1;
-            }
-        }
-    }
 }
 
 // ─── tests ───────────────────────────────────────────────────────────────────
@@ -838,69 +731,6 @@ mod tests {
         assert!(rel_from_full(root, "C:/Users/me/Notiq Vault/../a.nqv").is_err());
     }
 
-    fn clone_edit(db: &Db, rel: &str, content: &str, ms: u64) -> Db {
-        let mut d = db.clone();
-        let id = d.get(rel).unwrap().id.clone();
-        let e = d.entries.get_mut(&id).unwrap();
-        e.content = content.into();
-        e.updated = ms;
-        d
-    }
-
-    #[test]
-    fn merge_unions_new_entries_both_ways() {
-        let mut a = Db::new(); a.put("a.nqv", "md", "A").unwrap();
-        let mut b = Db::new(); b.put("b.nqv", "md", "B").unwrap();
-        let (m, s) = merge(&a, &b, &HashMap::new());
-        assert!(m.get("a.nqv").is_some() && m.get("b.nqv").is_some());
-        assert_eq!(s, MergeStats { pulled: 1, conflicts: 0 });
-    }
-
-    #[test]
-    fn merge_takes_the_side_that_changed_since_base() {
-        let mut base = Db::new(); base.put("a.nqv", "md", "v1").unwrap();
-        let bf = base.fingerprints();
-        let remote = clone_edit(&base, "a.nqv", "v2", 5);
-        let (m, s) = merge(&base, &remote, &bf);
-        assert_eq!(m.get("a.nqv").unwrap().content, "v2");
-        assert_eq!((s.pulled, s.conflicts), (1, 0));
-        let (m, _) = merge(&remote, &base, &bf);
-        assert_eq!(m.get("a.nqv").unwrap().content, "v2"); // only local changed
-    }
-
-    #[test]
-    fn merge_both_changed_keeps_newer_and_a_conflict_copy() {
-        let mut base = Db::new(); base.put("a.nqv", "md", "v1").unwrap();
-        let bf = base.fingerprints();
-        let l = clone_edit(&base, "a.nqv", "local", u64::MAX / 2);
-        let r = clone_edit(&base, "a.nqv", "remote", 10);
-        let (m, s) = merge(&l, &r, &bf);
-        assert_eq!(m.get("a.nqv").unwrap().content, "local");
-        assert_eq!(s.conflicts, 1);
-        assert!(m.list().iter().any(|i| i.rel.contains("(conflict")));
-    }
-
-    #[test]
-    fn merge_delete_propagates_but_loses_to_a_concurrent_edit() {
-        let mut base = Db::new(); base.put("a.nqv", "md", "v1").unwrap();
-        let bf = base.fingerprints();
-        let mut deleted = base.clone(); deleted.delete("a.nqv").unwrap();
-        let (m, _) = merge(&base, &deleted, &bf);
-        assert!(m.get("a.nqv").is_none(), "remote delete reaches local");
-        let edited = clone_edit(&base, "a.nqv", "edited", 99);
-        let (m, _) = merge(&edited, &deleted, &bf);
-        assert_eq!(m.get("a.nqv").unwrap().content, "edited");
-    }
-
-    #[test]
-    fn same_path_created_on_two_devices_keeps_both() {
-        let mut a = Db::new(); a.put("n.nqv", "md", "A").unwrap();
-        let mut b = Db::new(); b.put("n.nqv", "md", "B").unwrap();
-        let (m, s) = merge(&a, &b, &HashMap::new());
-        assert_eq!(m.list().iter().filter(|i| !i.dir).count(), 2);
-        assert_eq!(s.conflicts, 1);
-    }
-
     #[test]
     fn disk_load_falls_back_to_backup_when_main_is_corrupt() {
         let (k, id) = keys();
@@ -914,77 +744,5 @@ mod tests {
         fs::write(db_path(&dir), b"garbage").unwrap();
         assert_eq!(load(&dir, &k, &id).unwrap().get("a.nqv").unwrap().content, "x");
         fs::remove_dir_all(&dir).ok();
-    }
-
-    /// Two devices (own folders, same vault key) converge through nothing but the one sealed file.
-    #[test]
-    fn two_devices_converge_through_one_file() {
-        let (k, id) = keys();
-        let tmp = std::env::temp_dir().join(format!("nqdb-2dev-{}", new_id()));
-        let (da, dbp) = (tmp.join("A"), tmp.join("B"));
-        fs::create_dir_all(&da).unwrap();
-        fs::create_dir_all(&dbp).unwrap();
-
-        // Device A creates a login, an ssh entry in a folder and a note, then "uploads" the file.
-        let mut a = Db::new();
-        a.put("Logins/github.nqv", "login", "user=me
-pass=hunter2").unwrap();
-        a.put("SSH/prod.nqv", "ssh", "host=1.2.3.4").unwrap();
-        a.put("todo.nqv", "md", "# todo").unwrap();
-        save(&da, &a.seal(&k, &id).unwrap()).unwrap();
-        let remote1 = fs::read(db_path(&da)).unwrap();
-        for needle in ["hunter2", "github", "Logins", "1.2.3.4"] {
-            assert!(!String::from_utf8_lossy(&remote1).contains(needle), "{needle} leaked into the backup");
-        }
-        let base_a = a.fingerprints();
-
-        // New device B: empty local, downloads the file, merges, saves its own copy.
-        let remote = Db::open(&k, &id, &remote1).unwrap().unwrap();
-        let (mut b, s) = merge(&Db::new(), &remote, &HashMap::new());
-        assert_eq!((s.pulled, s.conflicts), (3, 0));
-        save(&dbp, &b.seal(&k, &id).unwrap()).unwrap();
-        let reopened = load(&dbp, &k, &id).unwrap();
-        assert_eq!(reopened.get("Logins/github.nqv").unwrap().content, "user=me
-pass=hunter2");
-        assert_eq!(reopened.list().iter().filter(|i| i.dir).count(), 2);
-        let base_b = b.fingerprints();
-
-        // Both change things while apart: B edits the note and adds one; A edits the SSH entry
-        // and deletes the login; both edit the same line of one note (a true conflict).
-        b.put("todo.nqv", "md", "# todo
-- from B").unwrap();
-        b.put("new-from-b.nqv", "md", "b").unwrap();
-        a.put("SSH/prod.nqv", "ssh", "host=5.6.7.8").unwrap();
-        a.delete("Logins/github.nqv").unwrap();
-        a.put("conflict.nqv", "md", "A").unwrap();
-        b.put("conflict.nqv", "md", "B").unwrap();
-
-        // B publishes; A downloads and merges with its base; A publishes; B downloads.
-        let up_b = b.seal(&k, &id).unwrap();
-        let (a2, _) = merge(&a, &Db::open(&k, &id, &up_b).unwrap().unwrap(), &base_a);
-        let up_a = a2.seal(&k, &id).unwrap();
-        let (b2, _) = merge(&b, &Db::open(&k, &id, &up_a).unwrap().unwrap(), &base_b);
-
-        for d in [&a2, &b2] {
-            assert_eq!(d.get("todo.nqv").unwrap().content, "# todo
-- from B");
-            assert_eq!(d.get("SSH/prod.nqv").unwrap().content, "host=5.6.7.8");
-            assert!(d.get("Logins/github.nqv").is_none(), "delete should propagate");
-            assert!(d.get("new-from-b.nqv").is_some());
-            assert!(d.get("conflict.nqv").is_some());
-            assert!(d.list().iter().any(|i| i.rel.starts_with("conflict (")), "loser kept as a conflict note");
-        }
-        // Both devices now hold exactly the same set of live entries.
-        let live = |d: &Db| d.list().into_iter().map(|i| (i.rel, i.dir)).collect::<Vec<_>>();
-        assert_eq!(live(&a2), live(&b2));
-
-        // A different vault (wrong key) can't read the file, and a damaged file is rejected, not half-read.
-        let (k2, id2) = keys();
-        assert!(Db::open(&k2, &id2, &up_a).is_err());
-        let mut damaged = up_a.clone();
-        let mid = damaged.len() / 2;
-        damaged[mid] ^= 0xff;
-        assert!(Db::open(&k, &id, &damaged).is_err());
-        fs::remove_dir_all(&tmp).ok();
     }
 }
