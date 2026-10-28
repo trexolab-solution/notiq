@@ -1,3 +1,4 @@
+import { DEFAULT_PW_OPTIONS, generateWithOptions } from "./passwordGen";
 /** A structured login stored in the vault (file type `login`). */
 export interface LoginEntry {
   v: 1;
@@ -39,31 +40,9 @@ export function hostOf(url: string): string {
   try { return new URL(/^[a-z]+:\/\//i.test(t) ? t : `https://${t}`).hostname.toLowerCase(); } catch { return ""; }
 }
 
-const SETS = {
-  lower: "abcdefghijkmnopqrstuvwxyz",
-  upper: "ABCDEFGHJKLMNPQRSTUVWXYZ",
-  digit: "23456789",
-  symbol: "!@#$%^&*-_=+?",
-};
-
-/** Cryptographically random password with at least one of each class. */
+/** Cryptographically random password with at least one of each class (see passwordGen for options). */
 export function generatePassword(length = 20, symbols = true): string {
-  const pools = [SETS.lower, SETS.upper, SETS.digit, ...(symbols ? [SETS.symbol] : [])];
-  const all = pools.join("");
-  const pick = (set: string) => {
-    // Rejection sampling: no modulo bias.
-    const limit = Math.floor(0x100000000 / set.length) * set.length;
-    const buf = new Uint32Array(1);
-    do { crypto.getRandomValues(buf); } while (buf[0] >= limit);
-    return set[buf[0] % set.length];
-  };
-  const out = pools.map(pick);
-  while (out.length < Math.max(length, pools.length)) out.push(pick(all));
-  for (let i = out.length - 1; i > 0; i--) { // Fisher–Yates
-    const j = Math.floor((() => { const b = new Uint32Array(1); crypto.getRandomValues(b); return b[0] / 0x100000000; })() * (i + 1));
-    [out[i], out[j]] = [out[j], out[i]];
-  }
-  return out.join("");
+  return generateWithOptions({ ...DEFAULT_PW_OPTIONS, length, symbols });
 }
 
 function base32Decode(s: string): Uint8Array | null {

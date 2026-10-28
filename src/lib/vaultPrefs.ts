@@ -1,9 +1,12 @@
 /** Secure Vault preferences (per-device, kept in localStorage). */
+import { DEFAULT_PW_OPTIONS, sanitizePwOptions, type PwOptions } from "./passwordGen";
 
 const KEY_IDLE = "pref:vaultIdleMinutes";
 const KEY_HIDE = "pref:vaultLockOnHide";
 const KEY_PANIC = "pref:vaultPanicShortcut";
 const KEY_DIR = "pref:vaultDir";
+const KEY_PW_OPTS = "pref:vaultPwOptions";
+const KEY_PW_ASK = "pref:vaultPwAsk";
 
 export const DEFAULT_IDLE_MINUTES = 5;
 /** Selectable auto-lock timeouts in minutes; 0 = never. */
@@ -37,3 +40,17 @@ export const setPanicShortcut = (combo: string) => write(KEY_PANIC, combo);
 export const getVaultDir = (): string | null => read(KEY_DIR) || null;
 export const setVaultDir = (dir: string) => write(KEY_DIR, dir);
 export function clearVaultDir() { try { localStorage.removeItem(KEY_DIR); } catch { /* unavailable */ } }
+
+/** Fired after the password-generator preferences change, so the editor and Settings stay in sync. */
+export const PW_PREFS_EVENT = "vault:pw-prefs";
+const pwChanged = () => window.dispatchEvent(new Event(PW_PREFS_EVENT));
+
+/** Last-used (or saved) password generator options. */
+export function getPwOptions(): PwOptions {
+  try { return sanitizePwOptions(JSON.parse(read(KEY_PW_OPTS) ?? "null")); } catch { return { ...DEFAULT_PW_OPTIONS }; }
+}
+export function setPwOptions(o: PwOptions) { write(KEY_PW_OPTS, JSON.stringify(sanitizePwOptions(o))); pwChanged(); }
+
+/** Show the options popup on every "Generate" click. Turned off by "Remember my choice". */
+export const getPwAsk = (): boolean => read(KEY_PW_ASK) !== "false";
+export const setPwAsk = (v: boolean) => { write(KEY_PW_ASK, String(v)); pwChanged(); };

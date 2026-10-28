@@ -5,7 +5,7 @@ import { Button } from "../Button";
 import { Toggle } from "../Toggle";
 import { Select } from "../Select";
 import { PasswordInput } from "../PasswordInput";
-import { PanicShortcutRow, StorageFolderRow } from "./VaultPrefRows";
+import { PanicShortcutRow, PasswordGeneratorRow, StorageFolderRow } from "./VaultPrefRows";
 import { toast } from "../../../lib/toast";
 import { useAppStore } from "../../../store";
 import { useVaultStore } from "../../../store/vaultStore";
@@ -117,6 +117,7 @@ export const VaultSection = React.memo(function VaultSection() {
 
       <PanicShortcutRow />
       <StorageFolderRow />
+      <PasswordGeneratorRow />
 
       {exists && (
         <form onSubmit={changePassword} className="flex flex-col gap-3">

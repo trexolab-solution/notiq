@@ -179,3 +179,31 @@ button.vt-footer-row:focus-visible { outline: 2px solid color-mix(in srgb, var(-
 @media (prefers-reduced-motion: reduce) {
   .vt-row-chevron, .vt-menu { transition: none; animation: none; }
 }
+
+/* Password generator popup + options form */
+.pw-pop {
+  position: fixed; z-index: 60; padding: 12px; border-radius: 10px;
+  border: 1px solid var(--color-border); background: var(--color-bg-secondary); color: var(--color-text);
+  box-shadow: 0 12px 40px rgba(0,0,0,0.45), 0 2px 8px rgba(0,0,0,0.2); animation: ctx-in 0.1s ease-out;
+}
+.pw-pop-title { font-size: 12px; font-weight: 600; margin-bottom: 10px; }
+.pw-form { display: flex; flex-direction: column; gap: 10px; }
+.pw-length { display: flex; align-items: center; gap: 10px; }
+.pw-label { font-size: 12px; color: var(--color-text-muted); }
+.pw-length input[type="range"] { flex: 1; min-width: 0; accent-color: var(--color-primary); }
+.pw-length-value {
+  min-width: 26px; text-align: right; font-family: var(--font-mono, monospace); font-size: 12px; font-variant-numeric: tabular-nums;
+}
+.pw-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; }
+.pw-check { display: flex; align-items: center; gap: 7px; font-size: 12px; cursor: pointer; min-width: 0; }
+.pw-check input { accent-color: var(--color-primary); cursor: pointer; flex-shrink: 0; }
+.pw-check input:disabled { cursor: not-allowed; }
+.pw-check span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pw-check code {
+  margin-left: auto; font-size: 10px; color: var(--color-text-muted); font-family: var(--font-mono, monospace); white-space: nowrap;
+}
+.pw-remember { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--color-border); align-items: flex-start; }
+.pw-remember span { white-space: normal; line-height: 1.35; }
+.pw-hint { margin: 6px 0 0 22px; font-size: 11px; line-height: 1.4; color: var(--color-text-muted); }
+.pw-actions { display: flex; justify-content: flex-end; gap: 6px; margin-top: 12px; }
+@media (prefers-reduced-motion: reduce) { .pw-pop { animation: none; } }

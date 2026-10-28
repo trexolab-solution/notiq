@@ -1,11 +1,14 @@
 import { useEffect, useState } from "react";
 import { FolderOpen, RotateCcw } from "lucide-react";
 import { SettingRow } from "../SettingRow";
+import { Toggle } from "../Toggle";
+import { PasswordOptionsForm } from "../../vault/PasswordOptionsForm";
 import { Button } from "../Button";
 import { ALL_SHORTCUTS } from "./settingsConstants";
 import { comboFromEvent, hasRequiredModifier, normalizeCombo } from "../../../lib/shortcutCombo";
 import {
   DEFAULT_PANIC_SHORTCUT, getPanicShortcut, setPanicShortcut, getVaultDir,
+  PW_PREFS_EVENT, getPwAsk, setPwAsk, getPwOptions, setPwOptions,
 } from "../../../lib/vaultPrefs";
 import { resolveVaultDir, pickVaultDir, resetVaultDir, VAULT_DIR_EVENT } from "../../../lib/vaultDir";
 
@@ -77,5 +80,33 @@ export function StorageFolderRow() {
         {custom && <Button size="sm" variant="ghost" onClick={resetVaultDir}>Default</Button>}
       </div>
     </SettingRow>
+  );
+}
+
+/** Defaults for the Generate button in Login entries (also reachable from the popup's ⚙ button). */
+export function PasswordGeneratorRow() {
+  const [ask, setAsk] = useState(getPwAsk);
+  const [opts, setOpts] = useState(getPwOptions);
+  useEffect(() => {
+    const sync = () => { setAsk(getPwAsk()); setOpts(getPwOptions()); };
+    window.addEventListener(PW_PREFS_EVENT, sync);
+    return () => window.removeEventListener(PW_PREFS_EVENT, sync);
+  }, []);
+
+  return (
+    <div className="flex flex-col gap-3">
+      <SettingRow
+        label="Password generator"
+        description="What Generate puts in a password. Turn the popup off to generate instantly with these settings."
+      >
+        <div className="flex items-center gap-2 text-xs text-[var(--color-text-muted)]">
+          Ask each time
+          <Toggle aria-label="Ask for options each time" size="sm" value={ask} onChange={(v) => { setAsk(v); setPwAsk(v); }} />
+        </div>
+      </SettingRow>
+      <div className="rounded-lg p-3 border border-[var(--color-border)] bg-[var(--color-bg-tertiary)] max-w-sm">
+        <PasswordOptionsForm value={opts} onChange={(o) => { setOpts(o); setPwOptions(o); }} />
+      </div>
+    </div>
   );
 }

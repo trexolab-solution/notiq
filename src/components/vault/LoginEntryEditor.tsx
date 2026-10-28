@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
-import { Dices, ExternalLink, Eye, EyeOff, KeyRound } from "lucide-react";
+import { ExternalLink, Eye, EyeOff, KeyRound } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { Button } from "../ui/Button";
 import { Input } from "../ui/Input";
 import { useAppStore } from "../../store";
 import { CopyIconButton } from "./CopyIconButton";
+import { GeneratePasswordButton } from "./GeneratePasswordButton";
 import {
-  generatePassword, hostOf, parseLogin, serializeLogin, totpCode, totpRemaining, type LoginEntry,
+  hostOf, parseLogin, serializeLogin, totpCode, totpRemaining, type LoginEntry,
 } from "../../lib/loginEntry";
 import type { Tab } from "../../types";
 
@@ -80,8 +81,7 @@ export function LoginEntryEditor({ tab }: { tab: Tab }) {
                    autoComplete="off" spellCheck={false} className="font-mono" />
             <Button size="sm" aria-label={show ? "Hide password" : "Show password"}
                     icon={show ? <EyeOff size={12} /> : <Eye size={12} />} onClick={() => setShow((v) => !v)} />
-            <Button size="sm" icon={<Dices size={12} />} title="Generate a strong password"
-                    onClick={() => { set({ password: generatePassword(20) }); setShow(true); }}>Generate</Button>
+            <GeneratePasswordButton onGenerate={(password) => { set({ password }); setShow(true); }} />
             <CopyIconButton value={entry.password} label="password" />
           </div>
         </div>
