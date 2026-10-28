@@ -83,10 +83,12 @@ impl VaultState {
             st.stamp = on_disk;
         }
         let db = st.db.as_mut().expect("loaded above");
+        let purged = db.purge_expired(vdb::now_ms()) > 0; // recycle-bin items older than 30 days
         let (out, dirty) = match f(db, &root, &u.key, &u.vault_id) {
             Ok(r) => r,
             Err(e) => { st.db = None; return Err(e); } // never keep a half-applied change in memory
         };
+        let dirty = dirty || purged;
         if dirty {
             let saved = st.db.as_ref().expect("still loaded").seal(&u.key, &u.vault_id)
                 .and_then(|bytes| vdb::save(&root, &bytes));
@@ -388,11 +390,69 @@ pub fn vault_mkdir(state: State<'_, VaultState>, path: String) -> Result<(), Str
     })
 }
 
+/// Recycle bin contents (trashed notes and folders, with rel paths).
 #[tauri::command]
-pub fn vault_delete(state: State<'_, VaultState>, path: String) -> Result<(), String> {
+pub fn vault_list_trash(state: State<'_, VaultState>) -> Result<Vec<ListItem>, String> {
+    state.with_db(|db, _, _, _| Ok((db.list_trash(), false)))
+}
+
+/// Moves a note, or a folder with everything in it, to the recycle bin.
+#[tauri::command]
+pub fn vault_trash(state: State<'_, VaultState>, path: String) -> Result<(), String> {
     state.with_db(|db, root, _, _| {
-        db.delete(&vdb::rel_from_full(root, &path)?)?;
+        db.trash(&vdb::rel_from_full(root, &path)?)?;
         Ok(((), true))
+    })
+}
+
+#[tauri::command]
+pub fn vault_restore(state: State<'_, VaultState>, path: String) -> Result<(), String> {
+    state.with_db(|db, root, _, _| {
+        db.restore(&vdb::rel_from_full(root, &path)?)?;
+        Ok(((), true))
+    })
+}
+
+/// Permanently deletes an item that is in the recycle bin.
+#[tauri::command]
+pub fn vault_purge(state: State<'_, VaultState>, path: String) -> Result<(), String> {
+    state.with_db(|db, root, _, _| {
+        db.purge(&vdb::rel_from_full(root, &path)?)?;
+        Ok(((), true))
+    })
+}
+
+#[tauri::command]
+pub fn vault_empty_trash(state: State<'_, VaultState>) -> Result<(), String> {
+    state.with_db(|db, _, _, _| {
+        let n = db.empty_trash();
+        Ok(((), n > 0))
+    })
+}
+
+#[tauri::command]
+pub fn vault_set_tags(state: State<'_, VaultState>, path: String, tags: Vec<String>) -> Result<(), String> {
+    state.with_db(|db, root, _, _| {
+        db.set_tags(&vdb::rel_from_full(root, &path)?, tags)?;
+        Ok(((), true))
+    })
+}
+
+#[tauri::command]
+pub fn vault_set_starred(state: State<'_, VaultState>, path: String, starred: bool) -> Result<(), String> {
+    state.with_db(|db, root, _, _| {
+        db.set_starred(&vdb::rel_from_full(root, &path)?, starred)?;
+        Ok(((), true))
+    })
+}
+
+/// Copies a note to "<name> (copy).nqv"; returns the new full virtual path.
+#[tauri::command]
+pub fn vault_duplicate(state: State<'_, VaultState>, path: String) -> Result<String, String> {
+    state.with_db(|db, root, _, _| {
+        let rel = db.duplicate(&vdb::rel_from_full(root, &path)?)?;
+        let base = root.to_string_lossy();
+        Ok((format!("{}/{}", base.trim_end_matches(['/', '\\']), rel), true))
     })
 }
 
