@@ -1,0 +1,116 @@
+<!doctype html>
+<!--
+  Local playground for the Notiq Autofill extension. Nothing is sent anywhere:
+  every form below is handled in-page and just shows a "Signed in" screen.
+
+  Serve it from localhost (the extension runs on https and on http://localhost):
+    cd browser-extension/test-pages
+    python -m http.server 8000
+  then open http://localhost:8000/login.html
+  (The path contains "login", so the username-first form gets an icon too.)
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Notiq test page: login forms</title>
+<style>
+  :root { color-scheme: light dark; --fg: #1f2328; --bg: #f6f7f9; --card: #fff; --line: #d0d7de; --accent: #6366f1; }
+  @media (prefers-color-scheme: dark) { :root { --fg: #e6edf3; --bg: #0d1117; --card: #161b22; --line: #30363d; } }
+  body { margin: 0; padding: 24px 16px 60px; font: 15px/1.45 system-ui, sans-serif; color: var(--fg); background: var(--bg); }
+  main { max-width: 980px; margin: 0 auto; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  .lede { margin: 0 0 20px; opacity: .75; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
+  form, .done { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 18px; }
+  h2 { font-size: 16px; margin: 0 0 4px; }
+  .hint { font-size: 13px; opacity: .7; margin: 0 0 14px; }
+  label { display: block; font-size: 13px; margin: 10px 0 4px; }
+  input { box-sizing: border-box; width: 100%; padding: 9px 10px; font: inherit; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: inherit; }
+  button { margin-top: 14px; width: 100%; padding: 10px; border: 0; border-radius: 8px; background: var(--accent); color: #fff; font: inherit; font-weight: 600; cursor: pointer; }
+  .done { display: none; text-align: center; }
+  .done.show { display: block; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Notiq Autofill test page</h1>
+  <p class="lede">Each form fakes a successful sign-in in this page, so the password fields disappear and the "Save login to Notiq?" offer can show.</p>
+
+  <div class="grid" id="forms">
+    <!-- 1. Classic login form -->
+    <form id="simple" autocomplete="on">
+      <h2>1. Simple login</h2>
+      <p class="hint">Click the Notiq icon to fill, or type new values and sign in to get a save offer.</p>
+      <label for="s-user">Email</label>
+      <input id="s-user" name="email" type="email" autocomplete="username" placeholder="you@example.com">
+      <label for="s-pass">Password</label>
+      <input id="s-pass" name="password" type="password" autocomplete="current-password">
+      <button type="submit">Sign in</button>
+    </form>
+
+    <!-- 2. Username-first (two-step) form -->
+    <form id="twostep">
+      <h2>2. Two-step login</h2>
+      <p class="hint">Enter a username, press Next, then the password.</p>
+      <div id="t-step1">
+        <label for="t-user">Username</label>
+        <input id="t-user" name="username" type="text" autocomplete="username">
+        <button type="button" id="t-next">Next</button>
+      </div>
+      <div id="t-step2" hidden>
+        <p class="hint">Signing in as <b id="t-who"></b></p>
+        <label for="t-pass">Password</label>
+        <input id="t-pass" name="password" type="password" autocomplete="current-password">
+        <button type="submit">Sign in</button>
+      </div>
+    </form>
+
+    <!-- 3. Sign-up form with new-password -->
+    <form id="signup">
+      <h2>3. Create account</h2>
+      <p class="hint">Uses autocomplete="new-password" for both password fields.</p>
+      <label for="u-name">Full name</label>
+      <input id="u-name" name="fullname" type="text" autocomplete="name">
+      <label for="u-email">Email</label>
+      <input id="u-email" name="email" type="email" autocomplete="email">
+      <label for="u-pass">New password</label>
+      <input id="u-pass" name="new-password" type="password" autocomplete="new-password">
+      <label for="u-pass2">Confirm password</label>
+      <input id="u-pass2" name="confirm-password" type="password" autocomplete="new-password">
+      <button type="submit">Create account</button>
+    </form>
+  </div>
+
+  <div class="done" id="done">
+    <h2 id="done-title">Signed in</h2>
+    <p class="hint">No password field is visible now, so the extension may offer to save. <a href="login.html">Back to the forms</a></p>
+  </div>
+</main>
+<script>
+  // Fake "success": hide all forms (as a real site would after sign-in).
+  function finish(title) {
+    document.getElementById("forms").hidden = true;
+    document.getElementById("done-title").textContent = title;
+    document.getElementById("done").classList.add("show");
+    history.pushState({}, "", "?signed-in");
+  }
+  for (const id of ["simple", "twostep", "signup"]) {
+    document.getElementById(id).addEventListener("submit", (e) => {
+      e.preventDefault();
+      finish(id === "signup" ? "Account created" : "Signed in");
+    });
+  }
+  document.getElementById("t-next").addEventListener("click", () => {
+    const user = document.getElementById("t-user");
+    if (!user.value) { user.focus(); return; }
+    document.getElementById("t-who").textContent = user.value;
+    document.getElementById("t-step1").hidden = true;
+    document.getElementById("t-step2").hidden = false;
+    document.getElementById("t-pass").focus();
+  });
+  addEventListener("popstate", () => location.reload());
+</script>
+</body>
+</html>
