@@ -26,7 +26,7 @@ export function VaultPanel() {
     <div className="vt-footer-row" title={data.root ? `Stored in ${data.root}` : undefined}>
       <HardDrive size={13} className="shrink-0" aria-hidden />
       <span className="flex-1 min-w-0 truncate text-[11px]">
-        {data.root ? baseName(data.root) : "…"}{custom ? "" : " (default)"}
+        {!data.root ? "…" : custom ? baseName(data.root) : "App data (default)"}
       </span>
       <button type="button" className="vt-icon-btn" style={{ width: 20, height: 20 }}
               title="Choose storage folder" aria-label="Choose storage folder" onClick={() => void pickVaultDir()}>

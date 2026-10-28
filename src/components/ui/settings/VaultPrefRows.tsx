@@ -10,6 +10,7 @@ import {
   DEFAULT_PANIC_SHORTCUT, getPanicShortcut, setPanicShortcut, getVaultDir,
   PW_PREFS_EVENT, getPwAsk, setPwAsk, getPwOptions, setPwOptions,
 } from "../../../lib/vaultPrefs";
+import { cloudFolderName } from "../../../lib/cloudFolders";
 import { resolveVaultDir, pickVaultDir, resetVaultDir, VAULT_DIR_EVENT } from "../../../lib/vaultDir";
 
 const kbd = "font-mono text-xs px-2 py-1 rounded bg-[var(--color-bg-tertiary)] border border-[var(--color-border)]";
@@ -63,6 +64,7 @@ export function PanicShortcutRow() {
 export function StorageFolderRow() {
   const [dir, setDir] = useState("");
   const [custom, setCustom] = useState(() => getVaultDir() !== null);
+  const cloud = dir ? cloudFolderName(dir) : null;
   useEffect(() => {
     const load = () => { setCustom(getVaultDir() !== null); void resolveVaultDir().then(setDir); };
     load();
@@ -73,7 +75,7 @@ export function StorageFolderRow() {
   return (
     <SettingRow
       label="Vault storage folder"
-      description={`${dir || "…"}${custom ? "" : "  (default)"} — shown in the sidebar vault panel and used for new locked notes.`}
+      description={`${dir || "…"}${custom ? "" : "  (default)"} — where your encrypted vault file (vault.nqdb) is kept.${cloud ? ` Warning: this folder is synced by ${cloud}.` : ""}`}
     >
       <div className="flex items-center gap-2">
         <Button size="sm" icon={<FolderOpen size={12} />} onClick={() => void pickVaultDir()}>Choose…</Button>

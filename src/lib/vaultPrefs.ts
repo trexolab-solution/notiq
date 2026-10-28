@@ -36,7 +36,7 @@ export const DEFAULT_PANIC_SHORTCUT = "Ctrl+Alt+L";
 export const getPanicShortcut = (): string => read(KEY_PANIC) || DEFAULT_PANIC_SHORTCUT;
 export const setPanicShortcut = (combo: string) => write(KEY_PANIC, combo);
 
-/** User-chosen vault storage folder; null = default (Documents/Notiq Vault). */
+/** User-chosen vault storage folder; null = default (the app-data folder, see vault_default_dir). */
 export const getVaultDir = (): string | null => read(KEY_DIR) || null;
 export const setVaultDir = (dir: string) => write(KEY_DIR, dir);
 export function clearVaultDir() { try { localStorage.removeItem(KEY_DIR); } catch { /* unavailable */ } }

@@ -439,6 +439,32 @@ pub fn vault_rename(state: State<'_, VaultState>, from: String, to: String) -> R
     })
 }
 
+// ─── default storage folder ──────────────────────────────────────────────────
+
+/// Where the vault lives when the user hasn't chosen a folder: the app-data folder next to
+/// vault.json. It is local (OneDrive/Dropbox don't sync it) and out of the user's way. A vault an
+/// earlier version created in Documents/Notiq Vault keeps being used from there, so nothing is stranded.
+fn pick_default_dir(app_data: &Path, legacy: Option<&Path>) -> PathBuf {
+    if app_data.join(vdb::DB_FILE).exists() {
+        return app_data.to_path_buf();
+    }
+    if let Some(l) = legacy {
+        if l.join(vdb::DB_FILE).exists() || !legacy_files(l).is_empty() {
+            return l.to_path_buf();
+        }
+    }
+    app_data.to_path_buf()
+}
+
+#[tauri::command]
+pub fn vault_default_dir(app: AppHandle) -> Result<String, String> {
+    let app_data = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let legacy = app.path().document_dir().ok().map(|d| d.join("Notiq Vault"));
+    let dir = pick_default_dir(&app_data, legacy.as_deref());
+    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    Ok(dir.to_string_lossy().into_owned())
+}
+
 // ─── legacy per-note `.nqv` files ────────────────────────────────────────────
 
 const MAX_DEPTH: usize = 6;
@@ -513,4 +539,35 @@ pub fn vault_legacy_cleanup(state: State<'_, VaultState>) -> Result<u32, String>
         }
         Ok((n, false))
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn tmp(name: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!("nq-vault-{name}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&d);
+        fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    #[test]
+    fn default_dir_is_app_data_unless_an_older_vault_lives_in_documents() {
+        let (app, docs) = (tmp("app"), tmp("docs"));
+        // nothing anywhere -> app data
+        assert_eq!(pick_default_dir(&app, Some(&docs)), app);
+        // an old Documents vault database is kept
+        fs::write(docs.join(vdb::DB_FILE), b"x").unwrap();
+        assert_eq!(pick_default_dir(&app, Some(&docs)), docs);
+        // once app data has its own database it wins
+        fs::write(app.join(vdb::DB_FILE), b"x").unwrap();
+        assert_eq!(pick_default_dir(&app, Some(&docs)), app);
+        // old per-note files alone also count
+        let (app2, docs2) = (tmp("app2"), tmp("docs2"));
+        fs::write(docs2.join("a.nqv"), b"x").unwrap();
+        assert_eq!(pick_default_dir(&app2, Some(&docs2)), docs2);
+        assert_eq!(pick_default_dir(&app2, None), app2);
+        for d in [app, docs, app2, docs2] { let _ = fs::remove_dir_all(d); }
+    }
 }
