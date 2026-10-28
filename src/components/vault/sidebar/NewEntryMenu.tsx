@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Plus } from "lucide-react";
 import { NEW_ENTRY_OPTIONS, type NewEntryKind } from "../../../lib/vaultCreate";
 import { useClickOutside } from "../../../hooks/useClickOutside";
@@ -15,6 +15,15 @@ export function NewEntryMenu({ targetLabel, onPick }: { targetLabel: string; onP
   const wrap = useRef<HTMLDivElement>(null);
   const menu = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
+
+  // Fixed position from the trigger, clamped to the window, so the menu can't be cut off at the left/right edge.
+  const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
+  useLayoutEffect(() => {
+    if (!open || !trigger.current) { setPos(null); return; }
+    const r = trigger.current.getBoundingClientRect();
+    const W = 232, MARGIN = 8;
+    setPos({ left: Math.max(MARGIN, Math.min(r.left, window.innerWidth - W - MARGIN)), top: r.bottom + 4 });
+  }, [open]);
 
   useClickOutside(wrap, () => setOpen(false), open);
   useEscapeKey(() => { setOpen(false); trigger.current?.focus(); }, open);
@@ -47,6 +56,7 @@ export function NewEntryMenu({ targetLabel, onPick }: { targetLabel: string; onP
           ref={menu}
           role="menu"
           className="vt-menu"
+          style={pos ? { position: "fixed", left: pos.left, top: pos.top, right: "auto" } : { visibility: "hidden" }}
           aria-label="New secret"
           onKeyDown={(e) => {
             if (e.key === "ArrowDown") { e.preventDefault(); move(1); }
