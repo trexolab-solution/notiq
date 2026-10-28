@@ -438,7 +438,11 @@ All locked entries (notes, logins, SSH entries, API keys) are stored in a single
 
 ### Browser autofill
 
-The `browser-extension/` folder holds a Chrome / Edge / Brave extension (Windows for now) that fills *Login* entries into web pages through a local native-messaging bridge. Passwords never leave your computer: the vault must be unlocked and **every fill is approved inside Notiq**. See [`browser-extension/README.md`](browser-extension/README.md) for installation and the current feature set.
+The `browser-extension/` folder holds a Chrome / Edge / Brave extension (Windows for now) that works with your *Login* entries through a local native-messaging bridge. Passwords never leave your computer: the vault must be unlocked and **every fill and every save is approved inside Notiq**.
+
+- **Auto-detect and fill:** on login pages a small Notiq key icon appears inside the username / password fields. Click it (or press `Alt+Shift+L`, or use the toolbar button) and approve in Notiq to fill the form, including the current 2-step code. Nothing is requested until you click.
+- **Save from the browser:** when you sign in or sign up on a site, a "Save login to Notiq?" card appears. Choosing *Save* asks Notiq to confirm; the login is stored in your vault's `Logins` folder (or the saved password is updated if only the password changed). *Never for this site* is remembered and can be undone from the extension popup.
+- **Settings and limits:** both features can be switched off in the popup. The extension reads pages to find login fields, so Chrome shows an "all websites" permission note. See [`browser-extension/README.md`](browser-extension/README.md) for installation (developer mode), the security design and known limits.
 
 ---
 
