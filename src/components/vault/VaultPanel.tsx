@@ -1,4 +1,5 @@
-import { FolderOpen, HardDrive, Lock, RotateCcw } from "lucide-react";
+import { useEffect, useState } from "react";
+import { FolderOpen, HardDrive, Lock, RotateCcw, ShieldCheck } from "lucide-react";
 import { useVaultStore } from "../../store/vaultStore";
 import { pickVaultDir, resetVaultDir } from "../../lib/vaultDir";
 import { getVaultDir } from "../../lib/vaultPrefs";
@@ -14,6 +15,10 @@ const baseName = (p: string) => p.replace(/[\\/]+$/, "").split(/[\\/]/).pop() ||
  */
 export function VaultPanel() {
   const unlocked = useVaultStore((s) => s.unlocked);
+  const exists = useVaultStore((s) => s.exists);
+  // `exists` is only known after a status check; without it an existing vault would flash "Set up".
+  const [checked, setChecked] = useState(false);
+  useEffect(() => { void useVaultStore.getState().refresh().finally(() => setChecked(true)); }, []);
   const data = useVaultItems();
   const custom = getVaultDir() !== null;
 
@@ -45,18 +50,22 @@ export function VaultPanel() {
           <PanelHeader unlocked={false} />
           <div className="flex-1 min-h-0 flex flex-col items-center justify-center px-5 text-center gap-2">
             <div className="w-10 h-10 rounded-full flex items-center justify-center bg-[var(--color-bg-tertiary)] text-[var(--color-text-muted)]">
-              <Lock size={17} aria-hidden />
+              {exists || !checked ? <Lock size={17} aria-hidden /> : <ShieldCheck size={17} aria-hidden />}
             </div>
-            <div className="text-[12.5px] font-semibold text-[var(--color-text)]">Unlock to see your secrets</div>
+            <div className="text-[12.5px] font-semibold text-[var(--color-text)]">
+              {exists || !checked ? "Unlock to see your secrets" : "Set up your Secure Vault"}
+            </div>
             <p className="text-[11.5px] leading-relaxed text-[var(--color-text-muted)]">
-              Names, tags and contents are encrypted with your master password.
+              {exists || !checked
+                ? "Names, tags and contents are encrypted with your master password."
+                : "Keep logins, SSH keys, API keys and private notes behind one master password. Everything is encrypted and stays on this device."}
             </p>
             <button
               type="button"
               className="mt-1 px-3 py-1.5 rounded-md text-xs font-semibold cursor-pointer bg-[var(--color-primary)] text-[var(--color-bg)] hover:bg-[var(--color-primary-hover)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-primary)]"
               onClick={() => void useVaultStore.getState().ensureUnlocked()}
             >
-              Unlock
+              {exists || !checked ? "Unlock" : "Create vault"}
             </button>
           </div>
           <div className="vt-footer">{storageRow}</div>
