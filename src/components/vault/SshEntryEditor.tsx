@@ -135,6 +135,7 @@ export function SshEntryEditor({ tab }: { tab: Tab }) {
 
         <Section title="Sign in">
           <SegmentedControl<SshAuth>
+            className="self-start" // hug the options instead of stretching across the form
             aria-label="Sign-in method"
             value={auth}
             onChange={(v) => setField("auth", v)}

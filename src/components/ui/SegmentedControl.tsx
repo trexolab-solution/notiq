@@ -50,7 +50,7 @@ function SegmentedControlInner<T extends string>({
               borderRadius: 6,
               fontSize: 12,
               fontWeight: active ? 600 : 400,
-              color: active ? "#fff" : "var(--color-text-muted)",
+              color: active ? "var(--color-bg)" : "var(--color-text-muted)", // same on-primary token as Button
               background: active ? "var(--color-primary)" : "transparent",
               boxShadow: active ? "0 1px 3px rgba(0,0,0,0.2)" : "none",
               border: "none",
