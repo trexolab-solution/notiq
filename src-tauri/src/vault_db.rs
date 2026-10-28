@@ -368,7 +368,8 @@ pub fn merge(local: &Db, remote: &Db, base: &HashMap<String, String>) -> (Db, Me
                     live.clone()
                 } else {
                     let (win, lose) = if l.updated >= r.updated { (l, r) } else { (r, l) };
-                    if !win.deleted && !lose.deleted && !lose.dir {
+                    // Same content, different path = just a rename (e.g. a duplicate moved aside): no copy.
+                    if !win.deleted && !lose.deleted && !lose.dir && (win.ext != lose.ext || win.content != lose.content) {
                         stats.conflicts += 1;
                         let mut c = lose.clone();
                         c.id = new_id();
@@ -404,6 +405,7 @@ fn dedupe_paths(db: &mut Db, stats: &mut MergeStats) {
                 e.deleted = true; // duplicate empty folders just collapse
             } else {
                 e.path = conflict_path(&e.path, "copy", n as u64);
+                e.updated = now_ms(); // newer than the other device's copy, so the rename wins there
                 stats.conflicts += 1;
             }
         }
@@ -544,5 +546,77 @@ mod tests {
         fs::write(db_path(&dir), b"garbage").unwrap();
         assert_eq!(load(&dir, &k, &id).unwrap().get("a.nqv").unwrap().content, "x");
         fs::remove_dir_all(&dir).ok();
+    }
+
+    /// Two devices (own folders, same vault key) converge through nothing but the one sealed file.
+    #[test]
+    fn two_devices_converge_through_one_file() {
+        let (k, id) = keys();
+        let tmp = std::env::temp_dir().join(format!("nqdb-2dev-{}", new_id()));
+        let (da, dbp) = (tmp.join("A"), tmp.join("B"));
+        fs::create_dir_all(&da).unwrap();
+        fs::create_dir_all(&dbp).unwrap();
+
+        // Device A creates a login, an ssh entry in a folder and a note, then "uploads" the file.
+        let mut a = Db::new();
+        a.put("Logins/github.nqv", "login", "user=me
+pass=hunter2").unwrap();
+        a.put("SSH/prod.nqv", "ssh", "host=1.2.3.4").unwrap();
+        a.put("todo.nqv", "md", "# todo").unwrap();
+        save(&da, &a.seal(&k, &id).unwrap()).unwrap();
+        let remote1 = fs::read(db_path(&da)).unwrap();
+        for needle in ["hunter2", "github", "Logins", "1.2.3.4"] {
+            assert!(!String::from_utf8_lossy(&remote1).contains(needle), "{needle} leaked into the backup");
+        }
+        let base_a = a.fingerprints();
+
+        // New device B: empty local, downloads the file, merges, saves its own copy.
+        let remote = Db::open(&k, &id, &remote1).unwrap().unwrap();
+        let (mut b, s) = merge(&Db::new(), &remote, &HashMap::new());
+        assert_eq!((s.pulled, s.conflicts), (3, 0));
+        save(&dbp, &b.seal(&k, &id).unwrap()).unwrap();
+        let reopened = load(&dbp, &k, &id).unwrap();
+        assert_eq!(reopened.get("Logins/github.nqv").unwrap().content, "user=me
+pass=hunter2");
+        assert_eq!(reopened.list().iter().filter(|i| i.dir).count(), 2);
+        let base_b = b.fingerprints();
+
+        // Both change things while apart: B edits the note and adds one; A edits the SSH entry
+        // and deletes the login; both edit the same line of one note (a true conflict).
+        b.put("todo.nqv", "md", "# todo
+- from B").unwrap();
+        b.put("new-from-b.nqv", "md", "b").unwrap();
+        a.put("SSH/prod.nqv", "ssh", "host=5.6.7.8").unwrap();
+        a.delete("Logins/github.nqv").unwrap();
+        a.put("conflict.nqv", "md", "A").unwrap();
+        b.put("conflict.nqv", "md", "B").unwrap();
+
+        // B publishes; A downloads and merges with its base; A publishes; B downloads.
+        let up_b = b.seal(&k, &id).unwrap();
+        let (a2, _) = merge(&a, &Db::open(&k, &id, &up_b).unwrap().unwrap(), &base_a);
+        let up_a = a2.seal(&k, &id).unwrap();
+        let (b2, _) = merge(&b, &Db::open(&k, &id, &up_a).unwrap().unwrap(), &base_b);
+
+        for d in [&a2, &b2] {
+            assert_eq!(d.get("todo.nqv").unwrap().content, "# todo
+- from B");
+            assert_eq!(d.get("SSH/prod.nqv").unwrap().content, "host=5.6.7.8");
+            assert!(d.get("Logins/github.nqv").is_none(), "delete should propagate");
+            assert!(d.get("new-from-b.nqv").is_some());
+            assert!(d.get("conflict.nqv").is_some());
+            assert!(d.list().iter().any(|i| i.rel.starts_with("conflict (")), "loser kept as a conflict note");
+        }
+        // Both devices now hold exactly the same set of live entries.
+        let live = |d: &Db| d.list().into_iter().map(|i| (i.rel, i.dir)).collect::<Vec<_>>();
+        assert_eq!(live(&a2), live(&b2));
+
+        // A different vault (wrong key) can't read the file, and a damaged file is rejected, not half-read.
+        let (k2, id2) = keys();
+        assert!(Db::open(&k2, &id2, &up_a).is_err());
+        let mut damaged = up_a.clone();
+        let mid = damaged.len() / 2;
+        damaged[mid] ^= 0xff;
+        assert!(Db::open(&k, &id, &damaged).is_err());
+        fs::remove_dir_all(&tmp).ok();
     }
 }
