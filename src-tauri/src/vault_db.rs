@@ -45,9 +45,22 @@ pub struct Entry {
     pub deleted: bool,
     #[serde(default)]
     pub dir: bool,
+    /// User tags (normalised, lowercase, no leading `#`).
+    #[serde(default)]
+    pub tags: Vec<String>,
+    #[serde(default)]
+    pub starred: bool,
+    /// Unix ms when moved to the recycle bin; `Some` = trashed (hidden from normal views).
+    #[serde(default)]
+    pub trashed_at: Option<u64>,
 }
 
 impl Entry {
+    /// A live (not tombstoned, not trashed) entry.
+    pub fn is_live(&self) -> bool {
+        !self.deleted && self.trashed_at.is_none()
+    }
+
     /// Content fingerprint (everything except the id and timestamp).
     pub fn hash(&self) -> String {
         let mut h = Sha256::new();
@@ -85,6 +98,34 @@ pub struct ListItem {
     pub ext: String,
     pub updated: u64,
     pub dir: bool,
+    pub tags: Vec<String>,
+    pub starred: bool,
+    pub trashed_at: Option<u64>,
+}
+
+fn item(e: &Entry) -> ListItem {
+    ListItem {
+        rel: e.path.clone(), ext: e.ext.clone(), updated: e.updated, dir: e.dir,
+        tags: e.tags.clone(), starred: e.starred, trashed_at: e.trashed_at,
+    }
+}
+
+/// How long a trashed entry is kept before it is purged for good.
+pub const TRASH_KEEP_MS: u64 = 30 * 24 * 60 * 60 * 1000;
+const MAX_TAGS: usize = 20;
+const MAX_TAG_LEN: usize = 32;
+
+/// trim, strip leading '#', lowercase, drop control chars/empties, cap length, dedupe, cap count.
+pub fn normalize_tags(tags: Vec<String>) -> Vec<String> {
+    let mut out: Vec<String> = vec![];
+    for t in tags {
+        let t: String = t.trim().trim_start_matches('#').trim().chars().filter(|c| !c.is_control()).collect();
+        let t: String = t.to_lowercase().chars().take(MAX_TAG_LEN).collect::<String>().trim().to_string();
+        if t.is_empty() || out.contains(&t) { continue; }
+        out.push(t);
+        if out.len() == MAX_TAGS { break; }
+    }
+    out
 }
 
 pub fn now_ms() -> u64 {
@@ -134,6 +175,12 @@ fn conflict_path(rel: &str, tag: &str, n: u64) -> String {
     format!("{} ({tag} {n}){NQV}", stem_of(rel))
 }
 
+fn variant_path(rel: &str, tag: &str, n: u64, file: bool) -> String {
+    let base = if file { stem_of(rel) } else { rel };
+    let name = if n <= 1 { format!("{base} ({tag})") } else { format!("{base} ({tag} {n})") };
+    if file { format!("{name}{NQV}") } else { name }
+}
+
 fn parent_dirs(rel: &str) -> impl Iterator<Item = String> + '_ {
     rel.match_indices('/').map(move |(i, _)| rel[..i].to_string())
 }
@@ -148,7 +195,13 @@ impl Db {
     }
 
     fn live_id(&self, rel: &str, dir: bool) -> Option<&str> {
-        self.entries.values().find(|e| !e.deleted && e.dir == dir && e.path == rel).map(|e| e.id.as_str())
+        self.entries.values().find(|e| e.is_live() && e.dir == dir && e.path == rel).map(|e| e.id.as_str())
+    }
+
+    /// Is something live at `path` or below it (a note, a folder, or an implied folder)?
+    fn occupied(&self, path: &str) -> bool {
+        let prefix = format!("{path}/");
+        self.entries.values().any(|e| e.is_live() && (e.path == path || e.path.starts_with(&prefix)))
     }
 
     pub fn get(&self, rel: &str) -> Option<&Entry> {
@@ -166,6 +219,7 @@ impl Db {
         let id = self.live_id(rel, false).map(str::to_string).unwrap_or_else(new_id);
         let e = self.entries.entry(id.clone()).or_insert_with(|| Entry {
             id, path: rel.into(), ext: String::new(), content: String::new(), updated: 0, deleted: false, dir: false,
+            tags: vec![], starred: false, trashed_at: None,
         });
         e.ext = ext.into();
         e.content.zeroize();
@@ -183,6 +237,7 @@ impl Db {
         let id = new_id();
         self.entries.insert(id.clone(), Entry {
             id, path: rel.into(), ext: String::new(), content: String::new(), updated: now_ms(), deleted: false, dir: true,
+            tags: vec![], starred: false, trashed_at: None,
         });
         Ok(())
     }
@@ -212,13 +267,13 @@ impl Db {
         if is_file && !to.to_ascii_lowercase().ends_with(NQV) {
             return Err("A note must keep the .nqv extension".into());
         }
-        if self.entries.values().any(|e| !e.deleted && e.path == to) {
+        if self.entries.values().any(|e| e.is_live() && e.path == to) {
             return Err("Something with that name already exists".into());
         }
         let prefix = format!("{from}/");
         let now = now_ms();
         let mut hit = false;
-        for e in self.entries.values_mut().filter(|e| !e.deleted) {
+        for e in self.entries.values_mut().filter(|e| e.is_live()) {
             if e.path == from {
                 e.path = to.into();
                 e.updated = now;
@@ -233,23 +288,137 @@ impl Db {
     }
 
     /// Notes and folders (explicit and implied by note paths), folders first by path order.
+    /// Tombstoned and trashed entries are not shown.
     pub fn list(&self) -> Vec<ListItem> {
-        let mut dirs: BTreeMap<String, u64> = BTreeMap::new();
+        let mut dirs: BTreeMap<String, ListItem> = BTreeMap::new();
         let mut out = vec![];
-        for e in self.entries.values().filter(|e| !e.deleted) {
-            if e.dir {
-                for d in parent_dirs(&e.path) { dirs.entry(d).or_insert(0); }
-                dirs.insert(e.path.clone(), e.updated);
-            } else {
-                for d in parent_dirs(&e.path) { dirs.entry(d).or_insert(0); }
-                out.push(ListItem { rel: e.path.clone(), ext: e.ext.clone(), updated: e.updated, dir: false });
-            }
+        let blank = |rel: &str| ListItem { rel: rel.into(), ext: String::new(), updated: 0, dir: true, tags: vec![], starred: false, trashed_at: None };
+        for e in self.entries.values().filter(|e| e.is_live()) {
+            for d in parent_dirs(&e.path) { dirs.entry(d.clone()).or_insert_with(|| blank(&d)); }
+            if e.dir { dirs.insert(e.path.clone(), item(e)); } else { out.push(item(e)); }
         }
-        for (d, updated) in dirs {
-            out.push(ListItem { rel: d, ext: String::new(), updated, dir: true });
-        }
+        out.extend(dirs.into_values());
         out.sort_by(|a, b| a.rel.to_lowercase().cmp(&b.rel.to_lowercase()));
         out
+    }
+
+    /// Everything in the recycle bin. A trashed folder is one `dir` item (synthesised when it
+    /// was only implied by note paths) with its trashed children listed under their rel paths.
+    pub fn list_trash(&self) -> Vec<ListItem> {
+        let mut out: BTreeMap<(String, bool), ListItem> = BTreeMap::new();
+        let mut implied: BTreeMap<String, u64> = BTreeMap::new();
+        for e in self.entries.values().filter(|e| !e.deleted && e.trashed_at.is_some()) {
+            out.insert((e.path.clone(), e.dir), item(e));
+            for d in parent_dirs(&e.path) {
+                let t = implied.entry(d).or_insert(0);
+                *t = (*t).max(e.trashed_at.unwrap_or(0));
+            }
+        }
+        for (d, t) in implied {
+            if out.contains_key(&(d.clone(), true)) || self.occupied(&d) { continue; }
+            out.insert((d.clone(), true), ListItem { rel: d, ext: String::new(), updated: t, dir: true, tags: vec![], starred: false, trashed_at: Some(t) });
+        }
+        let mut v: Vec<ListItem> = out.into_values().collect();
+        v.sort_by(|a, b| a.rel.to_lowercase().cmp(&b.rel.to_lowercase()));
+        v
+    }
+
+    fn live_ids_under(&self, rel: &str) -> Vec<String> {
+        let prefix = format!("{rel}/");
+        self.entries.values().filter(|e| e.is_live() && (e.path == rel || e.path.starts_with(&prefix))).map(|e| e.id.clone()).collect()
+    }
+
+    /// Move a note, or a folder and everything in it, to the recycle bin.
+    pub fn trash(&mut self, rel: &str) -> Result<(), String> {
+        self.trash_at(rel, now_ms())
+    }
+
+    pub fn trash_at(&mut self, rel: &str, now: u64) -> Result<(), String> {
+        let ids = self.live_ids_under(rel);
+        if ids.is_empty() { return Err("Nothing to delete".into()); }
+        for id in ids {
+            if let Some(e) = self.entries.get_mut(&id) { e.trashed_at = Some(now); }
+        }
+        Ok(())
+    }
+
+    /// Take a note, or a folder tree, back out of the recycle bin. If its path is taken by
+    /// something live, it comes back as "<name> (restored)".
+    pub fn restore(&mut self, rel: &str) -> Result<(), String> {
+        let prefix = format!("{rel}/");
+        let mut ids: Vec<(String, String)> = self.entries.values()
+            .filter(|e| !e.deleted && e.trashed_at.is_some() && (e.path == rel || e.path.starts_with(&prefix)))
+            .map(|e| (e.path.clone(), e.id.clone())).collect();
+        if ids.is_empty() { return Err("Nothing to restore".into()); }
+        ids.sort();
+        let folder = ids.iter().any(|(_, id)| { let e = &self.entries[id]; e.dir || e.path != rel });
+        let root = if folder && self.occupied(rel) {
+            (1u64..).map(|n| variant_path(rel, "restored", n, false)).find(|c| !self.occupied(c)).expect("unbounded")
+        } else {
+            rel.to_string()
+        };
+        for (path, id) in ids {
+            let mut np = match path.strip_prefix(rel) { Some(rest) => format!("{root}{rest}"), None => path.clone() };
+            let is_dir = self.entries[&id].dir;
+            if !is_dir && self.occupied(&np) {
+                np = (1u64..).map(|n| variant_path(&np, "restored", n, true)).find(|c| !self.occupied(c)).expect("unbounded");
+            }
+            let e = self.entries.get_mut(&id).expect("id from the same map");
+            e.path = np;
+            e.trashed_at = None;
+        }
+        Ok(())
+    }
+
+    fn remove_where(&mut self, f: impl Fn(&Entry) -> bool) -> usize {
+        let ids: Vec<String> = self.entries.values().filter(|e| f(e)).map(|e| e.id.clone()).collect();
+        for id in &ids {
+            if let Some(mut e) = self.entries.remove(id) { e.content.zeroize(); }
+        }
+        ids.len()
+    }
+
+    /// Permanently remove a TRASHED note or folder tree (no tombstone). Live entries are never touched.
+    pub fn purge(&mut self, rel: &str) -> Result<(), String> {
+        let prefix = format!("{rel}/");
+        let n = self.remove_where(|e| e.trashed_at.is_some() && (e.path == rel || e.path.starts_with(&prefix)));
+        if n == 0 { Err("Only items in the recycle bin can be deleted permanently".into()) } else { Ok(()) }
+    }
+
+    pub fn empty_trash(&mut self) -> usize {
+        self.remove_where(|e| e.trashed_at.is_some())
+    }
+
+    /// Permanently drop entries trashed more than 30 days before `now`.
+    pub fn purge_expired(&mut self, now: u64) -> usize {
+        self.remove_where(|e| e.trashed_at.map(|t| now.saturating_sub(t) > TRASH_KEEP_MS).unwrap_or(false))
+    }
+
+    /// Drop legacy sync tombstones (nothing syncs any more).
+    pub fn drop_tombstones(&mut self) -> usize {
+        self.remove_where(|e| e.deleted)
+    }
+
+    pub fn set_tags(&mut self, rel: &str, tags: Vec<String>) -> Result<(), String> {
+        let tags = normalize_tags(tags);
+        let id = self.live_id(rel, false).or_else(|| self.live_id(rel, true)).ok_or("Nothing to tag")?.to_string();
+        self.entries.get_mut(&id).expect("live id").tags = tags;
+        Ok(())
+    }
+
+    pub fn set_starred(&mut self, rel: &str, starred: bool) -> Result<(), String> {
+        let id = self.live_id(rel, false).or_else(|| self.live_id(rel, true)).ok_or("Nothing to star")?.to_string();
+        self.entries.get_mut(&id).expect("live id").starred = starred;
+        Ok(())
+    }
+
+    /// Copy a note to "<name> (copy).nqv" (then "(copy 2)" …); returns the new rel path.
+    pub fn duplicate(&mut self, rel: &str) -> Result<String, String> {
+        let src = self.get(rel).ok_or("Only notes can be duplicated")?.clone();
+        let to = (1u64..).map(|n| variant_path(rel, "copy", n, true)).find(|c| !self.occupied(c)).expect("unbounded");
+        self.put(&to, &src.ext, &src.content)?;
+        self.set_tags(&to, src.tags.clone())?;
+        Ok(to)
     }
 
     /// id → fingerprint of every entry (the merge base after a sync).
@@ -288,6 +457,13 @@ fn mtime_secs(p: &Path) -> Option<u64> {
     fs::metadata(p).ok()?.modified().ok()?.duration_since(SystemTime::UNIX_EPOCH).ok().map(|d| d.as_secs())
 }
 
+/// After loading: forget legacy tombstones and purge anything trashed over 30 days ago.
+fn tidy(mut db: Db) -> Db {
+    db.drop_tombstones();
+    db.purge_expired(now_ms());
+    db
+}
+
 /// Loads `<root>/vault.nqdb`; a missing file is a fresh, empty database.
 /// If the file is unreadable it falls back to the newest backup that opens.
 pub fn load(root: &Path, key: &VaultKey, vault_id: &[u8; VAULT_ID_LEN]) -> Result<Db, String> {
@@ -296,12 +472,12 @@ pub fn load(root: &Path, key: &VaultKey, vault_id: &[u8; VAULT_ID_LEN]) -> Resul
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Db::new()),
         Err(e) => return Err(e.to_string()),
         Ok(b) => match Db::open(key, vault_id, &b) {
-            Ok(Some(db)) => return Ok(db),
+            Ok(Some(db)) => return Ok(tidy(db)),
             Ok(None) => return Err("vault.nqdb isn't a vault database".into()),
             Err(main_err) => {
                 for n in 1..=BAK_KEEP {
                     if let Ok(b) = fs::read(bak_path(root, n)) {
-                        if let Ok(Some(db)) = Db::open(key, vault_id, &b) { return Ok(db); }
+                        if let Ok(Some(db)) = Db::open(key, vault_id, &b) { return Ok(tidy(db)); }
                     }
                 }
                 return Err(format!("Couldn't open vault.nqdb ({main_err}) and no usable backup was found"));
@@ -393,7 +569,7 @@ pub fn merge(local: &Db, remote: &Db, base: &HashMap<String, String>) -> (Db, Me
 /// move the others to a "(copy …)" name so nothing is hidden or overwritten.
 fn dedupe_paths(db: &mut Db, stats: &mut MergeStats) {
     let mut by_path: BTreeMap<(String, bool), Vec<(u64, String)>> = BTreeMap::new();
-    for e in db.entries.values().filter(|e| !e.deleted) {
+    for e in db.entries.values().filter(|e| e.is_live()) {
         by_path.entry((e.path.clone(), e.dir)).or_default().push((e.updated, e.id.clone()));
     }
     for ((_, dir), mut v) in by_path {
@@ -447,6 +623,198 @@ mod tests {
         db.put("a.nqv", "md", "2").unwrap();
         assert_eq!(db.entries.len(), 1);
         assert_eq!(db.get("a.nqv").unwrap().id, id);
+    }
+
+    fn rels(items: Vec<ListItem>) -> Vec<String> { items.into_iter().map(|i| i.rel).collect() }
+
+    #[test]
+    fn trash_and_restore_a_file() {
+        let mut db = Db::new();
+        db.put("a.nqv", "md", "hi").unwrap();
+        db.trash("a.nqv").unwrap();
+        assert!(db.get("a.nqv").is_none() && db.list().is_empty());
+        let t = db.list_trash();
+        assert_eq!(rels(t.clone()), vec!["a.nqv"]);
+        assert!(t[0].trashed_at.is_some());
+        assert!(db.rename("a.nqv", "b.nqv").is_err(), "trashed sources can't be renamed");
+        assert!(db.trash("a.nqv").is_err(), "already trashed");
+        db.restore("a.nqv").unwrap();
+        assert_eq!(db.get("a.nqv").unwrap().content, "hi");
+        assert!(db.list_trash().is_empty());
+    }
+
+    #[test]
+    fn trash_and_restore_a_folder_tree() {
+        let mut db = Db::new();
+        db.mkdir("F").unwrap();
+        db.put("F/a.nqv", "md", "1").unwrap();
+        db.put("F/sub/b.nqv", "md", "2").unwrap();
+        db.put("keep.nqv", "md", "k").unwrap();
+        db.trash("F").unwrap();
+        assert_eq!(rels(db.list()), vec!["keep.nqv"]);
+        let t = db.list_trash();
+        assert_eq!(rels(t.clone()), vec!["F", "F/a.nqv", "F/sub", "F/sub/b.nqv"]);
+        assert!(t.iter().find(|i| i.rel == "F").unwrap().dir && t.iter().find(|i| i.rel == "F/sub").unwrap().dir);
+        db.restore("F").unwrap();
+        assert!(db.list_trash().is_empty());
+        assert_eq!(db.get("F/sub/b.nqv").unwrap().content, "2");
+        assert!(rels(db.list()).contains(&"F".to_string()));
+    }
+
+    #[test]
+    fn restoring_one_file_from_a_trashed_implied_folder_brings_the_folder_back() {
+        let mut db = Db::new();
+        db.put("F/a.nqv", "md", "1").unwrap();
+        db.put("F/b.nqv", "md", "2").unwrap();
+        db.trash("F").unwrap();
+        db.restore("F/a.nqv").unwrap();
+        assert_eq!(rels(db.list()), vec!["F", "F/a.nqv"]);
+        assert_eq!(rels(db.list_trash()), vec!["F/b.nqv"]);
+    }
+
+    #[test]
+    fn restore_collision_renames_the_restored_entry() {
+        let mut db = Db::new();
+        db.put("a.nqv", "md", "old").unwrap();
+        db.trash("a.nqv").unwrap();
+        db.put("a.nqv", "md", "new").unwrap(); // does not revive the trashed one
+        assert_eq!(db.entries.len(), 2);
+        assert_eq!(db.get("a.nqv").unwrap().content, "new");
+        db.restore("a.nqv").unwrap();
+        assert_eq!(db.get("a.nqv").unwrap().content, "new");
+        assert_eq!(db.get("a (restored).nqv").unwrap().content, "old");
+        db.put("a.nqv", "md", "newer").unwrap();
+        db.trash("a (restored).nqv").unwrap();
+        db.put("a (restored).nqv", "md", "x").unwrap();
+        db.restore("a (restored).nqv").unwrap();
+        assert_eq!(db.get("a (restored) (restored).nqv").unwrap().content, "old");
+
+        let mut db = Db::new();
+        db.put("F/x.nqv", "md", "old").unwrap();
+        db.trash("F").unwrap();
+        db.put("F/y.nqv", "md", "live").unwrap();
+        db.restore("F").unwrap();
+        assert_eq!(db.get("F (restored)/x.nqv").unwrap().content, "old");
+        assert_eq!(db.get("F/y.nqv").unwrap().content, "live");
+    }
+
+    #[test]
+    fn purge_only_works_on_trashed() {
+        let mut db = Db::new();
+        db.put("a.nqv", "md", "1").unwrap();
+        db.put("F/b.nqv", "md", "2").unwrap();
+        assert!(db.purge("a.nqv").is_err());
+        assert_eq!(db.entries.len(), 2);
+        db.trash("a.nqv").unwrap();
+        db.purge("a.nqv").unwrap();
+        assert_eq!(db.entries.len(), 1, "removed outright, no tombstone");
+        db.trash("F").unwrap();
+        db.purge("F").unwrap();
+        assert!(db.entries.is_empty());
+    }
+
+    #[test]
+    fn empty_trash_removes_only_trashed() {
+        let mut db = Db::new();
+        db.put("a.nqv", "md", "1").unwrap();
+        db.put("b.nqv", "md", "2").unwrap();
+        db.trash("a.nqv").unwrap();
+        assert_eq!(db.empty_trash(), 1);
+        assert!(db.get("b.nqv").is_some() && db.list_trash().is_empty() && db.entries.len() == 1);
+    }
+
+    #[test]
+    fn expired_trash_is_purged_after_30_days() {
+        let mut db = Db::new();
+        db.put("old.nqv", "md", "1").unwrap();
+        db.put("recent.nqv", "md", "2").unwrap();
+        db.put("live.nqv", "md", "3").unwrap();
+        let now = 100 * 24 * 60 * 60 * 1000u64;
+        db.trash_at("old.nqv", now - TRASH_KEEP_MS - 1).unwrap();
+        db.trash_at("recent.nqv", now - TRASH_KEEP_MS + 1000).unwrap();
+        assert_eq!(db.purge_expired(now), 1);
+        assert_eq!(rels(db.list_trash()), vec!["recent.nqv"]);
+        assert!(db.get("live.nqv").is_some());
+    }
+
+    #[test]
+    fn tags_are_normalised_and_limited() {
+        let mut db = Db::new();
+        db.put("a.nqv", "md", "").unwrap();
+        let long = "x".repeat(50);
+        db.set_tags("a.nqv", vec!["  #Work ".into(), "work".into(), "##".into(), "".into(), "bad\u{7}tag".into(), long]).unwrap();
+        let t = &db.get("a.nqv").unwrap().tags;
+        assert_eq!(t, &vec!["work".to_string(), "badtag".to_string(), "x".repeat(32)]);
+        db.set_tags("a.nqv", (0..40).map(|i| format!("t{i}")).collect()).unwrap();
+        assert_eq!(db.get("a.nqv").unwrap().tags.len(), 20);
+        assert!(db.set_tags("missing.nqv", vec![]).is_err());
+        db.mkdir("D").unwrap();
+        db.set_tags("D", vec!["#f".into()]).unwrap();
+        assert_eq!(db.list().iter().find(|i| i.rel == "D").unwrap().tags, vec!["f"]);
+    }
+
+    #[test]
+    fn starring_and_put_keeps_tags_and_star() {
+        let mut db = Db::new();
+        db.put("a.nqv", "md", "1").unwrap();
+        db.set_starred("a.nqv", true).unwrap();
+        db.set_tags("a.nqv", vec!["x".into()]).unwrap();
+        db.put("a.nqv", "md", "2").unwrap();
+        let e = db.get("a.nqv").unwrap();
+        assert!(e.starred && e.tags == vec!["x"] && e.content == "2");
+        let li = db.list();
+        assert!(li[0].starred && li[0].tags == vec!["x"] && li[0].trashed_at.is_none());
+        db.set_starred("a.nqv", false).unwrap();
+        assert!(!db.get("a.nqv").unwrap().starred);
+    }
+
+    #[test]
+    fn duplicate_names_and_copies_tags() {
+        let mut db = Db::new();
+        db.put("F/a.nqv", "md", "body").unwrap();
+        db.set_tags("F/a.nqv", vec!["t".into()]).unwrap();
+        db.set_starred("F/a.nqv", true).unwrap();
+        assert_eq!(db.duplicate("F/a.nqv").unwrap(), "F/a (copy).nqv");
+        assert_eq!(db.duplicate("F/a.nqv").unwrap(), "F/a (copy 2).nqv");
+        assert_eq!(db.duplicate("F/a (copy).nqv").unwrap(), "F/a (copy) (copy).nqv");
+        let c = db.get("F/a (copy 2).nqv").unwrap();
+        assert!(c.content == "body" && c.ext == "md" && c.tags == vec!["t"] && !c.starred);
+        assert!(db.duplicate("F").is_err());
+    }
+
+    #[test]
+    fn old_json_without_new_fields_loads_and_sealed_round_trip_keeps_them() {
+        let old = r#"{"v":1,"entries":{"i1":{"id":"i1","path":"a.nqv","ext":"md","content":"x","updated":5},
+            "i2":{"id":"i2","path":"gone.nqv","updated":6,"deleted":true}}}"#;
+        let db: Db = serde_json::from_str(old).unwrap();
+        let e = &db.entries["i1"];
+        assert!(e.tags.is_empty() && !e.starred && e.trashed_at.is_none());
+
+        let (k, id) = keys();
+        let mut db = Db::new();
+        db.put("a.nqv", "md", "x").unwrap();
+        db.put("b.nqv", "md", "y").unwrap();
+        db.set_tags("a.nqv", vec!["t".into()]).unwrap();
+        db.set_starred("a.nqv", true).unwrap();
+        db.trash_at("b.nqv", 1234).unwrap();
+        let back = Db::open(&k, &id, &db.seal(&k, &id).unwrap()).unwrap().unwrap();
+        let a = back.get("a.nqv").unwrap();
+        assert!(a.starred && a.tags == vec!["t"]);
+        assert_eq!(back.list_trash()[0].trashed_at, Some(1234));
+    }
+
+    #[test]
+    fn load_drops_tombstones() {
+        let (k, id) = keys();
+        let dir = std::env::temp_dir().join(format!("nqdb-ts-{}", new_id()));
+        fs::create_dir_all(&dir).unwrap();
+        let mut db = Db::new();
+        db.put("a.nqv", "md", "x").unwrap();
+        db.put("b.nqv", "md", "y").unwrap();
+        db.delete("b.nqv").unwrap();
+        save(&dir, &db.seal(&k, &id).unwrap()).unwrap();
+        assert_eq!(load(&dir, &k, &id).unwrap().entries.len(), 1);
+        fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
