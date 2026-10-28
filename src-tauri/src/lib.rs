@@ -7,6 +7,7 @@ pub mod autofill;
 mod vault;
 mod vault_core;
 mod vault_db;
+mod profile;
 #[cfg(desktop)]
 use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem},
@@ -525,7 +526,7 @@ fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         .icon(icon)
         .menu(&menu)
         .show_menu_on_left_click(false)
-        .tooltip("Notiq")
+        .tooltip(if profile::IS_DEV { "Notiq Dev" } else { "Notiq" })
         .on_menu_event(|app, event| match event.id.as_ref() {
             "show" => {
                 if let Some(w) = app.get_webview_window("main") {
@@ -567,6 +568,16 @@ fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let mut context = tauri::generate_context!();
+    if profile::IS_DEV {
+        // Own identity for dev builds (see profile.rs): separate app-data folder, WebView storage and instance lock.
+        let cfg = context.config_mut();
+        cfg.identifier = profile::DEV_IDENTIFIER.into();
+        cfg.product_name = Some("Notiq Dev".into());
+        for w in cfg.app.windows.iter_mut() {
+            w.title = "Notiq (Dev)".into();
+        }
+    }
     let builder = tauri::Builder::default();
 
     #[cfg(desktop)]
@@ -710,8 +721,9 @@ pub fn run() {
     builder
         .setup(|app| {
             // Register file associations + context menu entries (Windows only)
+            // (Not from a dev build: that would re-point the installed app's associations at the debug exe.)
             #[cfg(windows)]
-            {
+            if !profile::IS_DEV {
                 let exe = std::env::current_exe()
                     .ok()
                     .and_then(|p| p.to_str().map(String::from))
@@ -750,7 +762,7 @@ pub fn run() {
             }
             Ok(())
         })
-        .run(tauri::generate_context!())
+        .run(context)
         .unwrap_or_else(|e| {
             eprintln!("Fatal: failed to run Tauri application: {}", e);
             std::process::exit(1);

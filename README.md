@@ -189,6 +189,16 @@ bun run tauri dev
 
 Starts the Vite dev server on `http://localhost:1420` and opens the Tauri window with hot module replacement.
 
+**Dev builds are kept apart from an installed Notiq**, so you can run both on one machine. A debug build runs as `com.trexolab.notiq.dev` ("Notiq (Dev)", with a **DEV** badge in the title bar):
+
+| | Installed (release) | Dev (`tauri dev`) |
+|---|---|---|
+| App data (settings, `vault.json`, `vault.nqdb`) | `%APPDATA%\com.trexolab.notiq\` | `%APPDATA%\com.trexolab.notiq.dev\` |
+| WebView storage (tabs, preferences) | `%LOCALAPPDATA%\com.trexolab.notiq\` | `%LOCALAPPDATA%\com.trexolab.notiq.dev\` |
+| AI API key (OS keychain) | `notiq-ai` | `notiq-ai-dev` |
+
+A dev build also never registers file associations, the browser-autofill native host or auto-start, and never self-updates, because those are machine-wide and belong to the installed app. To try the browser extension against a dev build you have to register its native host yourself. See `src-tauri/src/profile.rs`.
+
 ### Build for production
 
 ```bash

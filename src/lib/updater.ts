@@ -59,7 +59,8 @@ export const updater = {
    */
   async check({ silent = false }: { silent?: boolean } = {}): Promise<UpdaterStatus> {
     void silent; // semantics live at the call site; kept for clarity/JSDoc
-    if (!isTauri) return state.status;
+    // Dev builds never self-update: they could replace the installed app with a release build.
+    if (!isTauri || import.meta.env.DEV) return state.status;
     if (state.status === "checking" || state.status === "downloading") return state.status;
     set({ status: "checking", error: null });
     try {
@@ -84,7 +85,7 @@ export const updater = {
 
   /** Download + install the pending update (with progress), then relaunch. */
   async install(): Promise<void> {
-    if (!isTauri || !pending) return;
+    if (!isTauri || import.meta.env.DEV || !pending) return;
     if (state.status === "downloading") return;
     set({ status: "downloading", progress: 0, error: null });
     let total = 0;

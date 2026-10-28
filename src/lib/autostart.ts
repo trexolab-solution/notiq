@@ -14,6 +14,8 @@ const FIRST_RUN_KEY = "autostart:firstRunDone";
  * panel.
  */
 export async function bootstrapAutostart(): Promise<void> {
+  // A dev build must not register itself (the debug exe) to start with the OS.
+  if (import.meta.env.DEV) return;
   if (localStorage.getItem(FIRST_RUN_KEY)) return;
   try {
     await enable();

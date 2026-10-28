@@ -11,7 +11,8 @@ use tauri::{AppHandle, Emitter};
 use keyring::Entry;
 use futures_util::StreamExt;
 
-const SERVICE_NAME: &str = "notiq-ai";
+/// Dev builds use their own keychain entry so they never read or overwrite the installed app's API key.
+const SERVICE_NAME: &str = if crate::profile::IS_DEV { "notiq-ai-dev" } else { "notiq-ai" };
 const ACCOUNT_CLOUD: &str = "api-key";
 const ACCOUNT_OPENROUTER: &str = "openrouter-api-key";
 /// Hard cap on the stored API key length — a sane bound for any real token.

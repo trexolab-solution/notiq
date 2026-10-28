@@ -21,7 +21,7 @@ use tauri::{AppHandle, Emitter, Manager};
 
 use crate::vault::atomic_write;
 
-pub const HOST_NAME: &str = "com.trexolab.notiq";
+pub const HOST_NAME: &str = crate::profile::PROD_IDENTIFIER;
 /// Stable ID of the bundled Chrome/Edge extension (derived from the `key` in
 /// `browser-extension/manifest.json`).
 pub const EXTENSION_ID: &str = "cfddmbiaaboejbhnijkjodcganjdbcel";
@@ -54,7 +54,7 @@ fn data_dir_plain() -> Option<PathBuf> {
     let base = std::env::var_os("XDG_DATA_HOME")
         .map(PathBuf::from)
         .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/share")));
-    base.map(|b| b.join("com.trexolab.notiq"))
+    base.map(|b| b.join(crate::profile::identifier()))
 }
 
 // ─── App side ────────────────────────────────────────────────────────────────
@@ -69,8 +69,11 @@ pub fn start(app: &AppHandle) {
     if atomic_write(&dir.join(IPC_FILE), doc.as_bytes()).is_err() {
         return;
     }
+    // A dev build must not point Chrome/Edge/Brave at the debug exe: that would break autofill for the installed app.
     #[cfg(windows)]
-    register_native_host(&dir);
+    if !crate::profile::IS_DEV {
+        register_native_host(&dir);
+    }
 
     let app = app.clone();
     std::thread::spawn(move || {

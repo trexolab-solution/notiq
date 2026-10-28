@@ -68,6 +68,15 @@ export function AppTitlebar({
         <div className="app-brand">
           <img src={logoUrl} alt="Notiq" draggable={false} className="app-brand-logo" />
           <span className="app-brand-name">Notiq</span>
+          {import.meta.env.DEV && (
+            <span
+              title="Development build: separate data from the installed app"
+              style={{ marginLeft: 6, padding: "1px 6px", borderRadius: 4, fontSize: 10, fontWeight: 700, letterSpacing: "0.06em",
+                       background: "color-mix(in srgb, var(--color-warning, #d97706) 22%, transparent)", color: "var(--color-warning, #d97706)" }}
+            >
+              DEV
+            </span>
+          )}
         </div>
 
         <TitlebarMenuBar

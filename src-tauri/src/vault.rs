@@ -459,7 +459,8 @@ fn pick_default_dir(app_data: &Path, legacy: Option<&Path>) -> PathBuf {
 #[tauri::command]
 pub fn vault_default_dir(app: AppHandle) -> Result<String, String> {
     let app_data = app.path().app_data_dir().map_err(|e| e.to_string())?;
-    let legacy = app.path().document_dir().ok().map(|d| d.join("Notiq Vault"));
+    // Dev builds never adopt a vault an installed (older) Notiq keeps in Documents.
+    let legacy = if crate::profile::IS_DEV { None } else { app.path().document_dir().ok().map(|d| d.join("Notiq Vault")) };
     let dir = pick_default_dir(&app_data, legacy.as_deref());
     fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     Ok(dir.to_string_lossy().into_owned())
