@@ -13,7 +13,6 @@ import { pickSavePath, writeFile, type FileEntry } from "../lib/fileOps";
 import { isVaultPath, extFromPath, vaultLock, vaultReadFile, vaultWriteFile, vaultErrorMessage } from "../lib/vault";
 import { useVaultStore } from "./vaultStore";
 import { pickVaultDestination } from "../lib/vaultDest";
-import { syncBeforeLock } from "../lib/telegram";
 import { scrubMonacoModels } from "../lib/vaultMemory";
 import { exists } from "@tauri-apps/plugin-fs";
 import { getFileName } from "../lib/pathUtils";
@@ -119,8 +118,7 @@ export interface AppState {
   /** Re-reads open, unlocked, clean vault tabs from disk (after a sync pulled changes). */
   refreshVaultTabs: () => Promise<void>;
   /** Saves dirty vault tabs, drops the key from memory, blanks vault tabs. */
-  /** `skipSync`: lock instantly (panic) without the pre-lock Telegram backup. */
-  lockVault: (opts?: { skipSync?: boolean }) => Promise<boolean>;
+  lockVault: () => Promise<boolean>;
 
   // theme
   themeId: ThemeId;
@@ -556,7 +554,7 @@ export const useAppStore = create<AppState>((set, get) => {
       }
     },
 
-    async lockVault(opts) {
+    async lockVault() {
       // Never lose edits: save dirty vault tabs first; abort the lock if any fails.
       const dirty = get().tabs.filter((t) => isVaultPath(t.filePath) && !t.vaultLocked && t.isDirty);
       for (const t of dirty) {
@@ -565,7 +563,6 @@ export const useAppStore = create<AppState>((set, get) => {
           return false;
         }
       }
-      if (!opts?.skipSync) await syncBeforeLock();
       try {
         await vaultLock();
       } catch (e) {

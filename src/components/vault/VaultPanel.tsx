@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { FolderOpen, Folder, FilePlus2, RefreshCw, Lock, LockOpen, RotateCcw, CloudUpload } from "lucide-react";
+import { FolderOpen, Folder, FilePlus2, RefreshCw, Lock, LockOpen, RotateCcw } from "lucide-react";
 import { readDir } from "@tauri-apps/plugin-fs";
 import { useAppStore } from "../../store";
 import { useVaultStore } from "../../store/vaultStore";
@@ -9,8 +9,6 @@ import { ensureVaultDir, pickVaultDir, resetVaultDir, VAULT_DIR_EVENT } from "..
 import { getVaultDir } from "../../lib/vaultPrefs";
 import { toast } from "../../lib/toast";
 import { createVaultEntry, NEW_ENTRY_OPTIONS } from "../../lib/vaultCreate";
-import { backupDismissedForever } from "../../lib/backupPrompt";
-import { TG_EVENT, FILE_SAVED_EVENT, errText, runSync, tgStatus, tgSyncState } from "../../lib/telegram";
 
 const NQV = /\.nqv$/i;
 const baseName = (p: string) => p.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || p;
@@ -22,10 +20,6 @@ export function VaultPanel() {
   const [files, setFiles] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [menu, setMenu] = useState(false);
-  const [tg, setTg] = useState(false);
-  const [tgKnown, setTgKnown] = useState(false);
-  const [syncing, setSyncing] = useState(false);
-  const [states, setStates] = useState<Record<string, string>>({});
   const custom = getVaultDir() !== null;
 
   const load = useCallback(async () => {
@@ -46,14 +40,6 @@ export function VaultPanel() {
       };
       await walk("", 0);
       setFiles(out.sort((a, b) => a.localeCompare(b)));
-      try {
-        const s = await tgStatus();
-        setTg(s.configured);
-        setTgKnown(true);
-        const m: Record<string, string> = {};
-        if (s.configured) for (const f of await tgSyncState(d)) m[f.rel] = f.state;
-        setStates(m);
-      } catch { setTg(false); setStates({}); }
       setError(null);
     } catch (e) {
       setFiles([]);
@@ -65,11 +51,7 @@ export function VaultPanel() {
     void load();
     window.addEventListener(VAULT_DIR_EVENT, load);
     window.addEventListener("focus", load);
-    window.addEventListener(TG_EVENT, load);
-    window.addEventListener(FILE_SAVED_EVENT, load);
     return () => {
-      window.removeEventListener(TG_EVENT, load);
-      window.removeEventListener(FILE_SAVED_EVENT, load);
       window.removeEventListener(VAULT_DIR_EVENT, load);
       window.removeEventListener("focus", load);
     };
@@ -83,20 +65,6 @@ export function VaultPanel() {
       if (await useVaultStore.getState().ensureUnlocked()) await useAppStore.getState().unlockVaultTabs();
     } catch (e) {
       toast.error(vaultErrorMessage(e));
-    }
-  };
-
-  const syncNow = async () => {
-    if (syncing) return;
-    setSyncing(true);
-    try {
-      const r = await runSync();
-      if (r) toast.info(`Sync: ${r.uploaded} uploaded, ${r.downloaded.length} downloaded, ${r.skipped} unchanged`);
-      if (r?.failed.length) toast.error(r.failed[0]);
-    } catch (e) {
-      toast.error(errText(e));
-    } finally {
-      setSyncing(false);
     }
   };
 
@@ -132,12 +100,6 @@ export function VaultPanel() {
             </>
           )}
         </div>
-        {tg && (
-          <button className={iconBtn} title="Sync now" aria-label="Sync now"
-                  disabled={syncing} onClick={() => void syncNow()}>
-            <CloudUpload size={14} />
-          </button>
-        )}
         <button className={iconBtn} title="Refresh" aria-label="Refresh" onClick={() => void load()}>
           <RefreshCw size={13} />
         </button>
@@ -157,16 +119,6 @@ export function VaultPanel() {
           </button>
         )}
       </div>
-
-      {tgKnown && !tg && !backupDismissedForever() && (
-        <div className="mx-3 mb-2 rounded-md p-2 text-[11px] border border-[var(--color-border)] bg-[var(--color-bg-tertiary)] text-[var(--color-text-muted)]">
-          <b className="text-[var(--color-text)]">Not backed up.</b> These notes exist only on this computer.
-          <button type="button" className="block mt-1 underline cursor-pointer text-[var(--color-text)]"
-                  onClick={() => useVaultStore.getState().setBackupPrompt(true)}>
-            Set up backup
-          </button>
-        </div>
-      )}
 
       <div className="flex-1 overflow-y-auto px-1.5 pb-2">
         {error && <p className="px-2 text-xs text-[var(--color-danger)]">{error}</p>}
@@ -198,13 +150,6 @@ export function VaultPanel() {
             >
               <Lock size={12} className="shrink-0 text-[var(--color-text-muted)]" />
               <span className="truncate flex-1">{label.replace(NQV, "")}</span>
-              {tg && (
-                <span
-                  title={states[rel] === "synced" ? "Backed up" : states[rel] === "modified" ? "Changed since backup" : "Not backed up yet"}
-                  style={{ width: 6, height: 6, borderRadius: 99, flexShrink: 0,
-                           background: states[rel] === "synced" ? "#3fb950" : "#d29922" }}
-                />
-              )}
             </button>
           );
         })}

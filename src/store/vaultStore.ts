@@ -11,8 +11,6 @@ interface VaultUiState {
   /** Which dialog is open (null = none). */
   dialog: VaultDialogMode | null;
   /** The "back up your vault" dialog (onboarding / reminder). */
-  backupPrompt: boolean;
-  setBackupPrompt: (open: boolean) => void;
 
   refresh: () => Promise<void>;
   setUnlocked: (unlocked: boolean) => void;
@@ -32,8 +30,6 @@ export const useVaultStore = create<VaultUiState>((set, get) => ({
   exists: false,
   unlocked: false,
   dialog: null,
-  backupPrompt: false,
-  setBackupPrompt(open) { set({ backupPrompt: open }); },
 
   async refresh() {
     try {

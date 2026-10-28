@@ -8,12 +8,9 @@ import { toast } from "../../lib/toast";
 import { useVaultStore, type VaultDialogMode } from "../../store/vaultStore";
 import { useAppStore } from "../../store";
 import { useVaultAutoLock } from "../../hooks/useVaultAutoLock";
-import { useTelegramAutoSync } from "../../hooks/useTelegramAutoSync";
-import { BackupPromptDialog } from "./BackupPromptDialog";
 import {
   vaultCreate, vaultUnlock, vaultUnlockWithRecovery, vaultErrorMessage,
 } from "../../lib/vault";
-import { errText, gdriveBootstrap, tgBootstrap, tgDetectChat } from "../../lib/telegram";
 
 const MIN_LEN = 8;
 
@@ -24,13 +21,9 @@ export function VaultDialog() {
   // This component is mounted once for the whole app, so it also hosts the
   // vault's global behaviour (idle / close-to-tray auto-lock).
   useVaultAutoLock();
-  useTelegramAutoSync();
   // key={mode} remounts on mode switch so passwords never leak between steps.
   return (
-    <>
-      {mode && <VaultDialogInner key={mode} mode={mode} />}
-      <BackupPromptDialog />
-    </>
+    mode ? <VaultDialogInner key={mode} mode={mode} /> : null
   );
 }
 
@@ -43,10 +36,6 @@ function VaultDialogInner({ mode }: { mode: VaultDialogMode }) {
   // After setup succeeds we show the recovery key once.
   const [recoveryKey, setRecoveryKey] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
-  // New device: fetch the key file from the user's Telegram backup instead of creating a vault.
-  const [restoring, setRestoring] = useState(false);
-  const [tgToken, setTgToken] = useState("");
-  const [restoreVia, setRestoreVia] = useState<"gdrive" | "telegram">("gdrive");
 
   const cancel = () => useVaultStore.getState().finish(false);
 
@@ -142,81 +131,12 @@ function VaultDialogInner({ mode }: { mode: VaultDialogMode }) {
               onClick={async () => {
                 setRecoveryKey(null);
                 await succeed();
-                // New vault: offer a backup straight away (first-run onboarding).
-                useVaultStore.getState().setBackupPrompt(true);
               }}
             >
               Done
             </Button>
           </div>
         </div>
-      </Modal>
-    );
-  }
-
-  const restoreFromCloud = async () => {
-    if (busy) return;
-    const token = tgToken.trim();
-    if (restoreVia === "telegram" && !token) { setError("Enter your bot token"); return; }
-    setBusy(true); setError(null);
-    try {
-      if (restoreVia === "gdrive") {
-        toast.info("Finish signing in in your browser…");
-        await gdriveBootstrap();
-      } else {
-        const chatId = await tgDetectChat(token);
-        await tgBootstrap(token, chatId);
-      }
-      setTgToken("");
-      await useVaultStore.getState().refresh();
-      toast.info("Vault found. Enter your master password — your notes will sync after you unlock.");
-      useVaultStore.getState().setDialog("unlock");
-    } catch (err) {
-      setError(errText(err));
-      setBusy(false);
-    }
-  };
-
-  if (mode === "setup" && restoring) {
-    return (
-      <Modal onClose={cancel} zClassName="z-[70]">
-        <form className={panel} onSubmit={(e) => { e.preventDefault(); void restoreFromCloud(); }}
-              role="dialog" aria-modal="true" aria-label="Restore vault">
-          <div className="flex items-center gap-2 mb-1">
-            <Lock size={18} style={{ color: "var(--color-primary)" }} />
-            <h2 className="text-sm font-semibold">Restore your vault</h2>
-          </div>
-          <p className="text-xs mb-3 text-[var(--color-text-muted)]">
-            Reconnect the storage you used on your other device. Notiq downloads your encrypted key file;
-            then unlock with your master password and your notes sync down.
-          </p>
-          <div className="flex gap-2 mb-3">
-            <Button type="button" size="sm" variant={restoreVia === "gdrive" ? "primary" : "ghost"} onClick={() => setRestoreVia("gdrive")}>Google Drive</Button>
-            <Button type="button" size="sm" variant={restoreVia === "telegram" ? "primary" : "ghost"} onClick={() => setRestoreVia("telegram")}>Telegram</Button>
-          </div>
-          {restoreVia === "telegram" ? (
-            <>
-              <label className={label} htmlFor="vault-tg-token">Bot token</label>
-              <PasswordInput id="vault-tg-token" autoFocus autoComplete="off" spellCheck={false}
-                             value={tgToken} onChange={(e) => setTgToken(e.target.value)} />
-            </>
-          ) : (
-            <p className="text-xs text-[var(--color-text-muted)]">
-              A browser window opens so you can sign in to the Google account you used before.
-            </p>
-          )}
-          {error && <p role="alert" className="text-xs mt-3 text-[var(--color-danger)]">{error}</p>}
-          <div className="flex items-center justify-between mt-4">
-            <button type="button" className="text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text)] underline cursor-pointer"
-                    onClick={() => { setRestoring(false); setError(null); }}>
-              Back
-            </button>
-            <div className="flex gap-2">
-              <Button type="button" onClick={cancel}>Cancel</Button>
-              <Button type="submit" variant="primary" disabled={busy}>{busy ? "Working…" : restoreVia === "gdrive" ? "Sign in & restore" : "Restore"}</Button>
-            </div>
-          </div>
-        </form>
       </Modal>
     );
   }
@@ -280,14 +200,6 @@ function VaultDialogInner({ mode }: { mode: VaultDialogMode }) {
               onClick={() => useVaultStore.getState().setDialog("recover")}
             >
               Forgot password?
-            </button>
-          ) : mode === "setup" ? (
-            <button
-              type="button"
-              className="text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text)] underline cursor-pointer"
-              onClick={() => { setRestoring(true); setError(null); }}
-            >
-              Restore from Google Drive / Telegram
             </button>
           ) : <span />}
           <div className="flex gap-2">

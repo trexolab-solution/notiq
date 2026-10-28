@@ -65,7 +65,7 @@ export default function App() {
     toast.info(next ? "AI assistance enabled" : "AI assistance disabled");
   }, [aiOnboarded, aiEnabled, setAiEnabled]);
 
-  // Other parts of the app (e.g. the backup reminder) can ask for a settings page.
+  // Other parts of the app can ask for a settings page.
   useEffect(() => {
     const h = (e: Event) => {
       const section = (e as CustomEvent<"ai" | "vault">).detail;

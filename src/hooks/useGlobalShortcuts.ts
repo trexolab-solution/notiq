@@ -48,7 +48,7 @@ export function useGlobalShortcuts(opts: Options) {
       // save + lock the Secure Vault immediately.
       if (comboFromEvent(e) === getPanicShortcut()) {
         e.preventDefault();
-        void useAppStore.getState().lockVault({ skipSync: true }).then((ok) => { if (ok) toast.info("Vault locked"); });
+        void useAppStore.getState().lockVault().then((ok) => { if (ok) toast.info("Vault locked"); });
         return;
       }
       // Ctrl+Shift+P → command palette (also prevents the native print dialog)

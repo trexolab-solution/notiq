@@ -55,17 +55,6 @@ impl VaultState {
     fn set(&self, key: VaultKey, vault_id: [u8; VAULT_ID_LEN]) {
         *self.guard() = Some(Unlocked { key, vault_id });
     }
-
-    /// Runs `f` with the unlocked key; `VAULT_LOCKED` if the vault is locked.
-    /// The key never leaves this call.
-    pub(crate) fn with_unlocked<T>(
-        &self,
-        f: impl FnOnce(&VaultKey, &[u8; VAULT_ID_LEN]) -> Result<T, String>,
-    ) -> Result<T, String> {
-        let guard = self.guard();
-        let u = guard.as_ref().ok_or(ERR_LOCKED)?;
-        f(&u.key, &u.vault_id)
-    }
 }
 
 #[derive(Serialize)]
@@ -122,20 +111,6 @@ pub(crate) fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), String> {
 
 fn save_meta(app: &AppHandle, meta: &VaultMeta) -> Result<(), String> {
     atomic_write(&meta_path(app)?, meta.to_json().as_bytes())
-}
-
-/// The key file as stored (password/recovery-wrapped keys only — no secrets in clear).
-pub(crate) fn read_meta_json(app: &AppHandle) -> Result<Option<String>, String> {
-    Ok(load_meta(app)?.map(|m| m.to_json()))
-}
-
-/// Install a key file fetched from a backup on a device that has no vault yet.
-pub(crate) fn install_meta_json(app: &AppHandle, json: &str) -> Result<(), String> {
-    if load_meta(app)?.is_some() {
-        return Err("A vault already exists on this device".into());
-    }
-    let meta = VaultMeta::from_json(json).map_err(|e| e.to_string())?;
-    save_meta(app, &meta)
 }
 
 fn check_nqv_path(path: &str) -> Result<PathBuf, String> {
