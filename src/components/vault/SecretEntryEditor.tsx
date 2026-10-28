@@ -1,9 +1,9 @@
 import { useMemo, useState } from "react";
-import { Copy, Eye, EyeOff, KeyRound, Terminal } from "lucide-react";
+import { Eye, EyeOff, KeyRound, Terminal } from "lucide-react";
 import { Button } from "../ui/Button";
 import { Input } from "../ui/Input";
 import { useAppStore } from "../../store";
-import { copySecret } from "../../lib/secureCopy";
+import { CopyIconButton } from "./CopyIconButton";
 import { parseSecret, serializeSecret, SECRET_KINDS, type FieldDef } from "../../lib/secretEntry";
 import type { Tab } from "../../types";
 
@@ -33,8 +33,7 @@ function Field({ def, value, onChange }: { def: FieldDef; value: string; onChang
                   onClick={() => setShow((v) => !v)} />
         )}
         {def.type !== "multiline" && (
-          <Button size="sm" icon={<Copy size={12} />} disabled={!value}
-                  onClick={() => { void copySecret(value, def.label); }}>Copy</Button>
+          <CopyIconButton value={value} label={def.label.toLowerCase()} />
         )}
       </div>
     </div>

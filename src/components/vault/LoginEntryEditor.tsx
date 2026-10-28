@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
-import { Copy, Dices, ExternalLink, Eye, EyeOff, KeyRound } from "lucide-react";
+import { Dices, ExternalLink, Eye, EyeOff, KeyRound } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { Button } from "../ui/Button";
 import { Input } from "../ui/Input";
 import { useAppStore } from "../../store";
-import { copySecret } from "../../lib/secureCopy";
+import { CopyIconButton } from "./CopyIconButton";
 import {
   generatePassword, hostOf, parseLogin, serializeLogin, totpCode, totpRemaining, type LoginEntry,
 } from "../../lib/loginEntry";
@@ -68,8 +68,7 @@ export function LoginEntryEditor({ tab }: { tab: Tab }) {
           <div className={row}>
             <Input id="le-user" value={entry.username} onChange={(e) => set({ username: e.target.value })}
                    autoComplete="off" spellCheck={false} />
-            <Button size="sm" icon={<Copy size={12} />} disabled={!entry.username}
-                    onClick={() => { void copySecret(entry.username, "Username"); }}>Copy</Button>
+            <CopyIconButton value={entry.username} label="username" />
           </div>
         </div>
 
@@ -83,8 +82,7 @@ export function LoginEntryEditor({ tab }: { tab: Tab }) {
                     icon={show ? <EyeOff size={12} /> : <Eye size={12} />} onClick={() => setShow((v) => !v)} />
             <Button size="sm" icon={<Dices size={12} />} title="Generate a strong password"
                     onClick={() => { set({ password: generatePassword(20) }); setShow(true); }}>Generate</Button>
-            <Button size="sm" icon={<Copy size={12} />} disabled={!entry.password}
-                    onClick={() => { void copySecret(entry.password, "Password"); }}>Copy</Button>
+            <CopyIconButton value={entry.password} label="password" />
           </div>
         </div>
 
@@ -96,8 +94,7 @@ export function LoginEntryEditor({ tab }: { tab: Tab }) {
             <div className={`${row} mt-2`}>
               <span className="font-mono text-lg tracking-wider">{code}</span>
               <span className="text-xs text-[var(--color-text-muted)]">{left}s</span>
-              <Button size="sm" icon={<Copy size={12} />}
-                      onClick={() => { void copySecret(code.replace(" ", ""), "Code"); }}>Copy</Button>
+              <CopyIconButton value={code.replace(" ", "")} label="2-step code" />
             </div>
           )}
           {entry.totp.trim() && !code && <p className="text-xs mt-1 text-[var(--color-danger)]">That doesn't look like a valid secret.</p>}
