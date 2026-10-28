@@ -14,7 +14,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.2.0-orange" alt="Version" />
+  <img src="https://img.shields.io/badge/version-0.5.3-orange" alt="Version" />
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue" alt="Platform" />
   <img src="https://img.shields.io/badge/Tauri-v2-24C8DB?logo=tauri&logoColor=white" alt="Tauri v2" />
   <img src="https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black" alt="React 18" />
@@ -28,6 +28,7 @@
 
 - [Why Notiq?](#why-notiq)
 - [Features](#features)
+- [Secure Vault](#secure-vault)
 - [Getting Started](#getting-started)
 - [Keyboard Shortcuts](#keyboard-shortcuts)
 - [Tech Stack](#tech-stack)
@@ -335,6 +336,8 @@ notiq/
 ├── src-tauri/                    # Tauri backend (Rust)
 │   ├── src/lib.rs                # Commands, file associations, PTY, tray, plugins
 │   ├── src/ai.rs                 # AI backend — Ollama proxy + secure key storage
+│   ├── src/vault*.rs             # Secure Vault — crypto core, encrypted database (vault.nqdb), commands
+│   ├── src/autofill.rs           # Browser autofill bridge (native messaging)
 │   ├── tauri.conf.json           # App config, window, bundling, file associations
 │   ├── capabilities/             # Permission scopes (main + sticky note windows)
 │   ├── nsis/                     # Windows installer hooks
@@ -396,20 +399,48 @@ notiq/
 
 ## Secure Vault
 
-Lock individual notes behind a master password. A locked note is stored as a `.nqv` file and is only ever readable inside Notiq while the vault is unlocked.
+Keep passwords, SSH keys, API keys and private notes behind **one master password**. Everything in the vault lives in **one encrypted file on your computer** — there is no cloud, no sync and no account.
 
-- **Crypto:** the master password is stretched with Argon2id (64 MiB, 3 passes) into a key that wraps a random 256-bit vault key. A random recovery key wraps the same vault key. Notes are sealed with XChaCha20-Poly1305 using a fresh random 24-byte nonce on every save, and the file header is authenticated.
-- **Keys in memory only:** the vault key exists only in the app process while unlocked and is zeroized on lock. Passwords are zeroized on the Rust side after use (the JavaScript string that carried them cannot be wiped).
-- **Locking:** manual, a customizable panic shortcut (default `Ctrl+Alt+L`), idle timeout, and when the window is closed to the tray.
-- **AI & search:** locked notes are excluded from AI chat/actions/autocomplete, global search and the graph.
-- **Brute force:** repeated wrong passwords are throttled in-app; offline resistance comes from the Argon2 cost, so choose a long password.
-- **Cloud sync (optional, Google Drive or Telegram):** two-way sync between your devices. Only encrypted `.nqv` files are uploaded, under random names, plus one sync-state file holding the key file (your vault key wrapped by your master password and recovery key) and a manifest sealed with the vault key. Drive uses only the hidden `drive.appdata` folder; tokens live in the OS keychain. Newest edit wins on conflicts and the other copy is kept as `(conflict …)`; sync never deletes notes. On a new device choose **Restore** on the vault setup screen. Anyone who can read the backup can try to guess the master password offline, so make it long and unique.
-- **Building with Drive sync:** set `NOTIQ_GOOGLE_CLIENT_SECRET` (the Desktop OAuth client secret) at build time; it is not stored in the repo.
-- **Not covered:** titles of locked notes are visible in tabs/sidebar, images pasted into `assets/` stay unencrypted, unsaved edits to a locked note are discarded on restart, and a compromised OS (keylogger, memory dump while unlocked) defeats any in-app encryption.
+### One encrypted file
 
-**Logins & browser autofill.** Create a *Login* entry (site, username, password, optional 2-step secret) from the vault panel. The `browser-extension/` folder holds a Chrome/Edge/Brave extension that fills them into pages through a local native-messaging bridge; the vault must be unlocked and each fill is approved inside Notiq. See `browser-extension/README.md`.
+All locked entries (notes, logins, SSH entries, API keys) are stored in a single database file, `vault.nqdb`. Names, folders, tags and contents are all inside it, so nothing about your secrets is readable on disk. Saves are atomic (a crash can't leave a half-written file) and the previous version is kept as `vault.nqdb.bak.1–3` so a bad write can always be rolled back.
 
-**Losing both your master password and recovery key means the notes cannot be recovered.**
+- **Where it lives:** by default in Notiq's app-data folder (`%APPDATA%\com.trexolab.notiq\` on Windows), next to the small `vault.json` key file. You can pick another folder in **Settings → Vault**; Notiq warns you if the folder is synced by OneDrive, Dropbox, Google Drive, iCloud Drive, etc., because that would copy your encrypted vault to someone else's servers. Vaults created by older versions in `Documents/Notiq Vault` keep working where they are, and their old per-note `.nqv` files are imported into the database (originals are only deleted if you confirm).
+- **Backups are yours to make:** since nothing is uploaded, copy `vault.nqdb` (and `vault.json`) to a safe place yourself. Without `vault.json` plus your master password or recovery key, the file cannot be opened.
+
+### Sidebar: a file manager for your secrets
+
+- **Folders** with expand/collapse, new folder, rename, drag-and-drop move and "Move to…"
+- **Tags and search** — filter by one or more tags (AND), search names and tags; contents are never searched
+- **Starred** items pinned at the top, **duplicate**, sort by name or last modified
+- **Recycle Bin** — deleting moves items to the trash; restore them, delete forever, or empty the bin (items are removed for good after 30 days)
+- Right-click menus and keyboard control (Enter to open, `F2` rename, `Delete` to trash, arrow keys)
+
+### Entry types
+
+- **Secure note** — free text / Markdown
+- **Login** — site, username, password, optional 2-step (TOTP) secret with a live code
+- **SSH / server** — host, port, username and a sign-in method (private key or password). Pasted keys are analysed as you paste (OpenSSH, PEM, PuTTY; encrypted or not; a public key is flagged), you can import a key file, and a ready `ssh -p … user@host` command can be copied. Jump host, host-key fingerprint and notes sit under *Advanced*
+- **API key / secret** — service, token, optional environment variable name
+- **Password generator** — a small popup next to *Generate* lets you choose the length and character classes (and avoid look-alike characters); tick *Remember my choice* to skip the popup next time. Change it later from the ⚙ button or **Settings → Vault → Password generator**
+- Copy buttons confirm with a check mark and **clear the clipboard after 20 seconds**
+
+### Security model
+
+- **Crypto:** the master password is stretched with Argon2id (64 MiB, 3 passes) into a key that wraps a random 256-bit vault key. A random recovery key (shown once, when you create the vault) wraps the same vault key. The database is sealed with XChaCha20-Poly1305 using a fresh random 24-byte nonce on every save, and its header is authenticated.
+- **Keys in memory only:** the vault key and the decrypted database exist only in the app process while unlocked and are zeroized on lock. Passwords are zeroized on the Rust side after use (the JavaScript string that carried them cannot be wiped).
+- **Locking:** manual, a customizable panic shortcut (default `Ctrl+Alt+L`), idle timeout (default 5 minutes), and when the window is closed to the tray.
+- **AI & search:** vault content is never sent to AI (chat, actions, autocomplete) and is excluded from global search and the graph.
+- **Brute force:** repeated wrong passwords are throttled in-app; offline resistance comes from the Argon2 cost, so choose a long, unique password. Anyone who gets a copy of `vault.nqdb` can only try to guess it offline.
+- **Not covered:** a compromised OS (keylogger, memory dump while unlocked) defeats any in-app encryption, and images pasted into notes are stored outside the vault.
+
+**Losing both your master password and recovery key means the vault cannot be recovered.**
+
+### Browser autofill
+
+The `browser-extension/` folder holds a Chrome / Edge / Brave extension (Windows for now) that fills *Login* entries into web pages through a local native-messaging bridge. Passwords never leave your computer: the vault must be unlocked and **every fill is approved inside Notiq**. See [`browser-extension/README.md`](browser-extension/README.md) for installation and the current feature set.
+
+---
 
 ## Data & Privacy
 
