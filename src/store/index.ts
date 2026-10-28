@@ -14,6 +14,7 @@ import { isVaultPath, extFromPath, vaultLock, vaultReadFile, vaultWriteFile, vau
 import { useVaultStore } from "./vaultStore";
 import { pickVaultDestination } from "../lib/vaultDest";
 import { scrubMonacoModels } from "../lib/vaultMemory";
+import { isSameOrUnder, remapPath } from "../lib/vaultTree";
 import { ensureVaultDir } from "../lib/vaultDir";
 import { getFileName } from "../lib/pathUtils";
 import { migrateTempToSaveDir, cleanupTabTemp } from "../lib/attachments";
@@ -119,6 +120,10 @@ export interface AppState {
   refreshVaultTabs: () => Promise<void>;
   /** Saves dirty vault tabs, drops the key from memory, blanks vault tabs. */
   lockVault: () => Promise<boolean>;
+  /** A vault entry (note or folder) was renamed/moved: re-point open tabs at/under `from` to `to`. */
+  remapVaultTabs: (from: string, to: string) => void;
+  /** A vault entry was trashed: close its open tabs (at/under `path`) without a save prompt. */
+  closeVaultTabs: (path: string) => void;
 
   // theme
   themeId: ThemeId;
@@ -581,6 +586,41 @@ export const useAppStore = create<AppState>((set, get) => {
       // After React has swapped the editor for the lock screen, purge cached plaintext.
       setTimeout(() => void scrubMonacoModels(vaultTabIds), 100);
       return true;
+    },
+
+    remapVaultTabs(from, to) {
+      let hit = false;
+      set((s) => ({
+        tabs: s.tabs.map((t) => {
+          const next = t.filePath && isVaultPath(t.filePath) ? remapPath(t.filePath, from, to) : null;
+          if (!next) return t;
+          hit = true;
+          return { ...t, filePath: next, title: titleFromPath(next, t.title) };
+        }),
+      }));
+      if (!hit) return;
+      debounceGraphRebuild(() => get().rebuildGraph());
+      persist();
+    },
+
+    closeVaultTabs(path) {
+      const ids = get().tabs
+        .filter((t) => t.filePath && isVaultPath(t.filePath) && isSameOrUnder(t.filePath, path))
+        .map((t) => t.id);
+      if (ids.length === 0) return;
+      const gone = new Set(ids);
+      set((s) => {
+        const tabs = s.tabs.filter((t) => !gone.has(t.id));
+        let activeTabId = s.activeTabId;
+        if (activeTabId && gone.has(activeTabId)) {
+          const idx = s.tabs.findIndex((t) => t.id === activeTabId);
+          activeTabId = tabs[Math.min(Math.max(0, idx - 1), tabs.length - 1)]?.id ?? null;
+        }
+        return { tabs, activeTabId };
+      });
+      setTimeout(() => void scrubMonacoModels(ids), 100);
+      debounceGraphRebuild(() => get().rebuildGraph());
+      persist();
     },
 
     // ── theme ─────────────────────────────────────────────────

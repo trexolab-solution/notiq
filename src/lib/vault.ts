@@ -45,14 +45,41 @@ export const vaultWriteFile = (path: string, content: string, ext: string) =>
   });
 export const vaultReadFile = (path: string) => invoke<VaultFile>("vault_read_file", { path });
 
-/** One entry of the vault database (`rel` uses "/", files end in ".nqv", folders have no trailing slash). */
-export interface VaultItem { rel: string; ext: string; updated: number; dir: boolean }
+// ── Entry management (the sidebar file tree) ──────────────────────────────────
+// Every `path` is a FULL virtual path `<root>/<rel>` — the same shape as a tab's
+// filePath. `rel` uses "/" and entries end with ".nqv".
 
-/** Rejects with "VAULT_LOCKED" while the vault is locked (names are encrypted). */
-export const vaultList = () => invoke<VaultItem[]>("vault_list");
-export const vaultMkdir = (path: string) => invoke<void>("vault_mkdir", { path });
-export const vaultDelete = (path: string) => invoke<void>("vault_delete", { path });
-export const vaultRename = (from: string, to: string) => invoke<void>("vault_rename", { from, to });
+/** One entry (note or folder) as listed by the backend. Names only — never content. */
+export interface VaultItem {
+  rel: string;
+  /** Original file type of a note ("md", "login", "ssh", "secret", …); "" for folders. */
+  ext: string;
+  /** Last modified, ms since epoch. */
+  updated: number;
+  dir: boolean;
+  tags: string[];
+  starred: boolean;
+  /** Set only for items in the Recycle Bin (ms since epoch). */
+  trashed_at: number | null;
+}
+
+/** Fired after anything in the vault tree changed (create/rename/move/trash/…). */
+export const VAULT_CHANGED_EVENT = "vault:dir-changed";
+const changed = <T>(v: T): T => { window.dispatchEvent(new Event(VAULT_CHANGED_EVENT)); return v; };
+
+export const vaultList        = () => invoke<VaultItem[]>("vault_list");
+export const vaultListTrash   = () => invoke<VaultItem[]>("vault_list_trash");
+export const vaultMkdir       = (path: string) => invoke<void>("vault_mkdir", { path }).then(changed);
+export const vaultRename      = (from: string, to: string) => invoke<void>("vault_rename", { from, to }).then(changed);
+export const vaultTrash       = (path: string) => invoke<void>("vault_trash", { path }).then(changed);
+export const vaultRestore     = (path: string) => invoke<void>("vault_restore", { path }).then(changed);
+export const vaultPurge       = (path: string) => invoke<void>("vault_purge", { path }).then(changed);
+export const vaultEmptyTrash  = () => invoke<void>("vault_empty_trash").then(changed);
+export const vaultSetTags     = (path: string, tags: string[]) => invoke<void>("vault_set_tags", { path, tags }).then(changed);
+export const vaultSetStarred  = (path: string, starred: boolean) => invoke<void>("vault_set_starred", { path, starred }).then(changed);
+/** Resolves the new entry's full virtual path. */
+export const vaultDuplicate   = (path: string) => invoke<string>("vault_duplicate", { path }).then(changed);
+
 export const vaultLegacyCount = () => invoke<number>("vault_legacy_count");
 export const vaultImportLegacy = () => invoke<number>("vault_import_legacy");
 export const vaultLegacyCleanup = () => invoke<number>("vault_legacy_cleanup");

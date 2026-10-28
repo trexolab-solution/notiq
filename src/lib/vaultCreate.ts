@@ -27,14 +27,38 @@ export async function createVaultEntry(kind: NewEntryKind): Promise<void> {
     const opt = NEW_ENTRY_OPTIONS.find((o) => o.kind === kind)!;
     const path = await pickVaultDestination(opt.label);
     if (!path) return;
-    const title = nameOf(path);
-    if (kind === "note") await vaultWriteFile(path, "", "md");
-    else if (kind === "login") await vaultWriteFile(path, serializeLogin(emptyLogin(title)), LOGIN_EXT);
-    else await vaultWriteFile(path, serializeSecret(emptySecret(kind, title)), SECRET_KINDS[kind].ext);
-    window.dispatchEvent(new Event(VAULT_DIR_EVENT));
-    useAppStore.getState().openFilesAsTabs([await readFileEntry(path)]);
-    if (await useVaultStore.getState().ensureUnlocked()) await useAppStore.getState().unlockVaultTabs();
+    await writeAndOpen(kind, path);
   } catch (e) {
     toast.error(vaultErrorMessage(e));
   }
+}
+
+/** Default name for a new entry created straight from the sidebar (renamed inline right after). */
+export const DEFAULT_ENTRY_NAME: Record<NewEntryKind, string> = {
+  note: "Untitled note", login: "New login", ssh: "New server", secret: "New API key",
+};
+
+/**
+ * Writes a blank entry at `path` (a full `<root>/<rel>.nqv` path the caller has
+ * checked is free) and opens it. Returns false (after a toast) on failure.
+ */
+export async function createVaultEntryAt(kind: NewEntryKind, path: string): Promise<boolean> {
+  if (!(await useVaultStore.getState().ensureUnlocked())) return false;
+  try {
+    await writeAndOpen(kind, path);
+    return true;
+  } catch (e) {
+    toast.error(vaultErrorMessage(e));
+    return false;
+  }
+}
+
+async function writeAndOpen(kind: NewEntryKind, path: string) {
+  const title = nameOf(path);
+  if (kind === "note") await vaultWriteFile(path, "", "md");
+  else if (kind === "login") await vaultWriteFile(path, serializeLogin(emptyLogin(title)), LOGIN_EXT);
+  else await vaultWriteFile(path, serializeSecret(emptySecret(kind, title)), SECRET_KINDS[kind].ext);
+  window.dispatchEvent(new Event(VAULT_DIR_EVENT));
+  useAppStore.getState().openFilesAsTabs([await readFileEntry(path)]);
+  if (await useVaultStore.getState().ensureUnlocked()) await useAppStore.getState().unlockVaultTabs();
 }
