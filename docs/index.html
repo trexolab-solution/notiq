@@ -3,141 +3,565 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Notiq — local-first notes with an encrypted vault</title>
-<meta name="description" content="Notiq is a fast desktop Markdown editor, whiteboard and knowledge graph. Your notes stay on your machine; lock the private ones in an encrypted vault.">
+<title>Notiq — local-first notes with a sealed vault</title>
+<meta name="description" content="Notiq is a fast desktop Markdown editor, whiteboard and knowledge graph. Passwords, SSH keys and private notes live in one encrypted file on your own machine. No account, no cloud, no telemetry.">
 <link rel="icon" href="favicon.ico" sizes="any">
 <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
-<meta property="og:title" content="Notiq — local-first notes with an encrypted vault">
-<meta property="og:description" content="Fast Markdown editor, whiteboard and knowledge graph. Lock private notes in an encrypted vault and sync them without trusting a server.">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Notiq">
+<meta property="og:url" content="https://trexolab-solution.github.io/notiq/">
+<meta property="og:title" content="Notiq — local-first notes with a sealed vault">
+<meta property="og:description" content="A fast Markdown editor, whiteboard and knowledge graph for your desktop. Passwords, SSH keys and private notes are sealed in one encrypted file that never leaves your machine.">
 <meta property="og:image" content="https://trexolab-solution.github.io/notiq/og.png">
-<meta name="theme-color" content="#14130f">
-<link rel="stylesheet" href="style.css">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="color-scheme" content="dark light">
+<meta name="theme-color" content="#0f172a" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#f8fafc" media="(prefers-color-scheme: light)">
+<script>
+/* Apply the saved theme before first paint (no flash). */
+(function(){try{var t=localStorage.getItem('notiq-site-theme');if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t);}catch(e){}document.documentElement.classList.add('js');})();
+</script>
+<link rel="stylesheet" href="site.css">
 </head>
 <body>
-<div class="wrap">
-  <header class="top">
-    <a class="brand" href="./"><img src="logo.png" alt="">Notiq</a>
-    <nav><a href="#story">How it works</a><a href="#google-drive">Google Drive</a><a href="privacy.html">Privacy</a><a href="https://github.com/trexolab-solution/notiq">GitHub</a></nav>
-  </header>
+<a class="skip" href="#main">Skip to content</a>
 
-  <div class="hero">
-    <div>
-      <h1>Notes that stay on your machine.</h1>
-      <p class="lead">A fast Markdown editor, whiteboard and knowledge graph for your desktop. Lock the private ones in an encrypted vault.</p>
-      <div class="cta">
-        <a class="btn primary" href="https://github.com/trexolab-solution/notiq/releases/latest">Download for Windows, macOS, Linux</a>
-        <a class="btn" href="https://github.com/trexolab-solution/notiq">View source</a>
-      </div>
-      <p class="note">Free and open source (MIT). No account, no telemetry. <a href="https://trexolab-solution.github.io/notiq/privacy.html">Privacy policy</a></p>
-    </div>
-    <div class="files" aria-label="What a locked note looks like on disk">
-      <p class="cap">ssh-prod-server.md &nbsp;— what you see</p>
-      <div class="row">host prod-1
-user deploy
-key  ~/.ssh/prod_ed25519</div>
-      <hr>
-      <p class="cap">3f9a…c1.nqv &nbsp;— what is on disk, and what is ever uploaded</p>
-      <div class="row"><span class="ok">NQV1</span> 9c e4 71 a8 0b d2 3e 5f f6 12 8a c4 37 b9 60 d1 4a 8e 02 77 e3 19 bc 55 a0 6d f8 2c 91 4e b3 07 d6 …</div>
+<!-- Icon sprite: lucide-style line icons, drawn inline. -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <defs>
+    <symbol id="i-lock" viewBox="0 0 24 24"><rect width="18" height="11" x="3" y="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></symbol>
+    <symbol id="i-lock-open" viewBox="0 0 24 24"><rect width="18" height="11" x="3" y="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/></symbol>
+    <symbol id="i-folder" viewBox="0 0 24 24"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></symbol>
+    <symbol id="i-folder-open" viewBox="0 0 24 24"><path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"/></symbol>
+    <symbol id="i-note" viewBox="0 0 24 24"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/></symbol>
+    <symbol id="i-login" viewBox="0 0 24 24"><path d="M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z"/><circle cx="16.5" cy="7.5" r=".5" fill="currentColor"/></symbol>
+    <symbol id="i-ssh" viewBox="0 0 24 24"><rect width="20" height="8" x="2" y="2" rx="2"/><rect width="20" height="8" x="2" y="14" rx="2"/><path d="M6 6h.01"/><path d="M6 18h.01"/></symbol>
+    <symbol id="i-secret" viewBox="0 0 24 24"><path d="M12.4 2.7a2.5 2.5 0 0 1 3.4 0l5.5 5.5a2.5 2.5 0 0 1 0 3.4l-3.7 3.7a2.5 2.5 0 0 1-3.4 0L8.7 9.8a2.5 2.5 0 0 1 0-3.4z"/><path d="m14 7 3 3"/><path d="m9.4 10.6-6.814 6.814A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814"/></symbol>
+    <symbol id="i-star" viewBox="0 0 24 24"><path d="M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.123 2.123 0 0 0 1.595 1.16l5.166.756a.53.53 0 0 1 .294.904l-3.736 3.638a2.123 2.123 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.122 2.122 0 0 0-1.973 0L6.396 21.01a.53.53 0 0 1-.77-.56l.881-5.139a2.122 2.122 0 0 0-.611-1.879L2.16 9.795a.53.53 0 0 1 .294-.906l5.165-.755a2.122 2.122 0 0 0 1.597-1.16z"/></symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><path d="M10 11v6"/><path d="M14 11v6"/></symbol>
+    <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></symbol>
+    <symbol id="i-hash" viewBox="0 0 24 24"><path d="M4 9h16"/><path d="M4 15h16"/><path d="M10 3 8 21"/><path d="M16 3l-2 18"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></symbol>
+    <symbol id="i-copy" viewBox="0 0 24 24"><rect width="14" height="14" x="8" y="8" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+    <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/></symbol>
+    <symbol id="i-eye-off" viewBox="0 0 24 24"><path d="M10.733 5.076a10.744 10.744 0 0 1 11.205 6.575 1 1 0 0 1 0 .696 10.747 10.747 0 0 1-1.444 2.49"/><path d="M14.084 14.158a3 3 0 0 1-4.242-4.242"/><path d="M17.479 17.499a10.75 10.75 0 0 1-15.417-5.151 1 1 0 0 1 0-.696 10.75 10.75 0 0 1 4.446-5.143"/><path d="m2 2 20 20"/></symbol>
+    <symbol id="i-dices" viewBox="0 0 24 24"><rect width="12" height="12" x="2" y="10" rx="2"/><path d="m17.92 14 3.5-3.5a2.24 2.24 0 0 0 0-3l-5-4.92a2.24 2.24 0 0 0-3 0L10 6"/><path d="M6 18h.01"/><path d="M10 14h.01"/><path d="M15 6h.01"/><path d="M18 9h.01"/></symbol>
+    <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M21 4h-7"/><path d="M10 4H3"/><path d="M21 12h-9"/><path d="M8 12H3"/><path d="M21 20h-5"/><path d="M12 20H3"/><path d="M14 2v4"/><path d="M8 10v4"/><path d="M16 18v4"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></symbol>
+    <symbol id="i-terminal" viewBox="0 0 24 24"><path d="m4 17 6-6-6-6"/><path d="M12 19h8"/></symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/></symbol>
+    <symbol id="i-alert" viewBox="0 0 24 24"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></symbol>
+    <symbol id="i-restore" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></symbol>
+    <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></symbol>
+    <symbol id="i-moon" viewBox="0 0 24 24"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></symbol>
+    <symbol id="i-github" viewBox="0 0 24 24"><path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4"/><path d="M9 18c-4.51 2-5-2-7-2"/></symbol>
+    <symbol id="i-download" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/></symbol>
+    <symbol id="i-windows" viewBox="0 0 24 24"><rect x="3" y="3" width="8" height="8" rx="1"/><rect x="13" y="3" width="8" height="8" rx="1"/><rect x="3" y="13" width="8" height="8" rx="1"/><rect x="13" y="13" width="8" height="8" rx="1"/></symbol>
+    <symbol id="i-command" viewBox="0 0 24 24"><path d="M15 6v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3"/></symbol>
+    <symbol id="i-database" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14a9 3 0 0 0 18 0V5"/><path d="M3 12a9 3 0 0 0 18 0"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5v14"/></symbol>
+    <symbol id="i-pencil" viewBox="0 0 24 24"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/></symbol>
+    <symbol id="i-sparkles" viewBox="0 0 24 24"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/></symbol>
+    <symbol id="i-graph" viewBox="0 0 24 24"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.59 13.51 6.83 3.98"/><path d="m15.41 6.51-6.82 3.98"/></symbol>
+    <symbol id="i-sticky" viewBox="0 0 24 24"><path d="M16 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8Z"/><path d="M15 3v4a2 2 0 0 0 2 2h4"/></symbol>
+    <symbol id="i-palette" viewBox="0 0 24 24"><circle cx="13.5" cy="6.5" r=".5" fill="currentColor"/><circle cx="17.5" cy="10.5" r=".5" fill="currentColor"/><circle cx="8.5" cy="7.5" r=".5" fill="currentColor"/><circle cx="6.5" cy="12.5" r=".5" fill="currentColor"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"/></symbol>
+    <symbol id="i-cmd" viewBox="0 0 24 24"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="M6 8h.01"/><path d="M10 8h.01"/><path d="M14 8h.01"/><path d="M18 8h.01"/><path d="M8 12h.01"/><path d="M12 12h.01"/><path d="M16 12h.01"/><path d="M7 16h10"/></symbol>
+    <symbol id="i-timer" viewBox="0 0 24 24"><path d="M10 2h4"/><path d="m12 14 3-3"/><circle cx="12" cy="14" r="8"/></symbol>
+    <symbol id="i-cloud-off" viewBox="0 0 24 24"><path d="m2 2 20 20"/><path d="M5.782 5.782A7 7 0 0 0 9 19h8.5a4.5 4.5 0 0 0 1.307-.193"/><path d="M21.532 16.5A4.5 4.5 0 0 0 17.5 10h-1.79A7.008 7.008 0 0 0 10 5.07"/></symbol>
+    <symbol id="i-minus" viewBox="0 0 24 24"><path d="M5 12h14"/></symbol>
+    <symbol id="i-square" viewBox="0 0 24 24"><rect width="16" height="16" x="4" y="4" rx="1.5"/></symbol>
+  </defs>
+</svg>
+
+<header class="site-head" id="top">
+  <div class="head-in">
+    <a class="brand" href="./" aria-label="Notiq home"><img src="logo.png" alt="" width="28" height="28"><span>Notiq</span></a>
+    <nav class="nav" aria-label="Primary">
+      <a href="#features">Features</a>
+      <a href="#vault">Vault</a>
+      <a href="#security">Security</a>
+      <a href="#download">Download</a>
+      <a href="privacy.html">Privacy</a>
+    </nav>
+    <div class="head-actions">
+      <a class="icon-link" href="https://github.com/trexolab-solution/notiq" aria-label="Notiq on GitHub"><svg class="i"><use href="#i-github"/></svg><span class="gh-label">GitHub</span></a>
+      <button class="icon-btn theme-toggle" type="button" id="themeToggle" aria-label="Switch to light theme" title="Toggle theme">
+        <svg class="i sun"><use href="#i-sun"/></svg><svg class="i moon"><use href="#i-moon"/></svg>
+      </button>
+      <a class="btn btn-gold btn-sm head-dl" href="#download">Download</a>
     </div>
   </div>
+</header>
 
-  <section id="story" class="story" aria-label="How the vault works">
-    <div class="story-sticky">
-      <div class="story-text">
-        <ol>
-          <li data-s="0"><h2>Write it like any note.</h2><p>Markdown, tabs, a terminal beside it. Nothing special until the note is one you wouldn't paste into a chat.</p></li>
-          <li data-s="1"><h2>Lock it.</h2><p>Pick a folder: SSH, Logins, Recovery codes. The note becomes an encrypted <code>.nqv</code> file. Argon2id and XChaCha20-Poly1305, with a recovery key shown once.</p></li>
-          <li data-s="2"><h2>Sync only ciphertext.</h2><p>Connect Google Drive or your own Telegram bot. Files go up under random names, so titles and folders never leave the app.</p></li>
-          <li data-s="3"><h2>Open it on another machine.</h2><p>Install Notiq, choose <b>Restore</b>, sign in again, enter your master password. Conflicts keep both versions; sync never deletes anything.</p></li>
-        </ol>
+<main id="main">
+
+<!-- ═════════════ HERO ═════════════ -->
+<section class="hero" aria-labelledby="hero-title">
+  <div class="hero-glow" aria-hidden="true"></div>
+  <div class="container hero-grid">
+    <div class="hero-copy">
+      <h1 id="hero-title" class="reveal">Your notes and secrets, <span class="h1-quiet">kept on your own machine.</span></h1>
+      <p class="lead reveal">Notiq is a fast desktop Markdown editor, whiteboard and knowledge graph. Passwords, SSH keys and private notes go into a Secure Vault: one encrypted file that never leaves your machine.</p>
+      <div class="cta reveal">
+        <a class="btn btn-gold btn-lg" id="heroDownload" href="https://github.com/trexolab-solution/notiq/releases/latest"><svg class="i"><use href="#i-download"/></svg><span id="heroDownloadLabel">Download Notiq</span></a>
+        <a class="btn btn-ghost btn-lg" href="https://github.com/trexolab-solution/notiq"><svg class="i"><use href="#i-github"/></svg>View source</a>
       </div>
-      <div class="stage" id="stage" data-step="0" aria-hidden="true">
-        <div class="node a"><span class="lbl">Your laptop</span><div class="doc"><b id="docname">ssh-prod-server.md</b><pre id="doctext">host prod-1
-user deploy
-key  ~/.ssh/prod_ed25519</pre></div><div class="lock">🔒 Locked</div></div>
-        <div class="pipe"><i class="packet"></i></div>
-        <div class="node tg"><span class="lbl">Telegram</span><div class="doc cipher"><b>3f9a…c1.nqv</b><pre>NQV1 9c e4 71 a8
-0b d2 3e 5f f6 12</pre></div><small>Only this is stored</small></div>
-        <div class="pipe p2"><i class="packet"></i></div>
-        <div class="node b"><span class="lbl">Your desktop</span><div class="doc"><b>ssh-prod-server.md</b><pre id="doctext2">••••••••••••
-••••••••••••••••
-••••••••••••••••••••</pre></div><div class="pw">Master password ••••••••</div></div>
+      <p class="fine reveal" id="heroFine">Free and open source (MIT) for Windows, macOS and Linux. No account, no telemetry.</p>
+    </div>
+
+    <div class="hero-stage reveal" id="heroStage">
+      <figure class="win hero-win" id="heroWin" aria-label="Animated preview: a note is written in Notiq, shown as rendered Markdown, then locked into the encrypted vault file.">
+        <div class="win-bar" aria-hidden="true">
+          <span class="win-brand"><img src="logo.png" alt="" width="14" height="14">Notiq</span>
+          <span class="win-modes"><span class="is-on">Notes</span><span>Whiteboard</span><span>Graph</span></span>
+          <span class="win-ctl"><svg class="i"><use href="#i-minus"/></svg><svg class="i"><use href="#i-square"/></svg><svg class="i"><use href="#i-x"/></svg></span>
+        </div>
+        <div class="win-body hero-body" aria-hidden="true">
+          <aside class="mock-side">
+            <div class="side-h">Explorer</div>
+            <div class="side-row"><svg class="i k-folder"><use href="#i-folder-open"/></svg>Projects</div>
+            <div class="side-row in1 is-sel" id="heroFileRow"><svg class="i"><use href="#i-note"/></svg><span id="heroFileName">server-notes.md</span></div>
+            <div class="side-row in1"><svg class="i"><use href="#i-note"/></svg>roadmap.md</div>
+            <div class="side-row in1"><svg class="i"><use href="#i-note"/></svg>meeting-oct.md</div>
+            <div class="side-h side-h2"><svg class="i k-gold" id="heroVaultIcon"><use href="#i-lock-open"/></svg>Secure Vault</div>
+            <div class="side-row"><svg class="i k-ssh"><use href="#i-ssh"/></svg>Staging box</div>
+            <div class="side-row"><svg class="i k-login"><use href="#i-login"/></svg>GitHub</div>
+            <div class="side-row hero-new" id="heroVaultRow"><svg class="i k-note"><use href="#i-note"/></svg>Prod server</div>
+          </aside>
+          <div class="mock-main">
+            <div class="tabbar">
+              <span class="tab is-on"><svg class="i tab-ic" id="heroTabIcon"><use href="#i-note"/></svg><span id="heroTabName">server-notes.md</span></span>
+              <span class="tab">roadmap.md</span>
+              <span class="tab-tools"><span class="seg mini"><span>Source</span><span class="is-on">Split</span><span>Preview</span></span><span class="lock-btn" id="heroLockBtn"><svg class="i"><use href="#i-lock"/></svg>Lock</span></span>
+            </div>
+            <div class="split" id="heroSplit">
+              <pre class="src" id="heroSrc"><span class="md-h"># Prod server</span>
+Deploy with <span class="md-b">**zero downtime**</span>.
+
+<span class="md-li">-</span> host: prod-1.example.com
+<span class="md-li">-</span> user: deploy
+<span class="md-li">-</span> <span class="md-wl">[[Runbook]]</span> for rollbacks</pre>
+              <div class="prev md" id="heroPrev"><div class="md-h1">Prod server</div><p>Deploy with <strong>zero downtime</strong>.</p><ul><li>host: prod-1.example.com</li><li>user: deploy</li><li><span class="wikilink">Runbook</span> for rollbacks</li></ul></div>
+              <div class="sealed" id="heroSealed">
+                <div class="sealed-chip"><svg class="i"><use href="#i-lock"/></svg><span>vault.nqdb</span></div>
+                <pre class="sealed-hex" id="heroHex"></pre>
+                <p class="sealed-cap">Sealed with XChaCha20-Poly1305</p>
+              </div>
+            </div>
+            <div class="statusbar"><span id="heroStatus">Markdown</span><span>UTF-8</span><span class="sb-right" id="heroWords">17 words</span></div>
+          </div>
+        </div>
+      </figure>
+    </div>
+  </div>
+</section>
+
+<!-- ═════════════ EDITOR ═════════════ -->
+<section class="band" id="features" aria-labelledby="editor-title">
+  <div class="container split-grid">
+    <div class="copy reveal">
+      <h2 id="editor-title">A Markdown editor with VS Code’s engine underneath</h2>
+      <p>Notiq’s editor is Monaco, tuned for Markdown. Write in Source, read in Preview, or keep both side by side in Split. Tables, task lists, Mermaid diagrams, LaTeX and <code>[[wiki links]]</code> all render as you type.</p>
+      <ul class="ticks">
+        <li>Multi-cursor, find and replace, folding, every shortcut you already know</li>
+        <li>Tabs that remember cursor and scroll position between launches</li>
+        <li>Files stay plain Markdown on your own disk</li>
+      </ul>
+      <p class="try">Try it: edit the note, then switch views.</p>
+    </div>
+    <div class="reveal">
+      <div class="win" id="editorDemo">
+        <div class="win-bar" aria-hidden="true">
+          <span class="win-brand"><img src="logo.png" alt="" width="14" height="14">Notiq</span>
+          <span class="win-title">ideas.md</span>
+          <span class="win-ctl"><svg class="i"><use href="#i-minus"/></svg><svg class="i"><use href="#i-square"/></svg><svg class="i"><use href="#i-x"/></svg></span>
+        </div>
+        <div class="win-body col">
+          <div class="toolbar">
+            <span class="tb-file"><svg class="i"><use href="#i-note"/></svg>ideas.md</span>
+            <div class="seg" role="group" aria-label="Editor view">
+              <button type="button" data-view="source" aria-pressed="false">Source</button>
+              <button type="button" data-view="split" aria-pressed="true">Split</button>
+              <button type="button" data-view="preview" aria-pressed="false">Preview</button>
+            </div>
+          </div>
+          <div class="ed" data-view="split" id="edPanes">
+            <div class="ed-src">
+              <div class="gutter" aria-hidden="true" id="edGutter"></div>
+              <div class="ed-code">
+                <pre class="ed-hl" aria-hidden="true" id="edHl"></pre>
+                <label class="sr-only" for="edInput">Markdown source (editable)</label>
+                <textarea id="edInput" spellcheck="false" autocomplete="off" autocapitalize="off"># Weekend project
+
+Build a **reading tracker** that works offline.
+
+- [x] Sketch the data model
+- [ ] Wire up the `import` command
+- [ ] Link it to [[Reading list]]
+
+> Ship small, ship often.</textarea>
+              </div>
+            </div>
+            <div class="ed-prev md" id="edPrev" aria-label="Rendered preview" role="region" tabindex="0"></div>
+          </div>
+          <div class="statusbar"><span>Markdown</span><span id="edWords">0 words</span><span class="sb-right" id="edLines">Ln 1</span></div>
+        </div>
       </div>
     </div>
-  </section>
+  </div>
+</section>
 
-  <section class="reveal">
-    <h2>Everything else you'd expect</h2>
-    <dl class="facts">
-      <dt>Editor</dt><dd>Monaco-based Markdown editing with live preview, tabs and a built-in terminal.</dd>
-      <dt>Whiteboard</dt><dd>Sketch next to your notes; drawings stay with the tab.</dd>
-      <dt>Knowledge graph</dt><dd>Link notes with wiki-style links and see how they connect.</dd>
-      <dt>Local-first</dt><dd>Files on your disk. AI is optional, off by default, and only talks to the Ollama endpoint you configure.</dd>
-    </dl>
-  </section>
+<!-- ═════════════ VAULT EXPLORER ═════════════ -->
+<section class="band band-vault" id="vault" aria-labelledby="vault-title">
+  <div class="container">
+    <div class="section-head reveal">
+      <h2 id="vault-title">Organize the vault like a file tree</h2>
+      <p>Logins, servers, API keys and secure notes live in a proper tree. Fold folders, filter by tag, star what you reach for, drag things where they belong. Deleted items wait in the Recycle Bin for 30 days.</p>
+    </div>
 
-  <section id="google-drive" class="reveal">
-    <h2>Google Drive sync, in plain terms</h2>
-    <dl class="facts">
-      <dt>What Notiq asks for</dt><dd>One Google Drive permission, <code>drive.appdata</code>, plus your account email so the app can show which account is connected.</dd>
-      <dt>What it can see</dt><dd>Only Notiq's own hidden app folder in your Drive. It cannot see, list or change any other file.</dd>
-      <dt>What is stored there</dt><dd>Your locked notes as encrypted <code>.nqv</code> files under random names, and one sync-state file with your wrapped vault key. Nothing readable without your master password.</dd>
-      <dt>Where the sign-in lives</dt><dd>The Google refresh token stays in your operating system's keychain on your computer. Notiq has no server and never receives your data.</dd>
-      <dt>Your control</dt><dd>Disconnect in Settings, or remove access any time at <a href="https://myaccount.google.com/permissions">myaccount.google.com/permissions</a>.</dd>
-    </dl>
-    <p class="note">Notiq's use and transfer of information received from Google APIs adheres to the <a href="https://developers.google.com/terms/api-services-user-data-policy#limited-use">Google API Services User Data Policy</a>, including the Limited Use requirements. Read the full <a href="https://trexolab-solution.github.io/notiq/privacy.html">privacy policy</a>.</p>
-  </section>
+    <div class="vault-layout">
+      <div class="win vault-win reveal" id="vaultDemo">
+        <div class="win-bar" aria-hidden="true">
+          <span class="win-brand"><img src="logo.png" alt="" width="14" height="14">Notiq</span>
+          <span class="win-title">Secure Vault</span>
+          <span class="win-ctl"><svg class="i"><use href="#i-minus"/></svg><svg class="i"><use href="#i-square"/></svg><svg class="i"><use href="#i-x"/></svg></span>
+        </div>
+        <div class="win-body vx">
+          <div class="vx-side">
+            <div class="vx-head">
+              <svg class="i k-gold" aria-hidden="true"><use href="#i-lock-open"/></svg>
+              <span class="vx-title">Secure Vault</span>
+              <button type="button" class="vx-icon" id="vxLock" aria-label="Lock vault" data-tip="Lock now (Ctrl+Alt+L)"><svg class="i"><use href="#i-lock"/></svg></button>
+            </div>
+            <div class="vx-search">
+              <svg class="i" aria-hidden="true"><use href="#i-search"/></svg>
+              <label class="sr-only" for="vxSearch">Search the vault by name or tag</label>
+              <input id="vxSearch" type="search" placeholder="Search name or tag" autocomplete="off" spellcheck="false">
+            </div>
+            <div class="vx-tags" id="vxTags" role="group" aria-label="Filter by tag"></div>
+            <div class="vx-tree" id="vxTree" aria-label="Vault items"></div>
+            <div class="vx-trash" id="vxTrash" hidden></div>
+            <button type="button" class="vx-bin" id="vxBin" aria-expanded="false"><svg class="i" aria-hidden="true"><use href="#i-trash"/></svg><span>Recycle Bin</span><span class="vx-count" id="vxBinCount">1</span></button>
+          </div>
+          <div class="vx-detail" id="vxDetail" aria-live="polite"></div>
+          <div class="vx-locked" id="vxLocked" hidden>
+            <svg class="i" aria-hidden="true"><use href="#i-lock"/></svg>
+            <p class="vx-locked-t">Vault locked</p>
+            <p class="vx-locked-s">Keys wiped from memory. Nothing readable is left on screen.</p>
+            <button type="button" class="btn btn-gold btn-sm" id="vxUnlock">Unlock</button>
+          </div>
+        </div>
+        <p class="sr-only" id="vxAnnounce" aria-live="polite"></p>
+      </div>
 
-  <section class="reveal">
-    <h2>Get started</h2>
-    <ol class="steps">
-      <li><b>Download</b> the installer for your system from the <a href="https://github.com/trexolab-solution/notiq/releases/latest">latest release</a>.</li>
-      <li><b>Write</b> as usual. When a note is private, lock it and pick a vault folder.</li>
-      <li><b>Optional:</b> connect Google Drive or Telegram in Settings → Vault to keep your other machines in step.</li>
-    </ol>
-  </section>
+      <ul class="vault-notes reveal" aria-label="Vault organizing features">
+        <li><b>Folders and drag-and-drop</b><span>Drag a row onto a folder to move it, or use Move to in the details pane.</span></li>
+        <li><b>Tags and tag filter</b><span>Click tags to narrow the tree. Several tags combine.</span></li>
+        <li><b>Star and rename</b><span>Starred items float to the top. Double-click a name to rename.</span></li>
+        <li><b>Recycle Bin</b><span>Restore anything, or delete it forever. Emptied automatically after 30 days.</span></li>
+        <li><b>Search</b><span>Find entries by name or tag, inside the vault only.</span></li>
+      </ul>
+    </div>
+    <noscript><p class="noscript">The interactive vault explorer needs JavaScript. In the app: a folder tree with tags, stars, rename, drag-and-drop moves, search, and a Recycle Bin with a 30-day purge.</p></noscript>
+  </div>
+</section>
 
-  <footer>
-    <div><a href="https://trexolab-solution.github.io/notiq/privacy.html">Privacy policy</a><a href="https://github.com/trexolab-solution/notiq/issues">Report an issue</a><a href="https://github.com/trexolab-solution/notiq/blob/main/LICENSE">MIT license</a></div>
-    <div>Notiq</div>
-  </footer>
-</div>
-<script>
-(function(){
-  var reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
-  var root=document.documentElement; root.classList.add('js');
-  // reveal on scroll
-  var io=new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting){e.target.classList.add('in');io.unobserve(e.target);}});},{threshold:.15});
-  document.querySelectorAll('.reveal,.hero>*').forEach(function(el){io.observe(el);});
-  // scroll story
-  var sec=document.getElementById('story'),stage=document.getElementById('stage');
-  var items=sec.querySelectorAll('.story-text li');
-  var plain1="host prod-1\nuser deploy\nkey  ~/.ssh/prod_ed25519";
-  var plain2="host prod-1\nuser deploy\nkey  ~/.ssh/prod_ed25519";
-  var t1=document.getElementById('doctext'),t2=document.getElementById('doctext2'),nm=document.getElementById('docname');
-  var hex="0123456789abcdef",cur=-1,timer;
-  function scramble(el,target,done){
-    if(reduce){el.textContent=target;return;}
-    clearInterval(timer);var n=0,len=target.length;
-    timer=setInterval(function(){n+=3;var out="";
-      for(var i=0;i<len;i++){var c=target[i];out+=(c==="\n"||c===" "||i<n)?c:hex[Math.random()*16|0];}
-      el.textContent=out;if(n>=len){clearInterval(timer);el.textContent=target;}},30);
-  }
-  function setStep(n){
-    if(n===cur)return;cur=n;stage.dataset.step=n;
-    items.forEach(function(li,i){li.classList.toggle('on',i===n);});
-    if(n===0){nm.textContent="ssh-prod-server.md";t1.textContent=plain1;}
-    if(n>=1){nm.textContent="3f9a…c1.nqv";var c="NQV1 9c e4 71 a8 0b d2\n3e 5f f6 12 8a c4 37\nb9 60 d1 4a 8e 02 77";if(n===1)scramble(t1,c);else t1.textContent=c;}
-    if(n===3){scramble(t2,plain2);} else if(n<3){t2.textContent="••••••••••••\n••••••••••••••••\n••••••••••••••••••••";}
-  }
-  function onScroll(){
-    var r=sec.getBoundingClientRect(),h=sec.offsetHeight-innerHeight;
-    var p=Math.min(1,Math.max(0,-r.top/h));
-    setStep(Math.min(3,Math.floor(p*4)));
-  }
-  addEventListener('scroll',onScroll,{passive:true});addEventListener('resize',onScroll);onScroll();
-})();
-</script>
+<!-- ═════════════ CREDENTIALS ═════════════ -->
+<section class="band" id="credentials" aria-labelledby="cred-title">
+  <div class="container split-grid flip">
+    <div class="copy reveal">
+      <h2 id="cred-title">Forms built for logins, servers and keys</h2>
+      <p>Each entry type has a form shaped around what you store in it, so a server keeps its host and key and a login keeps its 2-step secret.</p>
+      <dl class="kinds">
+        <div><dt><svg class="i k-login" aria-hidden="true"><use href="#i-login"/></svg>Login</dt><dd>Password generator, live 2-step (TOTP) codes, one-click copy.</dd></div>
+        <div><dt><svg class="i k-ssh" aria-hidden="true"><use href="#i-ssh"/></svg>SSH / server</dt><dd>Checks the key you paste and builds the <code>ssh</code> command for you.</dd></div>
+        <div><dt><svg class="i k-secret" aria-hidden="true"><use href="#i-secret"/></svg>API key / secret</dt><dd>Tokens and keys, hidden until you ask.</dd></div>
+        <div><dt><svg class="i k-note" aria-hidden="true"><use href="#i-note"/></svg>Secure note</dt><dd>Full Markdown, sealed like everything else.</dd></div>
+      </dl>
+      <p>Every copy button confirms with a check, then wipes the clipboard after 20 seconds.</p>
+      <p class="try">Try it: copy a field, generate a password, paste a sample key.</p>
+    </div>
+
+    <div class="reveal">
+      <div class="win cred-win" id="credDemo">
+        <div class="win-bar" aria-hidden="true">
+          <span class="win-brand"><img src="logo.png" alt="" width="14" height="14">Notiq</span>
+          <span class="win-title">Secure Vault</span>
+          <span class="win-ctl"><svg class="i"><use href="#i-minus"/></svg><svg class="i"><use href="#i-square"/></svg><svg class="i"><use href="#i-x"/></svg></span>
+        </div>
+        <div class="win-body col">
+          <div class="cred-tabs" role="tablist" aria-label="Entry type">
+            <button type="button" role="tab" id="ct-login" aria-controls="cp-login" aria-selected="true"><svg class="i k-login" aria-hidden="true"><use href="#i-login"/></svg>Login</button>
+            <button type="button" role="tab" id="ct-ssh" aria-controls="cp-ssh" aria-selected="false" tabindex="-1"><svg class="i k-ssh" aria-hidden="true"><use href="#i-ssh"/></svg>SSH / server</button>
+            <button type="button" role="tab" id="ct-api" aria-controls="cp-api" aria-selected="false" tabindex="-1"><svg class="i k-secret" aria-hidden="true"><use href="#i-secret"/></svg>API key</button>
+          </div>
+
+          <!-- Login -->
+          <div class="cred-panel" role="tabpanel" id="cp-login" aria-labelledby="ct-login">
+            <div class="f">
+              <label for="lgName">Name</label>
+              <div class="f-row"><input id="lgName" value="GitHub" autocomplete="off"></div>
+            </div>
+            <div class="f">
+              <label for="lgUser">Username or email</label>
+              <div class="f-row"><input id="lgUser" value="octo-dev@example.com" autocomplete="off" spellcheck="false"><button type="button" class="cp" data-copy="#lgUser" data-label="username"></button></div>
+            </div>
+            <div class="f">
+              <label for="lgPass">Password</label>
+              <div class="f-row pw-row">
+                <input id="lgPass" class="mono" type="password" value="Vt7#qe-Lm2!pXr9w" autocomplete="off" spellcheck="false">
+                <button type="button" class="sbtn" id="lgEye" aria-label="Show password" aria-pressed="false"><svg class="i"><use href="#i-eye"/></svg></button>
+                <span class="gen-wrap">
+                  <button type="button" class="sbtn sbtn-text" id="lgGen" aria-haspopup="dialog" aria-expanded="false"><svg class="i" aria-hidden="true"><use href="#i-dices"/></svg>Generate</button>
+                  <button type="button" class="sbtn" id="lgGenOpts" aria-label="Password generator options" aria-haspopup="dialog" aria-expanded="false" hidden><svg class="i"><use href="#i-sliders"/></svg></button>
+                  <div class="pw-pop" id="pwPop" role="dialog" aria-label="Generate a password" hidden>
+                    <div class="pw-preview"><output class="mono" id="pwOut" aria-live="polite"></output><button type="button" class="sbtn" id="pwAgain" aria-label="New password"><svg class="i"><use href="#i-refresh"/></svg></button></div>
+                    <div class="pw-meter"><span class="pw-bar"><i id="pwBar"></i></span><span id="pwBits">0 bits</span></div>
+                    <label class="pw-len"><span>Length</span><input type="range" id="pwLen" min="8" max="64" value="20" aria-label="Password length"><output id="pwLenOut">20</output></label>
+                    <div class="pw-grid" role="group" aria-label="Characters to include">
+                      <label><input type="checkbox" data-cls="lower" checked><span>Lowercase</span><code>abc</code></label>
+                      <label><input type="checkbox" data-cls="upper" checked><span>Uppercase</span><code>ABC</code></label>
+                      <label><input type="checkbox" data-cls="digits" checked><span>Numbers</span><code>123</code></label>
+                      <label><input type="checkbox" data-cls="symbols" checked><span>Symbols</span><code>!@#</code></label>
+                    </div>
+                    <label class="pw-one"><input type="checkbox" id="pwAmb"><span>Avoid look-alike characters</span><code>l I O 0 1</code></label>
+                    <div class="pw-foot">
+                      <label class="pw-one"><input type="checkbox" id="pwRemember"><span>Remember my choice</span></label>
+                      <button type="button" class="btn btn-gold btn-sm" id="pwUse">Use password</button>
+                    </div>
+                  </div>
+                </span>
+                <button type="button" class="cp" data-copy="#lgPass" data-label="password"></button>
+              </div>
+            </div>
+            <div class="f">
+              <span class="lbl" id="lgTotpL">2-step code</span>
+              <div class="f-row totp" aria-labelledby="lgTotpL">
+                <span class="totp-code mono" id="totpCode">482 913</span>
+                <svg class="totp-ring" viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="8"/><circle cx="10" cy="10" r="8" id="totpArc" pathLength="100"/></svg>
+                <span class="totp-left" id="totpLeft">30s</span>
+                <button type="button" class="cp" data-copy="#totpCode" data-label="2-step code"></button>
+              </div>
+            </div>
+            <p class="cred-foot" id="clipNote" aria-live="polite">Copied values are cleared from the clipboard after 20 seconds.</p>
+          </div>
+
+          <!-- SSH -->
+          <div class="cred-panel" role="tabpanel" id="cp-ssh" aria-labelledby="ct-ssh" hidden>
+            <div class="f-pair">
+              <div class="f grow">
+                <label for="shHost">Host or IP</label>
+                <div class="f-row"><input id="shHost" value="prod-1.example.com" autocomplete="off" spellcheck="false"><button type="button" class="cp" data-copy="#shHost" data-label="host"></button></div>
+              </div>
+              <div class="f port">
+                <label for="shPort">Port</label>
+                <div class="f-row"><input id="shPort" value="22" inputmode="numeric" autocomplete="off" aria-describedby="shPortErr"></div>
+              </div>
+            </div>
+            <p class="f-err" id="shPortErr" hidden></p>
+            <div class="f">
+              <label for="shUser">Username</label>
+              <div class="f-row"><input id="shUser" value="deploy" autocomplete="off" spellcheck="false"><button type="button" class="cp" data-copy="#shUser" data-label="username"></button></div>
+            </div>
+            <div class="cmd"><code id="shCmd">ssh deploy@prod-1.example.com</code><button type="button" class="cp" data-copy="#shCmd" data-label="ssh command"></button></div>
+            <div class="f">
+              <label for="shKey">Private key</label>
+              <textarea id="shKey" class="mono" rows="4" spellcheck="false" placeholder="Paste a private key, or pick a sample below" aria-describedby="shKeyState"></textarea>
+              <div class="key-state" id="shKeyState" data-state="empty"><svg class="i" aria-hidden="true"><use href="#i-shield"/></svg><span>Paste a key and Notiq checks it before saving</span></div>
+              <div class="samples" role="group" aria-label="Sample keys">
+                <button type="button" class="chip" data-sample="ok">OpenSSH, no passphrase</button>
+                <button type="button" class="chip" data-sample="enc">With passphrase</button>
+                <button type="button" class="chip" data-sample="pub">Public key</button>
+                <button type="button" class="chip" data-sample="cut">Cut-off key</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- API key -->
+          <div class="cred-panel" role="tabpanel" id="cp-api" aria-labelledby="ct-api" hidden>
+            <div class="f">
+              <label for="apName">Name</label>
+              <div class="f-row"><input id="apName" value="OpenRouter" autocomplete="off"></div>
+            </div>
+            <div class="f">
+              <label for="apKey">Key</label>
+              <div class="f-row"><input id="apKey" class="mono" type="password" value="sk-demo-4f1c9a7e2b8d0e6f3a5c" autocomplete="off" spellcheck="false"><button type="button" class="sbtn" id="apEye" aria-label="Show key" aria-pressed="false"><svg class="i"><use href="#i-eye"/></svg></button><button type="button" class="cp" data-copy="#apKey" data-label="key"></button></div>
+            </div>
+            <div class="f">
+              <label for="apNotes">Notes</label>
+              <textarea id="apNotes" rows="3">Used by the build server. Rotate every 90 days.</textarea>
+            </div>
+            <p class="cred-foot">Vault entries are never sent to the AI assistant, even when it is switched on.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═════════════ ONE FILE ═════════════ -->
+<section class="band band-file" aria-labelledby="file-title">
+  <div class="container">
+    <div class="section-head reveal">
+      <h2 id="file-title">Everything private goes into one encrypted file</h2>
+      <p>Every locked note, login, server and key goes into <code>vault.nqdb</code>. So do their names, folders and tags. Look on your disk and you will find one file and nothing readable in it.</p>
+    </div>
+    <div class="flow reveal" id="flowDemo" role="img" aria-label="Diagram: notes, logins, SSH entries, API keys, folder names and tags all flow into one encrypted file, vault.nqdb, sealed with Argon2id and XChaCha20-Poly1305.">
+      <ul class="flow-in" aria-hidden="true">
+        <li><svg class="i k-note"><use href="#i-note"/></svg>Recovery codes</li>
+        <li><svg class="i k-login"><use href="#i-login"/></svg>GitHub</li>
+        <li><svg class="i k-ssh"><use href="#i-ssh"/></svg>Production VPS</li>
+        <li><svg class="i k-secret"><use href="#i-secret"/></svg>OpenRouter key</li>
+        <li><svg class="i k-folder"><use href="#i-folder"/></svg>Folder names</li>
+        <li><svg class="i k-tag"><use href="#i-hash"/></svg>Tags</li>
+      </ul>
+      <svg class="flow-lines" viewBox="0 0 100 120" preserveAspectRatio="none" aria-hidden="true">
+        <g class="fl-base">
+          <path d="M0 10 C 55 10, 45 60, 100 60"/><path d="M0 30 C 55 30, 45 60, 100 60"/><path d="M0 50 C 55 50, 45 60, 100 60"/>
+          <path d="M0 70 C 55 70, 45 60, 100 60"/><path d="M0 90 C 55 90, 45 60, 100 60"/><path d="M0 110 C 55 110, 45 60, 100 60"/>
+        </g>
+        <g class="fl-pulse">
+          <path pathLength="100" d="M0 10 C 55 10, 45 60, 100 60"/><path pathLength="100" d="M0 30 C 55 30, 45 60, 100 60"/><path pathLength="100" d="M0 50 C 55 50, 45 60, 100 60"/>
+          <path pathLength="100" d="M0 70 C 55 70, 45 60, 100 60"/><path pathLength="100" d="M0 90 C 55 90, 45 60, 100 60"/><path pathLength="100" d="M0 110 C 55 110, 45 60, 100 60"/>
+        </g>
+      </svg>
+      <div class="vaultfile" aria-hidden="true">
+        <div class="vf-top"><svg class="i"><use href="#i-lock"/></svg><span class="vf-name">vault.nqdb</span><span class="vf-size">1 file</span></div>
+        <pre class="vf-hex" id="flowHex">4e 51 44 42 01 00 a3 9f 7c 21 e4 0b 58 d6 3a 91
+f2 6e 0d 84 b7 19 c5 2a 70 eb 4f 13 9a d8 66 05
+1c a7 e9 32 5b f0 8d 47 26 bc 91 0e 7d 53 c8 af
+6a 04 d3 98 e1 2f 75 b6 0c 4a 83 ff 19 5e a2 37</pre>
+        <ol class="vf-steps" id="flowSteps">
+          <li><b>Master password</b></li>
+          <li><b>Argon2id</b><span>slow, memory-hard key derivation</span></li>
+          <li><b>XChaCha20-Poly1305</b><span>encrypts and authenticates every byte</span></li>
+        </ol>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═════════════ SECURITY ═════════════ -->
+<section class="band" id="security" aria-labelledby="sec-title">
+  <div class="container">
+    <div class="section-head reveal">
+      <h2 id="sec-title">What the vault guarantees</h2>
+      <p>Notiq runs no server, so every protection lives on your machine. This is exactly what it does to keep a locked vault locked.</p>
+    </div>
+    <ul class="guarantees">
+      <li class="reveal"><svg class="i" aria-hidden="true"><use href="#i-database"/></svg><div><h3>One encrypted file</h3><p>Names, folders, tags and contents all sit inside <code>vault.nqdb</code>. The key comes from your master password through Argon2id; data is sealed with XChaCha20-Poly1305.</p></div></li>
+      <li class="reveal"><svg class="i" aria-hidden="true"><use href="#i-login"/></svg><div><h3>Recovery key, shown once</h3><p>At setup you get a recovery key. Keep it offline. There is no server and no one who can reset your password for you.</p></div></li>
+      <li class="reveal"><svg class="i" aria-hidden="true"><use href="#i-timer"/></svg><div><h3>Locks itself</h3><p>Auto-lock after inactivity, lock when the window closes, and a panic lock on <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>L</kbd>.</p></div></li>
+      <li class="reveal"><svg class="i" aria-hidden="true"><use href="#i-copy"/></svg><div><h3>Clipboard cleared</h3><p>Anything you copy from the vault is wiped from the clipboard after 20 seconds.</p></div></li>
+      <li class="reveal"><svg class="i" aria-hidden="true"><use href="#i-shield"/></svg><div><h3>Keys wiped from memory</h3><p>When the vault locks, the decrypted key material is zeroized rather than left for the garbage collector.</p></div></li>
+      <li class="reveal"><svg class="i" aria-hidden="true"><use href="#i-sparkles"/></svg><div><h3>Kept apart from everything else</h3><p>Vault items never appear in search, the knowledge graph or the AI assistant. AI is never given vault content.</p></div></li>
+      <li class="reveal"><svg class="i" aria-hidden="true"><use href="#i-cloud-off"/></svg><div><h3>Nothing leaves your device</h3><p>Notiq has no account system, keeps no cloud copy and sends no telemetry. Your vault exists only where you put it.</p></div></li>
+    </ul>
+    <div class="honest reveal">
+      <svg class="i" aria-hidden="true"><use href="#i-alert"/></svg>
+      <p><b>The honest limit.</b> Anyone who gets a copy of <code>vault.nqdb</code> can try to guess your master password offline. Argon2id makes every guess slow and expensive, but it cannot save a short or reused password. Use a long, unique passphrase.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ═════════════ MORE FEATURES ═════════════ -->
+<section class="band band-more" aria-labelledby="more-title">
+  <div class="container">
+    <div class="section-head reveal">
+      <h2 id="more-title">Whiteboard, graph, terminal and AI in the same window</h2>
+      <p>Sketch beside a note, follow its links, run a command under it or ask the assistant about it, without leaving the app or your disk.</p>
+    </div>
+    <div class="bento">
+      <article class="tile t-graph reveal">
+        <div class="tile-copy"><h3><svg class="i" aria-hidden="true"><use href="#i-graph"/></svg>Knowledge graph</h3><p>Every <code>[[link]]</code> becomes an edge. Hover a note to see what it touches.</p></div>
+        <div class="graph" id="graphDemo" aria-hidden="true"><svg viewBox="0 0 760 300" id="graphSvg"><g class="g-edges"></g><g class="g-nodes"></g></svg></div>
+      </article>
+      <article class="tile t-board reveal">
+        <div class="tile-copy"><h3><svg class="i" aria-hidden="true"><use href="#i-pencil"/></svg>Whiteboard</h3><p>An Excalidraw canvas beside your notes, saved with the tab.</p></div>
+        <div class="board" id="boardDemo" aria-hidden="true">
+          <svg viewBox="0 0 320 180">
+            <path class="stroke s1" pathLength="1" d="M28 40 Q 30 36 96 38 Q 104 39 102 46 L 101 84 Q 100 90 92 90 L 34 89 Q 27 88 28 80 Z"/>
+            <path class="stroke s2" pathLength="1" d="M108 64 C 140 60, 160 62, 196 66"/>
+            <path class="stroke s3" pathLength="1" d="M186 58 L 197 66 L 185 74"/>
+            <path class="stroke s4 accent" pathLength="1" d="M250 64 m -44 0 a 44 30 0 1 0 88 0 a 44 30 0 1 0 -88 0"/>
+            <path class="stroke s5" pathLength="1" d="M60 118 C 70 150, 110 152, 140 132 S 196 116, 214 140"/>
+            <path class="stroke s6 gold" pathLength="1" d="M228 128 l 8 18 l 8 -18 l 8 18 l 8 -18"/>
+            <text x="44" y="68" class="b-text t1">Idea</text>
+            <text x="226" y="69" class="b-text t2">Ship</text>
+          </svg>
+        </div>
+      </article>
+      <article class="tile t-ai reveal">
+        <div class="tile-copy"><h3><svg class="i" aria-hidden="true"><use href="#i-sparkles"/></svg>AI that stays home</h3><p>AI stays off until you switch it on. Run it locally with Ollama or use an OpenRouter key; vault content is never sent.</p></div>
+        <div class="chat" id="chatDemo" aria-hidden="true">
+          <div class="chat-head"><span class="dot-ok"></span>Ollama · llama3.2 · local</div>
+          <div class="msg me">Summarize this week's meeting notes</div>
+          <div class="msg ai"><span id="chatAi">Three decisions: ship the importer Friday, move standup to 10:00, and retire the old export script.</span><i class="caret"></i></div>
+        </div>
+      </article>
+      <article class="tile t-term reveal">
+        <div class="tile-copy"><h3><svg class="i" aria-hidden="true"><use href="#i-terminal"/></svg>Terminal built in</h3><p>A real shell runs under your notes; press <kbd>Ctrl</kbd>+<kbd>`</kbd> to toggle it.</p></div>
+        <pre class="term" id="termDemo" aria-hidden="true"><span class="t-p">~/notes $</span> git status
+On branch main
+nothing to commit, working tree clean
+<span class="t-p">~/notes $</span> <i class="caret"></i></pre>
+      </article>
+    </div>
+    <ul class="extras reveal" aria-label="Also included">
+      <li><svg class="i" aria-hidden="true"><use href="#i-cmd"/></svg><span><b>Command palette</b> <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>P</kbd></span></li>
+      <li><svg class="i" aria-hidden="true"><use href="#i-sticky"/></svg><span><b>Sticky notes</b> that float above other windows</span></li>
+      <li><svg class="i" aria-hidden="true"><use href="#i-palette"/></svg><span><b>13 themes</b>, light and dark</span></li>
+      <li><svg class="i" aria-hidden="true"><use href="#i-command"/></svg><span><b>Windows, macOS, Linux</b> from one codebase</span></li>
+    </ul>
+  </div>
+</section>
+
+<!-- ═════════════ DOWNLOAD ═════════════ -->
+<section class="band band-dl" id="download" aria-labelledby="dl-title">
+  <div class="container">
+    <div class="section-head center reveal">
+      <h2 id="dl-title">Download Notiq</h2>
+      <p>Free and open source (MIT). No account, no telemetry.</p>
+    </div>
+    <div class="os-grid">
+      <a class="os reveal" data-os="windows" href="https://github.com/trexolab-solution/notiq/releases/latest">
+        <svg class="i os-ic" aria-hidden="true"><use href="#i-windows"/></svg>
+        <span class="os-name">Windows</span><span class="os-sub">.exe and .msi installers</span>
+        <span class="os-go">Download <svg class="i" aria-hidden="true"><use href="#i-download"/></svg></span>
+      </a>
+      <a class="os reveal" data-os="macos" href="https://github.com/trexolab-solution/notiq/releases/latest">
+        <svg class="i os-ic" aria-hidden="true"><use href="#i-command"/></svg>
+        <span class="os-name">macOS</span><span class="os-sub">See the release page, or build from source</span>
+        <span class="os-go">Download <svg class="i" aria-hidden="true"><use href="#i-download"/></svg></span>
+      </a>
+      <a class="os reveal" data-os="linux" href="https://github.com/trexolab-solution/notiq/releases/latest">
+        <svg class="i os-ic" aria-hidden="true"><use href="#i-terminal"/></svg>
+        <span class="os-name">Linux</span><span class="os-sub">AppImage, .deb and .rpm</span>
+        <span class="os-go">Download <svg class="i" aria-hidden="true"><use href="#i-download"/></svg></span>
+      </a>
+    </div>
+    <p class="dl-more reveal">All builds and release notes are on <a href="https://github.com/trexolab-solution/notiq/releases/latest">GitHub Releases</a>. Notiq updates itself in-app when a new version ships.</p>
+  </div>
+</section>
+
+</main>
+
+<footer class="site-foot">
+  <div class="container foot-in">
+    <a class="brand" href="#top"><img src="logo.png" alt="" width="22" height="22"><span>Notiq</span></a>
+    <nav aria-label="Footer">
+      <a href="privacy.html">Privacy policy</a>
+      <a href="https://github.com/trexolab-solution/notiq">Source on GitHub</a>
+      <a href="https://github.com/trexolab-solution/notiq/issues">Report an issue</a>
+      <a href="https://github.com/trexolab-solution/notiq/blob/main/LICENSE">MIT license</a>
+    </nav>
+    <p class="foot-note">This site sets no cookies and loads nothing from third parties.</p>
+  </div>
+</footer>
+
+<script src="site.js" defer></script>
 </body>
 </html>
