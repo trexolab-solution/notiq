@@ -1,7 +1,6 @@
 import { useMemo, useRef, useState } from "react";
 import { Hash, Tags, X } from "lucide-react";
-import { Modal } from "../../ui/Modal";
-import { Button } from "../../ui/Button";
+import { Dialog, DialogBody, DialogButton, DialogFooter } from "../../ui/Dialog";
 import { normalizeTags } from "../../../lib/vaultTree";
 
 interface Props {
@@ -43,22 +42,15 @@ export function TagEditor({ name, initial, allTags, onSave, onClose }: Props) {
   };
 
   return (
-    <Modal onClose={onClose} zClassName="z-[70]">
-      <form
-        className="vt-dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="vt-tags-title"
-        onSubmit={(e) => { e.preventDefault(); void save(); }}
-      >
-        <div className="flex items-center gap-2 mb-1">
-          <Tags size={15} className="text-[var(--color-primary)]" aria-hidden />
-          <h2 id="vt-tags-title" className="text-sm font-semibold truncate">Tags for “{name}”</h2>
-        </div>
-        <p className="text-xs mb-3 text-[var(--color-text-muted)]">
-          Tags help you find secrets. Only the names and tags are listed — contents stay encrypted.
-        </p>
-
+    <Dialog
+      onClose={onClose}
+      zClassName="z-[70]"
+      size="sm"
+      title={`Tags for “${name}”`}
+      icon={<Tags size={16} />}
+      onSubmit={(e) => { e.preventDefault(); void save(); }}
+    >
+      <DialogBody detail="Tags help you find secrets. Only the names and tags are listed — contents stay encrypted.">
         <div className="vt-tag-input-wrap" onClick={() => inputRef.current?.focus()}>
           {tags.map((t) => (
             <span key={t} className="vt-chip is-active" style={{ cursor: "default" }}>
@@ -100,11 +92,11 @@ export function TagEditor({ name, initial, allTags, onSave, onClose }: Props) {
           </div>
         )}
 
-        <div className="flex justify-end gap-2 mt-4">
-          <Button type="button" onClick={onClose}>Cancel</Button>
-          <Button type="submit" variant="primary" disabled={busy}>Save tags</Button>
-        </div>
-      </form>
-    </Modal>
+      </DialogBody>
+      <DialogFooter>
+        <DialogButton cancel onClick={onClose}>Cancel</DialogButton>
+        <DialogButton type="submit" variant="primary" disabled={busy}>Save tags</DialogButton>
+      </DialogFooter>
+    </Dialog>
   );
 }

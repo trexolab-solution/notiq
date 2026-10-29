@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { ArchiveRestore, FileUp, TriangleAlert } from "lucide-react";
-import { Modal } from "../ui/Modal";
+import { Dialog, DialogBody, DialogButton, DialogFooter } from "../ui/Dialog";
 import { Input } from "../ui/Input";
 import { Button } from "../ui/Button";
 import { toast } from "../../lib/toast";
@@ -61,35 +61,28 @@ export function RestoreBackupDialog({ onClose }: { onClose: () => void }) {
   };
 
   const canRestore = !!info && !busy && (!exists || typed === CONFIRM_WORD);
-  const panel = "w-[440px] max-w-[92vw] rounded-xl p-5 bg-[var(--color-bg-secondary)] border border-[var(--color-border)] shadow-2xl text-[var(--color-text)]";
-
   return (
-    <Modal onClose={onClose} zClassName="z-[80]">
-      <div className={panel} role="dialog" aria-modal="true" aria-label="Restore vault from backup">
-        <div className="flex items-center gap-2 mb-2">
-          <ArchiveRestore size={18} style={{ color: "var(--color-primary)" }} />
-          <h2 className="text-sm font-semibold">Restore from backup file</h2>
-        </div>
-
+    <Dialog onClose={onClose} zClassName="z-[80]" size="md" title="Restore from backup file" icon={<ArchiveRestore size={16} />}>
         {done ? (
           <>
-            <p className="text-xs mb-4 text-[var(--color-text-muted)]">
-              Your vault was restored. It is locked: unlock it with the <b>master password you used when the backup
-              was made</b> (or its recovery key via "Forgot password?").
-            </p>
-            <div className="flex justify-end gap-2">
-              <Button onClick={onClose}>Close</Button>
-              <Button variant="primary" onClick={() => { onClose(); void useVaultStore.getState().ensureUnlocked(); }}>
+            <DialogBody
+              message="Your vault was restored."
+              detail={<>It is locked: unlock it with the <b>master password you used when the backup
+                was made</b> (or its recovery key via "Forgot password?").</>}
+            />
+            <DialogFooter>
+              <DialogButton cancel onClick={onClose}>Close</DialogButton>
+              <DialogButton variant="primary" onClick={() => { onClose(); void useVaultStore.getState().ensureUnlocked(); }}>
                 Unlock now
-              </Button>
-            </div>
+              </DialogButton>
+            </DialogFooter>
           </>
         ) : (
           <>
-            <p className="text-xs mb-3 text-[var(--color-text-muted)]">
-              Choose a <code>.nqbackup</code> file exported from Notiq. The file is checked first; nothing is changed until you confirm.
-            </p>
-
+          <DialogBody
+            message={<>Choose a <code>.nqbackup</code> file exported from Notiq.</>}
+            detail="The file is checked first; nothing is changed until you confirm."
+          >
             <div className="flex items-center gap-2 mb-3">
               <Button icon={<FileUp size={13} />} onClick={() => void choose()} disabled={busy}>
                 {path ? "Choose another file…" : "Choose backup file…"}
@@ -120,17 +113,16 @@ export function RestoreBackupDialog({ onClose }: { onClose: () => void }) {
               </div>
             )}
 
-            {error && <p role="alert" className="text-xs mb-3 text-[var(--color-danger)]">{error}</p>}
-
-            <div className="flex justify-end gap-2">
-              <Button onClick={onClose}>Cancel</Button>
-              <Button variant="primary" disabled={!canRestore} onClick={() => void restore()}>
-                {busy ? "Restoring…" : exists ? "Replace vault" : "Restore vault"}
-              </Button>
-            </div>
+            {error && <p role="alert" className="text-xs text-[var(--color-danger)]">{error}</p>}
+          </DialogBody>
+          <DialogFooter>
+            <DialogButton cancel onClick={onClose}>Cancel</DialogButton>
+            <DialogButton variant={exists ? "danger" : "primary"} disabled={!canRestore} onClick={() => void restore()}>
+              {busy ? "Restoring…" : exists ? "Replace vault" : "Restore vault"}
+            </DialogButton>
+          </DialogFooter>
           </>
         )}
-      </div>
-    </Modal>
+    </Dialog>
   );
 }

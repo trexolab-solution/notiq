@@ -6,6 +6,7 @@
 @import "./styles/ui.css";
 @import "./styles/notifications.css";
 @import "./styles/overlays.css";
+@import "./styles/dialog.css";
 @import "./styles/tour.css";
 @import "./styles/terminal.css";
 @import "./styles/ai.css";

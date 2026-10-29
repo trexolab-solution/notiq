@@ -1,9 +1,7 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { ShieldCheck } from "lucide-react";
-import { Modal } from "../ui/Modal";
-import { Button } from "../ui/Button";
+import { Dialog, DialogBody, DialogButton, DialogCheckbox, DialogFooter } from "../ui/Dialog";
 import { useVaultStore } from "../../store/vaultStore";
 import { toast } from "../../lib/toast";
 import {
@@ -93,18 +91,14 @@ export function AutofillPrompt() {
   };
 
   return (
-    <Modal onClose={() => void deny()} zClassName="z-[80]">
-      <div className="w-[400px] max-w-[92vw] rounded-xl p-5 bg-[var(--color-bg-secondary)] border border-[var(--color-border)] shadow-2xl text-[var(--color-text)]"
-           role="dialog" aria-modal="true" aria-label="Allow autofill">
-        <div className="flex items-center gap-2 mb-2">
-          <ShieldCheck size={18} style={{ color: "var(--color-primary)" }} />
-          <h2 className="text-sm font-semibold">Fill login in your browser?</h2>
-        </div>
-        <p className="text-xs mb-3 text-[var(--color-text-muted)]">
-          Your browser is on <strong className="text-[var(--color-text)]">{req.host}</strong> and asked for a saved login.
-          Only allow this if you just pressed Fill there.
-        </p>
-        <div className="flex flex-col gap-1 mb-3">
+    // Security prompt raised by another app: Deny holds the initial focus so a stray Enter can't release a login.
+    <Dialog onClose={() => void deny()} zClassName="z-[80]" size="sm" role="alertdialog" defaultFocus="cancel"
+            title="Fill login in your browser?" icon="shield">
+      <DialogBody
+        message={<>Your browser is on <strong>{req.host}</strong> and asked for a saved login.</>}
+        detail="Only allow this if you just pressed Fill there."
+      >
+        <div className="flex flex-col gap-1">
           {matches.map((m, i) => (
             <label key={m.path} className="flex items-center gap-2 text-xs px-2 py-1.5 rounded cursor-pointer border border-[var(--color-border)]">
               <input type="radio" name="login" checked={pick === i} onChange={() => setPick(i)} />
@@ -113,18 +107,17 @@ export function AutofillPrompt() {
             </label>
           ))}
         </div>
-        <label className="flex items-center gap-2 text-xs mb-4 cursor-pointer text-[var(--color-text-muted)]">
-          <input type="checkbox" checked={trust} onChange={(e) => setTrust(e.target.checked)} />
-          <span>
-            Allow <strong className="text-[var(--color-text)]">{req.host}</strong> for 5 minutes
-            <span className="block opacity-80">Fills on this exact site without asking until then, while the vault stays unlocked.</span>
-          </span>
-        </label>
-        <div className="flex gap-2 justify-end">
-          <Button onClick={() => void deny()}>Deny</Button>
-          <Button variant="primary" disabled={busy} onClick={() => void allow()}>Allow</Button>
-        </div>
-      </div>
-    </Modal>
+        <DialogCheckbox
+          checked={trust}
+          onChange={setTrust}
+          label={<>Allow <strong>{req.host}</strong> for 5 minutes</>}
+          hint="Fills on this exact site without asking until then, while the vault stays unlocked."
+        />
+      </DialogBody>
+      <DialogFooter>
+        <DialogButton cancel onClick={() => void deny()}>Deny</DialogButton>
+        <DialogButton variant="primary" disabled={busy} onClick={() => void allow()}>Allow</DialogButton>
+      </DialogFooter>
+    </Dialog>
   );
 }

@@ -2,8 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { Eye, EyeOff, KeyRound } from "lucide-react";
-import { Modal } from "../ui/Modal";
-import { Button } from "../ui/Button";
+import { Dialog, DialogBody, DialogButton, DialogFooter } from "../ui/Dialog";
 import { Input } from "../ui/Input";
 import { useVaultStore } from "../../store/vaultStore";
 import { vaultErrorMessage } from "../../lib/vault";
@@ -81,18 +80,13 @@ export function AutofillSavePrompt() {
   };
 
   return (
-    <Modal onClose={() => void deny()} zClassName="z-[80]">
-      <div className="w-[400px] max-w-[92vw] rounded-xl p-5 bg-[var(--color-bg-secondary)] border border-[var(--color-border)] shadow-2xl text-[var(--color-text)]"
-           role="dialog" aria-modal="true" aria-label={update ? "Update saved password" : "Save login"}>
-        <div className="flex items-center gap-2 mb-2">
-          <KeyRound size={18} style={{ color: "var(--color-primary)" }} />
-          <h2 className="text-sm font-semibold">{update ? "Update the saved password?" : "Save this login to Notiq?"}</h2>
-        </div>
-        <p className="text-xs mb-3 text-[var(--color-text-muted)]">
-          Your browser captured a login on <strong className="text-[var(--color-text)]">{req.host}</strong>.
-          Only save it if you just signed in there.
-        </p>
-        <dl className="text-xs grid grid-cols-[72px_1fr] gap-y-2 gap-x-2 items-center mb-4">
+    <Dialog onClose={() => void deny()} zClassName="z-[80]" size="sm"
+            title={update ? "Update the saved password?" : "Save this login to Notiq?"} icon={<KeyRound size={16} />}>
+      <DialogBody
+        message={<>Your browser captured a login on <strong>{req.host}</strong>.</>}
+        detail="Only save it if you just signed in there."
+      >
+        <dl className="text-xs grid grid-cols-[72px_1fr] gap-y-2 gap-x-2 items-center">
           <dt className="text-[var(--color-text-muted)]">Website</dt>
           <dd className="truncate">{req.host}</dd>
           <dt className="text-[var(--color-text-muted)]">Username</dt>
@@ -119,15 +113,15 @@ export function AutofillSavePrompt() {
           )}
         </dl>
         {update && (
-          <p className="text-xs mb-4 text-[var(--color-text-muted)]">
+          <p className="text-xs mt-3 text-[var(--color-text-muted)]">
             Updates the password of &ldquo;{plan.target?.entry.title || plan.target?.entry.url}&rdquo;. Other fields stay as they are.
           </p>
         )}
-        <div className="flex gap-2 justify-end">
-          <Button onClick={() => void deny()}>Not now</Button>
-          <Button variant="primary" disabled={busy || !!nameErr} onClick={() => void confirm()}>{update ? "Update" : "Save"}</Button>
-        </div>
-      </div>
-    </Modal>
+      </DialogBody>
+      <DialogFooter>
+        <DialogButton cancel onClick={() => void deny()}>Not now</DialogButton>
+        <DialogButton variant="primary" disabled={busy || !!nameErr} onClick={() => void confirm()}>{update ? "Update" : "Save"}</DialogButton>
+      </DialogFooter>
+    </Dialog>
   );
 }

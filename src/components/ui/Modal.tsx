@@ -1,6 +1,6 @@
 import { useRef } from "react";
 import type { ReactNode, CSSProperties } from "react";
-import { useEscapeKey } from "../../hooks/useEscapeKey";
+import { useDialogBehaviour } from "./useDialogBehaviour";
 
 interface ModalProps {
   /** Called on Escape or a click on the backdrop (outside the dialog surface). */
@@ -16,10 +16,10 @@ interface ModalProps {
 }
 
 /**
- * Shared modal shell: a centered, blurred backdrop with Escape-to-close and
- * click-outside-to-close. Replaces the identical overlay `<div>` + Escape
- * `useEffect` that every modal used to hand-roll. Render the dialog panel as
- * `children`; this component owns only the backdrop and dismissal behaviour.
+ * Bare modal shell: the shared dimmed backdrop with Escape / click-outside to close,
+ * a Tab focus trap and focus restore. Render your own panel as `children`.
+ * New dialogs should use `Dialog` (./Dialog), which also draws the panel, title bar
+ * and footer; Modal stays for surfaces that bring a fully custom panel.
  */
 export function Modal({
   onClose,
@@ -29,13 +29,13 @@ export function Modal({
   dismissable = true,
 }: ModalProps) {
   const overlayRef = useRef<HTMLDivElement>(null);
-  useEscapeKey(onClose, dismissable);
+  useDialogBehaviour(overlayRef, { onClose, dismissable });
 
   return (
     <div
       ref={overlayRef}
-      className={`fixed inset-0 ${zClassName} flex items-center justify-center`}
-      style={{ background: "rgba(0,0,0,0.55)", backdropFilter: "blur(6px)", ...overlayStyle }}
+      className={`dlg-scrim fixed inset-0 ${zClassName}`}
+      style={overlayStyle}
       onMouseDown={(e) => {
         if (dismissable && e.target === overlayRef.current) onClose();
       }}

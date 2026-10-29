@@ -1,0 +1,243 @@
+/* ══════════════════════════════════════════════════════════════════════════════
+   DIALOG — the shared modal message shell (ui/Dialog.tsx, ui/DialogParts.tsx,
+   ui/Modal.tsx backdrop). VS Code-inspired: quiet panel, title bar, muted detail,
+   right-aligned footer. Everything is drawn from the theme tokens.
+══════════════════════════════════════════════════════════════════════════════ */
+:root {
+  --dlg-scrim: rgba(0, 0, 0, 0.5);
+  --dlg-shadow: 0 16px 40px rgba(0, 0, 0, 0.36), 0 2px 8px rgba(0, 0, 0, 0.2);
+  --dlg-radius: 10px;
+  --dlg-pad-x: 18px;
+}
+[data-theme="light"] {
+  --dlg-scrim: rgba(15, 23, 42, 0.32);
+  --dlg-shadow: 0 16px 40px rgba(15, 23, 42, 0.18), 0 2px 8px rgba(15, 23, 42, 0.1);
+}
+
+/* ── Backdrop ── */
+.dlg-scrim {
+  display: flex; align-items: center; justify-content: center;
+  padding: 16px;
+  background: var(--dlg-scrim);
+  animation: dlg-fade 120ms ease-out;
+}
+
+/* ── Panel ── */
+.dlg-panel {
+  display: flex; flex-direction: column;
+  width: var(--dlg-w, 480px);
+  max-width: min(92vw, 100%);
+  max-height: 86vh;
+  background: var(--color-bg-secondary);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  border-radius: var(--dlg-radius);
+  box-shadow: var(--dlg-shadow);
+  overflow: hidden;
+  outline: none;
+  font-size: 12.5px;
+  animation: dlg-in 120ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes dlg-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes dlg-in {
+  from { opacity: 0; transform: translateY(4px) scale(0.98); }
+  to   { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dlg-scrim, .dlg-panel { animation: none; }
+}
+
+/* ── Title bar ── */
+.dlg-header {
+  display: flex; align-items: center; gap: 10px;
+  flex: none;
+  padding: 14px 12px 4px var(--dlg-pad-x);
+}
+.dlg-title {
+  flex: 1; min-width: 0; margin: 0;
+  font-size: 13.5px; font-weight: 600; line-height: 1.35; letter-spacing: -0.005em;
+  color: var(--color-text);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.dlg-header-actions { display: flex; align-items: center; gap: 6px; flex: none; }
+.dlg-close {
+  display: inline-flex; align-items: center; justify-content: center; flex: none;
+  width: 26px; height: 26px; padding: 0; border: none; border-radius: 6px;
+  background: transparent; color: var(--color-text-muted); cursor: pointer;
+  transition: background 0.1s, color 0.1s;
+}
+.dlg-close:hover { background: var(--color-bg-tertiary); color: var(--color-text); }
+
+/* ── Icon tile ── */
+.dlg-icon {
+  --dlg-tone: var(--color-primary);
+  display: inline-flex; align-items: center; justify-content: center; flex: none;
+  width: 28px; height: 28px; border-radius: 7px;
+  color: var(--dlg-tone);
+  background: color-mix(in srgb, var(--dlg-tone) 13%, transparent);
+}
+.dlg-icon > svg { width: 16px; height: 16px; }
+.dlg-icon--primary { --dlg-tone: var(--color-primary); }
+.dlg-icon--accent  { --dlg-tone: var(--color-accent); }
+.dlg-icon--warning { --dlg-tone: var(--color-warning); }
+.dlg-icon--danger  { --dlg-tone: var(--color-danger); }
+.dlg-icon--success { --dlg-tone: var(--color-success); }
+.dlg-icon--muted   { --dlg-tone: var(--color-text-muted); }
+
+/* ── Body ── */
+.dlg-body {
+  flex: 1 1 auto; min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 8px var(--dlg-pad-x) 16px;
+}
+.dlg-panel > .dlg-body:first-child { padding-top: 18px; }
+/* The title bar's 14px top already reads as the gap above the body text. */
+.dlg-header + .dlg-body { padding-top: 6px; }
+.dlg-body--flush { padding: 0; }
+.dlg-header + .dlg-body--flush { padding-top: 6px; }
+/* Horizontal inset matching the panel gutters, for text inside a flush body. */
+.dlg-inset { padding-left: var(--dlg-pad-x); padding-right: var(--dlg-pad-x); }
+.dlg-body--fill { display: flex; flex-direction: column; gap: 12px; }
+/* Children keep their height (the body scrolls) unless they opt in with `flex-1 min-h-0`.
+   Layered so Tailwind utilities on a child still win. */
+@layer components {
+  .dlg-body--fill > * { flex-shrink: 0; }
+}
+/* A header-only description paragraph sits between title and a flush body. */
+.dlg-header + .dlg-subhead { padding: 2px var(--dlg-pad-x) 0; margin: 0; }
+
+.dlg-text { min-width: 0; }
+.dlg-lead { display: flex; gap: 12px; align-items: flex-start; }
+.dlg-lead > .dlg-icon { margin-top: 1px; }
+.dlg-message {
+  margin: 0;
+  font-size: 13px; line-height: 1.55;
+  color: var(--color-text);
+  overflow-wrap: anywhere;
+}
+.dlg-detail {
+  font-size: 12px; line-height: 1.5;
+  color: var(--color-text-muted);
+  overflow-wrap: anywhere;
+}
+/* Spacing that utilities on the same element may override lives in the components layer. */
+@layer components {
+  .dlg-detail { margin: 6px 0 0; }
+  .dlg-detail--block, .dlg-text > .dlg-detail:first-child { margin: 0; }
+  .dlg-body > .dlg-text + *,
+  .dlg-body > .dlg-lead + * { margin-top: 12px; }
+  .dlg-body.dlg-body--fill > * { margin-top: 0; }
+}
+
+/* Release notes / long preformatted text. */
+.dlg-notes {
+  margin: 10px 0 0; max-height: 240px; overflow: auto;
+  white-space: pre-wrap; overflow-wrap: anywhere;
+  font-family: inherit; font-size: 12px; line-height: 1.6;
+  color: var(--color-text-muted);
+}
+
+/* Inline notice inside a body. */
+.dlg-callout {
+  --dlg-tone: var(--color-warning);
+  display: flex; gap: 8px; align-items: flex-start;
+  padding: 8px 10px; border-radius: 6px;
+  font-size: 12px; line-height: 1.5; color: var(--color-text);
+  background: color-mix(in srgb, var(--dlg-tone) 9%, transparent);
+  border: 1px solid color-mix(in srgb, var(--dlg-tone) 35%, var(--color-border));
+}
+.dlg-callout > svg { color: var(--dlg-tone); }
+.dlg-callout--danger { --dlg-tone: var(--color-danger); }
+.dlg-callout--danger > span { color: var(--color-danger); }
+
+/* ── Checkbox row ── */
+.dlg-check {
+  display: flex; align-items: flex-start; gap: 8px;
+  margin-top: 14px;
+  font-size: 12px; line-height: 1.45; color: var(--color-text);
+  cursor: pointer; user-select: none;
+}
+.dlg-check > input { margin: 2px 0 0; accent-color: var(--color-primary); flex: none; }
+.dlg-check-hint { display: block; color: var(--color-text-muted); }
+
+/* ── Footer ── */
+.dlg-footer {
+  display: flex; align-items: center; gap: 8px;
+  flex: none;
+  padding: 4px var(--dlg-pad-x) 16px;
+}
+.dlg-footer--divided {
+  padding-top: 12px; padding-bottom: 14px;
+  border-top: 1px solid var(--color-border);
+}
+.dlg-footer-start { display: flex; align-items: center; gap: 8px; min-width: 0; margin-right: auto; }
+.dlg-footer-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-left: auto; flex-wrap: wrap; }
+
+/* ── Buttons ── */
+.dlg-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  height: 28px; min-width: 72px; padding: 0 14px;
+  border-radius: 6px; border: 1px solid transparent;
+  font: inherit; font-size: 12.5px; font-weight: 500; line-height: 1;
+  white-space: nowrap; user-select: none; cursor: pointer;
+  transition: background 0.1s, border-color 0.1s, color 0.1s;
+}
+.dlg-btn-icon { display: inline-flex; }
+.dlg-btn:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--color-primary) 70%, transparent);
+  outline-offset: 2px;
+}
+.dlg-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.dlg-btn--secondary {
+  background: var(--color-bg-tertiary);
+  border-color: var(--color-border);
+  color: var(--color-text);
+}
+.dlg-btn--secondary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-text) 8%, var(--color-bg-tertiary));
+}
+.dlg-btn--primary {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: var(--color-bg);
+  font-weight: 600;
+}
+.dlg-btn--primary:hover:not(:disabled) { background: var(--color-primary-hover); border-color: var(--color-primary-hover); }
+.dlg-btn--danger {
+  background: var(--color-danger);
+  border-color: var(--color-danger);
+  color: var(--color-bg);
+  font-weight: 600;
+}
+.dlg-btn--danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-danger) 86%, var(--color-text));
+}
+.dlg-btn--danger:focus-visible { outline-color: color-mix(in srgb, var(--color-danger) 70%, transparent); }
+.dlg-btn--ghost {
+  min-width: 0; padding: 0 10px;
+  background: transparent; color: var(--color-text-muted);
+}
+.dlg-btn--ghost:hover:not(:disabled) { background: var(--color-bg-tertiary); color: var(--color-text); }
+/* "Discard"-style alternative: quiet until hovered, but clearly destructive. */
+.dlg-btn--discard { color: var(--color-danger); }
+.dlg-btn--discard:hover:not(:disabled) {
+  color: var(--color-danger);
+  background: color-mix(in srgb, var(--color-danger) 12%, transparent);
+}
+
+/* Text-style link in a footer start slot ("Forgot password?"). */
+.dlg-link {
+  padding: 0; border: none; background: none; cursor: pointer;
+  font: inherit; font-size: 12px; color: var(--color-text-muted);
+  text-decoration: underline; text-underline-offset: 2px;
+}
+.dlg-link:hover { color: var(--color-text); }
+.dlg-link:focus-visible { outline: 2px solid color-mix(in srgb, var(--color-primary) 70%, transparent); outline-offset: 2px; border-radius: 3px; }
+
+/* Narrow windows: let footer buttons share the row instead of overflowing. */
+@media (max-width: 480px) {
+  .dlg-footer { flex-wrap: wrap; }
+  .dlg-footer-start { width: 100%; }
+}

@@ -2,8 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { save } from "@tauri-apps/plugin-dialog";
 import { FileDown, Printer } from "lucide-react";
-import { Modal } from "../ui/Modal";
-import { Button } from "../ui/Button";
+import { Dialog, DialogBody, DialogButton, DialogFooter } from "../ui/Dialog";
 import { toast } from "../../lib/toast";
 import { buildRecoveryKitHtml } from "../../lib/recoveryKit";
 import { nativePrint } from "../../lib/pdfExport";
@@ -90,30 +89,27 @@ export function RecoveryKitDialog({ recoveryKey, onClose }: { recoveryKey: strin
   const close = () => { unmountAll(); onClose(); };
 
   return (
-    <Modal onClose={close} zClassName="z-[80]">
-      <div
-        className="w-[760px] max-w-[94vw] max-h-[92vh] flex flex-col rounded-xl p-5 bg-[var(--color-bg-secondary)] border border-[var(--color-border)] shadow-2xl text-[var(--color-text)]"
-        role="dialog" aria-modal="true" aria-label="Recovery kit"
+    <Dialog onClose={close} zClassName="z-[80]" size="xl" title="Print your recovery kit" icon={<Printer size={16} />}>
+      <DialogBody
+        fill
+        message="A one-page sheet with your recovery key and what to do with it."
+        detail="Print it and keep it somewhere safe and offline."
       >
-        <h2 className="text-sm font-semibold mb-1">Print your recovery kit</h2>
-        <p className="text-xs mb-3 text-[var(--color-text-muted)]">
-          A one-page sheet with your recovery key and what to do with it. Print it and keep it somewhere safe and offline.
-        </p>
         <div
-          className="flex-1 min-h-0 overflow-auto rounded-md border border-[var(--color-border)] bg-white p-6 mb-4"
+          className="flex-1 min-h-0 overflow-auto rounded-md border border-[var(--color-border)] bg-white p-6"
           data-testid="recovery-kit-preview"
           dangerouslySetInnerHTML={{ __html: html }}
         />
-        <div className="flex items-center justify-end gap-2">
-          {CAN_SAVE_PDF && (
-            <Button icon={<FileDown size={12} />} disabled={busy} onClick={() => void savePdf()}>
-              {busy ? "Saving…" : "Save as PDF…"}
-            </Button>
-          )}
-          <Button variant="primary" icon={<Printer size={12} />} disabled={busy} onClick={print}>Print…</Button>
-          <Button onClick={close}>Close</Button>
-        </div>
-      </div>
-    </Modal>
+      </DialogBody>
+      <DialogFooter>
+        <DialogButton cancel onClick={close}>Close</DialogButton>
+        {CAN_SAVE_PDF && (
+          <DialogButton icon={<FileDown size={13} />} disabled={busy} onClick={() => void savePdf()}>
+            {busy ? "Saving…" : "Save as PDF…"}
+          </DialogButton>
+        )}
+        <DialogButton variant="primary" icon={<Printer size={13} />} disabled={busy} onClick={print}>Print…</DialogButton>
+      </DialogFooter>
+    </Dialog>
   );
 }

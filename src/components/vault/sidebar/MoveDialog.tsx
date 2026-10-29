@@ -1,7 +1,6 @@
 import { useMemo, useState } from "react";
 import { FolderInput, Search } from "lucide-react";
-import { Modal } from "../../ui/Modal";
-import { Button } from "../../ui/Button";
+import { Dialog, DialogBody, DialogButton, DialogFooter } from "../../ui/Dialog";
 import { canMoveTo, displayName, parentRel } from "../../../lib/vaultTree";
 import { EntryIcon } from "./EntryIcon";
 
@@ -25,19 +24,15 @@ export function MoveDialog({ rel, name, folders, onMove, onClose }: Props) {
   const shown = query ? options.filter((f) => f && f.toLowerCase().includes(query)) : options;
 
   return (
-    <Modal onClose={onClose} zClassName="z-[70]">
-      <form
-        className="vt-dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="vt-move-title"
-        onSubmit={(e) => { e.preventDefault(); if (sel !== undefined && canMoveTo(rel, sel)) onMove(sel); }}
-      >
-        <div className="flex items-center gap-2 mb-3">
-          <FolderInput size={15} className="text-[var(--color-primary)]" aria-hidden />
-          <h2 id="vt-move-title" className="text-sm font-semibold truncate">Move “{name}” to…</h2>
-        </div>
-
+    <Dialog
+      onClose={onClose}
+      zClassName="z-[70]"
+      size="sm"
+      title={`Move “${name}” to…`}
+      icon={<FolderInput size={16} />}
+      onSubmit={(e) => { e.preventDefault(); if (sel !== undefined && canMoveTo(rel, sel)) onMove(sel); }}
+    >
+      <DialogBody>
         {folders.length > 6 && (
           <label className="vt-search" style={{ margin: 0 }}>
             <Search size={13} aria-hidden />
@@ -71,14 +66,13 @@ export function MoveDialog({ rel, name, folders, onMove, onClose }: Props) {
           })}
           {shown.length === 0 && <p className="text-xs px-2 py-3 text-[var(--color-text-muted)]">No folder matches “{q}”.</p>}
         </div>
-
-        <div className="flex justify-end gap-2">
-          <Button type="button" onClick={onClose}>Cancel</Button>
-          <Button type="submit" variant="primary" disabled={sel === undefined || !canMoveTo(rel, sel)} autoFocus={folders.length <= 6}>
-            Move here
-          </Button>
-        </div>
-      </form>
-    </Modal>
+      </DialogBody>
+      <DialogFooter>
+        <DialogButton cancel onClick={onClose}>Cancel</DialogButton>
+        <DialogButton type="submit" variant="primary" disabled={sel === undefined || !canMoveTo(rel, sel)} autoFocus={folders.length <= 6}>
+          Move here
+        </DialogButton>
+      </DialogFooter>
+    </Dialog>
   );
 }
