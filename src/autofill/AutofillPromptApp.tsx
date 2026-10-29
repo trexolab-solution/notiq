@@ -422,10 +422,12 @@ function LockedStage({ refs, job, error, busy, dispatch, onDeny }: LockedProps) 
   const what = job.kind === "fill" ? "fill a saved login" : "save a login";
   return (
     <Panel refs={refs} host={job.req.host} icon={<Lock size={16} />} onClose={onDeny} onSubmit={submit}
-           sub={<>The Notiq extension wants to {what}. Unlock the vault to continue.</>}
+           sub={job.kind === "fill"
+             ? <>The Notiq extension wants to {what}. Unlocking fills it right away.</>
+             : <>The Notiq extension wants to {what}. Unlock the vault to continue.</>}
            footer={<>
              <DialogButton cancel onClick={onDeny} disabled={busy}>Cancel</DialogButton>
-             <DialogButton type="submit" variant="primary" disabled={busy}>{busy ? "Unlocking…" : "Unlock"}</DialogButton>
+             <DialogButton type="submit" variant="primary" disabled={busy}>{busy ? "Unlocking…" : job.kind === "fill" ? "Unlock & fill" : "Unlock"}</DialogButton>
            </>}>
       <div>
         <label className="af-label" htmlFor="af-password">Master password</label>

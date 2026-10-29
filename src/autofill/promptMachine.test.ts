@@ -106,10 +106,28 @@ describe("prompt state machine: fill", () => {
     ] });
   });
 
-  it("an unlock never fills silently, even for a trusted host", () => {
+  it("an unlock never fills silently, even for a trusted host: with several logins it still asks", () => {
     const r = run(IDLE, start(fill(), { unlocked: false, trusted: true }), { type: "unlocked" },
-      { type: "scanned", matches: [m("Logins/a.nqv", "a")], lookalike: null });
+      { type: "scanned", matches: [m("Logins/a.nqv", "a"), m("Logins/b.nqv", "b")], lookalike: null });
     expect(r.state.stage).toBe("request");
+  });
+
+  it("unlocking in the prompt counts as consent: one match is filled without a second Allow", () => {
+    const a = m("Logins/a.nqv", "a");
+    const r = run(IDLE, start(fill(), { unlocked: false }), { type: "unlocked" },
+      { type: "scanned", matches: [a], lookalike: null });
+    expect(r.effects).toEqual([{ kind: "release", id: "f1", match: a, trustHost: null }]);
+  });
+
+  it("an already unlocked vault still asks for Allow with a single match", () => {
+    const r = run(IDLE, start(fill()), { type: "scanned", matches: [m("Logins/a.nqv", "a")], lookalike: null });
+    expect(r.state.stage).toBe("request");
+  });
+
+  it("unlocking for a save still asks before writing", () => {
+    const r = run(IDLE, start(save(), { unlocked: false }), { type: "unlocked" },
+      { type: "scanned", matches: [], lookalike: null });
+    expect(r.state.stage).toBe("save");
   });
 
   it("locking the vault cancels an open request with locked; the locked screen stays", () => {

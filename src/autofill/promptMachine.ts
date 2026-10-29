@@ -22,8 +22,9 @@ export type Job = FillJob | SaveJob;
 
 export type PromptState =
   | { stage: "idle" }
-  /** Reading the vault. `silent`: a trusted fill that must not show the window. */
-  | { stage: "checking"; job: Job; silent: boolean }
+  /** Reading the vault. `silent`: a trusted fill that must not show the window. `consent`: the user just
+   *  unlocked in this very prompt (which named the site and the fill), so one clear match is filled without a second Allow. */
+  | { stage: "checking"; job: Job; silent: boolean; consent?: boolean }
   | { stage: "locked"; job: Job; error: string | null; busy: boolean }
   | { stage: "request"; job: FillJob; matches: LoginMatch[]; pick: number; trust: boolean; busy: boolean }
   | { stage: "save"; job: SaveJob; plan: SavePlan; name: string; reveal: boolean; busy: boolean }
@@ -90,9 +91,10 @@ export function step(state: PromptState, ev: PromptEvent): Step {
     case "unlockFailed":
       return state.stage === "locked" ? same({ ...state, busy: false, error: ev.error }) : same(state);
     case "unlocked":
-      // Trust windows end when the vault locks, so a just-unlocked vault never fills silently.
+      // Trust windows end when the vault locks, so a just-unlocked vault never fills silently. Unlocking
+      // here is still an explicit action on a prompt that says what it is for, so it counts as consent.
       if (state.stage !== "locked") return same(state);
-      return { state: { stage: "checking", job: state.job, silent: false }, effects: [{ kind: "scan", host: state.job.req.host }] };
+      return { state: { stage: "checking", job: state.job, silent: false, consent: state.job.kind === "fill" }, effects: [{ kind: "scan", host: state.job.req.host }] };
 
     case "scanned": {
       if (state.stage !== "checking") return same(state);
@@ -118,6 +120,10 @@ export function step(state: PromptState, ev: PromptEvent): Step {
         if (d.kind === "fill") return { state, effects: [{ kind: "release", id, match: d.match, trustHost: null }] };
         if (d.kind === "choose") return end(reply(id, { choose: d.options }));
         return end(reply(id, { error: "no_match" }));
+      }
+      if (state.consent) {
+        const d = decideTrusted(ev.matches, job.req.account);
+        if (d.kind === "fill") return { state, effects: [{ kind: "release", id, match: d.match, trustHost: null }] };
       }
       return {
         state: {
