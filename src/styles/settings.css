@@ -336,6 +336,10 @@
 }
 .setting-row:hover { background: color-mix(in srgb, var(--color-text) 2.5%, transparent); }
 
+/* Inline form that opens under a row (e.g. the master-password prompt): continues the row above, aligned to its text. */
+.settings-group-body > .setting-subform { border-top: 0; margin-top: -4px; padding: 0 18px 16px; max-width: 420px; display: flex; flex-direction: column; gap: 10px; }
+.setting-subform .setting-subform-actions { display: flex; gap: 8px; }
+
 .setting-row-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .setting-row-label {
   position: relative;

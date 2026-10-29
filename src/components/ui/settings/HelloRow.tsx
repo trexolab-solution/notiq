@@ -89,7 +89,7 @@ export function HelloRow() {
         ) : null}
       </SettingRow>
       {asking && !status.enabled && (
-        <form onSubmit={enable} className="flex flex-col gap-2 max-w-sm">
+        <form onSubmit={enable} className="setting-subform">
           <PasswordInput placeholder="Master password" autoComplete="current-password" autoFocus
                          aria-label="Master password to turn on Windows Hello"
                          value={password} onChange={(e) => setPassword(e.target.value)} />
@@ -97,8 +97,8 @@ export function HelloRow() {
             Windows will ask you to verify with Windows Hello (possibly more than once).
           </p>
           {error && <p role="alert" className="text-xs text-[var(--color-danger)]">{error}</p>}
-          <div className="flex gap-2">
-            <Button type="submit" size="sm" variant="primary" disabled={busy || !password}>
+          <div className="setting-subform-actions">
+            <Button className="settings-btn-primary" type="submit" size="sm" variant="primary" disabled={busy || !password}>
               {busy ? "Waiting for Windows Hello…" : "Turn on Windows Hello"}
             </Button>
             <Button className="settings-btn" type="button" size="sm" disabled={busy} onClick={closeForm}>Cancel</Button>
