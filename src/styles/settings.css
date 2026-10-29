@@ -1,6 +1,266 @@
 /* Settings tab. The Settings page (components/settings/SettingsPage.tsx) owns the layout; the primitives
    (ui/SettingRow, ui/SettingsGroup) own the look of a row and a group. */
 
+/* page ─────────────────────────────────────────────────────────────────────────
+   Layout of the Settings tab: the page itself is the scroller; a sticky top bar (title, search, restore),
+   then a two-column body (section nav | content). The page is a size container, so it reflows by the width
+   of the editor area (terminal / AI chat docked beside it), not the window. */
+.settings-page {
+  --settings-gutter: 32px;
+  --settings-nav-w: 188px;
+  --settings-content-max: 820px;
+  container-type: inline-size;
+  container-name: settings-page;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scroll-padding-top: calc(var(--settings-header-h, 64px) + 16px);
+  background: var(--color-bg);
+  color: var(--color-text);
+}
+
+/* Top bar */
+.settings-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: var(--color-bg);
+  border-bottom: 1px solid color-mix(in srgb, var(--color-border) 75%, transparent);
+}
+.settings-topbar-inner {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  max-width: calc(var(--settings-nav-w) + var(--settings-content-max) + 48px + 2 * var(--settings-gutter));
+  margin: 0 auto;
+  padding: 14px var(--settings-gutter);
+}
+.settings-title {
+  margin: 0;
+  flex-shrink: 0;
+  width: var(--settings-nav-w);
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+}
+
+/* Search */
+.settings-search {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: var(--settings-content-max);
+}
+.settings-search-icon {
+  position: absolute;
+  left: 11px;
+  color: var(--color-text-muted);
+  pointer-events: none;
+}
+.settings-search-input {
+  width: 100%;
+  height: 34px;
+  padding: 0 128px 0 34px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-bg-secondary);
+  color: var(--color-text);
+  font: inherit;
+  font-size: 13px;
+  transition: border-color 0.12s ease-out, box-shadow 0.12s ease-out;
+}
+.settings-search-input::placeholder { color: color-mix(in srgb, var(--color-text-muted) 80%, var(--color-text)); }
+.settings-search-input::-webkit-search-cancel-button { display: none; }
+.settings-search-input:hover { border-color: color-mix(in srgb, var(--color-text-muted) 60%, var(--color-border)); }
+.settings-search-input:focus-visible {
+  outline: none;
+  border-color: color-mix(in srgb, var(--color-primary) 70%, var(--color-border));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 18%, transparent);
+}
+.settings-search-clear {
+  position: absolute;
+  right: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+.settings-search-clear:hover { background: var(--color-bg-tertiary); color: var(--color-text); }
+.settings-search-count {
+  position: absolute;
+  right: 36px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: color-mix(in srgb, var(--color-text-muted) 70%, var(--color-text));
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+/* Restore defaults: a quiet text button, pushed to the right edge. */
+.settings-restore {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  margin-left: auto;
+  height: 32px;
+  padding: 0 10px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: color-mix(in srgb, var(--color-text-muted) 70%, var(--color-text));
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background-color 0.12s ease-out, color 0.12s ease-out;
+}
+.settings-restore:hover { background: var(--color-bg-tertiary); color: var(--color-text); }
+
+/* Body: nav | content */
+.settings-body {
+  display: grid;
+  grid-template-columns: var(--settings-nav-w) minmax(0, var(--settings-content-max));
+  justify-content: center;
+  column-gap: 48px;
+  padding: 0 var(--settings-gutter) 96px;
+}
+
+/* Section nav */
+.settings-nav-wrap {
+  position: sticky;
+  top: var(--settings-header-h, 64px);
+  align-self: start;
+  z-index: 2;
+  padding-top: 24px;
+}
+.settings-nav-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.settings-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 32px;
+  padding: 0 10px;
+  border-radius: 8px;
+  color: color-mix(in srgb, var(--color-text-muted) 70%, var(--color-text));
+  font-size: 13px;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: background-color 0.12s ease-out, color 0.12s ease-out;
+}
+.settings-nav-item:hover { background: color-mix(in srgb, var(--color-text) 5%, transparent); color: var(--color-text); }
+.settings-nav-item svg { flex-shrink: 0; opacity: 0.85; }
+.settings-nav-item[aria-current] {
+  background: color-mix(in srgb, var(--color-primary) 10%, var(--color-bg-tertiary));
+  color: var(--color-text);
+  font-weight: 600;
+}
+.settings-nav-item[aria-current] svg { color: var(--color-primary); opacity: 1; }
+.settings-nav-item[data-empty] { opacity: 0.45; }
+.settings-nav-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.settings-nav-count {
+  font-size: 11px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-muted);
+}
+
+/* Content + sections */
+.settings-content { min-width: 0; padding-top: 8px; }
+.settings-section { padding-top: 32px; }
+.settings-section + .settings-section { margin-top: 24px; }
+.settings-section[hidden] { display: none; }
+.settings-section-title {
+  margin: 0 0 16px;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  line-height: 1.3;
+  color: var(--color-text);
+  scroll-margin-top: calc(var(--settings-header-h, 64px) + 16px);
+}
+.settings-section-title:focus { outline: none; }
+.settings-section-title:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--color-primary) 55%, transparent);
+  outline-offset: 4px;
+  border-radius: 4px;
+}
+/* A revealed row receives focus programmatically; the reveal highlight already marks it. */
+.settings-page [data-setting-row]:focus:not(:focus-visible),
+.settings-page [data-setting-block]:focus:not(:focus-visible) { outline: none; }
+
+/* Empty search state */
+.settings-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 56px 0 24px;
+}
+.settings-empty-icon { color: var(--color-text-muted); margin-bottom: 6px; }
+.settings-empty-title { margin: 0; font-size: 15px; font-weight: 600; color: var(--color-text); overflow-wrap: anywhere; }
+.settings-empty-hint { margin: 0; font-size: 13px; color: color-mix(in srgb, var(--color-text-muted) 70%, var(--color-text)); }
+.settings-empty-clear {
+  margin-top: 10px;
+  height: 32px;
+  padding: 0 14px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-bg-secondary);
+  color: var(--color-text);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.settings-empty-clear:hover { background: var(--color-bg-tertiary); }
+
+/* Narrow pane: the nav becomes a scrollable row of chips under the top bar. */
+@container settings-page (max-width: 720px) {
+  /* (a container can't restyle itself, so the narrower gutter is set on its children) */
+  .settings-topbar-inner, .settings-body { --settings-gutter: 16px; }
+  .settings-title { width: auto; font-size: 16px; }
+  .settings-topbar-inner { gap: 10px; padding-top: 10px; padding-bottom: 10px; }
+  .settings-restore span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .settings-restore { padding: 0 8px; }
+  .settings-body { grid-template-columns: minmax(0, 1fr); padding-bottom: 64px; }
+  .settings-nav-wrap {
+    margin: 0 calc(-1 * var(--settings-gutter));
+    padding: 8px var(--settings-gutter);
+    background: var(--color-bg);
+    border-bottom: 1px solid color-mix(in srgb, var(--color-border) 75%, transparent);
+  }
+  .settings-nav-list { flex-direction: row; gap: 6px; overflow-x: auto; scrollbar-width: none; }
+  .settings-nav-list::-webkit-scrollbar { display: none; }
+  .settings-nav-item {
+    height: 30px;
+    padding: 0 12px;
+    border: 1px solid var(--color-border);
+    border-radius: 999px;
+    font-size: 12px;
+  }
+  .settings-nav-item svg { display: none; }
+  .settings-nav-item[aria-current] { border-color: color-mix(in srgb, var(--color-primary) 55%, var(--color-border)); }
+  .settings-section { padding-top: 20px; }
+}
+@container settings-page (max-width: 460px) {
+  .settings-search-count { display: none; }
+  .settings-search-input { padding-right: 34px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .settings-search-input, .settings-restore, .settings-nav-item { transition: none; }
+}
+/* end page */
+
 /* While searching, hide groups that have no visible row/block left. */
 .settings-filtering .settings-group:not(:has([data-setting-row], [data-setting-block])) { display: none; }
 

@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useImperativeHandle, useMemo, useRef } from "react";
+import { isContentTab } from "../../lib/tabKinds";
 import { Tooltip } from "../ui/Tooltip";
 import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
 import ReactMarkdown from "react-markdown";
@@ -307,7 +308,8 @@ export const MarkdownPreview = React.memo(
       const cbToggleRef = useRef(handleCheckboxToggle);
       cbToggleRef.current = handleCheckboxToggle;
       const tabsRef = useRef(tabs);
-      tabsRef.current = tabs;
+      // Links resolve against content tabs only (never the Settings tab).
+      tabsRef.current = tabs.filter(isContentTab);
       const setActiveTabRef = useRef(setActiveTab);
       setActiveTabRef.current = setActiveTab;
 

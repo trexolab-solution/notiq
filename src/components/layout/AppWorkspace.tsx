@@ -19,6 +19,9 @@ const KnowledgeGraph = lazy(() =>
 const Whiteboard = lazy(() =>
   import("../whiteboard/Whiteboard").then((m) => ({ default: m.Whiteboard }))
 );
+const SettingsPage = lazy(() =>
+  import("../settings/SettingsPage").then((m) => ({ default: m.SettingsPage }))
+);
 const AIChatPanel = lazy(() =>
   import("../ai/AIChatPanel").then((m) => ({ default: m.AIChatPanel }))
 );
@@ -27,8 +30,7 @@ interface Props {
   activeView:          AppView;
   onViewChange:        (v: AppView) => void;
   onNewWhiteboard:     () => void;
-  onOpenSettings:      () => void;
-  requestClose:        (id: string) => void;
+  requestClose:       (id: string) => void;
   activeTab:           Tab | undefined;
   onLinkedWhiteboard:  () => void;
   graphMounted:        boolean;
@@ -47,7 +49,7 @@ interface Props {
  * through as props.
  */
 export function AppWorkspace({
-  activeView, onViewChange, onNewWhiteboard, onOpenSettings, requestClose,
+  activeView, onViewChange, onNewWhiteboard, requestClose,
   activeTab, onLinkedWhiteboard, graphMounted, term,
   aiChatMounted, aiChatOpen, aiChatWidth, onAiChatResizeStart, onCloseAiChat,
 }: Props) {
@@ -57,7 +59,6 @@ export function AppWorkspace({
         activeView={activeView}
         onViewChange={onViewChange}
         onNewWhiteboard={onNewWhiteboard}
-        onOpenSettings={onOpenSettings}
       />
 
       <div className="app-content-column">
@@ -89,6 +90,12 @@ export function AppWorkspace({
                 <ErrorBoundary>
                   <Suspense fallback={<ViewLoader view="whiteboard" />}>
                     <Whiteboard tabId={activeTab.id} linkedNoteId={activeTab.linkedNoteId} />
+                  </Suspense>
+                </ErrorBoundary>
+              ) : activeTab?.kind === "settings" ? (
+                <ErrorBoundary>
+                  <Suspense fallback={<div className="settings-page" aria-busy="true" />}>
+                    <SettingsPage tabId={activeTab.id} />
                   </Suspense>
                 </ErrorBoundary>
               ) : (

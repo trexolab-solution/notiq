@@ -12,6 +12,7 @@ import type { Tab, AppView, ThemeId } from "../types";
 import { THEMES } from "../lib/themes";
 import { getActiveEditor } from "../lib/activeEditor";
 import { aiContinue, aiSummarize, aiFixGrammar, aiGenerateTitle } from "../lib/ai/actions";
+import { SECTION_LABELS, SECTION_ORDER, type SectionId } from "../lib/settingsIndex";
 
 interface UseCommandsDeps {
   tabs: Tab[];
@@ -27,6 +28,8 @@ interface UseCommandsDeps {
   setTheme: (id: ThemeId) => void;
   toggleAiChat: () => void;
   onOpenSettings: () => void;
+  /** Opens the Settings tab at a section (store `openSettings`). */
+  openSettings: (section?: SectionId, settingId?: string) => void;
   onOpenSearch: () => void;
 }
 
@@ -39,7 +42,7 @@ export function useCommands(deps: UseCommandsDeps): () => Command[] {
     tabs, activeTabId, aiEnabled,
     addTab, setActiveTab, setActiveView,
     handleNewWhiteboard, handleOpenMultiple, handleOpenFolder,
-    saveTabToFile, setTheme, toggleAiChat, onOpenSettings, onOpenSearch,
+    saveTabToFile, setTheme, toggleAiChat, onOpenSettings, openSettings, onOpenSearch,
   } = deps;
 
   return useCallback((): Command[] => {
@@ -53,7 +56,7 @@ export function useCommands(deps: UseCommandsDeps): () => Command[] {
         group: "Tabs",
         hint: t.filePath ? t.filePath.replace(/\\/g, "/").split("/").slice(-2).join("/") : undefined,
         trailing: t.id === activeTabId ? "current" : undefined,
-        icon: <FileIcon size={14} />,
+        icon: t.kind === "settings" ? <SettingsIcon size={14} /> : <FileIcon size={14} />,
         run: () => { setActiveView("editor"); setActiveTab(t.id); },
       });
     }
@@ -76,8 +79,16 @@ export function useCommands(deps: UseCommandsDeps): () => Command[] {
       { id: "vault:lock-note", label: "Vault: Lock This Note", group: "Vault", icon: <LockIcon size={14} />, run: () => { if (activeTabId) void useAppStore.getState().lockTabToVault(activeTabId); } },
       { id: "vault:lock", label: "Vault: Lock Now", group: "Vault", icon: <LockIcon size={14} />, run: () => { void useAppStore.getState().lockVault(); } },
       { id: "vault:unlock", label: "Vault: Unlock", group: "Vault", icon: <UnlockIcon size={14} />, run: () => { void useVaultStore.getState().ensureUnlocked(); } },
-      { id: "act:settings", label: "Settings", group: "Actions", icon: <SettingsIcon size={14} />, trailing: "Ctrl+,", run: onOpenSettings },
+      { id: "act:settings", label: "Open Settings", group: "Actions", icon: <SettingsIcon size={14} />, trailing: "Ctrl+,", run: onOpenSettings },
     );
+
+    // Jump straight to a Settings section.
+    for (const id of SECTION_ORDER) {
+      cmds.push({
+        id: `settings:${id}`, label: `Settings: ${SECTION_LABELS[id]}`, group: "Settings",
+        icon: <SettingsIcon size={14} />, run: () => openSettings(id),
+      });
+    }
 
     // AI actions (only when an editor exists + AI is on)
     if (aiEnabled && getActiveEditor()) {
@@ -101,5 +112,5 @@ export function useCommands(deps: UseCommandsDeps): () => Command[] {
     }
 
     return cmds;
-  }, [tabs, activeTabId, aiEnabled, addTab, setActiveTab, setActiveView, handleNewWhiteboard, handleOpenMultiple, handleOpenFolder, saveTabToFile, setTheme, toggleAiChat, onOpenSettings, onOpenSearch]);
+  }, [tabs, activeTabId, aiEnabled, addTab, setActiveTab, setActiveView, handleNewWhiteboard, handleOpenMultiple, handleOpenFolder, saveTabToFile, setTheme, toggleAiChat, onOpenSettings, openSettings, onOpenSearch]);
 }

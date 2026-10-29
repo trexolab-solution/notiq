@@ -1,7 +1,7 @@
 import { useShallow } from "zustand/shallow";
 import { useAppStore } from "./index";
 
-/** Grouped selector for all editor preference values + setters (for SettingsModal). */
+/** Grouped selector for all editor preference values + setters (for the Settings page). */
 export function useEditorPreferences() {
   return useAppStore(
     useShallow((s) => ({
@@ -47,7 +47,7 @@ export function useEditorPreferences() {
   );
 }
 
-/** Grouped selector for terminal preference values + setters (for SettingsModal). */
+/** Grouped selector for terminal preference values + setters (for the Settings page). */
 export function useTerminalPreferences() {
   return useAppStore(
     useShallow((s) => ({

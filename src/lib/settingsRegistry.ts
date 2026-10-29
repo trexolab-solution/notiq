@@ -1,4 +1,5 @@
 import type { SettingMeta } from "./settingsIndex";
+import { rankSettings } from "./settingsSearch";
 import { SETTINGS_INDEX as general }    from "../components/ui/settings/GeneralSection";
 import { SETTINGS_INDEX as editor }     from "../components/ui/settings/EditorSettingsSection";
 import { SETTINGS_INDEX as ai }         from "../components/ui/settings/AISettingsSection";
@@ -13,3 +14,10 @@ import { SETTINGS_INDEX as about }      from "../components/ui/settings/AboutSec
 export const ALL_SETTINGS: SettingMeta[] = [
   ...general, ...editor, ...ai, ...vault, ...terminal, ...appearance, ...shortcuts, ...updates, ...about,
 ];
+
+/**
+ * Best matches for `query` across every section (see `rankSettings` for the order). `source` is for tests.
+ */
+export function searchSettings(query: string, limit?: number, source: SettingMeta[] = ALL_SETTINGS): SettingMeta[] {
+  return rankSettings(source, query, limit);
+}

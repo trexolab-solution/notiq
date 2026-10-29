@@ -26,8 +26,9 @@ export function fileBasename(s: string): string {
  *
  * Returns undefined for external URLs (http/s), mailto:, note://, and #fragments.
  */
-export function resolveNoteHref(href: string, tabs: Tab[]): Tab | undefined {
+export function resolveNoteHref(href: string, allTabs: Tab[]): Tab | undefined {
   if (!href) return undefined;
+  const tabs = allTabs.filter((t) => t.kind !== "settings"); // Settings is never a link target
   const decoded = decodeURIComponent(href);
   if (/^https?:\/\//i.test(decoded))  return undefined;
   if (decoded.startsWith("mailto:"))  return undefined;

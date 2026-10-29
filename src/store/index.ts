@@ -21,6 +21,8 @@ import { migrateTempToSaveDir, cleanupTabTemp } from "../lib/attachments";
 import { toast } from "../lib/toast";
 import { emit } from "@tauri-apps/api/event";
 import { buildPreferenceSlice, resetAllPreferences } from "./preferences";
+import { normalizeSettingsTabs, SETTINGS_TAB_TITLE, type SettingsTarget } from "../lib/tabKinds";
+import type { SectionId } from "../lib/settingsIndex";
 
 // ─── debounced helpers ───────────────────────────────────────────────────────
 
@@ -102,6 +104,16 @@ export interface AppState {
 
   togglePinTab: (id: string) => void;
   reorderTabs: (tabs: Tab[]) => void;
+
+  // settings tab
+  /**
+   * Open the singleton Settings tab (activate it if it exists, else create it) and switch to the editor
+   * view. With a `section` (and optionally a `settingId` from a SETTINGS_INDEX), records a new
+   * `settingsTarget` the page consumes to scroll to and reveal that place.
+   */
+  openSettings: (section?: SectionId, settingId?: string) => void;
+  /** Latest deep-link request for the Settings page (null = none yet). */
+  settingsTarget: SettingsTarget | null;
 
   // file I/O
   saveTabToFile: (id: string) => Promise<boolean>;
@@ -261,6 +273,8 @@ export const useAppStore = create<AppState>((set, get) => {
     if (!tab) return false;
     // A locked vault tab has empty content — saving it would wipe the note.
     if (tab.vaultLocked) return false;
+    // The Settings tab has nothing to save.
+    if (tab.kind === "settings") return false;
     const path = forcePickPath
       ? await pickSavePath(tab.title)
       : (tab.filePath ?? await pickSavePath(tab.title));
@@ -324,6 +338,7 @@ export const useAppStore = create<AppState>((set, get) => {
       if (!target) return;
       // Pinned tabs cannot be closed — unpin first
       if (target.isPinned) return;
+      if (target.kind === "settings") set({ settingsTarget: null });
       // Clean up whiteboard-specific localStorage when a whiteboard tab is closed
       if (target.kind === "whiteboard") {
         try { localStorage.removeItem(`smart-note:wb-${id}`); } catch { /* ignore */ }
@@ -354,6 +369,7 @@ export const useAppStore = create<AppState>((set, get) => {
 
     updateTabContent(id, content) {
       const tab = get().tabs.find((t) => t.id === id);
+      if (tab?.kind === "settings") return; // Settings has no content
       const changes: Partial<Tab> = { content, isDirty: true, updatedAt: Date.now() };
 
       // Auto-derive title from first line for unsaved tabs (like Windows 11 Notepad)
@@ -370,6 +386,7 @@ export const useAppStore = create<AppState>((set, get) => {
     },
 
     updateTabTitle(id, title) {
+      if (get().tabs.find((t) => t.id === id)?.kind === "settings") return; // not renameable
       updateTab(id, { title, updatedAt: Date.now() });
       debounceGraphRebuild(() => get().rebuildGraph());
       persist();
@@ -417,6 +434,25 @@ export const useAppStore = create<AppState>((set, get) => {
 
     reorderTabs(tabs) {
       set({ tabs });
+      persist();
+    },
+
+    // ── settings tab ──────────────────────────────────────────
+    settingsTarget: null,
+
+    openSettings(section, settingId) {
+      const existing = get().tabs.find((t) => t.kind === "settings");
+      const target: SettingsTarget | null = section
+        ? { section, settingId, nonce: (get().settingsTarget?.nonce ?? 0) + 1 }
+        : get().settingsTarget;
+      if (existing) {
+        set({ activeTabId: existing.id, activeView: "editor", settingsTarget: target });
+      } else {
+        const tab = makeTab({ kind: "settings", title: SETTINGS_TAB_TITLE, editorMode: "preview" });
+        set((s) => ({
+          tabs: [...s.tabs, tab], activeTabId: tab.id, activeView: "editor", settingsTarget: target, sessionReady: true,
+        }));
+      }
       persist();
     },
 
@@ -724,12 +760,17 @@ export const useAppStore = create<AppState>((set, get) => {
     hydrate(tabs, activeTabId, themeId) {
       applyTheme(themeId);
       localStorage.setItem("pref:theme", themeId);
-      const migratedTabs = tabs.map((t) => ({
+      const migratedTabs = normalizeSettingsTabs(tabs.map((t) => ({
         ...t,
         kind: (t.kind ?? "note") as TabKind,
         editorMode: t.editorMode === ("rich" as EditorMode) ? "split" as EditorMode : t.editorMode,
         isPinned: t.isPinned ?? false,
-      }));
+      })));
+      // An active id that pointed at a dropped duplicate Settings tab falls back to the first tab.
+      if (activeTabId && !migratedTabs.some((t) => t.id === activeTabId)
+        && tabs.find((t) => t.id === activeTabId)?.kind === "settings") {
+        activeTabId = migratedTabs.find((t) => t.kind === "settings")?.id ?? null;
+      }
       set({ tabs: migratedTabs, activeTabId, themeId, graphData: buildGraphData(migratedTabs), sessionReady: true });
     },
 

@@ -1,7 +1,7 @@
 /**
  * Pure data constants used by the settings sections.
  * Kept in a separate file so each section component can pull only the
- * options it needs without dragging in the rest of SettingsModal.
+ * options it needs without dragging in the rest of the Settings page.
  */
 
 export const FONT_FAMILIES = [
@@ -98,6 +98,9 @@ export interface ShortcutEntry {
 }
 
 export const ALL_SHORTCUTS: ShortcutEntry[] = [
+  { section: "App",    key: "Ctrl+,",       label: "Open settings" },
+  { section: "App",    key: "Ctrl+⇧+P",    label: "Command palette" },
+  { section: "App",    key: "Ctrl+⇧+F",    label: "Search in notes" },
   { section: "File",   key: "Ctrl+N",       label: "New note" },
   { section: "File",   key: "Ctrl+W",       label: "Close tab" },
   { section: "File",   key: "Ctrl+S",       label: "Save file" },
@@ -147,7 +150,7 @@ export const ALL_SHORTCUTS: ShortcutEntry[] = [
 ];
 
 /** Order of the groups in the Shortcuts UI. */
-export const SHORTCUT_GROUPS = ["File", "Tabs", "Editor", "Format", "Vault", "Terminal"];
+export const SHORTCUT_GROUPS = ["App", "File", "Tabs", "Editor", "Format", "Vault", "Terminal"];
 
 /** Trigger size for a Select inside a settings row: 32px tall, one shared width so the control column lines up. */
 export const SETTINGS_SELECT_STYLE = { width: 208, minWidth: 0, height: 32, padding: "0 10px 0 12px" } as const;

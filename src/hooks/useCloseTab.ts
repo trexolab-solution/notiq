@@ -51,6 +51,9 @@ export function useCloseTab(): CloseTabControls {
     // Pinned tabs cannot be closed — unpin first
     if (tab.isPinned) return;
 
+    // Settings has nothing to lose — close straight away.
+    if (tab.kind === "settings") { removeTab(id); return; }
+
     if (tab.kind === "whiteboard") {
       // Only ask if the canvas has drawn elements worth losing
       if (whiteboardHasContent(id)) { setPendingTab(tab); return; }

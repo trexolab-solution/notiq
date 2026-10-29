@@ -1,5 +1,6 @@
 export type EditorMode = "markdown" | "preview" | "split";
-export type TabKind    = "note" | "whiteboard";
+/** "settings" is the singleton Settings editor tab (no file, never dirty, no content). */
+export type TabKind    = "note" | "whiteboard" | "settings";
 export type AppView    = "editor" | "graph";
 
 export type AutoClosingBrackets  = "always" | "beforeWhitespace" | "never";
@@ -51,7 +52,7 @@ export interface Theme {
 
 export interface Tab {
   id: string;
-  kind: TabKind;           // "note" (default) or "whiteboard"
+  kind: TabKind;           // "note" (default), "whiteboard" or "settings"
   title: string;
   filePath?: string;
   content: string;

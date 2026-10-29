@@ -18,6 +18,8 @@ import { SECRET_KINDS }            from "./lib/secretEntry";
 import { appWin }                  from "./lib/tauriWindow";
 import { toast } from "./lib/toast";
 import { pickAndReadMultipleFiles, pickFolderAndReadFiles, type FileEntry } from "./lib/fileOps";
+import { ALL_SETTINGS }            from "./lib/settingsRegistry";
+import { settingsCommandsFor }     from "./lib/settingsCommands";
 
 import { AppTitlebar }              from "./components/layout/AppTitlebar";
 import { AppWorkspace }             from "./components/layout/AppWorkspace";
@@ -29,8 +31,6 @@ export default function App() {
   useFileWatcher();
   const { pendingTab, requestClose, handleSaveAndClose, handleDiscardAndClose, handleCancelClose } = useCloseTab();
 
-  const [showSettings,  setShowSettings]  = useState(false);
-  const [settingsSection, setSettingsSection] = useState<"ai" | "vault" | undefined>(undefined);
   const [showAIOnboarding, setShowAIOnboarding] = useState(false);
   const [showTour, setShowTour] = useState(false);
   const [showPalette,   setShowPalette]   = useState(false);
@@ -59,6 +59,7 @@ export default function App() {
   const setTheme        = useAppStore((s) => s.setTheme);
   const saveTabToFile   = useAppStore((s) => s.saveTabToFile);
   const navigateToNote  = useAppStore((s) => s.navigateToNote);
+  const openSettings    = useAppStore((s) => s.openSettings);
 
   // Header ✨ button: not set up → onboarding; set up → quick enable/disable toggle.
   const handleAIClick = useCallback(() => {
@@ -68,22 +69,14 @@ export default function App() {
     toast.info(next ? "AI assistance enabled" : "AI assistance disabled");
   }, [aiOnboarded, aiEnabled, setAiEnabled]);
 
-  // Other parts of the app can ask for a settings page.
-  useEffect(() => {
-    const h = (e: Event) => {
-      const section = (e as CustomEvent<"ai" | "vault">).detail;
-      setSettingsSection(section);
-      setShowSettings(true);
-    };
-    window.addEventListener("app:open-settings", h);
-    return () => window.removeEventListener("app:open-settings", h);
-  }, []);
-
-  // Right-click the ✨ button → open the AI settings page.
-  const openAISettings = useCallback(() => {
-    setSettingsSection("ai");
-    setShowSettings(true);
-  }, []);
+  // Settings is a tab: every entry point goes through the store's `openSettings`.
+  const handleOpenSettings = useCallback(() => openSettings(), [openSettings]);
+  // Right-click the ✨ button → the AI section of Settings.
+  const openAISettings = useCallback(() => openSettings("ai"), [openSettings]);
+  // Command palette: typing also lists matching settings ("Settings › Section › Label").
+  const settingsQueryCommands = useCallback(
+    (q: string) => settingsCommandsFor(q, ALL_SETTINGS, openSettings), [openSettings],
+  );
 
   const activeTab = tabs.find((t) => t.id === activeTabId);
   // Locked notes live in `.nqv`; judge them by their original type. Login/secret
@@ -106,7 +99,7 @@ export default function App() {
   // Startup effects: autostart bootstrap, background update check, first-run
   // tour / What's New note, opening a file passed via file-association / CLI
   // arg, OS drag-and-drop, and the command-palette/search/tour event bridge.
-  const { dragOver } = useAppStartup({ setShowTour, setShowSettings, setShowPalette, setShowSearch });
+  const { dragOver } = useAppStartup({ setShowTour, setShowAIOnboarding, setShowPalette, setShowSearch });
 
   // Window drag — manual startDragging because data-tauri-drag-region only
   // works on the element itself (not children), per Tauri docs.
@@ -152,7 +145,8 @@ export default function App() {
     addTab, setActiveTab, setActiveView,
     handleNewWhiteboard, handleOpenMultiple, handleOpenFolder,
     saveTabToFile, setTheme, toggleAiChat,
-    onOpenSettings: () => setShowSettings(true),
+    onOpenSettings: handleOpenSettings,
+    openSettings,
     onOpenSearch: () => setShowSearch(true),
   });
 
@@ -161,7 +155,7 @@ export default function App() {
     handleOpenMultiple,
     handleOpenFolder,
     handleNewWhiteboard,
-    onOpenSettings: () => setShowSettings(true),
+    onOpenSettings: handleOpenSettings,
     onOpenCommandPalette: () => setShowPalette(true),
     onOpenSearch: () => setShowSearch(true),
   });
@@ -182,7 +176,7 @@ export default function App() {
         onNewWhiteboard={handleNewWhiteboard}
         onOpenMultiple={handleOpenMultiple}
         onOpenFolder={handleOpenFolder}
-        onOpenSettings={() => setShowSettings(true)}
+        onOpenSettings={handleOpenSettings}
         onShowGraph={() => setActiveView("graph")}
         onShowEditor={() => setActiveView("editor")}
         requestClose={requestClose}
@@ -201,7 +195,6 @@ export default function App() {
         activeView={activeView}
         onViewChange={setActiveView}
         onNewWhiteboard={handleNewWhiteboard}
-        onOpenSettings={() => setShowSettings(true)}
         requestClose={requestClose}
         activeTab={activeTab}
         onLinkedWhiteboard={handleLinkedWhiteboard}
@@ -222,10 +215,6 @@ export default function App() {
       <AppOverlays
         ctxMenu={ctxMenu}
         closeCtxMenu={closeCtxMenu}
-        showSettings={showSettings}
-        setShowSettings={setShowSettings}
-        settingsSection={settingsSection}
-        setSettingsSection={setSettingsSection}
         showAIOnboarding={showAIOnboarding}
         setShowAIOnboarding={setShowAIOnboarding}
         showTour={showTour}
@@ -233,6 +222,7 @@ export default function App() {
         showPalette={showPalette}
         setShowPalette={setShowPalette}
         buildCommands={buildCommands}
+        queryCommands={settingsQueryCommands}
         showSearch={showSearch}
         setShowSearch={setShowSearch}
         tabs={tabs}

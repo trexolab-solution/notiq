@@ -49,7 +49,7 @@ export const TOUR_STEPS: TourStep[] = [
   {
     selector: '[data-tour="settings"]',
     title: "Settings & themes",
-    body: "Personalize themes, editor behavior, and check for updates here.",
+    body: "Settings opens as a tab (Ctrl+,) — search every option, from themes and editor behavior to AI, the vault and updates.",
     placement: "right",
   },
   {

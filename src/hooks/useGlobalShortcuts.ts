@@ -59,12 +59,12 @@ export function useGlobalShortcuts(opts: Options) {
       if (e.ctrlKey && !e.shiftKey && e.key === "w") { e.preventDefault(); if (activeTabId) requestClose(activeTabId); return; }
       if (e.ctrlKey && !e.shiftKey && e.key === "s") {
         e.preventDefault();
-        if (activeTabId && activeTab?.kind !== "whiteboard") saveTabToFile(activeTabId);
+        if (activeTabId && activeTab?.kind === "note") saveTabToFile(activeTabId);
         return;
       }
       if (e.ctrlKey && e.shiftKey && e.key === "S") {
         e.preventDefault();
-        if (activeTabId && activeTab?.kind !== "whiteboard") saveTabToFileAs(activeTabId);
+        if (activeTabId && activeTab?.kind === "note") saveTabToFileAs(activeTabId);
         return;
       }
       if (e.ctrlKey && !e.shiftKey && e.key === "o") { e.preventDefault(); handleOpenMultiple(); return; }
@@ -94,7 +94,8 @@ export function useGlobalShortcuts(opts: Options) {
         setActiveTab(tabs[(idx - 1 + tabs.length) % tabs.length].id);
         return;
       }
-      if (e.ctrlKey && e.key === ",") { e.preventDefault(); onOpenSettings(); }
+      // Ctrl+, → the Settings tab
+      if (e.ctrlKey && !e.shiftKey && !e.altKey && e.key === ",") { e.preventDefault(); onOpenSettings(); }
     };
 
     window.addEventListener("keydown", down);

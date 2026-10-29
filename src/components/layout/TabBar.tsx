@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { X, Plus, HardDrive, PenTool, ChevronLeft, ChevronRight, Pin, PinOff, Pencil, Lock } from "lucide-react";
+import { X, Plus, HardDrive, PenTool, ChevronLeft, ChevronRight, Pin, PinOff, Pencil, Lock, Settings as SettingsIcon } from "lucide-react";
 import {
   DndContext,
   closestCenter,
@@ -36,6 +36,8 @@ interface TabContextMenuState {
   canLock: boolean;
   /** Already a vault note (locked or unlocked). */
   isVault: boolean;
+  /** False for the Settings tab (fixed title). */
+  canRename: boolean;
 }
 
 // ── Sortable Tab Item ────────────────────────────────────────────────────────
@@ -83,6 +85,8 @@ function SortableTab({
       {/* State indicator */}
       {tab.kind === "whiteboard" ? (
         <PenTool size={9} className="tab-wb-icon" />
+      ) : tab.kind === "settings" ? (
+        <SettingsIcon size={10} aria-hidden style={{ color: "var(--color-text-muted)", flexShrink: 0 }} />
       ) : tab.isDirty ? (
         <span className="tab-dot" />
       ) : tab.filePath ? (
@@ -109,7 +113,7 @@ function SortableTab({
         <Tooltip content={tab.filePath ?? tab.title} delay={800} disabled={!tab.filePath}>
           <span
             className="tab-title"
-            onDoubleClick={(e) => { e.stopPropagation(); onDoubleClick(tab.id, tab.title); }}
+            onDoubleClick={(e) => { e.stopPropagation(); if (tab.kind !== "settings") onDoubleClick(tab.id, tab.title); }}
           >
             {tab.title}
           </span>
@@ -185,7 +189,7 @@ export const TabBar = React.memo(function TabBar({ onCloseTab }: TabBarProps) {
     const isVault = isVaultPath(tab.filePath);
     setCtxMenu({
       x: e.clientX, y: e.clientY, tabId: tab.id, isPinned: tab.isPinned, title: tab.title,
-      canLock: tab.kind === "note" && !isVault, isVault,
+      canLock: tab.kind === "note" && !isVault, isVault, canRename: tab.kind !== "settings",
     });
   }, []);
 
@@ -338,12 +342,12 @@ export const TabBar = React.memo(function TabBar({ onCloseTab }: TabBarProps) {
               icon: ctxMenu.isPinned ? <PinOff size={13} /> : <Pin size={13} />,
               onClick: () => togglePinTab(ctxMenu.tabId),
             },
-            {
-              type: "item",
+            ...(ctxMenu.canRename ? [{
+              type: "item" as const,
               label: "Rename",
               icon: <Pencil size={13} />,
               onClick: () => startEdit(ctxMenu.tabId, ctxMenu.title),
-            },
+            }] : []),
             { type: "separator" },
             ...(ctxMenu.canLock ? [{
               type: "item" as const,

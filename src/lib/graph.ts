@@ -1,5 +1,6 @@
 import type { GraphData, Tab } from "../types";
 import { normNote, fileBasename } from "./resolveNote";
+import { isContentTab } from "./tabKinds";
 
 // Standard markdown links: [display text](url or note title)
 const MD_LINK_RE = /\[([^\]]+)\]\(([^)\s]+(?:\s[^)]+)?)\)/g;
@@ -10,7 +11,8 @@ const WIKI_LINK_RE = /\[\[([^\]|]+?)(?:\|[^\]]*)?\]\]/g;
 export function buildGraphData(allTabs: Tab[]): GraphData {
   // Locked vault notes are invisible to the graph: no node, no title, and
   // nothing can link to them, so their existence/links aren't revealed.
-  const tabs = allTabs.filter((t) => !t.vaultLocked);
+  // The Settings tab is not a note either.
+  const tabs = allTabs.filter((t) => !t.vaultLocked && isContentTab(t));
   const nodes = tabs.map((t) => ({
     id:    t.id,
     name:  t.title,

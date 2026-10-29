@@ -16,10 +16,15 @@ export interface Command {
 
 interface Props {
   commands: Command[];
+  /**
+   * Extra entries computed from the typed query (already matched and ranked by the source — e.g. settings).
+   * Called only for a non-empty query; appended after the filtered static commands.
+   */
+  queryCommands?: (query: string) => Command[];
   onClose: () => void;
 }
 
-export function CommandPalette({ commands, onClose }: Props) {
+export function CommandPalette({ commands, queryCommands, onClose }: Props) {
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -29,12 +34,13 @@ export function CommandPalette({ commands, onClose }: Props) {
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return commands;
-    return commands.filter((c) =>
+    const matched = commands.filter((c) =>
       c.label.toLowerCase().includes(q) ||
       c.group.toLowerCase().includes(q) ||
       (c.hint?.toLowerCase().includes(q) ?? false),
     );
-  }, [commands, query]);
+    return queryCommands ? [...matched, ...queryCommands(query)] : matched;
+  }, [commands, queryCommands, query]);
 
   // Keep the active index in range when the filtered list changes.
   useEffect(() => { setActive(0); }, [query]);
@@ -73,7 +79,7 @@ export function CommandPalette({ commands, onClose }: Props) {
         <input
           ref={inputRef}
           className="cmdk__input"
-          placeholder="Search tabs, actions, themes…"
+          placeholder={queryCommands ? "Search tabs, actions, settings…" : "Search tabs, actions, themes…"}
           value={query}
           spellCheck={false}
           onChange={(e) => setQuery(e.target.value)}

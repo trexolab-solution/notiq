@@ -36,7 +36,7 @@ export const StatusBar = React.memo(function StatusBar({
   const aiBusy      = useAiBusy();
 
   const { words, chars } = useMemo(() => {
-    if (!activeTab || activeTab.kind === "whiteboard") return { words: 0, chars: 0 };
+    if (!activeTab || activeTab.kind !== "note") return { words: 0, chars: 0 };
     const plain = activeTab.content
       .replace(/```[\s\S]*?```/g, " ").replace(/`[^`]+`/g, " ")
       .replace(/#{1,6}\s/g, "").replace(/[*_~\[\]()>]/g, "")
@@ -69,7 +69,7 @@ export const StatusBar = React.memo(function StatusBar({
           </button>
         </Tooltip>
 
-        {activeTab ? (
+        {activeTab?.kind === "settings" ? null : activeTab ? (
           <>
             <span className="status-item">
               Ln {activeTab.cursorPosition.line}:{activeTab.cursorPosition.column}
@@ -90,7 +90,8 @@ export const StatusBar = React.memo(function StatusBar({
             Thinking…
           </span>
         )}
-        {activeTab && (
+        {activeTab?.kind === "settings" && <span className="status-tag">Settings</span>}
+        {activeTab && activeTab.kind !== "settings" && (
           <>
             {activeTab.kind === "whiteboard" ? (
               <span className="status-item">Auto-saved</span>

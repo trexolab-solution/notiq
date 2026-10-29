@@ -10,10 +10,11 @@ import { WHATS_NEW } from "../config/whatsNew";
 import { APP_VERSION } from "../config/app";
 import { updater } from "../lib/updater";
 import { canAutoCheck, UPDATE_CHECK_INTERVAL_MS } from "../lib/updateSchedule";
+import { OPEN_SETTINGS_EVENT, RUN_AI_ONBOARDING_EVENT, parseOpenSettingsDetail } from "../lib/settingsEvents";
 
 interface Options {
   setShowTour:     (show: boolean) => void;
-  setShowSettings: (show: boolean) => void;
+  setShowAIOnboarding: (show: boolean) => void;
   setShowPalette:  (show: boolean) => void;
   setShowSearch:   (show: boolean) => void;
 }
@@ -37,7 +38,7 @@ export interface AppStartupResult {
  * in, so listener/timer registration order is unchanged.
  */
 export function useAppStartup({
-  setShowTour, setShowSettings, setShowPalette, setShowSearch,
+  setShowTour, setShowAIOnboarding, setShowPalette, setShowSearch,
 }: Options): AppStartupResult {
   const addTab          = useAppStore((s) => s.addTab);
   const openFilesAsTabs = useAppStore((s) => s.openFilesAsTabs);
@@ -112,24 +113,33 @@ export function useAppStartup({
 
   // Open the command palette / global search from the Monaco editor (which
   // swallows Ctrl+Shift+P / Ctrl+Shift+F internally and re-dispatches them as
-  // events), and replay the tour / What's New entry points from Settings →
-  // General.
+  // events), replay the tour / What's New entry points from Settings → General,
+  // open the Settings tab (`app:open-settings`, optional section / setting
+  // deep link) and re-run the AI onboarding wizard (Settings → AI).
   useEffect(() => {
     const openPalette = () => setShowPalette(true);
     const openSearch = () => setShowSearch(true);
-    // Replay entry points from Settings → General. Close settings first so the
-    // tour/note isn't hidden behind the settings modal.
-    const startTour = () => { setShowSettings(false); setShowTour(true); };
-    const showWhatsNew = () => { setShowSettings(false); openWhatsNew(); };
+    // Settings is a tab, so nothing has to be closed before the tour or the note shows.
+    const startTour = () => setShowTour(true);
+    const showWhatsNew = () => openWhatsNew();
+    const runAIOnboarding = () => setShowAIOnboarding(true);
+    const openSettingsTab = (e: Event) => {
+      const { section, settingId } = parseOpenSettingsDetail((e as CustomEvent).detail);
+      useAppStore.getState().openSettings(section, settingId);
+    };
     window.addEventListener("app:command-palette", openPalette);
     window.addEventListener("app:global-search", openSearch);
     window.addEventListener("app:start-tour", startTour);
     window.addEventListener("app:show-whats-new", showWhatsNew);
+    window.addEventListener(RUN_AI_ONBOARDING_EVENT, runAIOnboarding);
+    window.addEventListener(OPEN_SETTINGS_EVENT, openSettingsTab);
     return () => {
       window.removeEventListener("app:command-palette", openPalette);
       window.removeEventListener("app:global-search", openSearch);
       window.removeEventListener("app:start-tour", startTour);
       window.removeEventListener("app:show-whats-new", showWhatsNew);
+      window.removeEventListener(RUN_AI_ONBOARDING_EVENT, runAIOnboarding);
+      window.removeEventListener(OPEN_SETTINGS_EVENT, openSettingsTab);
     };
   }, [openWhatsNew]);
 

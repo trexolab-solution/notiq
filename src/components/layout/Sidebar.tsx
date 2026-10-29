@@ -11,16 +11,18 @@ interface SidebarProps {
   activeView: AppView;
   onViewChange: (v: AppView) => void;
   onNewWhiteboard: () => void;
-  onOpenSettings: () => void;
 }
 
 export const Sidebar = React.memo(function Sidebar({
-  activeView, onViewChange, onNewWhiteboard, onOpenSettings,
+  activeView, onViewChange, onNewWhiteboard,
 }: SidebarProps) {
-  const tabs        = useAppStore((s) => s.tabs);
-  const activeTabId = useAppStore((s) => s.activeTabId);
+  const tabs         = useAppStore((s) => s.tabs);
+  const activeTabId  = useAppStore((s) => s.activeTabId);
+  const openSettings = useAppStore((s) => s.openSettings);
   const [vaultOpen, setVaultOpen] = useState(false);
-  const isWbActive  = tabs.find((t) => t.id === activeTabId)?.kind === "whiteboard";
+  const activeKind   = tabs.find((t) => t.id === activeTabId)?.kind;
+  const isWbActive   = activeKind === "whiteboard";
+  const isSettingsActive = activeView === "editor" && activeKind === "settings";
 
   return (
     <aside style={{ display: "flex", height: "100%", flexShrink: 0 }}>
@@ -69,7 +71,13 @@ export const Sidebar = React.memo(function Sidebar({
         <div style={{ flex: 1 }} />
 
         <Tooltip content="Settings" shortcut="Ctrl+,">
-          <button className="activity-btn" aria-label="Settings" data-tour="settings" onClick={onOpenSettings}>
+          <button
+            className={`activity-btn${isSettingsActive ? " is-active" : ""}`}
+            aria-label="Settings"
+            aria-current={isSettingsActive ? "page" : undefined}
+            data-tour="settings"
+            onClick={() => openSettings()}
+          >
             <Settings size={15} strokeWidth={1.8} />
           </button>
         </Tooltip>

@@ -4,7 +4,6 @@ import { ContextMenu } from "../ui/ContextMenu";
 import { CommandPalette, type Command } from "../ui/CommandPalette";
 import { GlobalSearch } from "../ui/GlobalSearch";
 import { ConfirmDialog } from "../ui/ConfirmDialog";
-import { SettingsModal } from "../ui/SettingsModal";
 import { UpdateDialog } from "../ui/UpdateDialog";
 import { FileSelectionModal } from "../ui/FileSelectionModal";
 import { ToastProvider } from "../ui/Toast";
@@ -27,11 +26,6 @@ interface Props {
   ctxMenu:               CtxMenuState | null;
   closeCtxMenu:          () => void;
 
-  showSettings:          boolean;
-  setShowSettings:       (show: boolean) => void;
-  settingsSection:       "ai" | "vault" | undefined;
-  setSettingsSection:    (section: "ai" | "vault" | undefined) => void;
-
   showAIOnboarding:      boolean;
   setShowAIOnboarding:   (show: boolean) => void;
 
@@ -41,6 +35,8 @@ interface Props {
   showPalette:           boolean;
   setShowPalette:        (show: boolean) => void;
   buildCommands:         () => Command[];
+  /** Query-driven palette entries (matching settings). */
+  queryCommands:         (query: string) => Command[];
 
   showSearch:            boolean;
   setShowSearch:         (show: boolean) => void;
@@ -63,7 +59,7 @@ interface Props {
 
 /**
  * Every top-level overlay/modal App can show: the shared context menu,
- * Settings, AI onboarding, the first-run tour, command palette, global
+ * AI onboarding, the first-run tour, command palette, global
  * search, the file-selection modal, close-tab confirmation dialogs, the
  * update dialog, toast host, and the drag-and-drop overlay. Extracted from
  * App — purely presentational, all state lives in App and is threaded
@@ -71,10 +67,9 @@ interface Props {
  */
 export function AppOverlays({
   ctxMenu, closeCtxMenu,
-  showSettings, setShowSettings, settingsSection, setSettingsSection,
   showAIOnboarding, setShowAIOnboarding,
   showTour, setShowTour,
-  showPalette, setShowPalette, buildCommands,
+  showPalette, setShowPalette, buildCommands, queryCommands,
   showSearch, setShowSearch, tabs, navigateToNote,
   fileSelection, setFileSelection, openFilesAsTabs, setGraphMounted, setActiveView,
   pendingTab, handleSaveAndClose, handleDiscardAndClose, handleCancelClose,
@@ -84,18 +79,6 @@ export function AppOverlays({
     <>
       {ctxMenu && (
         <ContextMenu x={ctxMenu.x} y={ctxMenu.y} items={ctxMenu.items} onClose={closeCtxMenu} />
-      )}
-
-      {showSettings && (
-        <SettingsModal
-          onClose={() => { setShowSettings(false); setSettingsSection(undefined); }}
-          initialSection={settingsSection}
-          onRunAIOnboarding={() => {
-            setShowSettings(false);
-            setSettingsSection(undefined);
-            setShowAIOnboarding(true);
-          }}
-        />
       )}
 
       {showAIOnboarding && (
@@ -111,7 +94,7 @@ export function AppOverlays({
       )}
 
       {showPalette && (
-        <CommandPalette commands={buildCommands()} onClose={() => setShowPalette(false)} />
+        <CommandPalette commands={buildCommands()} queryCommands={queryCommands} onClose={() => setShowPalette(false)} />
       )}
 
       {showSearch && (
