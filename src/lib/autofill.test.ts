@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { defaultLoginName, hostMatches, planSave, type LoginMatch } from "./autofill";
+import { defaultLoginName, entryMatches, hostMatches, lookalikeWarning, planSave, type LoginMatch } from "./autofill";
 import { emptyLogin } from "./loginEntry";
 
 const m = (username: string, password: string, path = "r/a.nqv"): LoginMatch =>
@@ -42,5 +42,34 @@ describe("hostMatches", () => {
     expect(hostMatches("example.com.evil.io", "example.com")).toBe(false);
     expect(hostMatches("example.com", "login.example.com")).toBe(false);
     expect(hostMatches("example.com", "")).toBe(false);
+  });
+  it("is public-suffix aware", () => {
+    expect(hostMatches("www.bbc.co.uk", "bbc.co.uk")).toBe(true);
+    expect(hostMatches("bbc.co.uk", "co.uk")).toBe(false);
+    expect(hostMatches("anything.co.uk", "co.uk")).toBe(false);
+    expect(hostMatches("me.github.io", "github.io")).toBe(false);
+    expect(hostMatches("a.me.github.io", "me.github.io")).toBe(true);
+  });
+  it("matches IPs and localhost exactly, ignoring ports", () => {
+    expect(hostMatches("127.0.0.1:5173", "127.0.0.1")).toBe(true);
+    expect(hostMatches("x.127.0.0.1", "127.0.0.1")).toBe(false);
+    expect(hostMatches("localhost:3000", "localhost")).toBe(true);
+    expect(hostMatches("app.localhost", "localhost")).toBe(false);
+  });
+});
+
+describe("entryMatches", () => {
+  it("tests every URL of the login", () => {
+    const e = { url: "https://example.com", urls: ["https://example.co.uk", "  "] };
+    expect(entryMatches("login.example.co.uk", e)).toBe(true);
+    expect(entryMatches("www.example.com", e)).toBe(true);
+    expect(entryMatches("example.org", e)).toBe(false);
+  });
+});
+
+describe("lookalikeWarning", () => {
+  it("names both hosts", () => {
+    expect(lookalikeWarning("paypa1.com", { saved: "paypal.com", reason: "homoglyph" }))
+      .toBe("Blocked a possible fake site: paypa1.com looks like paypal.com");
   });
 });
