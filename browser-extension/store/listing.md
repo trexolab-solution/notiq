@@ -2,7 +2,7 @@
 
 Paste-ready text for the Chrome Web Store, Edge Add-ons and Firefox AMO. Requires the **Notiq desktop app v0.7.0 or newer**; say so on every listing.
 
-Privacy policy URL: `https://<docs site>/extension-privacy.html` (the page is `docs/extension-privacy.html`; use the host the docs are published on).
+Privacy policy URL: `https://trexolab-solution.github.io/notiq/extension-privacy.html` (the page is `docs/extension-privacy.html`; use the host the docs are published on).
 
 ## Name
 Notiq Autofill
