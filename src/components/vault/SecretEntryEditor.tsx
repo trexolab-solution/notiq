@@ -3,6 +3,7 @@ import { Eye, EyeOff, KeyRound, Terminal } from "lucide-react";
 import { Button } from "../ui/Button";
 import { Input } from "../ui/Input";
 import { useAppStore } from "../../store";
+import { useAutoHide } from "../../hooks/useAutoHide";
 import { CopyIconButton } from "./CopyIconButton";
 import { parseSecret, serializeSecret, SECRET_KINDS, type FieldDef } from "../../lib/secretEntry";
 import type { Tab } from "../../types";
@@ -11,6 +12,7 @@ const area = "w-full rounded-md px-2.5 py-2 text-sm bg-[var(--color-bg-tertiary)
 
 function Field({ def, value, onChange }: { def: FieldDef; value: string; onChange: (v: string) => void }) {
   const [show, setShow] = useState(false);
+  useAutoHide(show, setShow);
   const secret = def.type === "secret" || def.type === "multiline-secret";
   const multi = def.type === "multiline" || def.type === "multiline-secret";
   const id = `se-${def.key}`;

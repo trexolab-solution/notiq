@@ -8,6 +8,7 @@ mod vault;
 mod vault_core;
 mod vault_db;
 mod profile;
+mod session_lock;
 #[cfg(desktop)]
 use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem},
@@ -735,6 +736,11 @@ pub fn run() {
 
             #[cfg(desktop)]
             autofill::start(app.handle());
+
+            // 0.7.0 session lock
+            #[cfg(desktop)]
+            session_lock::start(app.handle());
+            // end 0.7.0 session lock
 
             #[cfg(desktop)]
             setup_tray(app)?;

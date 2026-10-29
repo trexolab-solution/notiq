@@ -54,3 +54,22 @@ export function setPwOptions(o: PwOptions) { write(KEY_PW_OPTS, JSON.stringify(s
 /** Show the options popup on every "Generate" click. Turned off by "Remember my choice". */
 export const getPwAsk = (): boolean => read(KEY_PW_ASK) !== "false";
 export const setPwAsk = (v: boolean) => { write(KEY_PW_ASK, String(v)); pwChanged(); };
+
+/** 0.7.0: lock the vault when the OS session locks / the PC sleeps. On by default. */
+const KEY_SESSION = "pref:vaultLockOnSession";
+export const getLockOnSession = (): boolean => read(KEY_SESSION) !== "false";
+export const setLockOnSession = (v: boolean) => write(KEY_SESSION, String(v));
+
+/** 0.7.0: hide revealed secrets (passwords, keys) again after this many seconds; 0 = never. */
+const KEY_AUTOHIDE = "pref:vaultAutoHideSeconds";
+export const DEFAULT_AUTOHIDE_SECONDS = 30;
+export const AUTOHIDE_OPTIONS = [0, 15, 30, 60] as const;
+export function parseAutoHideSeconds(raw: string | null): number {
+  if (raw === null) return DEFAULT_AUTOHIDE_SECONDS;
+  const n = Number(raw);
+  return (AUTOHIDE_OPTIONS as readonly number[]).includes(n) ? n : DEFAULT_AUTOHIDE_SECONDS;
+}
+export const getAutoHideSeconds = (): number => parseAutoHideSeconds(read(KEY_AUTOHIDE));
+export const setAutoHideSeconds = (n: number) => write(KEY_AUTOHIDE, String(n));
+/** Whether a session-lock event should lock the vault right now (pure). */
+export const shouldLockOnSession = (prefOn: boolean, unlocked: boolean): boolean => prefOn && unlocked;

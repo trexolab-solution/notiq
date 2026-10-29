@@ -5,6 +5,7 @@ import { Button } from "../ui/Button";
 import { Input } from "../ui/Input";
 import { useAppStore } from "../../store";
 import { CopyIconButton } from "./CopyIconButton";
+import { useAutoHide } from "../../hooks/useAutoHide";
 import { GeneratePasswordButton } from "./GeneratePasswordButton";
 import {
   hostOf, parseLogin, serializeLogin, totpCode, totpRemaining, type LoginEntry,
@@ -15,6 +16,7 @@ import type { Tab } from "../../types";
 export function LoginEntryEditor({ tab }: { tab: Tab }) {
   const entry = useMemo(() => parseLogin(tab.content), [tab.content]);
   const [show, setShow] = useState(false);
+  useAutoHide(show, setShow);
   const [code, setCode] = useState<string | null>(null);
   const [left, setLeft] = useState(totpRemaining());
 

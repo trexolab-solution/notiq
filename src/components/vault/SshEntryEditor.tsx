@@ -7,6 +7,7 @@ import { Input } from "../ui/Input";
 import { SegmentedControl } from "../ui/SegmentedControl";
 import { Tooltip } from "../ui/Tooltip";
 import { useAppStore } from "../../store";
+import { useAutoHide } from "../../hooks/useAutoHide";
 import { CopyIconButton } from "./CopyIconButton";
 import { toast } from "../../lib/toast";
 import { parseSecret, serializeSecret } from "../../lib/secretEntry";
@@ -83,6 +84,9 @@ export function SshEntryEditor({ tab }: { tab: Tab }) {
   const [showPass, setShowPass] = useState(false);
   const [showKey, setShowKey] = useState(false);
   const [showPhrase, setShowPhrase] = useState(false);
+  useAutoHide(showPass, setShowPass);
+  useAutoHide(showKey, setShowKey);
+  useAutoHide(showPhrase, setShowPhrase);
   // Advanced starts folded, but opens by itself when it already holds something.
   const [advOpen, setAdvOpen] = useState(() => !!(f.jump || f.fingerprint || f.notes));
 
