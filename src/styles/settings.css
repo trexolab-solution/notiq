@@ -8,3 +8,292 @@
 @keyframes settings-reveal { from { background: color-mix(in srgb, var(--color-primary) 22%, transparent); } to { background: transparent; } }
 .settings-revealed { animation: settings-reveal 1.6s ease-out; border-radius: 8px; }
 @media (prefers-reduced-motion: reduce) { .settings-revealed { animation: none; outline: 2px solid var(--color-primary); } }
+
+/* ── Section body + intro ─────────────────────────────────────────────────────── */
+/* Description text is lifted a step above --color-text-muted (which is ~4:1 on the darker themes'
+   bg-secondary) by mixing it toward --color-text — still a theme token, just more legible. */
+.settings-section-body {
+  --settings-desc: color-mix(in srgb, var(--color-text-muted) 70%, var(--color-text));
+  --settings-hairline: color-mix(in srgb, var(--color-border) 75%, transparent);
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+.settings-page-intro {
+  margin: 0;
+  max-width: 68ch;
+  font-size: 13px;
+  line-height: 1.55;
+  color: color-mix(in srgb, var(--color-text-muted) 70%, var(--color-text));
+}
+
+/* ── Group (card) ─────────────────────────────────────────────────────────────── */
+.settings-group {
+  --settings-desc: color-mix(in srgb, var(--color-text-muted) 70%, var(--color-text));
+  --settings-hairline: color-mix(in srgb, var(--color-border) 75%, transparent);
+  container-type: inline-size;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  overflow: clip;
+}
+.settings-group-head {
+  padding: 14px 18px 12px;
+  border-bottom: 1px solid var(--settings-hairline);
+}
+.settings-group-title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.005em;
+  color: var(--color-text);
+}
+.settings-group-desc {
+  margin: 3px 0 0;
+  max-width: 68ch;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--settings-desc);
+}
+.settings-group-body { display: flex; flex-direction: column; }
+/* Hairline between consecutive rows/blocks (hidden rows render nothing, so the rule stays correct while filtering). */
+.settings-group-body > * + * { border-top: 1px solid var(--settings-hairline); }
+.settings-group-body > [data-setting-block] { padding: 14px 18px; }
+.settings-group-body > [data-setting-block][data-flush] { padding: 0; }
+
+/* ── Row ──────────────────────────────────────────────────────────────────────── */
+.setting-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 24px;
+  row-gap: 10px;
+  min-height: 56px;
+  padding: 12px 18px;
+  transition: background-color 0.12s ease-out;
+}
+.setting-row:hover { background: color-mix(in srgb, var(--color-text) 2.5%, transparent); }
+
+.setting-row-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.setting-row-label {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.35;
+  color: var(--color-text);
+}
+.setting-row-desc {
+  max-width: 64ch;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--settings-desc, var(--color-text-muted));
+  overflow-wrap: anywhere;
+}
+
+/* Control column: every control ends on the same right edge; ~32px tall controls. */
+.setting-row-control {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 0;
+  min-height: 32px;
+}
+
+/* Modified marker — a small dot in the left gutter, level with the label (VS Code-style). */
+.setting-row-marker {
+  position: absolute;
+  left: -12px;
+  top: calc(50% - 3px);
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-primary);
+}
+
+/* Reset to default */
+.setting-row-reset {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background-color 0.12s ease-out, color 0.12s ease-out;
+}
+.setting-row-reset:hover { background: var(--color-bg-tertiary); color: var(--color-text); }
+
+/* Secondary action button in a row/group (Button + className="settings-btn"): bordered, 32px. */
+:is(.setting-row, .settings-group) .settings-btn {
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-size: 13px;
+  white-space: nowrap;
+}
+:is(.setting-row, .settings-group) .settings-btn:hover:not(:disabled) { background: var(--color-bg-tertiary); }
+.settings-link-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 6px;
+  text-decoration: none;
+  transition: background-color 0.12s ease-out;
+}
+.settings-link-ext { color: var(--color-text-muted); }
+:is(.setting-row, .settings-group) .settings-btn-primary { height: 32px; padding: 0 14px; font-size: 13px; white-space: nowrap; }
+
+/* Stacked: wide control on its own line under the text. */
+.setting-row[data-layout="stacked"] { grid-template-columns: minmax(0, 1fr); align-items: start; }
+.setting-row[data-layout="stacked"] .setting-row-control { justify-content: flex-start; flex-wrap: wrap; }
+.setting-row[data-layout="stacked"] .setting-row-control > :not(.setting-row-reset) { flex: 1 1 auto; min-width: 0; }
+.setting-row[data-layout="stacked"] .setting-row-reset { order: 2; align-self: flex-start; }
+
+/* Compact: dense list rows (shortcuts). */
+.setting-row[data-layout="compact"] { min-height: 40px; padding-top: 7px; padding-bottom: 7px; }
+.setting-row[data-layout="compact"] .setting-row-label { font-weight: 400; }
+.setting-row[data-layout="compact"] .setting-row-control { min-height: 26px; }
+
+/* Danger: red label, faint red wash. */
+.setting-row[data-danger] { background: color-mix(in srgb, var(--color-danger) 5%, transparent); }
+.setting-row[data-danger]:hover { background: color-mix(in srgb, var(--color-danger) 8%, transparent); }
+.setting-row[data-danger] .setting-row-label { color: var(--color-danger); }
+
+/* Disabled: dim the text (the control dims itself via its own `disabled`, so it isn't dimmed twice). */
+.setting-row[data-disabled] .setting-row-text { opacity: 0.55; }
+.setting-row[data-disabled]:hover { background: transparent; }
+
+/* Keyboard focus inside settings — some shared controls set `outline: none` inline, so draw a ring with
+   box-shadow (which they don't set). */
+.setting-row :is(button, [role="switch"], [role="radio"], a, input, select, textarea):focus-visible,
+.settings-group :is(button, a):focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--color-primary) 60%, transparent);
+  outline-offset: 2px;
+}
+.setting-row button[aria-haspopup="listbox"]:focus-visible {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 60%, transparent);
+}
+/* Slider: the real <input type=range> is visually hidden — show focus on its custom track. */
+.setting-row input[type="range"]:focus-visible + div {
+  border-radius: 4px;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 60%, transparent);
+}
+
+/* Narrow column: put the control under the text. */
+@container (max-width: 520px) {
+  .setting-row:not([data-layout="compact"]) { grid-template-columns: minmax(0, 1fr); align-items: start; }
+  .setting-row:not([data-layout="compact"]) .setting-row-control { justify-content: flex-start; flex-wrap: wrap; }
+  .settings-group-head { padding: 12px 14px 10px; }
+  .setting-row { padding-left: 16px; padding-right: 14px; column-gap: 16px; }
+}
+
+/* ── Keycaps (shortcuts) ──────────────────────────────────────────────────────── */
+.settings-keys { display: inline-flex; align-items: center; gap: 4px; flex-wrap: wrap; justify-content: flex-end; }
+.settings-keys-plus { font-size: 11px; color: var(--color-text-muted); }
+.settings-kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  height: 22px;
+  padding: 0 7px;
+  border-radius: 5px;
+  border: 1px solid var(--color-border);
+  border-bottom-width: 2px;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: ui-monospace, "JetBrains Mono", Consolas, monospace;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+/* ── Theme picker (Appearance) ────────────────────────────────────────────────── */
+.settings-theme-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(176px, 1fr));
+  gap: 8px;
+  width: 100%;
+}
+.settings-theme-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.12s ease-out, background-color 0.12s ease-out;
+}
+.settings-theme-card:hover { border-color: color-mix(in srgb, var(--color-primary) 50%, var(--color-border)); }
+.settings-theme-card[aria-checked="true"] {
+  border-color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 9%, var(--color-bg));
+  font-weight: 500;
+}
+.settings-theme-swatches { display: inline-flex; flex-shrink: 0; }
+.settings-theme-swatch {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-text) 18%, transparent);
+}
+.settings-theme-swatch + .settings-theme-swatch { margin-left: -3px; }
+.settings-theme-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.settings-theme-check { flex-shrink: 0; color: var(--color-primary); }
+
+/* ── Update status panel ──────────────────────────────────────────────────────── */
+.settings-status {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.settings-status-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 9px;
+  flex-shrink: 0;
+  color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+}
+.settings-status[data-tone="danger"] .settings-status-icon { color: var(--color-danger); background: color-mix(in srgb, var(--color-danger) 12%, transparent); }
+.settings-status-text { flex: 1 1 200px; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.settings-status-title { font-size: 13px; font-weight: 600; color: var(--color-text); font-variant-numeric: tabular-nums; }
+.settings-status-sub { font-size: 12px; line-height: 1.45; color: var(--settings-desc, var(--color-text-muted)); }
+.settings-status[data-tone="danger"] .settings-status-sub { color: var(--color-danger); }
+.settings-footnote { margin: 0; max-width: 68ch; font-size: 12px; line-height: 1.55; color: var(--settings-desc, var(--color-text-muted)); }
+
+/* ── About ────────────────────────────────────────────────────────────────────── */
+.settings-about { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
+.settings-about-logo { width: 64px; height: 64px; border-radius: 15px; object-fit: cover; flex-shrink: 0; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.22); }
+.settings-about-text { flex: 1 1 240px; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.settings-about-name { margin: 0; display: flex; align-items: baseline; gap: 8px; font-size: 18px; font-weight: 700; letter-spacing: -0.01em; color: var(--color-text); }
+.settings-about-version { font-size: 12px; font-weight: 500; font-variant-numeric: tabular-nums; color: var(--settings-desc, var(--color-text-muted)); }
+.settings-about-tagline { margin: 0; max-width: 60ch; font-size: 13px; line-height: 1.5; color: var(--settings-desc, var(--color-text-muted)); }
+.settings-about-legal { margin: 0; font-size: 11px; color: var(--color-text-muted); }
+
+@media (prefers-reduced-motion: reduce) {
+  .setting-row, .setting-row-reset, .settings-theme-card { transition: none; }
+}

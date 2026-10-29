@@ -1,13 +1,18 @@
 import React from "react";
 import { useTerminalPreferences } from "../../../store/selectors";
 import { SettingRow } from "../SettingRow";
+import { prefReset } from "./prefReset";
+import { SettingsGroup } from "../SettingsGroup";
 import { Slider } from "../Slider";
 import { Toggle } from "../Toggle";
 import { SegmentedControl } from "../SegmentedControl";
 import { NumberStepper } from "../NumberStepper";
-import { TERMINAL_CURSOR_STYLE_OPTIONS } from "./settingsConstants";
-import type { TerminalCursorStyle } from "../../../types";
+import { TERMINAL_CURSOR_STYLE_OPTIONS, TERMINAL_POSITION_OPTIONS } from "./settingsConstants";
+import { TERMINAL_INDEX, indexProps } from "./sectionIndexes";
+import type { TerminalCursorStyle, TerminalLayout } from "../../../types";
 import type { SettingMeta } from "../../../lib/settingsIndex";
+
+const m = indexProps(TERMINAL_INDEX);
 
 export const TerminalSettingsSection = React.memo(function TerminalSettingsSection() {
   const {
@@ -15,41 +20,57 @@ export const TerminalSettingsSection = React.memo(function TerminalSettingsSecti
     terminalCursorStyle, setTerminalCursorStyle,
     terminalCursorBlink, setTerminalCursorBlink,
     terminalScrollback, setTerminalScrollback,
+    terminalLayout, setTerminalLayout,
   } = useTerminalPreferences();
 
   return (
-    <div className="flex flex-col gap-5">
-      <h2 className="text-base font-semibold" style={{ color: "var(--color-text)" }}>Terminal</h2>
+    <div className="settings-section-body">
+      <SettingsGroup id="terminal.font" title="Font">
+        <SettingRow {...m("terminal.font.size")} {...prefReset("terminalFontSize", terminalFontSize, setTerminalFontSize)}>
+          <Slider
+            value={terminalFontSize} onChange={setTerminalFontSize}
+            min={8} max={24}
+            formatValue={(v) => `${v}px`}
+            aria-label="Terminal font size"
+          />
+        </SettingRow>
+      </SettingsGroup>
 
-      <SettingRow label="Font Size" description="Terminal font size">
-        <Slider
-          value={terminalFontSize} onChange={setTerminalFontSize}
-          min={8} max={24} resetValue={13}
-          formatValue={(v) => `${v}px`}
-          aria-label="Terminal font size"
-        />
-      </SettingRow>
-      <SettingRow label="Cursor Style" description="Shape of the terminal cursor">
-        <SegmentedControl
-          value={terminalCursorStyle}
-          onChange={(v) => setTerminalCursorStyle(v as TerminalCursorStyle)}
-          options={TERMINAL_CURSOR_STYLE_OPTIONS}
-          aria-label="Terminal cursor style"
-        />
-      </SettingRow>
-      <SettingRow label="Cursor Blink" description="Blink the terminal cursor">
-        <Toggle value={terminalCursorBlink} onChange={setTerminalCursorBlink} />
-      </SettingRow>
-      <SettingRow label="Scrollback Lines" description="Number of lines kept in scroll history">
-        <NumberStepper
-          value={terminalScrollback} onChange={setTerminalScrollback}
-          min={1000} max={50000} step={1000}
-          aria-label="Terminal scrollback lines"
-        />
-      </SettingRow>
+      <SettingsGroup id="terminal.cursor" title="Cursor">
+        <SettingRow {...m("terminal.cursor.style")} {...prefReset("terminalCursorStyle", terminalCursorStyle, setTerminalCursorStyle)}>
+          <SegmentedControl
+            value={terminalCursorStyle}
+            onChange={(v) => setTerminalCursorStyle(v as TerminalCursorStyle)}
+            options={TERMINAL_CURSOR_STYLE_OPTIONS}
+            aria-label="Terminal cursor style"
+          />
+        </SettingRow>
+        <SettingRow {...m("terminal.cursor.blink")} {...prefReset("terminalCursorBlink", terminalCursorBlink, setTerminalCursorBlink)}>
+          <Toggle value={terminalCursorBlink} onChange={setTerminalCursorBlink} aria-label="Blinking terminal cursor" />
+        </SettingRow>
+      </SettingsGroup>
+
+      <SettingsGroup id="terminal.behaviour" title="Behaviour">
+        <SettingRow {...m("terminal.behaviour.scrollback")} {...prefReset("terminalScrollback", terminalScrollback, setTerminalScrollback)}>
+          <NumberStepper
+            value={terminalScrollback} onChange={setTerminalScrollback}
+            min={1000} max={50000} step={1000}
+            formatValue={(v) => `${v.toLocaleString()} lines`}
+            aria-label="Terminal scrollback lines"
+          />
+        </SettingRow>
+        <SettingRow {...m("terminal.behaviour.position")} {...prefReset("terminalLayout", terminalLayout, setTerminalLayout)}>
+          <SegmentedControl
+            value={terminalLayout}
+            onChange={(v) => setTerminalLayout(v as TerminalLayout)}
+            options={TERMINAL_POSITION_OPTIONS}
+            aria-label="Terminal panel position"
+          />
+        </SettingRow>
+      </SettingsGroup>
     </div>
   );
 });
 
-/** Every searchable setting this section renders (see lib/settingsIndex.ts). Filled in by the redesign. */
-export const SETTINGS_INDEX: SettingMeta[] = [];
+/** Every searchable setting this section renders (see lib/settingsIndex.ts). */
+export const SETTINGS_INDEX: SettingMeta[] = TERMINAL_INDEX;

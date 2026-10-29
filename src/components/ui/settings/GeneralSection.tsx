@@ -1,10 +1,14 @@
 import React, { useEffect, useState } from "react";
 import { SettingRow } from "../SettingRow";
+import { SettingsGroup } from "../SettingsGroup";
 import { Toggle } from "../Toggle";
 import { Button } from "../Button";
 import { enable, disable, isEnabled } from "../../../lib/autostart";
 import { toast } from "../../../lib/toast";
+import { GENERAL_INDEX, indexProps } from "./sectionIndexes";
 import type { SettingMeta } from "../../../lib/settingsIndex";
+
+const m = indexProps(GENERAL_INDEX);
 
 export const GeneralSection = React.memo(function GeneralSection() {
   // Auto-start state is owned by the OS (registry / LaunchAgent / .desktop),
@@ -38,36 +42,29 @@ export const GeneralSection = React.memo(function GeneralSection() {
   };
 
   return (
-    <div className="flex flex-col gap-5">
-      <h2 className="text-base font-semibold" style={{ color: "var(--color-text)" }}>General</h2>
+    <div className="settings-section-body">
+      <SettingsGroup id="general.startup" title="Startup">
+        {/* Off is the OS default, so "on" counts as modified. */}
+        <SettingRow {...m("general.startup.launch")} modified={autostart} onReset={() => handleAutostartToggle(false)}>
+          <Toggle value={autostart} onChange={handleAutostartToggle} aria-label="Launch at sign-in" />
+        </SettingRow>
+      </SettingsGroup>
 
-      <SettingRow
-        label="Launch on system startup"
-        description="Start Notiq automatically when you sign in. Runs minimized in the system tray."
-      >
-        <Toggle value={autostart} onChange={handleAutostartToggle} />
-      </SettingRow>
-
-      <SettingRow
-        label="Welcome tour"
-        description="Replay the guided walkthrough of Notiq's main features."
-      >
-        <Button variant="ghost" size="sm" onClick={() => window.dispatchEvent(new Event("app:start-tour"))}>
-          Replay tour
-        </Button>
-      </SettingRow>
-
-      <SettingRow
-        label="What's new"
-        description="Open the release notes for the current version."
-      >
-        <Button variant="ghost" size="sm" onClick={() => window.dispatchEvent(new Event("app:show-whats-new"))}>
-          See what's new
-        </Button>
-      </SettingRow>
+      <SettingsGroup id="general.help" title="Help">
+        <SettingRow {...m("general.help.tour")}>
+          <Button variant="ghost" size="md" className="settings-btn" onClick={() => window.dispatchEvent(new Event("app:start-tour"))}>
+            Replay tour
+          </Button>
+        </SettingRow>
+        <SettingRow {...m("general.help.whats-new")}>
+          <Button variant="ghost" size="md" className="settings-btn" onClick={() => window.dispatchEvent(new Event("app:show-whats-new"))}>
+            Open release notes
+          </Button>
+        </SettingRow>
+      </SettingsGroup>
     </div>
   );
 });
 
-/** Every searchable setting this section renders (see lib/settingsIndex.ts). Filled in by the redesign. */
-export const SETTINGS_INDEX: SettingMeta[] = [];
+/** Every searchable setting this section renders (see lib/settingsIndex.ts). */
+export const SETTINGS_INDEX: SettingMeta[] = GENERAL_INDEX;

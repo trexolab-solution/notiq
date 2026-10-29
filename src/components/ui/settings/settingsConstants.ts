@@ -62,6 +62,12 @@ export const TERMINAL_CURSOR_STYLE_OPTIONS = [
   { value: "bar",       label: "Bar" },
 ];
 
+/** terminalLayout: "horizontal" docks the panel at the bottom, "vertical" on the right. */
+export const TERMINAL_POSITION_OPTIONS = [
+  { value: "horizontal", label: "Bottom" },
+  { value: "vertical",   label: "Right" },
+];
+
 export const TAB_SIZE_OPTIONS = [
   { value: "2", label: "2" },
   { value: "4", label: "4" },
@@ -143,5 +149,8 @@ export const ALL_SHORTCUTS: ShortcutEntry[] = [
 /** Order of the groups in the Shortcuts UI. */
 export const SHORTCUT_GROUPS = ["File", "Tabs", "Editor", "Format", "Vault", "Terminal"];
 
-/** Common heading style for sub-sections inside settings panes. */
+/** Trigger size for a Select inside a settings row: 32px tall, one shared width so the control column lines up. */
+export const SETTINGS_SELECT_STYLE = { width: 208, minWidth: 0, height: 32, padding: "0 10px 0 12px" } as const;
+
+/** Common heading style for sub-sections inside settings panes (AI / Autofill still use SubHeading). */
 export const SUB_HEADING_CLASS = "text-xs font-bold uppercase tracking-wider mt-2 mb-1";
