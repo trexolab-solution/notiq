@@ -1,6 +1,7 @@
 import React from "react";
 import { ALL_SHORTCUTS, SHORTCUT_GROUPS } from "./settingsConstants";
 import { getPanicShortcut } from "../../../lib/vaultPrefs";
+import type { SettingMeta } from "../../../lib/settingsIndex";
 
 export const ShortcutsSection = React.memo(function ShortcutsSection() {
   return (
@@ -33,3 +34,6 @@ export const ShortcutsSection = React.memo(function ShortcutsSection() {
     </div>
   );
 });
+
+/** Every searchable setting this section renders (see lib/settingsIndex.ts). Filled in by the redesign. */
+export const SETTINGS_INDEX: SettingMeta[] = [];

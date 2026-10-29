@@ -9,6 +9,7 @@ import { useAppStore } from "../../../store";
 import { isTauri } from "../../../lib/tauriWindow";
 import { toast } from "../../../lib/toast";
 import { APP_NAME, APP_VERSION } from "../../../config/app";
+import type { SettingMeta } from "../../../lib/settingsIndex";
 
 export const UpdatesSection = React.memo(function UpdatesSection() {
   const { status, version, error } = useUpdater();
@@ -93,3 +94,6 @@ export const UpdatesSection = React.memo(function UpdatesSection() {
     </div>
   );
 });
+
+/** Every searchable setting this section renders (see lib/settingsIndex.ts). Filled in by the redesign. */
+export const SETTINGS_INDEX: SettingMeta[] = [];

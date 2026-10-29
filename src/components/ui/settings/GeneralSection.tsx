@@ -4,6 +4,7 @@ import { Toggle } from "../Toggle";
 import { Button } from "../Button";
 import { enable, disable, isEnabled } from "../../../lib/autostart";
 import { toast } from "../../../lib/toast";
+import type { SettingMeta } from "../../../lib/settingsIndex";
 
 export const GeneralSection = React.memo(function GeneralSection() {
   // Auto-start state is owned by the OS (registry / LaunchAgent / .desktop),
@@ -67,3 +68,6 @@ export const GeneralSection = React.memo(function GeneralSection() {
     </div>
   );
 });
+
+/** Every searchable setting this section renders (see lib/settingsIndex.ts). Filled in by the redesign. */
+export const SETTINGS_INDEX: SettingMeta[] = [];

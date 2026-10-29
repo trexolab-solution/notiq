@@ -11,6 +11,7 @@ import { SubHeading } from "./SubHeading";
 import { ProviderConfigCard } from "./ProviderConfigCard";
 import { AI_PROVIDER_OPTIONS, AI_TRIGGER_MODE_OPTIONS } from "./settingsConstants";
 import type { AIProvider, AITriggerMode } from "../../../types";
+import type { SettingMeta } from "../../../lib/settingsIndex";
 
 interface AISettingsSectionProps {
   /** Opens the guided onboarding wizard (mounted in App). */
@@ -177,3 +178,6 @@ export const AISettingsSection = React.memo(function AISettingsSection({ onRunSe
     </div>
   );
 });
+
+/** Every searchable setting this section renders (see lib/settingsIndex.ts). Filled in by the redesign. */
+export const SETTINGS_INDEX: SettingMeta[] = [];

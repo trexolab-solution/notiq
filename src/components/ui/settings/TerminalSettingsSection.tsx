@@ -7,6 +7,7 @@ import { SegmentedControl } from "../SegmentedControl";
 import { NumberStepper } from "../NumberStepper";
 import { TERMINAL_CURSOR_STYLE_OPTIONS } from "./settingsConstants";
 import type { TerminalCursorStyle } from "../../../types";
+import type { SettingMeta } from "../../../lib/settingsIndex";
 
 export const TerminalSettingsSection = React.memo(function TerminalSettingsSection() {
   const {
@@ -49,3 +50,6 @@ export const TerminalSettingsSection = React.memo(function TerminalSettingsSecti
     </div>
   );
 });
+
+/** Every searchable setting this section renders (see lib/settingsIndex.ts). Filled in by the redesign. */
+export const SETTINGS_INDEX: SettingMeta[] = [];

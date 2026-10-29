@@ -2,6 +2,7 @@ import React from "react";
 import { useAppStore } from "../../../store";
 import { THEMES } from "../../../lib/themes";
 import type { ThemeId } from "../../../types";
+import type { SettingMeta } from "../../../lib/settingsIndex";
 
 export const AppearanceSection = React.memo(function AppearanceSection() {
   const themeId  = useAppStore((s) => s.themeId);
@@ -56,3 +57,6 @@ export const AppearanceSection = React.memo(function AppearanceSection() {
     </div>
   );
 });
+
+/** Every searchable setting this section renders (see lib/settingsIndex.ts). Filled in by the redesign. */
+export const SETTINGS_INDEX: SettingMeta[] = [];

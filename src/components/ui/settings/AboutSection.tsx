@@ -4,6 +4,7 @@ import {
 } from "lucide-react";
 import { APP_NAME, APP_VERSION } from "../../../config/app";
 import logoUrl from "../../../assets/logo.png";
+import type { SettingMeta } from "../../../lib/settingsIndex";
 
 const FEATURE_CARDS = [
   { icon: <Zap          size={17} />, label: "Fast",    sub: "Instant" },
@@ -113,3 +114,6 @@ export const AboutSection = React.memo(function AboutSection() {
     </div>
   );
 });
+
+/** Every searchable setting this section renders (see lib/settingsIndex.ts). Filled in by the redesign. */
+export const SETTINGS_INDEX: SettingMeta[] = [];

@@ -18,6 +18,7 @@ import { vaultChangePassword, vaultErrorMessage } from "../../../lib/vault";
 import {
   IDLE_OPTIONS, getIdleMinutes, setIdleMinutes, getLockOnHide, setLockOnHide,
 } from "../../../lib/vaultPrefs";
+import type { SettingMeta } from "../../../lib/settingsIndex";
 
 const MIN_LEN = 8;
 
@@ -152,3 +153,6 @@ export const VaultSection = React.memo(function VaultSection() {
     </div>
   );
 });
+
+/** Every searchable setting this section renders (see lib/settingsIndex.ts). Filled in by the redesign. */
+export const SETTINGS_INDEX: SettingMeta[] = [];

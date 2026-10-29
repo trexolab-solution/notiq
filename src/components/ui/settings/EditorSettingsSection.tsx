@@ -14,6 +14,7 @@ import type {
   EditorMode, EditorCursorStyle, EditorCursorBlinking,
   AutoClosingBrackets, RenderWhitespace, RenderLineHighlight,
 } from "../../../types";
+import type { SettingMeta } from "../../../lib/settingsIndex";
 
 export const EditorSettingsSection = React.memo(function EditorSettingsSection() {
   const {
@@ -165,3 +166,6 @@ export const EditorSettingsSection = React.memo(function EditorSettingsSection()
     </div>
   );
 });
+
+/** Every searchable setting this section renders (see lib/settingsIndex.ts). Filled in by the redesign. */
+export const SETTINGS_INDEX: SettingMeta[] = [];

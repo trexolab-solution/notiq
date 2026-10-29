@@ -1,0 +1,10 @@
+/* Settings tab. The Settings page (components/settings/SettingsPage.tsx) owns the layout; the primitives
+   (ui/SettingRow, ui/SettingsGroup) own the look of a row and a group. */
+
+/* While searching, hide groups that have no visible row/block left. */
+.settings-filtering .settings-group:not(:has([data-setting-row], [data-setting-block])) { display: none; }
+
+/* Brief highlight when a search result / deep link scrolls a setting into view. */
+@keyframes settings-reveal { from { background: color-mix(in srgb, var(--color-primary) 22%, transparent); } to { background: transparent; } }
+.settings-revealed { animation: settings-reveal 1.6s ease-out; border-radius: 8px; }
+@media (prefers-reduced-motion: reduce) { .settings-revealed { animation: none; outline: 2px solid var(--color-primary); } }
