@@ -1,6 +1,7 @@
 import React, { useCallback, useState } from "react";
-import { Download, RefreshCw, RotateCw } from "lucide-react";
+import { AlertTriangle, Download, RefreshCw, RotateCw } from "lucide-react";
 import { SettingRow } from "../SettingRow";
+import { SettingsGroup, SettingsBlock } from "../SettingsGroup";
 import { Button } from "../Button";
 import { Toggle } from "../Toggle";
 import { useUpdater } from "../../../hooks/useUpdater";
@@ -9,7 +10,11 @@ import { useAppStore } from "../../../store";
 import { isTauri } from "../../../lib/tauriWindow";
 import { toast } from "../../../lib/toast";
 import { APP_NAME, APP_VERSION } from "../../../config/app";
+import { prefReset } from "./prefReset";
+import { UPDATES_INDEX, indexProps } from "./sectionIndexes";
 import type { SettingMeta } from "../../../lib/settingsIndex";
+
+const m = indexProps(UPDATES_INDEX);
 
 export const UpdatesSection = React.memo(function UpdatesSection() {
   const { status, version, error } = useUpdater();
@@ -34,66 +39,66 @@ export const UpdatesSection = React.memo(function UpdatesSection() {
     status === "checking"    ? "Checking for updates…" :
     status === "available"   ? `Version ${version} is available` :
     status === "downloading" ? "Downloading update…" :
-    status === "ready"       ? "Update installed — restart to apply" :
+    status === "ready"       ? "Update installed. Restart to apply it." :
     status === "error"       ? (error ?? "Update check failed") :
     status === "uptodate"    ? "You're on the latest version" :
-    /* idle */                 "Up to date as far as we know";
+    /* idle */                 "No newer version found so far";
 
   const updateReady = status === "available" || status === "ready";
+  const busy = checking || status === "checking";
 
   return (
-    <div className="flex flex-col gap-5">
-      <h2 className="text-base font-semibold text-[var(--color-text)]">Updates</h2>
+    <div className="settings-section-body">
+      <SettingsGroup id="updates.status" title="Status">
+        <SettingsBlock {...m("updates.status.current")}>
+          <div className="settings-status" data-tone={status === "error" ? "danger" : undefined} role="status" aria-live="polite">
+            <span className="settings-status-icon" aria-hidden>
+              {status === "error" ? <AlertTriangle size={17} /> : <Download size={17} />}
+            </span>
+            <span className="settings-status-text">
+              <span className="settings-status-title">{APP_NAME} v{APP_VERSION}</span>
+              <span className="settings-status-sub">{statusText}</span>
+            </span>
+            {updateReady ? (
+              <Button
+                variant="primary"
+                className="settings-btn-primary"
+                icon={status === "ready" ? <RotateCw size={14} /> : <Download size={14} />}
+                onClick={() => updater.openDialog()}
+              >
+                {status === "ready" ? "Restart" : "Update now"}
+              </Button>
+            ) : (
+              <Button
+                variant="ghost"
+                className="settings-btn"
+                icon={<RefreshCw size={14} className={busy ? "animate-spin" : ""} />}
+                onClick={runCheck}
+                disabled={busy}
+              >
+                {busy ? "Checking…" : "Check now"}
+              </Button>
+            )}
+          </div>
+        </SettingsBlock>
+      </SettingsGroup>
 
-      {/* Current version + primary action */}
-      <div className="flex items-center gap-3 p-3.5 rounded-lg bg-[var(--color-bg-tertiary)]">
-        <div
-          className="flex items-center justify-center w-10 h-10 rounded-lg shrink-0 text-[var(--color-primary)]"
-          style={{ background: "color-mix(in srgb, var(--color-primary) 12%, transparent)" }}
-        >
-          <Download size={18} />
-        </div>
-        <div className="flex-1 min-w-0">
-          <div className="text-sm font-medium text-[var(--color-text)]">{APP_NAME} v{APP_VERSION}</div>
-          <div className="text-xs text-[var(--color-text-muted)]">{statusText}</div>
-        </div>
-        {updateReady ? (
-          <Button
-            variant="primary"
-            size="sm"
-            icon={status === "ready" ? <RotateCw size={13} /> : <Download size={13} />}
-            onClick={() => updater.openDialog()}
-          >
-            {status === "ready" ? "Restart" : "Update now"}
-          </Button>
-        ) : (
-          <Button
-            variant="ghost"
-            size="sm"
-            icon={<RefreshCw size={13} className={checking || status === "checking" ? "animate-spin" : ""} />}
-            onClick={runCheck}
-            disabled={checking || status === "checking"}
-          >
-            {checking || status === "checking" ? "Checking…" : "Check now"}
-          </Button>
-        )}
-      </div>
-
-      <SettingRow
-        label="Check automatically"
-        description="Look for updates when Notiq starts, and then every hour."
-        help="On launch and then once an hour while Notiq is running (it can sit in the tray for days), Notiq quietly checks GitHub for a newer signed release and shows an Update button in the toolbar if one is available."
+      <SettingsGroup
+        id="updates.auto"
+        title="Automatic updates"
+        description="Updates come from the official GitHub releases and are verified before they install. Notiq always asks before it installs an update and restarts."
       >
-        <Toggle value={autoUpdateCheck} onChange={setAutoUpdateCheck} aria-label="Auto-check for updates" />
-      </SettingRow>
-
-      <p className="text-xs leading-relaxed text-[var(--color-text-muted)]">
-        Updates are downloaded from the official GitHub releases and cryptographically verified before
-        installing. You'll always be asked before an update is installed and the app restarts.
-      </p>
+        <SettingRow
+          {...m("updates.auto.check")}
+          {...prefReset("autoUpdateCheck", autoUpdateCheck, setAutoUpdateCheck)}
+          help="On launch and then once an hour while Notiq is running (it can sit in the tray for days), Notiq quietly checks GitHub for a newer signed release and shows an Update button in the toolbar if one is available."
+        >
+          <Toggle value={autoUpdateCheck} onChange={setAutoUpdateCheck} aria-label="Check for updates automatically" />
+        </SettingRow>
+      </SettingsGroup>
     </div>
   );
 });
 
-/** Every searchable setting this section renders (see lib/settingsIndex.ts). Filled in by the redesign. */
-export const SETTINGS_INDEX: SettingMeta[] = [];
+/** Every searchable setting this section renders (see lib/settingsIndex.ts). */
+export const SETTINGS_INDEX: SettingMeta[] = UPDATES_INDEX;

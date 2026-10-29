@@ -1,20 +1,25 @@
 import React from "react";
 import { useEditorPreferences } from "../../../store/selectors";
 import { SettingRow } from "../SettingRow";
+import { prefReset } from "./prefReset";
+import { SettingsGroup } from "../SettingsGroup";
 import { Slider } from "../Slider";
 import { Toggle } from "../Toggle";
 import { Select } from "../Select";
 import { SegmentedControl } from "../SegmentedControl";
-import { SubHeading } from "./SubHeading";
 import {
   FONT_FAMILIES, EDITOR_MODES, AUTO_CLOSING_OPTIONS, RENDER_WHITESPACE_OPTIONS,
   LINE_HIGHLIGHT_OPTIONS, CURSOR_STYLE_OPTIONS, CURSOR_BLINKING_OPTIONS, TAB_SIZE_OPTIONS,
+  SETTINGS_SELECT_STYLE,
 } from "./settingsConstants";
+import { EDITOR_INDEX, indexProps } from "./sectionIndexes";
 import type {
   EditorMode, EditorCursorStyle, EditorCursorBlinking,
   AutoClosingBrackets, RenderWhitespace, RenderLineHighlight,
 } from "../../../types";
 import type { SettingMeta } from "../../../lib/settingsIndex";
+
+const m = indexProps(EDITOR_INDEX);
 
 export const EditorSettingsSection = React.memo(function EditorSettingsSection() {
   const {
@@ -40,132 +45,140 @@ export const EditorSettingsSection = React.memo(function EditorSettingsSection()
   } = useEditorPreferences();
 
   return (
-    <div className="flex flex-col gap-5">
-      <h2 className="text-base font-semibold" style={{ color: "var(--color-text)" }}>Editor</h2>
+    <div className="settings-section-body">
+      <SettingsGroup id="editor.font" title="Font">
+        <SettingRow {...m("editor.font.size")} {...prefReset("editorFontSize", editorFontSize, setEditorFontSize)}>
+          <Slider
+            value={editorFontSize} onChange={setEditorFontSize}
+            min={8} max={32}
+            formatValue={(v) => `${v}px`}
+            aria-label="Editor font size"
+          />
+        </SettingRow>
+        <SettingRow {...m("editor.font.family")} {...prefReset("fontFamily", fontFamily, setFontFamily)}>
+          <Select
+            value={fontFamily} onChange={setFontFamily}
+            options={FONT_FAMILIES}
+            triggerStyle={SETTINGS_SELECT_STYLE}
+            aria-label="Editor font family"
+          />
+        </SettingRow>
+        <SettingRow {...m("editor.font.letter-spacing")} {...prefReset("letterSpacing", letterSpacing, setLetterSpacing)}>
+          <Slider
+            value={letterSpacing} onChange={setLetterSpacing}
+            min={0} max={1} step={0.1}
+            formatValue={(v) => v.toFixed(1)}
+            aria-label="Letter spacing"
+          />
+        </SettingRow>
+      </SettingsGroup>
 
-      {/* Font & Display */}
-      <SubHeading>Font &amp; Display</SubHeading>
-      <SettingRow label="Font Size" description="Editor font size (also Ctrl+Scroll)">
-        <Slider
-          value={editorFontSize} onChange={setEditorFontSize}
-          min={8} max={32} resetValue={15}
-          formatValue={(v) => `${v}px`}
-          aria-label="Editor font size"
-        />
-      </SettingRow>
-      <SettingRow label="Font Family" description="Monospace font for the editor">
-        <Select
-          value={fontFamily} onChange={setFontFamily}
-          options={FONT_FAMILIES}
-          aria-label="Font family"
-        />
-      </SettingRow>
-      <SettingRow label="Letter Spacing" description="Space between characters">
-        <Slider
-          value={letterSpacing} onChange={setLetterSpacing}
-          min={0} max={1} step={0.1} resetValue={0.2}
-          formatValue={(v) => v.toFixed(1)}
-          aria-label="Letter spacing"
-        />
-      </SettingRow>
-      <SettingRow label="Line Numbers" description="Show line numbers in the editor">
-        <Toggle value={showLineNumbers} onChange={setShowLineNumbers} />
-      </SettingRow>
-      <SettingRow label="Word Wrap" description="Wrap long lines at column edge">
-        <Toggle value={wordWrap} onChange={setWordWrap} />
-      </SettingRow>
+      <SettingsGroup id="editor.display" title="Display" description="What the editor draws around your text.">
+        <SettingRow {...m("editor.display.line-numbers")} {...prefReset("showLineNumbers", showLineNumbers, setShowLineNumbers)}>
+          <Toggle value={showLineNumbers} onChange={setShowLineNumbers} aria-label="Line numbers" />
+        </SettingRow>
+        <SettingRow {...m("editor.display.word-wrap")} {...prefReset("wordWrap", wordWrap, setWordWrap)}>
+          <Toggle value={wordWrap} onChange={setWordWrap} aria-label="Word wrap" />
+        </SettingRow>
+        <SettingRow {...m("editor.display.minimap")} {...prefReset("minimap", minimap, setMinimap)}>
+          <Toggle value={minimap} onChange={setMinimap} aria-label="Minimap" />
+        </SettingRow>
+        <SettingRow {...m("editor.display.whitespace")} {...prefReset("renderWhitespace", renderWhitespace, setRenderWhitespace)}>
+          <Select
+            value={renderWhitespace}
+            onChange={(v) => setRenderWhitespace(v as RenderWhitespace)}
+            options={RENDER_WHITESPACE_OPTIONS}
+            triggerStyle={SETTINGS_SELECT_STYLE}
+            aria-label="Show whitespace"
+          />
+        </SettingRow>
+        <SettingRow {...m("editor.display.line-highlight")} {...prefReset("renderLineHighlight", renderLineHighlight, setRenderLineHighlight)}>
+          <Select
+            value={renderLineHighlight}
+            onChange={(v) => setRenderLineHighlight(v as RenderLineHighlight)}
+            options={LINE_HIGHLIGHT_OPTIONS}
+            triggerStyle={SETTINGS_SELECT_STYLE}
+            aria-label="Current line highlight"
+          />
+        </SettingRow>
+        <SettingRow {...m("editor.display.bracket-colors")} {...prefReset("bracketPairColorization", bracketPairColorization, setBracketPairColorization)}>
+          <Toggle value={bracketPairColorization} onChange={setBracketPairColorization} aria-label="Bracket pair colors" />
+        </SettingRow>
+        <SettingRow {...m("editor.display.folding")} {...prefReset("folding", folding, setFolding)}>
+          <Toggle value={folding} onChange={setFolding} aria-label="Code folding" />
+        </SettingRow>
+      </SettingsGroup>
 
-      {/* Cursor */}
-      <SubHeading>Cursor</SubHeading>
-      <SettingRow label="Cursor Style" description="Shape of the editor cursor">
-        <Select
-          value={cursorStyle} onChange={(v) => setCursorStyle(v as EditorCursorStyle)}
-          options={CURSOR_STYLE_OPTIONS}
-          aria-label="Cursor style"
-        />
-      </SettingRow>
-      <SettingRow label="Cursor Blinking" description="Cursor animation style">
-        <Select
-          value={cursorBlinking} onChange={(v) => setCursorBlinking(v as EditorCursorBlinking)}
-          options={CURSOR_BLINKING_OPTIONS}
-          aria-label="Cursor blinking"
-        />
-      </SettingRow>
+      <SettingsGroup id="editor.cursor" title="Cursor">
+        <SettingRow {...m("editor.cursor.style")} {...prefReset("cursorStyle", cursorStyle, setCursorStyle)}>
+          <Select
+            value={cursorStyle} onChange={(v) => setCursorStyle(v as EditorCursorStyle)}
+            options={CURSOR_STYLE_OPTIONS}
+            triggerStyle={SETTINGS_SELECT_STYLE}
+            aria-label="Cursor style"
+          />
+        </SettingRow>
+        <SettingRow {...m("editor.cursor.blinking")} {...prefReset("cursorBlinking", cursorBlinking, setCursorBlinking)}>
+          <Select
+            value={cursorBlinking} onChange={(v) => setCursorBlinking(v as EditorCursorBlinking)}
+            options={CURSOR_BLINKING_OPTIONS}
+            triggerStyle={SETTINGS_SELECT_STYLE}
+            aria-label="Cursor animation"
+          />
+        </SettingRow>
+      </SettingsGroup>
 
-      {/* Editing Behavior */}
-      <SubHeading>Editing Behavior</SubHeading>
-      <SettingRow label="Tab Size" description="Number of spaces per tab">
-        <SegmentedControl
-          value={String(tabSize)}
-          onChange={(v) => setTabSize(Number(v))}
-          options={TAB_SIZE_OPTIONS}
-          aria-label="Tab size"
-        />
-      </SettingRow>
-      <SettingRow label="Default Mode" description="Mode when a new note is created">
-        <Select
-          value={defaultEditorMode}
-          onChange={(v) => setDefaultEditorMode(v as EditorMode)}
-          options={EDITOR_MODES}
-          aria-label="Default editor mode"
-        />
-      </SettingRow>
-      <SettingRow label="Auto-Close Brackets" description="Automatically close brackets and quotes">
-        <Select
-          value={autoClosingBrackets}
-          onChange={(v) => setAutoClosingBrackets(v as AutoClosingBrackets)}
-          options={AUTO_CLOSING_OPTIONS}
-          aria-label="Auto-closing brackets"
-        />
-      </SettingRow>
-      <SettingRow label="Format On Paste" description="Auto-format pasted code">
-        <Toggle value={formatOnPaste} onChange={setFormatOnPaste} />
-      </SettingRow>
-      <SettingRow label="Bracket Colors" description="Colorize matching bracket pairs">
-        <Toggle value={bracketPairColorization} onChange={setBracketPairColorization} />
-      </SettingRow>
+      <SettingsGroup id="editor.editing" title="Editing">
+        <SettingRow {...m("editor.editing.default-mode")} {...prefReset("defaultEditorMode", defaultEditorMode, setDefaultEditorMode)}>
+          <Select
+            value={defaultEditorMode}
+            onChange={(v) => setDefaultEditorMode(v as EditorMode)}
+            options={EDITOR_MODES}
+            triggerStyle={SETTINGS_SELECT_STYLE}
+            aria-label="Default view for new notes"
+          />
+        </SettingRow>
+        <SettingRow {...m("editor.editing.tab-size")} {...prefReset("tabSize", tabSize, setTabSize)}>
+          <SegmentedControl
+            value={String(tabSize)}
+            onChange={(v) => setTabSize(Number(v))}
+            options={TAB_SIZE_OPTIONS}
+            aria-label="Tab size"
+          />
+        </SettingRow>
+        <SettingRow {...m("editor.editing.auto-close")} {...prefReset("autoClosingBrackets", autoClosingBrackets, setAutoClosingBrackets)}>
+          <Select
+            value={autoClosingBrackets}
+            onChange={(v) => setAutoClosingBrackets(v as AutoClosingBrackets)}
+            options={AUTO_CLOSING_OPTIONS}
+            triggerStyle={SETTINGS_SELECT_STYLE}
+            aria-label="Auto-close brackets"
+          />
+        </SettingRow>
+        <SettingRow {...m("editor.editing.format-on-paste")} {...prefReset("formatOnPaste", formatOnPaste, setFormatOnPaste)}>
+          <Toggle value={formatOnPaste} onChange={setFormatOnPaste} aria-label="Format on paste" />
+        </SettingRow>
+      </SettingsGroup>
 
-      {/* Display */}
-      <SubHeading>Display</SubHeading>
-      <SettingRow label="Minimap" description="Show code overview minimap">
-        <Toggle value={minimap} onChange={setMinimap} />
-      </SettingRow>
-      <SettingRow label="Render Whitespace" description="Show whitespace characters">
-        <Select
-          value={renderWhitespace}
-          onChange={(v) => setRenderWhitespace(v as RenderWhitespace)}
-          options={RENDER_WHITESPACE_OPTIONS}
-          aria-label="Render whitespace"
-        />
-      </SettingRow>
-      <SettingRow label="Line Highlight" description="Highlight the current line">
-        <Select
-          value={renderLineHighlight}
-          onChange={(v) => setRenderLineHighlight(v as RenderLineHighlight)}
-          options={LINE_HIGHLIGHT_OPTIONS}
-          aria-label="Line highlight"
-        />
-      </SettingRow>
-      <SettingRow label="Smooth Scrolling" description="Animate scroll movements">
-        <Toggle value={smoothScrolling} onChange={setSmoothScrolling} />
-      </SettingRow>
-      <SettingRow label="Scroll Speed" description="Mouse wheel scroll sensitivity">
-        <Slider
-          value={mouseWheelScrollSensitivity} onChange={setMouseWheelScrollSensitivity}
-          min={0.5} max={5} step={0.5} resetValue={1}
-          formatValue={(v) => `${v.toFixed(1)}×`}
-          aria-label="Mouse wheel scroll sensitivity"
-        />
-      </SettingRow>
-      <SettingRow label="Scroll Past End" description="Allow scrolling beyond the last line">
-        <Toggle value={scrollBeyondLastLine} onChange={setScrollBeyondLastLine} />
-      </SettingRow>
-      <SettingRow label="Code Folding" description="Enable collapsible code regions">
-        <Toggle value={folding} onChange={setFolding} />
-      </SettingRow>
+      <SettingsGroup id="editor.scrolling" title="Scrolling">
+        <SettingRow {...m("editor.scrolling.smooth")} {...prefReset("smoothScrolling", smoothScrolling, setSmoothScrolling)}>
+          <Toggle value={smoothScrolling} onChange={setSmoothScrolling} aria-label="Smooth scrolling" />
+        </SettingRow>
+        <SettingRow {...m("editor.scrolling.speed")} {...prefReset("mouseWheelScrollSensitivity", mouseWheelScrollSensitivity, setMouseWheelScrollSensitivity)}>
+          <Slider
+            value={mouseWheelScrollSensitivity} onChange={setMouseWheelScrollSensitivity}
+            min={0.5} max={5} step={0.5}
+            formatValue={(v) => `${v.toFixed(1)}×`}
+            aria-label="Scroll speed"
+          />
+        </SettingRow>
+        <SettingRow {...m("editor.scrolling.past-end")} {...prefReset("scrollBeyondLastLine", scrollBeyondLastLine, setScrollBeyondLastLine)}>
+          <Toggle value={scrollBeyondLastLine} onChange={setScrollBeyondLastLine} aria-label="Scroll past last line" />
+        </SettingRow>
+      </SettingsGroup>
     </div>
   );
 });
 
-/** Every searchable setting this section renders (see lib/settingsIndex.ts). Filled in by the redesign. */
-export const SETTINGS_INDEX: SettingMeta[] = [];
+/** Every searchable setting this section renders (see lib/settingsIndex.ts). */
+export const SETTINGS_INDEX: SettingMeta[] = EDITOR_INDEX;

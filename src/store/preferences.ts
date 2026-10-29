@@ -83,6 +83,12 @@ const PREFERENCE_DEFS: PrefDef[] = [
   { stateKey: "autoUpdateCheck",        storageKey: "pref:autoUpdateCheck",        defaultValue: true,                         coercion: "bool-true" },
 ];
 
+/** Default value of every standard preference (plus `defaultEditorMode`), keyed by state key — for "modified" / Reset in Settings. */
+export const PREFERENCE_DEFAULTS: Readonly<Record<string, unknown>> = Object.freeze({
+  ...Object.fromEntries(PREFERENCE_DEFS.map((d) => [d.stateKey, d.defaultValue])),
+  defaultEditorMode: "split",
+});
+
 // ─── setter name helper ─────────────────────────────────────────────────────
 
 function setterName(stateKey: string): string {
