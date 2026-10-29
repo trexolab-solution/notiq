@@ -9,16 +9,68 @@ const TEXT = {
   timeout: "No answer from Notiq in time.",
   not_https: "Autofill only works on secure (https) pages.",
   no_fields: "Couldn't find a login form on this page.",
+  stale: "That list of logins expired. Try again.",
 };
-btn.addEventListener("click", () => {
+const chooser = document.getElementById("choose");
+
+// Several logins match: the app sends titles and usernames only (no secrets).
+// Validated strictly and rendered with textContent only.
+function validChoices(list) {
+  if (!Array.isArray(list) || !list.length || list.length > 20) return null;
+  const out = [];
+  for (const c of list) {
+    if (!c || typeof c !== "object" || typeof c.account !== "string" || typeof c.title !== "string" || typeof c.username !== "string") return null;
+    if (!c.account || c.account.length > 256 || c.title.length > 200 || c.username.length > 512) return null;
+    out.push({ account: c.account, title: c.title, username: c.username });
+  }
+  return out;
+}
+function hideChooser() { chooser.hidden = true; chooser.textContent = ""; }
+function showChooser(list) {
+  chooser.textContent = "";
+  for (const c of list) {
+    const li = document.createElement("li");
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "choice";
+    b.setAttribute("role", "option");
+    const t = document.createElement("span");
+    t.className = "t";
+    t.textContent = c.title || c.username || "Login";
+    const u = document.createElement("span");
+    u.className = "u";
+    u.textContent = c.title ? c.username || "no username" : "";
+    b.append(t, u);
+    b.addEventListener("click", () => fill(c.account));
+    li.appendChild(b);
+    chooser.appendChild(li);
+  }
+  chooser.hidden = false;
+  const first = chooser.querySelector("button");
+  if (first) first.focus();
+}
+chooser.addEventListener("keydown", (e) => {
+  const items = [...chooser.querySelectorAll("button")];
+  const at = items.indexOf(document.activeElement);
+  const next = { ArrowDown: at + 1, ArrowUp: at - 1, Home: 0, End: items.length - 1 }[e.key];
+  if (next === undefined || !items.length) return;
+  e.preventDefault();
+  items[(next + items.length) % items.length].focus();
+});
+
+function fill(account) {
   btn.disabled = true; msg.className = ""; msg.textContent = "Waiting for your approval in Notiq…";
-  chrome.runtime.sendMessage({ type: "fill" }, (res) => {
+  hideChooser();
+  chrome.runtime.sendMessage(account ? { type: "fill", account } : { type: "fill" }, (res) => {
     btn.disabled = false;
     if (res && res.ok) { msg.className = "ok"; msg.textContent = "Filled."; setTimeout(() => window.close(), 700); return; }
+    const list = res && !account ? validChoices(res.choose) : null;
+    if (list) { msg.className = ""; msg.textContent = "Several logins match. Pick one:"; showChooser(list); return; }
     msg.className = "err";
-    msg.textContent = TEXT[res && res.error] || "Something went wrong.";
+    msg.textContent = (res && Object.prototype.hasOwnProperty.call(TEXT, res.error) && TEXT[res.error]) || "Something went wrong.";
   });
-});
+}
+btn.addEventListener("click", () => fill());
 
 // ---------- settings (chrome.storage.local; content.js reacts to changes) ----------
 const DEFAULTS = { offerSave: true, showIcon: true, neverSave: [] };

@@ -1,0 +1,100 @@
+<!doctype html>
+<!--
+  More forms for the Notiq Autofill extension (served like login.html, from localhost):
+  a change-password form, a login with split one-time-code boxes, and two login
+  iframes — one from the same site (shows the Notiq icon) and one from a different
+  site, 127.0.0.1 (the extension ignores it completely).
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Notiq test page: more forms</title>
+<style>
+  :root { color-scheme: light dark; --fg: #1f2328; --bg: #f6f7f9; --card: #fff; --line: #d0d7de; --accent: #6366f1; }
+  @media (prefers-color-scheme: dark) { :root { --fg: #e6edf3; --bg: #0d1117; --card: #161b22; --line: #30363d; } }
+  body { margin: 0; padding: 24px 16px 60px; font: 15px/1.45 system-ui, sans-serif; color: var(--fg); background: var(--bg); }
+  main { max-width: 980px; margin: 0 auto; }
+  h1 { font-size: 22px; margin: 0 0 16px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
+  form, .card, .done { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 18px; }
+  h2 { font-size: 16px; margin: 0 0 4px; }
+  .hint { font-size: 13px; opacity: .7; margin: 0 0 14px; }
+  label { display: block; font-size: 13px; margin: 10px 0 4px; }
+  input { box-sizing: border-box; width: 100%; padding: 9px 10px; font: inherit; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: inherit; }
+  .otp { display: flex; gap: 6px; }
+  .otp input { width: 36px; text-align: center; padding: 9px 0; }
+  button { margin-top: 14px; width: 100%; padding: 10px; border: 0; border-radius: 8px; background: var(--accent); color: #fff; font: inherit; font-weight: 600; cursor: pointer; }
+  iframe { display: block; width: 100%; height: 250px; border: 0; }
+  .done { display: none; text-align: center; }
+  .done.show { display: block; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Notiq Autofill: more forms</h1>
+  <div class="grid" id="forms">
+    <form id="change">
+      <h2>4. Change password</h2>
+      <p class="hint">Current + new + confirm. The save offer says "Update password in Notiq?".</p>
+      <input type="hidden" name="username" autocomplete="username" value="zoe@example.com">
+      <label for="c-cur">Current password</label>
+      <input id="c-cur" name="current" type="password" autocomplete="current-password">
+      <label for="c-new">New password</label>
+      <input id="c-new" name="newpass" type="password" autocomplete="new-password">
+      <label for="c-new2">Confirm new password</label>
+      <input id="c-new2" name="confirm" type="password" autocomplete="new-password">
+      <button type="submit">Change password</button>
+    </form>
+
+    <form id="mfa">
+      <h2>5. Login with a code</h2>
+      <p class="hint">Six one-character boxes for the one-time code.</p>
+      <label for="m-user">Email</label>
+      <input id="m-user" name="email" type="email" autocomplete="username">
+      <label for="m-pass">Password</label>
+      <input id="m-pass" name="password" type="password" autocomplete="current-password">
+      <label>Code</label>
+      <div class="otp">
+        <input id="o1" maxlength="1" inputmode="numeric" autocomplete="one-time-code">
+        <input id="o2" maxlength="1" inputmode="numeric">
+        <input id="o3" maxlength="1" inputmode="numeric">
+        <input id="o4" maxlength="1" inputmode="numeric">
+        <input id="o5" maxlength="1" inputmode="numeric">
+        <input id="o6" maxlength="1" inputmode="numeric">
+      </div>
+      <button type="submit">Sign in</button>
+    </form>
+
+    <div class="card">
+      <h2>6. Same-site login iframe</h2>
+      <iframe id="f-same" src="frame-login.html" title="Same-site login"></iframe>
+    </div>
+    <div class="card">
+      <h2>7. Other-site iframe (ignored)</h2>
+      <iframe id="f-cross" title="Other-site login"></iframe>
+    </div>
+  </div>
+  <div class="done" id="done"><h2 id="done-title">Done</h2><p class="hint"><a href="extra.html">Back</a></p></div>
+</main>
+<script>
+  // The "other site": same server, but 127.0.0.1 instead of localhost.
+  document.getElementById("f-cross").src = `${location.protocol}//127.0.0.1:${location.port}/test-pages/frame-login.html`;
+  window.__frames = {};
+  addEventListener("message", (e) => { if (e.data && e.data.notiqTestFrame) window.__frames[e.data.host] = e.data; });
+  window.__otpInputs = 0;
+  for (const b of document.querySelectorAll(".otp input")) b.addEventListener("input", () => window.__otpInputs++);
+  function finish(title) {
+    document.getElementById("forms").hidden = true;
+    document.getElementById("done-title").textContent = title;
+    document.getElementById("done").classList.add("show");
+    history.pushState({}, "", "?done");
+  }
+  for (const id of ["change", "mfa"]) {
+    document.getElementById(id).addEventListener("submit", (e) => { e.preventDefault(); finish(id === "change" ? "Password changed" : "Signed in"); });
+  }
+  addEventListener("popstate", () => location.reload());
+</script>
+</body>
+</html>

@@ -22,7 +22,21 @@ Updating from 0.1: click the reload button on the extension's card. The browser 
   a password field, a card in the top-right corner asks **Save login to Notiq?** with the site and username (never
   the password). **Save** → approve in Notiq → "Saved to Notiq", "Password updated in Notiq" or "Already saved".
   **Not now** (or Esc, or 25 seconds without touching it) drops the offer; **Never for this site** stops offers
-  for that site. Change-password and sign-up forms (`autocomplete="new-password"`) are offered too.
+  for that site. Sign-up forms (`autocomplete="new-password"`) are offered too.
+- **Generate a strong password (sign-up / change-password):** on a new-password field (`autocomplete="new-password"`,
+  or a form with a confirm field) the icon opens a small menu: **Generate strong password** fills the new password
+  and its confirm field with a 20-character password (upper/lower/digits/symbols, no look-alikes like `I l 1 O 0`),
+  made in the extension with `crypto.getRandomValues`. Nothing is sent anywhere at that point: once you submit the
+  form the usual **Save login to Notiq?** offer appears. **Show** reveals it inside Notiq's own overlay only.
+  **Fill saved login** is offered too when the form has a current-password field. Arrow keys / Enter / Esc work.
+- **Change-password forms** (current + new + confirm): the new password is captured and the offer reads
+  **Update password in Notiq?**.
+- **Split code boxes:** when Notiq returns a one-time code and the page has 4–8 single-character code boxes, the
+  code is typed into them digit by digit and the last box is focused.
+- **Several logins for one site:** Notiq sends back just their titles and usernames; pick one from the list next to
+  the icon (or in the toolbar popup), then approve in Notiq as usual. Esc cancels.
+- **Login iframes on the same site** (for example `login.example.com` inside `www.example.com`) get the icon, fill
+  and save offer too. Iframes from any other site are ignored completely.
 - A login matches when the entry's website equals the page's host or a parent domain of it
   (`login.example.com` ↔ `example.com`).
 
@@ -50,9 +64,23 @@ Updating from 0.1: click the reload button on the extension's card. The browser 
 - The icon and the save card live in a closed shadow DOM the page can't read or restyle; passwords are never put
   into the page, logged, or written to disk by the extension. The save card never shows the password.
 - Forms are never submitted automatically.
+- Iframes: the script runs in every frame but stops at once unless the frame and all its parents are on the top
+  page's site (same host or a subdomain of its last two labels, or last three for `example.co.uk`-style names;
+  IP addresses only match themselves). The background re-checks the frame against the tab's real URL, always asks
+  Notiq for the **top page's** host, and returns the login only to the frame that asked.
+- Generated passwords exist only in the page's fields and the extension's memory until you submit the form.
+
+## Protocol with the app (native messaging)
+- `{op:"fill", host}` → `{ok:true, username, password, title, code?}`, or `{choose:[{account, title, username}]}`
+  when several logins match (no secrets; at most 20 entries, strictly validated, shown as plain text), or `{error}`.
+- `{op:"fill", host, account}` → the chosen login. The extension only sends an `account` that the app offered for
+  that tab and host in the last 2 minutes, once.
+- `{op:"save", host, url, username, password, title}` → `{ok:true, status:"saved"|"updated"|"unchanged"}` or `{error}`.
+- `{op:"ping"}`.
 
 ## Known limits
-- Top frame only: login forms inside iframes get no icon and aren't captured (the toolbar button still fills them).
+- Login forms in iframes from another site get no icon and aren't captured (anti-phishing). The toolbar button
+  fills a frame only when it has the top page's host or is a same-site subframe.
 - `https` pages only (plus `http://localhost` and `127.0.0.1` for testing).
 - Windows only for now, and developer-mode install only. The extension ID is fixed by the `key` in `manifest.json`;
   the app only accepts that ID.
@@ -66,6 +94,8 @@ cd browser-extension/test-pages
 python -m http.server 8000
 ```
 Open <http://localhost:8000/login.html>: a simple login, a two-step (username first) login and a sign-up form.
+<http://localhost:8000/extra.html> adds a change-password form, a login with split code boxes, a same-site login
+iframe and an iframe from `127.0.0.1` (another site, so it is ignored).
 
 `test/e2e-cdp.mjs` is a developer check (not part of the extension): it loads this folder into Playwright's copy of
 Chromium, mocks the Notiq app in the service worker, and drives the test page with real (trusted) input over the

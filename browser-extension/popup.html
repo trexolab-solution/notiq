@@ -24,10 +24,20 @@
   li button { width: 22px; height: 22px; padding: 0; flex: none; background: transparent; color: inherit; opacity: .6; font-size: 15px; line-height: 1; }
   li button:hover { opacity: 1; background: rgba(239,68,68,.15); color: #ef4444; }
   .empty { opacity: .6; padding: 3px 4px; }
+  #choose { margin: 4px 0 6px; max-height: 220px; }
+  #choose li { padding: 0; }
+  #choose button.choice { display: block; width: 100%; padding: 7px 9px; text-align: left; background: rgba(128,128,128,.1);
+    color: inherit; font-weight: 400; border-radius: 7px; opacity: 1; height: auto; font-size: 13px; }
+  #choose button.choice:hover, #choose button.choice:focus-visible { background: rgba(99,102,241,.18); color: inherit; outline: none; }
+  #choose button.choice:focus-visible { box-shadow: inset 0 0 0 2px #6366f1; }
+  .choice .t, .choice .u { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .choice .t { font-weight: 600; }
+  .choice .u { font-size: 12px; opacity: .7; }
 </style>
 <h1>Notiq Autofill</h1>
 <button id="fill">Fill login for this site</button>
 <p id="msg"></p>
+<ul id="choose" role="listbox" aria-label="Choose a login" hidden></ul>
 <p>Notiq will ask you to approve before anything is filled or saved. Shortcut: Alt+Shift+L.</p>
 <hr>
 <h2>Settings</h2>
