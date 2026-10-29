@@ -673,6 +673,15 @@ pub fn run() {
         vault_backup::vault_backup_export,
         vault_backup::vault_backup_inspect,
         vault_backup::vault_backup_import,
+        // 0.7.0 db v2
+        vault::vault_history_list,
+        vault::vault_history_get,
+        vault::vault_history_restore,
+        vault::vault_attach_add,
+        vault::vault_attach_list,
+        vault::vault_attach_get,
+        vault::vault_attach_export,
+        vault::vault_attach_remove,
         autofill::autofill_reply,
         // 0.7.0 clipboard
         clipboard::secure_copy,
@@ -717,6 +726,15 @@ pub fn run() {
         vault_backup::vault_backup_export,
         vault_backup::vault_backup_inspect,
         vault_backup::vault_backup_import,
+        // 0.7.0 db v2
+        vault::vault_history_list,
+        vault::vault_history_get,
+        vault::vault_history_restore,
+        vault::vault_attach_add,
+        vault::vault_attach_list,
+        vault::vault_attach_get,
+        vault::vault_attach_export,
+        vault::vault_attach_remove,
         autofill::autofill_reply,
         // 0.7.0 clipboard
         clipboard::secure_copy,
