@@ -101,3 +101,45 @@ iframe and an iframe from `127.0.0.1` (another site, so it is ignored).
 Chromium, mocks the Notiq app in the service worker, and drives the test page with real (trusted) input over the
 DevTools protocol — `node browser-extension/test/e2e-cdp.mjs` (needs Node 22+, Python, and a Chromium from
 `npx playwright install chromium` or `NOTIQ_CHROME=<path to chrome.exe>`).
+
+## Packaging & store submission
+
+### Build the packages
+```
+node browser-extension/build.mjs [--out dist]     # Node 20+, no dependencies
+node browser-extension/build.mjs --check          # validate only, write nothing
+node --test browser-extension/test/build.test.mjs # unit tests for the transforms and the zip writer
+```
+Only runtime files are packaged (manifest, `content.js`, `background.js`, popup, icons). Output is reproducible
+(fixed timestamps). It writes, with a size and SHA-256 table:
+
+| File | Use | Manifest |
+| --- | --- | --- |
+| `notiq-autofill-<ver>-chrome.zip` | sideload / GitHub release | unchanged, keeps `key` so the ID stays `cfddmbiaaboejbhnijkjodcganjdbcel` |
+| `notiq-autofill-<ver>-store.zip` | Chrome Web Store, Edge Add-ons | `key` removed (the store assigns the ID) |
+| `notiq-autofill-<ver>-firefox.zip` | Firefox / AMO | `background.scripts` instead of `service_worker`, `browser_specific_settings.gecko` (id `autofill@notiq.app`, min 121.0, `data_collection_permissions: none`), `key` removed |
+
+The release workflow (`.github/workflows/release.yml`, job `extension`) builds these on every `v*` tag and attaches
+them to the draft release. Bump `version` in `manifest.json` before tagging (stores reject a non-increasing version).
+
+### Load unpacked for development
+- Chrome / Edge / Brave: `chrome://extensions` > Developer mode > **Load unpacked** > this folder (the ID is
+  fixed by `key`).
+- Firefox: `about:debugging#/runtime/this-firefox` > **Load Temporary Add-on...** > pick the `manifest.json` of the
+  unpacked Firefox build (extract `-firefox.zip` to a folder; the source `manifest.json` is Chrome-shaped). It is
+  removed when Firefox restarts. Restart Firefox once after starting Notiq so the native-messaging bridge is found.
+
+### Submit to the stores
+Listing text, permission justifications, privacy answers and screenshot needs are in `store/listing.md`; the
+privacy policy page is `docs/extension-privacy.html` (publish with the docs site and use its URL).
+- **Chrome Web Store**: <https://chrome.google.com/webstore/devconsole> (one-time developer fee), upload the `-store.zip`.
+- **Edge Add-ons**: <https://partner.microsoft.com/dashboard/microsoftedge> , upload the same `-store.zip`.
+- **Firefox AMO**: <https://addons.mozilla.org/developers/> , upload the `-firefox.zip`, listed or self-distributed.
+  Sources are the plain files in the zip, so no separate source upload is needed.
+
+### After the store assigns an ID
+The app only talks to extension IDs it knows. Add the new Chrome Web Store / Edge ID to `EXTENSION_IDS` in
+`src-tauri/src/autofill.rs` (the spare slots are marked there; `native_host_reg.rs` builds the bridge manifests from
+that list) and ship a new app version, **or**, without rebuilding, put a JSON array of IDs in
+`autofill_extensions.json` in the app-data folder, for example `["abcdefghijklmnopabcdefghijklmnop"]`, then restart
+Notiq. The Firefox ID `autofill@notiq.app` is already allowed.

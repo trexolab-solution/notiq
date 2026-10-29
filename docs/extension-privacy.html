@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Privacy policy — Notiq Autofill extension</title>
+<meta name="description" content="How the Notiq Autofill browser extension handles your data: locally, through the Notiq desktop app, with no servers.">
+<link rel="icon" href="favicon.ico" sizes="any">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <a class="brand" href="./"><img src="logo.png" alt="">Notiq</a>
+    <nav><a href="./">Home</a><a href="https://github.com/trexolab-solution/notiq">GitHub</a></nav>
+  </header>
+
+  <main class="doc">
+    <h1>Privacy policy: Notiq Autofill extension</h1>
+    <p class="meta">Last updated: 29 October 2026 · Extension: Notiq Autofill · Developer: TrexoLab</p>
+
+    <p>Notiq Autofill is a browser extension that fills and saves logins with your vault in the Notiq desktop app. It works only together with that app, on your own computer. We run no server for it, and we do not receive your logins, your browsing activity or any other data.</p>
+
+    <h2>What the extension reads on web pages</h2>
+    <ul>
+      <li>It looks for login form fields (username, email and password inputs) on the pages you visit, so it can show its small icon in them.</li>
+      <li>It reads the values of those fields only when you click the Notiq icon to fill, or when you submit a login form so it can offer to save it. It does not read page content beyond that.</li>
+      <li>It asks the Notiq app about a site only after you click. Nothing is sent when a page loads.</li>
+      <li>It makes no network requests of its own.</li>
+    </ul>
+
+    <h2>What the extension stores</h2>
+    <ul>
+      <li><strong>Settings and the never-save list</strong> (whether to offer to save logins, whether to show the icon, and the sites you chose "Never for this site" for) are kept in the browser's extension storage on your computer.</li>
+      <li><strong>A pending login</strong> you just submitted is kept in the browser's session storage while the "Save login to Notiq?" offer is open, for at most 90 seconds. Session storage lives in memory only, is never written to disk, and is cleared when the tab is closed or the browser exits.</li>
+      <li>The extension does not store your passwords or your vault. Saved logins live only in the Notiq app, encrypted on your device.</li>
+    </ul>
+
+    <h2>Where credentials go</h2>
+    <p>Logins travel only between the page and the Notiq desktop app on the same computer, through the browser's local native-messaging bridge. You approve every fill and every save inside the Notiq app, and the vault must be unlocked. Credentials are never sent to the internet, to us or to any third party.</p>
+
+    <h2>What we collect</h2>
+    <p>Nothing. There are no servers, no analytics, no crash reporting, no advertising and no third-party code. We do not sell or share data, and we do not use it for any purpose other than the single purpose of filling and saving your logins at your request.</p>
+
+    <h2>How to remove your data</h2>
+    <ul>
+      <li>Remove the extension from your browser's extensions page. This deletes its settings, never-save list and any pending login.</li>
+      <li>Or clear the never-save list from the extension's toolbar popup by clicking the × next to a site.</li>
+      <li>Logins saved in the Notiq app are managed and deleted in the app.</li>
+    </ul>
+
+    <h2>Children</h2>
+    <p>The extension is not directed at children and does not knowingly collect data from anyone.</p>
+
+    <h2>Changes and contact</h2>
+    <p>If this policy changes, the new version will be posted on this page with an updated date. Questions or concerns: open an issue at <a href="https://github.com/trexolab-solution/notiq/issues">github.com/trexolab-solution/notiq/issues</a>.</p>
+  </main>
+
+  <footer>
+    <div><a href="./">Home</a><a href="https://github.com/trexolab-solution/notiq/blob/main/LICENSE">MIT license</a></div>
+    <div>Notiq</div>
+  </footer>
+</div>
+</body>
+</html>
