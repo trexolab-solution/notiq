@@ -12,6 +12,8 @@ mod vault_core;
 mod vault_db;
 mod profile;
 mod session_lock;
+// 0.7.0 quick search
+mod quick_search;
 #[cfg(desktop)]
 use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem},
@@ -626,6 +628,8 @@ pub fn run() {
             // Self-update (signed) + process control for relaunch after install.
             .plugin(tauri_plugin_updater::Builder::new().build())
             .plugin(tauri_plugin_process::init())
+            // 0.7.0 quick search
+            .plugin(quick_search::plugin())
     };
 
     let builder = builder.manage(vault::VaultState::default());
@@ -690,6 +694,14 @@ pub fn run() {
         autofill::autofill_ui_ready,
         native_host_reg::autofill_status,
         native_host_reg::autofill_repair,
+        // 0.7.0 quick search
+        quick_search::quick_search_get,
+        quick_search::quick_search_set,
+        quick_search::quick_search_hide,
+        quick_search::quick_search_show_main,
+        quick_search::quick_search_reopen,
+        quick_search::quick_search_index,
+        quick_search::vault_fingerprint,
     ]);
 
     #[cfg(not(desktop))]
@@ -747,6 +759,14 @@ pub fn run() {
         autofill::autofill_ui_ready,
         native_host_reg::autofill_status,
         native_host_reg::autofill_repair,
+        // 0.7.0 quick search
+        quick_search::quick_search_get,
+        quick_search::quick_search_set,
+        quick_search::quick_search_hide,
+        quick_search::quick_search_show_main,
+        quick_search::quick_search_reopen,
+        quick_search::quick_search_index,
+        quick_search::vault_fingerprint,
     ]);
 
     #[cfg(desktop)]
@@ -784,6 +804,9 @@ pub fn run() {
             #[cfg(desktop)]
             session_lock::start(app.handle());
             // end 0.7.0 session lock
+
+            // 0.7.0 quick search
+            quick_search::start(app.handle());
 
             #[cfg(desktop)]
             setup_tray(app)?;

@@ -27,7 +27,7 @@ import { isVaultPath } from "./vault";
 const PRINT_ROOT_ID = "notiq-print-root";
 const RESULT_EVENT = "notiq:pdf-export-result";
 
-interface PdfResult {
+export interface PdfResult {
   success: boolean;
   error: string;
   path: string;
@@ -95,7 +95,7 @@ async function waitForRender(root: HTMLElement, content: string, timeoutMs = 800
 }
 
 /** Run the native print-to-PDF and resolve with its result event (or reject on timeout). */
-function nativePrint(path: string): Promise<PdfResult> {
+export function nativePrint(path: string): Promise<PdfResult> {
   return new Promise<PdfResult>((resolve, reject) => {
     let settled = false;
     const timer = setTimeout(() => {
