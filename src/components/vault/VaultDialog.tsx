@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { KeyRound, Lock, Copy, Printer } from "lucide-react";
+import { KeyRound, Lock, Copy, Printer, Fingerprint } from "lucide-react";
 import { Dialog, DialogBody, DialogButton, DialogCheckbox, DialogFooter } from "../ui/Dialog";
 import { Input } from "../ui/Input";
 import { PasswordInput } from "../ui/PasswordInput";
@@ -16,6 +16,7 @@ import {
   vaultCreate, vaultUnlock, vaultUnlockWithRecovery, vaultErrorMessage,
 } from "../../lib/vault";
 import { helloStatus, helloUnlock, isHelloCancel } from "../../lib/hello"; // 0.7.0 hello
+import { getUnlockMethod, setUnlockMethod, type UnlockMethod } from "../../lib/unlockMethod";
 
 const MIN_LEN = 8;
 
@@ -55,8 +56,11 @@ function VaultDialogInner({ mode }: { mode: VaultDialogMode }) {
     useVaultStore.getState().finish(true);
   };
 
-  // 0.7.0 hello: offered on the unlock step only when turned on; never auto-triggered.
+  // 0.7.0 hello: offered on the unlock step only when turned on; never auto-triggered. The dialog opens
+  // with the method the user unlocked with last time and lets them switch.
   const [helloOn, setHelloOn] = useState(false);
+  const [method, setMethod] = useState<UnlockMethod>(getUnlockMethod);
+  const showHello = mode === "unlock" && helloOn && method === "hello";
   useEffect(() => {
     if (mode !== "unlock") return;
     let live = true;
@@ -69,6 +73,7 @@ function VaultDialogInner({ mode }: { mode: VaultDialogMode }) {
     setError(null);
     try {
       await helloUnlock();
+      setUnlockMethod("hello");
       await succeed();
     } catch (err) {
       const msg = vaultErrorMessage(err);
@@ -94,6 +99,7 @@ function VaultDialogInner({ mode }: { mode: VaultDialogMode }) {
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (busy) return;
+    if (showHello) { void unlockWithHello(); return; } // Enter in the Hello view
     const problem = validate();
     if (problem) { setError(problem); return; }
     setBusy(true);
@@ -106,6 +112,7 @@ function VaultDialogInner({ mode }: { mode: VaultDialogMode }) {
         setRecoveryKey(rk);
       } else if (mode === "unlock") {
         await vaultUnlock(password);
+        if (helloOn) setUnlockMethod("password");
         await succeed();
       } else {
         await vaultUnlockWithRecovery(recoveryInput.trim(), password);
@@ -203,6 +210,21 @@ function VaultDialogInner({ mode }: { mode: VaultDialogMode }) {
           </div>
         )}
 
+        {showHello ? (
+          <div className="flex flex-col items-center gap-3 pt-1 pb-2">
+            <span className="grid place-items-center w-14 h-14 rounded-full bg-[var(--color-bg-tertiary)] text-[var(--color-primary)]">
+              <Fingerprint size={28} strokeWidth={1.6} />
+            </span>
+            <Button type="button" variant="primary" className="w-full justify-center" autoFocus disabled={busy}
+                    icon={<Fingerprint size={15} />} onClick={() => void unlockWithHello()}>
+              {busy ? "Waiting for Windows Hello…" : "Unlock with Windows Hello"}
+            </Button>
+            <button type="button" className="dlg-link" disabled={busy}
+                    onClick={() => { setError(null); setMethod("password"); }}>
+              Use master password instead
+            </button>
+          </div>
+        ) : (
         <div className="mb-3">
           <label className={label} htmlFor="vault-password">
             {mode === "recover" ? "New master password" : "Master password"}
@@ -213,6 +235,7 @@ function VaultDialogInner({ mode }: { mode: VaultDialogMode }) {
             value={password} onChange={(e) => setPassword(e.target.value)}
           />
         </div>
+        )}
 
         {needsNewPassword && (
           <div className="mb-3">
@@ -226,10 +249,11 @@ function VaultDialogInner({ mode }: { mode: VaultDialogMode }) {
 
         {error && <p role="alert" className="text-xs mb-3 text-[var(--color-danger)]">{error}</p>}
 
-        {mode === "unlock" && helloOn && (
-          <Button type="button" className="w-full justify-center mb-1" disabled={busy} onClick={() => void unlockWithHello()}>
-            Unlock with Windows Hello
-          </Button>
+        {mode === "unlock" && helloOn && method === "password" && (
+          <button type="button" className="dlg-link inline-flex items-center gap-1.5" disabled={busy}
+                  onClick={() => { setError(null); setMethod("hello"); }}>
+            <Fingerprint size={14} /> Use Windows Hello instead
+          </button>
         )}
 
       </DialogBody>
@@ -253,9 +277,11 @@ function VaultDialogInner({ mode }: { mode: VaultDialogMode }) {
         ) : undefined}
       >
         <DialogButton cancel onClick={cancel}>Cancel</DialogButton>
+        {!showHello && (
         <DialogButton type="submit" variant="primary" disabled={busy}>
           {busy ? "Working…" : mode === "setup" ? "Create vault" : mode === "unlock" ? "Unlock" : "Reset & unlock"}
         </DialogButton>
+        )}
       </DialogFooter>
     </Dialog>
   );
