@@ -6,6 +6,7 @@ import { getVaultDir } from "../../lib/vaultPrefs";
 import { useVaultItems } from "./sidebar/useVaultItems";
 import { PanelHeader } from "./sidebar/PanelHeader";
 import { VaultExplorer } from "./sidebar/VaultExplorer";
+import { BackupReminder } from "./BackupReminder";
 
 const baseName = (p: string) => p.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || p;
 
@@ -44,7 +45,10 @@ export function VaultPanel() {
   return (
     <section className="vt-panel" aria-label="Secure Vault">
       {unlocked ? (
-        <VaultExplorer {...data} footer={storageRow} />
+        <>
+          <BackupReminder />
+          <VaultExplorer {...data} footer={storageRow} />
+        </>
       ) : (
         <>
           <PanelHeader unlocked={false} />

@@ -10,6 +10,7 @@ import { useVaultStore, type VaultDialogMode } from "../../store/vaultStore";
 import { useAppStore } from "../../store";
 import { useVaultAutoLock } from "../../hooks/useVaultAutoLock";
 import { useVaultSessionLock } from "../../hooks/useVaultSessionLock";
+import { copySecret } from "../../lib/secureCopy";
 import {
   vaultCreate, vaultUnlock, vaultUnlockWithRecovery, vaultErrorMessage,
 } from "../../lib/vault";
@@ -91,11 +92,9 @@ function VaultDialogInner({ mode }: { mode: VaultDialogMode }) {
 
   const copyKey = async () => {
     if (!recoveryKey) return;
-    try {
-      await navigator.clipboard.writeText(recoveryKey);
-      toast.info("Recovery key copied. Paste it somewhere safe, then clear your clipboard.");
-    } catch {
-      toast.error("Couldn't copy — please write the key down by hand");
+    // copySecret keeps it out of clipboard history and clears it after 20 s; it shows its own error toast on failure.
+    if (await copySecret(recoveryKey, "Recovery key", { quiet: true })) {
+      toast.info("Recovery key copied — it clears from the clipboard in 20 s. Paste it somewhere safe now.");
     }
   };
 
