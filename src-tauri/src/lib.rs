@@ -3,6 +3,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::Manager;
 
 mod ai;
+mod clipboard;
 pub mod autofill;
 mod vault;
 mod vault_core;
@@ -667,6 +668,8 @@ pub fn run() {
         vault::vault_import_legacy,
         vault::vault_legacy_cleanup,
         autofill::autofill_reply,
+        // 0.7.0 clipboard
+        clipboard::secure_copy,
     ]);
 
     #[cfg(not(desktop))]
@@ -704,6 +707,8 @@ pub fn run() {
         vault::vault_import_legacy,
         vault::vault_legacy_cleanup,
         autofill::autofill_reply,
+        // 0.7.0 clipboard
+        clipboard::secure_copy,
     ]);
 
     #[cfg(desktop)]

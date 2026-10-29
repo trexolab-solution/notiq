@@ -42,7 +42,7 @@ portable-pty = "0.8"
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.52"
-windows-sys = { version = "0.61", features = ["Win32_UI_Shell", "Win32_UI_WindowsAndMessaging", "Win32_Foundation", "Win32_Security_Cryptography", "Win32_System_RemoteDesktop", "Win32_System_LibraryLoader", "Win32_System_Power"] }
+windows-sys = { version = "0.61", features = ["Win32_UI_Shell", "Win32_UI_WindowsAndMessaging", "Win32_Foundation", "Win32_Security_Cryptography", "Win32_System_RemoteDesktop", "Win32_System_LibraryLoader", "Win32_System_Power", "Win32_System_DataExchange", "Win32_System_Memory"] }
 # Native silent print-to-PDF via WebView2 (ICoreWebView2_7::PrintToPdf).
 # Versions must match what wry/tauri already pull in (see Cargo.lock).
 webview2-com = "0.39"
