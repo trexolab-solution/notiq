@@ -55,32 +55,35 @@ export const KIT_CHECKLIST: string[] = [
   "Tested restoring the backup",
 ];
 
-/** Styles scoped to `.rk-page`; always dark-on-white, independent of the app theme. */
+/** Styles scoped to `.rk-page`; always dark-on-white, independent of the app theme. Every list/heading
+ *  style is explicit because the app's CSS reset strips bullets, heading weight and margins. */
 const KIT_CSS = `
-.rk-page{background:#fff;color:#1e293b;font-family:"Segoe UI",system-ui,-apple-system,sans-serif;font-size:13px;line-height:1.5;padding:8px 4px;max-width:720px;margin:0 auto}
-.rk-page *{box-sizing:border-box}
-.rk-head{display:flex;align-items:baseline;justify-content:space-between;border-bottom:2px solid #1e293b;padding-bottom:8px;margin-bottom:16px}
-.rk-logo{font-size:26px;font-weight:800;letter-spacing:-0.5px}
-.rk-sub{font-size:14px;font-weight:600;color:#475569}
-.rk-meta{display:flex;gap:32px;margin-bottom:16px;font-size:12px;color:#475569}
-.rk-meta b{display:block;color:#1e293b;font-size:13px;font-family:Consolas,"Cascadia Mono",ui-monospace,monospace}
-.rk-key{border:2px dashed #94a3b8;border-radius:8px;padding:16px;margin-bottom:18px;text-align:center}
-.rk-key-label{font-size:11px;text-transform:uppercase;letter-spacing:1px;color:#64748b;margin-bottom:8px}
-.rk-row{font-family:Consolas,"Cascadia Mono",ui-monospace,monospace;font-size:20px;font-weight:600;letter-spacing:2px;white-space:nowrap}
-.rk-row span{display:inline-block;margin:0 8px}
-.rk-page h3{font-size:13px;margin:16px 0 6px}
-.rk-page ul{margin:0;padding-left:20px}
-.rk-page li{margin-bottom:5px}
-.rk-check{list-style:none;padding-left:0 !important}
-.rk-check li{display:flex;gap:10px;align-items:center;margin-bottom:10px}
-.rk-box{display:inline-block;width:14px;height:14px;border:1.5px solid #1e293b;border-radius:2px;flex:none}
-.rk-foot{margin-top:20px;padding-top:8px;border-top:1px solid #cbd5e1;font-size:11px;color:#64748b}
-@media print{.rk-page{padding:0}.rk-key{break-inside:avoid}}
+.rk-page{background:#fff;color:#0f172a;font-family:"Segoe UI",system-ui,-apple-system,sans-serif;font-size:13px;line-height:1.55;max-width:700px;margin:0 auto;padding:4px}
+.rk-page *{box-sizing:border-box;margin:0}
+.rk-head{display:flex;align-items:flex-end;justify-content:space-between;padding-bottom:12px;border-bottom:3px solid #0f172a}
+.rk-logo{font-size:30px;font-weight:800;letter-spacing:-0.8px;line-height:1}
+.rk-sub{font-size:12px;font-weight:700;letter-spacing:1.4px;text-transform:uppercase;color:#475569}
+.rk-meta{display:flex;gap:40px;margin:14px 0 18px;font-size:11px;letter-spacing:.6px;text-transform:uppercase;color:#64748b}
+.rk-meta b{display:block;margin-top:2px;font-size:14px;letter-spacing:0;text-transform:none;color:#0f172a;font-family:Consolas,"Cascadia Mono",ui-monospace,monospace}
+.rk-key{border:2px solid #0f172a;border-radius:10px;padding:18px 16px 20px;margin-bottom:20px;text-align:center;background:#f8fafc}
+.rk-key-label{font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:#475569;margin-bottom:10px}
+.rk-row{font-family:Consolas,"Cascadia Mono",ui-monospace,monospace;font-size:22px;font-weight:700;letter-spacing:2px;white-space:nowrap;line-height:1.7}
+.rk-row span{display:inline-block;margin:0 10px}
+.rk-page h3{font-size:11px;font-weight:800;letter-spacing:1.6px;text-transform:uppercase;color:#475569;margin:0 0 8px;padding-bottom:4px;border-bottom:1px solid #cbd5e1}
+.rk-list{list-style:none;padding:0;margin:0 0 6px;counter-reset:rk}
+.rk-list li{position:relative;padding-left:28px;margin-bottom:8px;counter-increment:rk}
+.rk-list li::before{content:counter(rk);position:absolute;left:0;top:1px;width:18px;height:18px;border-radius:50%;background:#0f172a;color:#fff;font-size:10.5px;font-weight:700;text-align:center;line-height:18px}
+.rk-how{margin:12px 0 20px;padding:10px 12px;border:1px solid #cbd5e1;border-radius:6px;background:#f8fafc}
+.rk-check{list-style:none;padding:0;margin:0}
+.rk-check li{display:flex;gap:10px;align-items:center;margin-bottom:9px}
+.rk-box{display:inline-block;width:15px;height:15px;border:1.5px solid #0f172a;border-radius:3px;flex:none}
+.rk-foot{margin-top:18px;padding-top:8px;border-top:1px solid #cbd5e1;font-size:10.5px;color:#64748b}
+@media print{.rk-page{padding:0}.rk-key,.rk-how{break-inside:avoid}}
 `;
 
 /** The whole kit as an HTML fragment (`<style>` + `.rk-page`). Every dynamic value is escaped. */
 export function buildRecoveryKitHtml({ recoveryKey, fingerprint, createdAt }: RecoveryKitInput): string {
-  const rows = keyRows(groupRecoveryKey(recoveryKey))
+  const rows = keyRows(groupRecoveryKey(recoveryKey), 5)
     .map((r) => `<div class="rk-row">${r.map((g) => `<span>${esc(g)}</span>`).join("")}</div>`)
     .join("");
   const fp = formatFingerprint(fingerprint) || "—";
@@ -98,8 +101,8 @@ export function buildRecoveryKitHtml({ recoveryKey, fingerprint, createdAt }: Re
     ${rows}
   </div>
   <h3>What this is</h3>
-  <ul>${li(KIT_INSTRUCTIONS)}</ul>
-  <p>${esc(KIT_HOW_TO_USE)}</p>
+  <ul class="rk-list">${li(KIT_INSTRUCTIONS)}</ul>
+  <div class="rk-how">${esc(KIT_HOW_TO_USE)}</div>
   <h3>Checklist</h3>
   <ul class="rk-check">${KIT_CHECKLIST.map((t) => `<li><span class="rk-box"></span>${esc(t)}</li>`).join("")}</ul>
   <div class="rk-foot">The fingerprint only identifies which vault this key belongs to; it is not secret and cannot open anything.</div>
