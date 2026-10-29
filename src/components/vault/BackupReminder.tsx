@@ -44,7 +44,7 @@ export function BackupReminder() {
     try {
       if (await exportBackupWithDialog()) toast.info("Backup saved. Keep it somewhere safe.");
     } catch (e) {
-      toast.error(`Backup failed: ${vaultErrorMessage(e)}`);
+      toast.error("Backup failed", { source: "Backup", detail: vaultErrorMessage(e) });
     } finally {
       setBusy(false);
     }

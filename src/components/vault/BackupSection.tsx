@@ -37,7 +37,7 @@ export function BackupSection() {
       const res = await exportBackupWithDialog();
       if (res) toast.info(`Backup saved (${formatBytes(res.bytes)}). Keep it somewhere safe.`);
     } catch (e) {
-      toast.error(`Backup failed: ${vaultErrorMessage(e)}`);
+      toast.error("Backup failed", { source: "Backup", detail: vaultErrorMessage(e) });
     } finally {
       setBusy(false);
     }

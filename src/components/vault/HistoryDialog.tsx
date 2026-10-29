@@ -68,7 +68,7 @@ export function HistoryDialog({ tab, onClose }: { tab: Tab; onClose: () => void 
       toast.success("Earlier version restored");
       onClose();
     } catch (e) {
-      toast.error(`Couldn't restore: ${vaultErrorMessage(e)}`);
+      toast.error("Couldn't restore that version", { source: "Vault", detail: vaultErrorMessage(e) });
     } finally {
       setBusy(false);
     }

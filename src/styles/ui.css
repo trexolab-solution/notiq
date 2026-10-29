@@ -266,62 +266,6 @@
 }
 
 /* ══════════════════════════════════════════════════════════════════════════════
-   TOAST NOTIFICATIONS
-══════════════════════════════════════════════════════════════════════════════ */
-.toast-stack {
-  position: fixed;
-  bottom: 32px;
-  right: 20px;
-  z-index: 98000;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  pointer-events: none;
-  align-items: flex-end;
-}
-.toast-item {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  padding: 9px 12px 9px 12px;
-  border-radius: 9px;
-  border: 1px solid var(--color-border);
-  background: var(--color-bg-secondary);
-  box-shadow: 0 4px 20px rgba(0,0,0,0.35), 0 1px 4px rgba(0,0,0,0.15);
-  font-size: 12.5px;
-  font-weight: 500;
-  color: var(--color-text);
-  min-width: 200px;
-  max-width: 380px;
-  pointer-events: all;
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  opacity: 0;
-  transform: translateX(16px);
-  transition: opacity 0.18s ease, transform 0.18s ease;
-}
-.toast-item.toast-visible { opacity: 1; transform: translateX(0); }
-.toast-icon { flex-shrink: 0; }
-.toast-message { flex: 1; line-height: 1.4; }
-.toast-close {
-  display: flex; align-items: center; justify-content: center;
-  width: 18px; height: 18px; border-radius: 4px; border: none;
-  background: transparent; color: var(--color-text-muted); cursor: pointer;
-  flex-shrink: 0; opacity: 0.6; transition: opacity 0.1s, background 0.1s;
-  padding: 0;
-}
-.toast-close:hover { opacity: 1; background: var(--color-bg-tertiary); }
-/* Type colours */
-.toast-success .toast-icon { color: var(--color-success); }
-.toast-warning .toast-icon { color: var(--color-warning); }
-.toast-error   .toast-icon { color: var(--color-danger); }
-.toast-info    .toast-icon { color: var(--color-accent); }
-.toast-success { border-color: color-mix(in srgb, var(--color-success) 22%, var(--color-border)); }
-.toast-warning { border-color: color-mix(in srgb, var(--color-warning) 22%, var(--color-border)); }
-.toast-error   { border-color: color-mix(in srgb, var(--color-danger)  22%, var(--color-border)); }
-.toast-info    { border-color: color-mix(in srgb, var(--color-accent)  22%, var(--color-border)); }
-
-/* ══════════════════════════════════════════════════════════════════════════════
    CONFIRM DIALOG
 ══════════════════════════════════════════════════════════════════════════════ */
 .confirm-backdrop {

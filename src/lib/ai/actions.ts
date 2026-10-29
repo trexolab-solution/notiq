@@ -12,13 +12,16 @@ import * as P from "./prompts";
 
 type Editor = monacoNs.editor.ICodeEditor;
 
+/** "Settings → AI" hints get a button that opens that section. */
+const AI_SETTINGS_HINT = { source: "AI", actions: [{ label: "Open Settings", onClick: () => useAppStore.getState().openSettings("ai") }] };
+
 const MAX_NOTE_CHARS = 8000; // keep requests inside free-tier-friendly sizes
 
 /** Guard: AI on + model picked. Shows a hint toast otherwise. */
 function ready(): boolean {
   const s = useAppStore.getState();
-  if (!s.aiEnabled) { toast.warning("AI is off — turn it on in Settings → AI"); return false; }
-  if (!s.aiModel) { toast.warning("Pick a model in Settings → AI"); return false; }
+  if (!s.aiEnabled) { toast.warning("AI is off — turn it on in Settings → AI", AI_SETTINGS_HINT); return false; }
+  if (!s.aiModel) { toast.warning("Pick a model in Settings → AI", AI_SETTINGS_HINT); return false; }
   const active = s.tabs.find((t) => t.id === s.activeTabId);
   if (isVaultPath(active?.filePath)) { toast.warning(AI_BLOCKED_FOR_VAULT_MSG); return false; }
   return true;
@@ -40,10 +43,10 @@ async function withLoading<T>(label: string, fn: () => Promise<T>): Promise<T | 
 
   try {
     const r = await Promise.race([fn(), cancelPromise]);
-    toast.dismiss(id);
+    toast.remove(id); // transient "working…" notice: keep it out of the history
     return r as T;
   } catch (e) {
-    toast.dismiss(id);
+    toast.remove(id);
     if (!cancelled) toast.error(mapAiError(e));
     return undefined;
   } finally {

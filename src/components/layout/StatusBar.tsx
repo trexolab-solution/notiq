@@ -3,6 +3,7 @@ import { HardDrive, SquareTerminal, Loader2 } from "lucide-react";
 import { useAppStore } from "../../store";
 import { isVaultPath } from "../../lib/vault";
 import { Tooltip } from "../ui/Tooltip";
+import { NotificationBell } from "../ui/NotificationBell";
 import { subscribeBusyDelayed } from "../../lib/ai/activity";
 import { APP_NAME, APP_VERSION } from "../../config/app";
 
@@ -119,6 +120,7 @@ export const StatusBar = React.memo(function StatusBar({
         <span className="status-item status-brand">
           {APP_NAME} v{APP_VERSION} &mdash; by TrexoLab
         </span>
+        <NotificationBell />
       </div>
     </div>
   );

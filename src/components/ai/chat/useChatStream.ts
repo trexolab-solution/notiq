@@ -10,6 +10,9 @@ import { isVaultPath } from "../../../lib/vault";
 import type { AIProvider } from "../../../types";
 import { tabToContextFile } from "./contextFiles";
 import { MAX_NOTE_CHARS, MAX_TOTAL_CONTEXT_CHARS, PROVIDER_TAG, type Msg } from "./types";
+
+/** "Settings → AI" hints get a button that opens that section. */
+const AI_SETTINGS_HINT = { source: "AI", actions: [{ label: "Open Settings", onClick: () => useAppStore.getState().openSettings("ai") }] };
 import type { ModelOverride } from "./useChatModels";
 
 interface UseChatStreamParams {
@@ -55,10 +58,10 @@ export function useChatStream({
   // Stream an assistant reply for the given conversation history. Appends a fresh
   // empty assistant bubble and fills it token-by-token. Shared by send + regenerate.
   const runCompletion = useCallback((history: Msg[]) => {
-    if (!aiEnabled) { toast.warning("AI is off — turn it on in Settings → AI"); return; }
+    if (!aiEnabled) { toast.warning("AI is off — turn it on in Settings → AI", AI_SETTINGS_HINT); return; }
     const provider = modelOverride?.provider ?? aiProvider;
     const model = modelOverride?.model ?? aiModel;
-    if (!model)     { toast.warning("Pick a model in Settings → AI"); return; }
+    if (!model)     { toast.warning("Pick a model in Settings → AI", AI_SETTINGS_HINT); return; }
 
     // Grab the checked context tabs for grounding (only when the toggle is on).
     // Total content is capped across all of them, split proportionally so N

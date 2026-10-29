@@ -1,44 +1,34 @@
-export type ToastType = "info" | "success" | "warning" | "error";
+/**
+ * App-wide notifications (VS Code style). Backward compatible with the old
+ * toast API: `toast.error(msg)` and `toast.error(msg, 9000)` still work; the
+ * second argument may also be an options object (title, detail, actions, id,
+ * source, silent, progress). Logic lives in ./notifications.
+ */
+import * as N from "./notifications";
+import type { Notification, NotificationType, NotifyOptions, NotificationPatch } from "./notifications";
 
-export interface ToastItem {
-  id: string;
-  type: ToastType;
-  message: string;
-  duration: number;
-}
+export type ToastType = NotificationType;
+export type ToastItem = Notification;
+export type ToastOptions = NotifyOptions;
+export type { NotificationAction as ToastAction } from "./notifications";
 
-type Listener = (items: ToastItem[]) => void;
+type Arg = number | NotifyOptions;
 
-let _items: ToastItem[] = [];
-const _listeners = new Set<Listener>();
-
-function _notify() { _listeners.forEach((l) => l(_items)); }
-
-function show(type: ToastType, message: string, duration = 3200): string {
-  const id = Math.random().toString(36).slice(2);
-  _items   = [..._items, { id, type, message, duration }];
-  _notify();
-  if (duration > 0) setTimeout(() => dismiss(id), duration);
-  return id;
-}
-
-function dismiss(id: string) {
-  _items = _items.filter((t) => t.id !== id);
-  _notify();
-}
-
-/** Subscribe to toast list changes. Returns an unsubscribe function. */
-function subscribe(l: Listener): () => void {
-  _listeners.add(l);
-  l(_items);
-  return () => _listeners.delete(l);
+/** Subscribe to the on-screen notifications. Returns an unsubscribe function. */
+function subscribe(l: (items: ToastItem[]) => void): () => void {
+  return N.subscribe((s) => l(s.toasts));
 }
 
 export const toast = {
-  info:    (msg: string, dur?: number) => show("info",    msg, dur),
-  success: (msg: string, dur?: number) => show("success", msg, dur),
-  warning: (msg: string, dur?: number) => show("warning", msg, dur),
-  error:   (msg: string, dur?: number) => show("error",   msg, dur),
-  dismiss,
+  info:    (msg: string, opts?: Arg) => N.notify("info",    msg, opts),
+  success: (msg: string, opts?: Arg) => N.notify("success", msg, opts),
+  warning: (msg: string, opts?: Arg) => N.notify("warning", msg, opts),
+  error:   (msg: string, opts?: Arg) => N.notify("error",   msg, opts),
+  update:  (id: string, patch: NotificationPatch) => N.update(id, patch),
+  /** Take it off the screen (it stays in the Notification Center). */
+  dismiss: (id: string) => N.dismiss(id),
+  /** Remove it everywhere, history included (transient "working…" notices). */
+  remove:  (id: string) => N.remove(id),
+  clear:   () => N.clear(),
   subscribe,
 };
