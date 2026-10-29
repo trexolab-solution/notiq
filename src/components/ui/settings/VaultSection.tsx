@@ -8,6 +8,7 @@ import { PasswordInput } from "../PasswordInput";
 import { PanicShortcutRow, PasswordGeneratorRow, StorageFolderRow } from "./VaultPrefRows";
 import { SessionLockRow } from "./SessionLockRow";
 import { BackupSection } from "../../vault/BackupSection";
+import { AutofillSection } from "./AutofillSection";
 import { toast } from "../../../lib/toast";
 import { useAppStore } from "../../../store";
 import { useVaultStore } from "../../../store/vaultStore";
@@ -120,6 +121,7 @@ export const VaultSection = React.memo(function VaultSection() {
       <PanicShortcutRow />
       <SessionLockRow />
       <BackupSection />
+      <AutofillSection />
       <StorageFolderRow />
       <PasswordGeneratorRow />
 

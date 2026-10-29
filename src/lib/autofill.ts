@@ -1,9 +1,11 @@
+import { invoke } from "@tauri-apps/api/core";
 import { ensureVaultDir } from "./vaultDir";
 import { vaultList, vaultMkdir, vaultReadFile, vaultWriteFile, VAULT_CHANGED_EVENT } from "./vault";
 import { childNames, joinRel, nameError, normRel, toFull, uniqueName } from "./vaultTree";
 import { emptyLogin, hostOf, LOGIN_EXT, parseLogin, serializeLogin, totpCode, type LoginEntry } from "./loginEntry";
 
-export interface LoginMatch { path: string; entry: LoginEntry }
+/** `path` is the full path, `rel` the vault-relative one (forward slashes) used as the protocol's `account`. */
+export interface LoginMatch { path: string; rel?: string; entry: LoginEntry }
 
 /** `login.example.com` matches a login saved for `example.com`, never the reverse. */
 export function hostMatches(pageHost: string, savedHost: string): boolean {
@@ -12,25 +14,112 @@ export function hostMatches(pageHost: string, savedHost: string): boolean {
   return !!s && (p === s || p.endsWith(`.${s}`));
 }
 
-async function listVaultFiles(): Promise<string[]> {
+async function listVaultFiles(): Promise<{ path: string; rel: string }[]> {
   const root = (await ensureVaultDir()).replace(/\\/g, "/").replace(/\/+$/, "");
-  return (await vaultList()).filter((i) => !i.dir && /\.nqv$/i.test(i.rel)).map((i) => `${root}/${i.rel}`);
+  return (await vaultList())
+    .filter((i) => !i.dir && /\.nqv$/i.test(i.rel))
+    .map((i) => ({ path: `${root}/${i.rel}`, rel: normRel(i.rel) }));
 }
 
 /** Saved logins whose site matches `pageHost`. Requires an unlocked vault. */
 export async function findLogins(pageHost: string): Promise<LoginMatch[]> {
   const found: LoginMatch[] = [];
-  for (const path of await listVaultFiles()) {
+  for (const { path, rel } of await listVaultFiles()) {
     try {
       const f = await vaultReadFile(path);
       if (f.ext !== LOGIN_EXT) continue;
       const entry = parseLogin(f.content);
-      if (hostMatches(pageHost, hostOf(entry.url))) found.push({ path, entry });
+      if (hostMatches(pageHost, hostOf(entry.url))) found.push({ path, rel, entry });
     } catch { /* unreadable file: skip */ }
   }
   return found;
 }
 
+// ─── Fewer prompts: requested account + per-site trust window ────────────────
+
+/** Mirrors the native host's check: ≤ 512 chars, no control chars, not absolute, no `..`. Empty → null. */
+export function validAccount(account: unknown): string | null {
+  if (typeof account !== "string" || !account) return null;
+  if (account.length > 512 || /[\u0000-\u001f\u007f]/.test(account)) return null;
+  if (/^[\\/]/.test(account) || account.includes(":") || account.includes("..")) return null;
+  return normRel(account);
+}
+
+const relOf = (m: LoginMatch) => normRel(m.rel ?? "");
+
+/** Index of the match for `account` among host-matched logins (case-insensitive), or -1. */
+export function indexOfAccount(matches: LoginMatch[], account: unknown): number {
+  const a = validAccount(account);
+  if (!a) return -1;
+  const want = a.toLowerCase();
+  return matches.findIndex((m) => !!m.rel && relOf(m).toLowerCase() === want);
+}
+
+export interface ChooseOption { account: string; title: string; username: string }
+
+/** What a trusted site gets without a dialog. Only host-matched logins are ever considered or listed. */
+export type TrustedDecision =
+  | { kind: "fill"; match: LoginMatch }
+  | { kind: "choose"; options: ChooseOption[] }
+  | { kind: "no_match" };
+
+export function decideTrusted(matches: LoginMatch[], account: unknown): TrustedDecision {
+  if (!matches.length) return { kind: "no_match" };
+  const i = indexOfAccount(matches, account);
+  if (i >= 0) return { kind: "fill", match: matches[i] };
+  if (matches.length === 1) return { kind: "fill", match: matches[0] };
+  return {
+    kind: "choose",
+    options: matches.map((m) => ({ account: relOf(m), title: m.entry.title || m.entry.url, username: m.entry.username })),
+  };
+}
+
+export const TRUST_MS = 5 * 60 * 1000;
+const trusted = new Map<string, number>(); // page host -> until (ms)
+let trustTimer: ReturnType<typeof setTimeout> | null = null;
+
+function scheduleTrustSweep() {
+  if (trustTimer) clearTimeout(trustTimer);
+  trustTimer = null;
+  if (!trusted.size) return;
+  const next = Math.min(...trusted.values());
+  trustTimer = setTimeout(() => {
+    const now = Date.now();
+    for (const [h, until] of trusted) if (until <= now) trusted.delete(h);
+    scheduleTrustSweep();
+  }, Math.max(0, next - Date.now()));
+}
+
+/**
+ * "Allow this site for 5 minutes". Kept in memory only, keyed by the exact page host:
+ * trusting `example.com` does not trust `sub.example.com` or `evil-example.com`.
+ */
+export function trustHost(host: string, now = Date.now()): number {
+  const until = now + TRUST_MS;
+  trusted.set(host.toLowerCase(), until);
+  scheduleTrustSweep();
+  return until;
+}
+
+export function isTrusted(host: string, now = Date.now()): boolean {
+  const key = host.toLowerCase();
+  const until = trusted.get(key);
+  if (until === undefined) return false;
+  if (until <= now) { trusted.delete(key); return false; }
+  return true;
+}
+
+/** Forget every trusted site (vault locked, window closed to the tray, app quitting). */
+export function clearTrust(): void {
+  trusted.clear();
+  scheduleTrustSweep();
+}
+
+export function trustedHosts(now = Date.now()): string[] {
+  return [...trusted.entries()].filter(([, u]) => u > now).map(([h]) => h);
+}
+
+/** Credentials for one login. Never send these for a login that doesn't match the requesting host. */
 export async function credentialsFor(m: LoginMatch) {
   const code = m.entry.totp ? await totpCode(m.entry.totp) : null;
   return { username: m.entry.username, password: m.entry.password, title: m.entry.title, ...(code ? { code } : {}) };
@@ -98,3 +187,44 @@ export async function saveLogin(
   await useAppStore.getState().refreshVaultTabs();
   return status;
 }
+
+// ─── Bridge status / repair (Settings → Browser autofill) ────────────────────
+
+export interface BrowserRegStatus {
+  name: string;
+  installed: boolean;
+  registered: boolean;
+  manifest_path: string | null;
+  path_matches_current_exe: boolean;
+  ids_ok: boolean;
+}
+export interface AutofillStatus {
+  browsers: BrowserRegStatus[];
+  ipc_ok: boolean;
+  extension_last_seen_ms: number | null;
+  last_request: { at_ms: number; host: string; outcome: string } | null;
+  native_host_exe: string;
+  is_dev: boolean;
+  note: string | null;
+  supported: boolean;
+}
+
+export const autofillStatus = () => invoke<AutofillStatus>("autofill_status");
+export const autofillRepair = () => invoke<AutofillStatus>("autofill_repair");
+
+export type BrowserRegState = "ok" | "missing" | "other_copy" | "outdated";
+
+/** One browser's registration as a single state for the status table. */
+export function browserRegState(b: BrowserRegStatus): BrowserRegState {
+  if (!b.registered) return "missing";
+  if (!b.path_matches_current_exe) return "other_copy";
+  if (!b.ids_ok) return "outdated";
+  return "ok";
+}
+
+export const BROWSER_REG_LABEL: Record<BrowserRegState, string> = {
+  ok: "Registered",
+  missing: "Not registered",
+  other_copy: "Points to another copy of Notiq",
+  outdated: "Registered (extension list out of date)",
+};

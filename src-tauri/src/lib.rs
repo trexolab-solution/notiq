@@ -5,6 +5,7 @@ use tauri::Manager;
 mod ai;
 mod clipboard;
 pub mod autofill;
+mod native_host_reg; // 0.7.0 autofill
 mod vault;
 mod vault_backup;
 mod vault_core;
@@ -685,6 +686,10 @@ pub fn run() {
         autofill::autofill_reply,
         // 0.7.0 clipboard
         clipboard::secure_copy,
+        // 0.7.0 autofill
+        autofill::autofill_ui_ready,
+        native_host_reg::autofill_status,
+        native_host_reg::autofill_repair,
     ]);
 
     #[cfg(not(desktop))]
@@ -738,6 +743,10 @@ pub fn run() {
         autofill::autofill_reply,
         // 0.7.0 clipboard
         clipboard::secure_copy,
+        // 0.7.0 autofill
+        autofill::autofill_ui_ready,
+        native_host_reg::autofill_status,
+        native_host_reg::autofill_repair,
     ]);
 
     #[cfg(desktop)]
