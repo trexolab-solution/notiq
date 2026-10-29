@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
-import { KeyRound, Lock, Copy, ShieldCheck } from "lucide-react";
+import { KeyRound, Lock, Copy, ShieldCheck, Printer } from "lucide-react";
 import { Modal } from "../ui/Modal";
 import { Input } from "../ui/Input";
 import { PasswordInput } from "../ui/PasswordInput";
 import { Button } from "../ui/Button";
 import { RestoreBackupDialog } from "./RestoreBackupDialog";
+import { RecoveryKitDialog } from "./RecoveryKitDialog"; // 0.7.0 recovery kit
 import { toast } from "../../lib/toast";
 import { useVaultStore, type VaultDialogMode } from "../../store/vaultStore";
 import { useAppStore } from "../../store";
@@ -42,6 +43,7 @@ function VaultDialogInner({ mode }: { mode: VaultDialogMode }) {
   const [recoveryKey, setRecoveryKey] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [restoring, setRestoring] = useState(false);
+  const [showKit, setShowKit] = useState(false); // 0.7.0 recovery kit
 
   const cancel = () => useVaultStore.getState().finish(false);
 
@@ -144,9 +146,11 @@ function VaultDialogInner({ mode }: { mode: VaultDialogMode }) {
           >
             {recoveryKey}
           </div>
-          <div className="flex justify-end mb-3">
+          <div className="flex justify-end gap-2 mb-3">
+            <Button size="sm" icon={<Printer size={12} />} onClick={() => setShowKit(true)}>Print recovery kit</Button>
             <Button size="sm" icon={<Copy size={12} />} onClick={copyKey}>Copy</Button>
           </div>
+          {showKit && <RecoveryKitDialog recoveryKey={recoveryKey} onClose={() => setShowKit(false)} />}
           <label className="flex items-center gap-2 text-xs mb-4 cursor-pointer select-none">
             <input type="checkbox" checked={saved} onChange={(e) => setSaved(e.target.checked)} />
             I have saved my recovery key
@@ -156,6 +160,7 @@ function VaultDialogInner({ mode }: { mode: VaultDialogMode }) {
               variant="primary"
               disabled={!saved}
               onClick={async () => {
+                setShowKit(false);
                 setRecoveryKey(null);
                 await succeed();
               }}
