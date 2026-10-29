@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { RotateCcw } from "lucide-react";
 import { SettingRow } from "../SettingRow";
 import { Toggle } from "../Toggle";
 import { Button } from "../Button";
@@ -61,26 +60,38 @@ export function QuickSearchRow() {
     return () => window.removeEventListener("keydown", h, true);
   }, [rec, enabled]);
 
-  const description = err
+  const shortcutDescription = err
     ?? (rec ? "Press the new key combination… (Esc to cancel)"
-      : `Press ${combo} anywhere on your computer to search your vault and copy a password without opening Notiq. Off by default.`);
+      : `Press ${combo} anywhere on your computer to open the search popup.`);
 
   return (
-    <SettingRow label="Quick search hotkey" description={description}>
-      <div className="flex items-center gap-2">
-        <kbd className={kbd}>{rec ? "Press keys…" : combo}</kbd>
-        <Button size="sm" disabled={!loaded || busy} onClick={() => { setErr(null); setRec((r) => !r); }}>
-          {rec ? "Cancel" : "Change"}
-        </Button>
-        {combo !== DEFAULT_QUICK_SEARCH_COMBO && !rec && (
-          <Button size="sm" variant="ghost" disabled={busy} aria-label="Reset shortcut"
-                  onClick={() => void save(enabled, DEFAULT_QUICK_SEARCH_COMBO)}>
-            <RotateCcw size={12} />
-          </Button>
-        )}
+    <>
+      <SettingRow
+        id="vault.quicksearch.enabled"
+        label="Quick search hotkey"
+        description="Search your vault and copy a password from anywhere on your computer, without opening Notiq. Off by default."
+        keywords={["quick search", "global shortcut", "popup", "copy password", "system-wide"]}
+        modified={enabled}
+        onReset={() => void save(false, combo)}
+      >
         <Toggle aria-label="Enable quick search hotkey" disabled={!loaded || busy} value={enabled}
                 onChange={(v) => void save(v, combo)} />
-      </div>
-    </SettingRow>
+      </SettingRow>
+      <SettingRow
+        id="vault.quicksearch.shortcut"
+        label="Quick search shortcut"
+        description={shortcutDescription}
+        keywords={["quick search", "hotkey", "key combination", "keybinding"]}
+        modified={combo !== DEFAULT_QUICK_SEARCH_COMBO}
+        onReset={() => void save(enabled, DEFAULT_QUICK_SEARCH_COMBO)}
+      >
+        <div className="flex items-center gap-2">
+          <kbd className={kbd}>{rec ? "Press keys…" : combo}</kbd>
+          <Button size="sm" disabled={!loaded || busy} onClick={() => { setErr(null); setRec((r) => !r); }}>
+            {rec ? "Cancel" : "Change"}
+          </Button>
+        </div>
+      </SettingRow>
+    </>
   );
 }

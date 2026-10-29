@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import { FolderOpen, RotateCcw } from "lucide-react";
+import { FolderOpen } from "lucide-react";
 import { SettingRow } from "../SettingRow";
+import { SettingsBlock } from "../SettingsGroup";
 import { Toggle } from "../Toggle";
 import { PasswordOptionsForm } from "../../vault/PasswordOptionsForm";
 import { Button } from "../Button";
@@ -10,6 +11,7 @@ import {
   DEFAULT_PANIC_SHORTCUT, getPanicShortcut, setPanicShortcut, getVaultDir,
   PW_PREFS_EVENT, getPwAsk, setPwAsk, getPwOptions, setPwOptions,
 } from "../../../lib/vaultPrefs";
+import { DEFAULT_PW_OPTIONS, sanitizePwOptions } from "../../../lib/passwordGen";
 import { cloudFolderName } from "../../../lib/cloudFolders";
 import { resolveVaultDir, pickVaultDir, resetVaultDir, VAULT_DIR_EVENT } from "../../../lib/vaultDir";
 
@@ -47,15 +49,16 @@ export function PanicShortcutRow() {
 
   return (
     <SettingRow
+      id="vault.locking.panic-shortcut"
       label="Panic lock shortcut"
       description={err ?? (rec ? "Press the new key combination… (Esc to cancel)" : "Instantly saves and locks the vault from anywhere in the app.")}
+      keywords={["panic", "hotkey", "keybinding", "lock now", "emergency"]}
+      modified={combo !== DEFAULT_PANIC_SHORTCUT}
+      onReset={reset}
     >
       <div className="flex items-center gap-2">
         <kbd className={kbd}>{rec ? "Press keys…" : combo}</kbd>
         <Button size="sm" onClick={() => { setErr(null); setRec((r) => !r); }}>{rec ? "Cancel" : "Change"}</Button>
-        {combo !== DEFAULT_PANIC_SHORTCUT && (
-          <Button size="sm" variant="ghost" onClick={reset} aria-label="Reset shortcut"><RotateCcw size={12} /></Button>
-        )}
       </div>
     </SettingRow>
   );
@@ -74,13 +77,14 @@ export function StorageFolderRow() {
 
   return (
     <SettingRow
+      id="vault.storage.folder"
       label="Vault storage folder"
       description={`${dir || "…"}${custom ? "" : "  (default)"} — where your encrypted vault file (vault.nqdb) is kept.${cloud ? ` Warning: this folder is synced by ${cloud}.` : ""}`}
+      keywords={["folder", "directory", "location", "path", "vault.nqdb", "cloud", "onedrive", "dropbox", "sync", "move"]}
+      modified={custom}
+      onReset={() => void resetVaultDir()}
     >
-      <div className="flex items-center gap-2">
-        <Button size="sm" icon={<FolderOpen size={12} />} onClick={() => void pickVaultDir()}>Choose…</Button>
-        {custom && <Button size="sm" variant="ghost" onClick={resetVaultDir}>Default</Button>}
-      </div>
+      <Button size="sm" icon={<FolderOpen size={12} />} onClick={() => void pickVaultDir()}>Choose…</Button>
     </SettingRow>
   );
 }
@@ -95,20 +99,34 @@ export function PasswordGeneratorRow() {
     return () => window.removeEventListener(PW_PREFS_EVENT, sync);
   }, []);
 
+  const optsModified = JSON.stringify(sanitizePwOptions(opts)) !== JSON.stringify(DEFAULT_PW_OPTIONS);
+  const resetOpts = () => { setOpts(DEFAULT_PW_OPTIONS); setPwOptions(DEFAULT_PW_OPTIONS); };
+
   return (
-    <div className="flex flex-col gap-3">
+    <>
       <SettingRow
-        label="Password generator"
-        description="What Generate puts in a password. Turn the popup off to generate instantly with these settings."
+        id="vault.generator.ask"
+        label="Ask for options each time"
+        description="Show the options popup when you press Generate. Turn it off to generate instantly with the settings below."
+        keywords={["password generator", "generate", "popup", "prompt"]}
+        modified={!ask}
+        onReset={() => { setAsk(true); setPwAsk(true); }}
       >
-        <div className="flex items-center gap-2 text-xs text-[var(--color-text-muted)]">
-          Ask each time
-          <Toggle aria-label="Ask for options each time" size="sm" value={ask} onChange={(v) => { setAsk(v); setPwAsk(v); }} />
-        </div>
+        <Toggle aria-label="Ask for options each time" value={ask} onChange={(v) => { setAsk(v); setPwAsk(v); }} />
       </SettingRow>
-      <div className="rounded-lg p-3 border border-[var(--color-border)] bg-[var(--color-bg-tertiary)] max-w-sm">
-        <PasswordOptionsForm value={opts} onChange={(o) => { setOpts(o); setPwOptions(o); }} />
-      </div>
-    </div>
+      <SettingsBlock
+        id="vault.generator.options"
+        label="Generated password options"
+        description="Length and character types used by Generate in Login entries."
+        keywords={["password generator", "length", "symbols", "digits", "uppercase", "lowercase", "ambiguous", "characters"]}
+      >
+        <div className="flex flex-col gap-2 items-start">
+          <div className="rounded-lg p-3 border border-[var(--color-border)] bg-[var(--color-bg-tertiary)] max-w-sm w-full">
+            <PasswordOptionsForm value={opts} onChange={(o) => { setOpts(o); setPwOptions(o); }} />
+          </div>
+          {optsModified && <Button size="sm" variant="ghost" onClick={resetOpts}>Reset to defaults</Button>}
+        </div>
+      </SettingsBlock>
+    </>
   );
 }

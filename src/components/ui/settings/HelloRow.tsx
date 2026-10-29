@@ -7,7 +7,8 @@ import { useVaultStore } from "../../../store/vaultStore";
 import { vaultErrorMessage } from "../../../lib/vault";
 import { HELLO_OFF, helloDisable, helloEnable, helloStatus, isHelloCancel, type HelloStatus } from "../../../lib/hello";
 
-const DESCRIPTION =
+const DESCRIPTION = "Unlock with your face, fingerprint or Windows PIN instead of typing the master password.";
+const HELP =
   "Convenience unlock with your face, fingerprint or Windows PIN. Your master password stays the root secret: " +
   "it is still needed after you change your Windows Hello setup, after a restore or recovery, and whenever this is turned off. " +
   "Like any quick unlock, anyone who can use your signed-in Windows session can also unlock the vault.";
@@ -28,7 +29,7 @@ export function HelloRow() {
     return () => { live = false; };
   }, [exists, unlocked]);
 
-  if (!status?.supported || !exists) return null;
+  if (!status?.supported) return null; // platform without Windows Hello: row stays hidden
 
   const closeForm = () => { setAsking(false); setPassword(""); setError(null); };
 
@@ -66,23 +67,29 @@ export function HelloRow() {
     }
   };
 
+  const hint = !exists ? "Set up the vault first to turn this on."
+    : !status.enabled && !unlocked ? "Unlock the vault to turn this on." : null;
+
   return (
-    <div className="flex flex-col gap-2">
-      <SettingRow label="Windows Hello (experimental)" description={DESCRIPTION}>
+    <>
+      <SettingRow
+        id="vault.quickunlock.hello"
+        label="Windows Hello (experimental)"
+        description={hint ?? DESCRIPTION}
+        help={HELP}
+        keywords={["windows hello", "fingerprint", "face", "pin", "biometric", "quick unlock", "unlock"]}
+      >
         {status.enabled ? (
           <Button size="sm" variant="ghost" disabled={busy} onClick={() => void disable()}>Turn off</Button>
         ) : !asking ? (
-          <Button size="sm" disabled={!unlocked || busy} onClick={() => setAsking(true)}
+          <Button size="sm" disabled={!exists || !unlocked || busy} onClick={() => setAsking(true)}
                   title={unlocked ? undefined : "Unlock the vault first"}>
             Turn on
           </Button>
         ) : null}
       </SettingRow>
-      {!status.enabled && !unlocked && (
-        <p className="text-xs text-[var(--color-text-muted)]">Unlock the vault to turn this on.</p>
-      )}
       {asking && !status.enabled && (
-        <form onSubmit={enable} className="flex flex-col gap-2">
+        <form onSubmit={enable} className="flex flex-col gap-2 max-w-sm">
           <PasswordInput placeholder="Master password" autoComplete="current-password" autoFocus
                          aria-label="Master password to turn on Windows Hello"
                          value={password} onChange={(e) => setPassword(e.target.value)} />
@@ -98,6 +105,6 @@ export function HelloRow() {
           </div>
         </form>
       )}
-    </div>
+    </>
   );
 }

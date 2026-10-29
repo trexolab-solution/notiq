@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { RefreshCw, Zap, Save, Trash2, ExternalLink, Eye, EyeOff } from "lucide-react";
 import { SettingRow } from "../SettingRow";
+import { SettingsGroup, SettingsBlock } from "../SettingsGroup";
 import { ModelPicker } from "../../ai/ModelPicker";
 import { Button } from "../Button";
 import { ConfirmDialog } from "../ConfirmDialog";
@@ -116,14 +117,33 @@ export const ProviderConfigCard = React.memo(function ProviderConfigCard({
     }
   };
 
+  // Stable setting ids/labels (search + deep links); the fallback slot has its own set.
+  const R = role === "fallback"
+    ? {
+        title: "Fallback model & API key", groupDesc: "Used only when the default provider fails with an auth or quota error.",
+        key: { id: "ai.fallback.key", label: "Fallback API key" },
+        local: { id: "ai.fallback.local", label: "Fallback: Local Ollama" },
+        model: { id: "ai.fallback.model", label: "Fallback model" },
+        getKey: { id: "ai.fallback.get-key", label: "Get a fallback API key" },
+      }
+    : {
+        title: "Model & API key", groupDesc: "Which model answers, and the key that authorizes it.",
+        key: { id: "ai.models.key", label: "API key" },
+        local: { id: "ai.models.local", label: "Local Ollama" },
+        model: { id: "ai.models.model", label: "Model" },
+        getKey: { id: "ai.models.get-key", label: "Get an API key" },
+      };
+
   const selectedMeta = model ? metaFor(model) : null;
   const signupUrl = KEY_SIGNUP[provider];
 
   return (
-    <div className="flex flex-col gap-4">
+    <SettingsGroup title={R.title} description={R.groupDesc}>
       {needsKey ? (
         <SettingRow
-          label="API Key"
+          id={R.key.id}
+          label={R.key.label}
+          keywords={["api key", "token", "secret", "keyring", "credentials", "save key", "delete key", "ollama", "openrouter"]}
           description={keyPresent ? "A key is saved (stored locally, never shown)." : `Paste your ${PROVIDER_LABEL[provider]} API key.`}
           help="Stored locally via the OS keyring and sent only to this provider to authorize requests. Never shown again after saving."
         >
@@ -171,7 +191,9 @@ export const ProviderConfigCard = React.memo(function ProviderConfigCard({
         </SettingRow>
       ) : (
         <SettingRow
-          label="Local Ollama"
+          id={R.local.id}
+          label={R.local.label}
+          keywords={["ollama", "local", "serve", "offline", "no key", "localhost", "connection"]}
           description="No key needed. Make sure Ollama is running (ollama serve)."
           help="Notiq connects to Ollama on your machine. Start it with 'ollama serve' and pull a model first, e.g. 'ollama pull qwen2.5-coder'."
         >
@@ -180,7 +202,9 @@ export const ProviderConfigCard = React.memo(function ProviderConfigCard({
       )}
 
       <SettingRow
-        label="Model"
+        id={R.model.id}
+        label={R.model.label}
+        keywords={["model", "picker", "test connection", "refresh models", "ollama", "openrouter", "qwen", "coder"]}
         description={
           modelsError
             ? modelsError
@@ -212,7 +236,12 @@ export const ProviderConfigCard = React.memo(function ProviderConfigCard({
       </SettingRow>
 
       {signupUrl && (
-        <div className="flex flex-col gap-1.5">
+        <SettingsBlock
+          id={R.getKey.id}
+          label={R.getKey.label}
+          keywords={["sign up", "create key", "free tier", "credits", "quota", "ollama", "openrouter", "link"]}
+          className="flex flex-col gap-1.5"
+        >
           <a href={signupUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-xs w-fit text-[var(--color-primary)]">
             <ExternalLink size={12} /> Get an {PROVIDER_LABEL[provider]} API key
           </a>
@@ -222,7 +251,7 @@ export const ProviderConfigCard = React.memo(function ProviderConfigCard({
               credit error, switch to a free model or use Local Ollama.
             </p>
           )}
-        </div>
+        </SettingsBlock>
       )}
 
       {confirmDelete && (
@@ -237,6 +266,6 @@ export const ProviderConfigCard = React.memo(function ProviderConfigCard({
           onCancel={() => setConfirmDelete(false)}
         />
       )}
-    </div>
+    </SettingsGroup>
   );
 });

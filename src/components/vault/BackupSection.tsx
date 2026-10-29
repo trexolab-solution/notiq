@@ -15,7 +15,7 @@ import {
 } from "../../lib/backupReminder";
 import { Toggle } from "../ui/Toggle";
 
-/** Settings -> Vault -> "Backup". Self-contained: mount `<BackupSection />` anywhere in the Vault settings. */
+/** Settings -> Vault -> "Backup": renders the rows of that group (put it inside a SettingsGroup). */
 export function BackupSection() {
   const exists = useVaultStore((s) => s.exists);
   const [last, setLast] = useState<number | null>(() => getLastBackup());
@@ -56,28 +56,36 @@ export function BackupSection() {
   };
 
   return (
-    <div className="flex flex-col gap-3" data-testid="vault-backup">
-      <h3 className="text-sm font-semibold text-[var(--color-text)]">Backup</h3>
-      <p className="text-xs text-[var(--color-text-muted)]">
-        Your vault lives only on this computer. Export an encrypted backup to keep a copy elsewhere. The backup
-        is still protected by your master password and recovery key; keep it somewhere safe. Without the backup file
-        plus the master password or recovery key, it cannot be opened.
-      </p>
-
+    <>
       <SettingRow
-        label="Last backup"
-        description={last ? `${describeAge(last, Date.now())} (${new Date(last).toLocaleString()})` : "You haven't exported a backup yet."}
+        id="vault.backup.export"
+        label="Export encrypted backup"
+        description={`${last ? `Last backup: ${describeAge(last, Date.now())} (${new Date(last).toLocaleString()}).` : "You haven't exported a backup yet."} The file stays protected by your master password and recovery key.`}
+        help="Your vault lives only on this computer. Without the backup file plus the master password or recovery key, a backup cannot be opened, so keep it somewhere safe."
+        keywords={["backup", "last backup", "export", "save a copy", ".nqbackup", "encrypted"]}
       >
         <Button size="sm" variant="primary" icon={<Download size={12} />} disabled={!exists || busy} onClick={() => void start()}>
-          Export encrypted backup…
+          Export backup…
         </Button>
       </SettingRow>
 
-      <SettingRow label="Import backup" description="Restore a .nqbackup file. If a vault already exists here it will be replaced (a copy is kept).">
+      <SettingRow
+        id="vault.backup.import"
+        label="Import backup"
+        description="Restore a .nqbackup file. If a vault already exists here it will be replaced (a copy is kept)."
+        keywords={["restore", "backup", "import", ".nqbackup", "recover"]}
+      >
         <Button size="sm" icon={<FileUp size={12} />} onClick={() => setRestoring(true)}>Import backup…</Button>
       </SettingRow>
 
-      <SettingRow label="Remind me to back up" description="A reminder appears if you never backed up (after 3 days) or the last backup is over 30 days old.">
+      <SettingRow
+        id="vault.backup.remind"
+        label="Remind me to back up"
+        description="A reminder appears if you never backed up (after 3 days) or the last backup is over 30 days old."
+        keywords={["backup", "reminder", "notification", "nag"]}
+        modified={!remind}
+        onReset={() => { setRemind(true); setBackupReminderDisabled(false); }}
+      >
         <Toggle value={remind} onChange={(v) => { setRemind(v); setBackupReminderDisabled(!v); }} aria-label="Remind me to back up" />
       </SettingRow>
 
@@ -88,7 +96,7 @@ export function BackupSection() {
         />
       )}
       {restoring && <RestoreBackupDialog onClose={() => setRestoring(false)} />}
-    </div>
+    </>
   );
 }
 
