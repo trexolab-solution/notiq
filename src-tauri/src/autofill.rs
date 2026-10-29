@@ -364,27 +364,205 @@ fn handle(app: &AppHandle, req: Value) -> Value {
 
 /// The UI's autofill listeners are registered. Requests that arrive earlier wait briefly for it
 /// (an app launched by the extension receives the request while its webview is still loading).
+/// Called by the autofill prompt window and by the main window (which only handles fallback requests).
 #[tauri::command]
-pub fn autofill_ui_ready() {
-    UI_READY.store(true, Ordering::Release);
-}
-
-fn wait_for_ui() {
-    let start = Instant::now();
-    while !UI_READY.load(Ordering::Acquire) && start.elapsed() < Duration::from_secs(20) {
-        std::thread::sleep(Duration::from_millis(100));
+pub fn autofill_ui_ready(window: tauri::Window) {
+    if window.label() == PROMPT_LABEL {
+        PROMPT_READY.store(true, Ordering::Release);
+    } else {
+        UI_READY.store(true, Ordering::Release);
     }
 }
 
-/// Registers a pending id, brings the window forward, emits `event` and waits for the UI's reply.
-/// (A request answered silently by a trust window still briefly raises the window; the focus goes back
-/// to the browser right after.)
+fn wait_for(flag: &AtomicBool, limit: Duration) -> bool {
+    let start = Instant::now();
+    while !flag.load(Ordering::Acquire) {
+        if start.elapsed() >= limit {
+            return false;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    true
+}
+
+// ─── The autofill prompt window ──────────────────────────────────────────────
+//
+// Approval happens in a small, separate, always-on-top window (label `autofill-prompt`, route
+// `#/autofill-prompt`): the main window is never raised. The window is created hidden on the first
+// request and then kept alive (hidden) so the per-site trust window kept in its JS survives. Its JS
+// decides whether the user is needed at all: a trusted site, no match or an unchanged save is
+// answered without the window ever being shown. Only when it needs the user does it call
+// `autofill_prompt_show`; after the answer it calls `autofill_prompt_hide`, which hands the focus
+// back to the window that had it (normally the browser).
+//
+// If the window can't be created (or never reports ready), the request falls back to the old way:
+// the main window is shown and gets the same event with `"fallback": true`.
+
+pub const PROMPT_LABEL: &str = "autofill-prompt";
+/// Emitted to the prompt window when Rust stops waiting for a request (`{id}`): drop it.
+const CANCEL_EVENT: &str = "autofill:cancel";
+/// Emitted to the prompt window when the user closes it (Alt+F4): answer the open request with Deny.
+pub const DISMISS_EVENT: &str = "autofill-prompt:dismiss";
+/// Set once the prompt window listens for requests.
+static PROMPT_READY: AtomicBool = AtomicBool::new(false);
+/// How long a request waits for a freshly created prompt window to load before falling back.
+const PROMPT_READY_WAIT: Duration = Duration::from_secs(10);
+/// Requests waiting for an answer at the same time; more are refused with `denied` right away.
+const MAX_PENDING: usize = 4;
+
+/// May one more request wait for the UI, given how many already do?
+pub fn admit(pending: usize, max: usize) -> bool {
+    pending < max
+}
+
+/// The prompt window's fixed settings (pure, so they can be tested).
+#[derive(Debug, Clone, PartialEq)]
+pub struct PromptWindowConfig {
+    pub label: &'static str,
+    pub url: &'static str,
+    pub title: &'static str,
+    /// Logical size before the page measures itself.
+    pub width: f64,
+    pub height: f64,
+    pub resizable: bool,
+    pub decorations: bool,
+    pub shadow: bool,
+    pub always_on_top: bool,
+    pub skip_taskbar: bool,
+    pub visible: bool,
+    pub focused: bool,
+}
+
+pub fn prompt_window_config(is_dev: bool) -> PromptWindowConfig {
+    PromptWindowConfig {
+        label: PROMPT_LABEL,
+        url: "index.html#/autofill-prompt",
+        title: if is_dev { "Notiq Dev Autofill" } else { "Notiq Autofill" },
+        width: 420.0,
+        height: 240.0,
+        resizable: false,
+        decorations: false,
+        shadow: true,
+        always_on_top: true,
+        skip_taskbar: true,
+        visible: false,
+        focused: false,
+    }
+}
+
+/// The payload the main window gets when it has to handle a request itself.
+pub fn with_fallback_flag(mut payload: Value) -> Value {
+    payload["fallback"] = json!(true);
+    payload
+}
+
+/// Top-left corner that centres a `win`-sized window in a monitor's area (all physical pixels).
+/// A window larger than the area is pinned to its top-left corner instead of going off-screen.
+pub fn centered(area_pos: (i32, i32), area_size: (u32, u32), win: (u32, u32)) -> (i32, i32) {
+    let off = |a: u32, w: u32| (a.saturating_sub(w) / 2) as i32;
+    (area_pos.0 + off(area_size.0, win.0), area_pos.1 + off(area_size.1, win.1))
+}
+
+/// Creates the prompt window (hidden) unless it exists, and waits until its page listens.
+fn ensure_prompt(app: &AppHandle) -> Result<(), String> {
+    static CREATING: Mutex<()> = Mutex::new(());
+    let _one_at_a_time = CREATING.lock().unwrap_or_else(|e| e.into_inner());
+    if app.get_webview_window(PROMPT_LABEL).is_none() {
+        PROMPT_READY.store(false, Ordering::Release);
+        let c = prompt_window_config(crate::profile::IS_DEV);
+        tauri::WebviewWindowBuilder::new(app, c.label, tauri::WebviewUrl::App(c.url.into()))
+            .title(c.title)
+            .inner_size(c.width, c.height)
+            .resizable(c.resizable)
+            .maximizable(false)
+            .minimizable(false)
+            .decorations(c.decorations)
+            .shadow(c.shadow)
+            .always_on_top(c.always_on_top)
+            .skip_taskbar(c.skip_taskbar)
+            .visible(c.visible)
+            .focused(c.focused)
+            .background_color(tauri::window::Color(15, 23, 42, 255))
+            .center()
+            .build()
+            .map_err(|e| e.to_string())?;
+    }
+    if wait_for(&PROMPT_READY, PROMPT_READY_WAIT) { Ok(()) } else { Err("the prompt window did not load".into()) }
+}
+
+fn hide_prompt(app: &AppHandle, restore: bool) {
+    let Some(w) = app.get_webview_window(PROMPT_LABEL) else { return };
+    // Only hand the focus back when the prompt still has it (the user may have moved on meanwhile).
+    let had_focus = w.is_focused().unwrap_or(false);
+    let _ = w.hide();
+    let prev = take_prev_foreground();
+    if restore && had_focus {
+        restore_foreground(prev);
+    }
+}
+
+/// Registers a pending id, routes `event` to the prompt window (or, failing that, the main window)
+/// and waits for the reply. Nothing is shown or focused here: the prompt window shows itself only
+/// when it needs the user.
 fn await_ui(app: &AppHandle, event: &str, mut payload: Value) -> Value {
     let id = random_token();
     payload["id"] = json!(id);
     let (tx, rx) = channel();
-    pending().lock().unwrap_or_else(|e| e.into_inner()).insert(id.clone(), tx);
-    // The prompt has to be reachable, but once it is answered the browser should get the focus back.
+    {
+        let mut p = pending().lock().unwrap_or_else(|e| e.into_inner());
+        if !admit(p.len(), MAX_PENDING) {
+            return json!({ "error": "denied" });
+        }
+        p.insert(id.clone(), tx);
+    }
+
+    let routed = ensure_prompt(app).and_then(|()| app.emit_to(PROMPT_LABEL, event, payload.clone()).map_err(|e| e.to_string()));
+    let fallback = match routed {
+        Ok(()) => None,
+        Err(e) => {
+            eprintln!("autofill: prompt window unavailable ({e}); using the main window");
+            Some(fallback_to_main(app, event, payload))
+        }
+    };
+
+    let reply = rx.recv_timeout(ANSWER_TIMEOUT);
+    let left = {
+        let mut p = pending().lock().unwrap_or_else(|e| e.into_inner());
+        p.remove(&id);
+        p.len()
+    };
+    let reply = reply.unwrap_or_else(|_| {
+        // Nobody answered in time: tell the UI to drop the request, and hide the prompt if it was the last one.
+        let target = if fallback.is_some() { "main" } else { PROMPT_LABEL };
+        let _ = app.emit_to(target, CANCEL_EVENT, json!({ "id": id }));
+        if fallback.is_none() && left == 0 {
+            hide_prompt(app, true);
+        }
+        json!({ "error": "timeout" })
+    });
+    if let Some(f) = fallback {
+        f.finish();
+    }
+    reply
+}
+
+/// The old way, used only when the prompt window is unavailable: raise the main window and let it ask.
+struct MainFallback {
+    win: Option<tauri::WebviewWindow>,
+    was_minimized: bool,
+    browser: Foreground,
+}
+
+impl MainFallback {
+    fn finish(self) {
+        if self.was_minimized {
+            if let Some(w) = &self.win { let _ = w.minimize(); }
+        }
+        restore_foreground(self.browser);
+    }
+}
+
+fn fallback_to_main(app: &AppHandle, event: &str, payload: Value) -> MainFallback {
     let win = app.get_webview_window("main");
     let was_minimized = win.as_ref().and_then(|w| w.is_minimized().ok()).unwrap_or(false);
     let browser = foreground_window();
@@ -393,15 +571,45 @@ fn await_ui(app: &AppHandle, event: &str, mut payload: Value) -> Value {
         let _ = w.show();
         let _ = w.set_focus();
     }
-    wait_for_ui();
-    let _ = app.emit(event, payload);
-    let reply = rx.recv_timeout(ANSWER_TIMEOUT).unwrap_or_else(|_| json!({ "error": "timeout" }));
-    pending().lock().unwrap_or_else(|e| e.into_inner()).remove(&id);
-    if was_minimized {
-        if let Some(w) = &win { let _ = w.minimize(); }
+    wait_for(&UI_READY, Duration::from_secs(20));
+    let _ = app.emit_to("main", event, with_fallback_flag(payload));
+    MainFallback { win, was_minimized, browser }
+}
+
+/// The prompt window needs the user: centre it on the monitor under the mouse pointer (where the user
+/// just clicked Fill), keep it above everything, show it and give it the keyboard focus.
+#[tauri::command]
+pub fn autofill_prompt_show(app: AppHandle) -> Result<(), String> {
+    let w = app.get_webview_window(PROMPT_LABEL).ok_or("The autofill window is gone")?;
+    remember_prev_foreground(&w);
+    let monitor = app
+        .cursor_position()
+        .ok()
+        .and_then(|p| app.monitor_from_point(p.x, p.y).ok().flatten())
+        .or_else(|| w.current_monitor().ok().flatten())
+        .or_else(|| w.primary_monitor().ok().flatten());
+    if let Some(m) = monitor {
+        let area = m.work_area();
+        let (pos, size) = ((area.position.x, area.position.y), (area.size.width, area.size.height));
+        // Move onto the monitor first: crossing to a monitor with another scale factor resizes the window.
+        let _ = w.set_position(tauri::PhysicalPosition::new(pos.0, pos.1));
+        if let Ok(s) = w.outer_size() {
+            let (x, y) = centered(pos, size, (s.width, s.height));
+            let _ = w.set_position(tauri::PhysicalPosition::new(x, y));
+        }
+    } else {
+        let _ = w.center();
     }
-    restore_foreground(browser);
-    reply
+    let _ = w.set_always_on_top(true);
+    let _ = w.show();
+    let _ = w.unminimize();
+    w.set_focus().map_err(|e| e.to_string())
+}
+
+/// Hides the prompt window; `restore` hands the focus back to the window that had it before.
+#[tauri::command]
+pub fn autofill_prompt_hide(app: AppHandle, restore: bool) {
+    hide_prompt(&app, restore);
 }
 
 /// The window that had the focus when the request arrived (normally the browser).
@@ -431,6 +639,29 @@ fn restore_foreground(prev: Foreground) {
 }
 #[cfg(not(windows))]
 fn restore_foreground(_prev: Foreground) {}
+
+/// The window that was in front when the prompt was shown (raw HWND; 0 = none).
+#[cfg(windows)]
+static PREV_FOREGROUND: std::sync::atomic::AtomicIsize = std::sync::atomic::AtomicIsize::new(0);
+
+/// Remembers the current foreground window, unless it is the prompt itself (shown twice in a row).
+#[cfg(windows)]
+fn remember_prev_foreground(prompt: &tauri::WebviewWindow) {
+    let h = foreground_window();
+    let ours = prompt.hwnd().map(|w| w.0 as isize == h as isize).unwrap_or(false);
+    if !ours {
+        PREV_FOREGROUND.store(h as isize, Ordering::Release);
+    }
+}
+#[cfg(not(windows))]
+fn remember_prev_foreground(_prompt: &tauri::WebviewWindow) {}
+
+#[cfg(windows)]
+fn take_prev_foreground() -> Foreground {
+    PREV_FOREGROUND.swap(0, Ordering::AcqRel) as Foreground
+}
+#[cfg(not(windows))]
+fn take_prev_foreground() -> Foreground {}
 
 /// The UI answers a request (allowed credentials, a `choose` list, or an error such as `denied`).
 #[tauri::command]
@@ -763,6 +994,47 @@ mod tests {
     fn may_launch_only_for_user_actions() {
         assert!(may_launch("fill") && may_launch("save") && may_launch("launch"));
         assert!(!may_launch("ping") && !may_launch("hello") && !may_launch(""));
+    }
+
+    #[test]
+    fn prompt_window_is_small_hidden_and_on_top() {
+        let c = prompt_window_config(false);
+        assert_eq!(c.label, "autofill-prompt");
+        assert_eq!(c.url, "index.html#/autofill-prompt");
+        assert_eq!(c.title, "Notiq Autofill");
+        assert!(!c.visible && !c.focused, "created hidden and unfocused; it shows itself only when needed");
+        assert!(c.always_on_top && c.skip_taskbar && c.shadow);
+        assert!(!c.decorations && !c.resizable);
+        assert!(c.width >= 360.0 && c.width <= 480.0 && c.height >= 160.0 && c.height <= 560.0);
+        assert_eq!(prompt_window_config(true).title, "Notiq Dev Autofill");
+        assert_eq!(prompt_window_config(true).label, c.label);
+    }
+
+    #[test]
+    fn fallback_payload_is_flagged() {
+        let p = with_fallback_flag(json!({"host":"example.com","id":"abc"}));
+        assert_eq!(p, json!({"host":"example.com","id":"abc","fallback":true}));
+        let s = with_fallback_flag(json!({"host":"a.io","url":"https://a.io","username":"u","password":"p","title":"","id":"x"}));
+        assert_eq!(s["fallback"], json!(true));
+        assert_eq!(s["password"], json!("p"));
+    }
+
+    #[test]
+    fn queue_admits_up_to_the_limit() {
+        assert!(admit(0, MAX_PENDING));
+        assert!(admit(MAX_PENDING - 1, MAX_PENDING));
+        assert!(!admit(MAX_PENDING, MAX_PENDING));
+        assert!(!admit(MAX_PENDING + 3, MAX_PENDING));
+        assert!(!admit(0, 0));
+    }
+
+    #[test]
+    fn centring_on_a_monitor() {
+        assert_eq!(centered((0, 0), (1920, 1040), (420, 240)), (750, 400));
+        // Second monitor to the left, with a negative origin.
+        assert_eq!(centered((-2560, 0), (2560, 1400), (840, 480)), (-2560 + 860, 460));
+        // Bigger than the area: pinned to the corner, never off-screen.
+        assert_eq!(centered((100, 50), (300, 200), (420, 240)), (100, 50));
     }
 
     #[test]

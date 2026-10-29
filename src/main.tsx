@@ -7,6 +7,7 @@ const hash = window.location.hash;
 const isStickyNote = hash.startsWith("#/sticky-note/");
 const isStickyNotesList = hash === "#/sticky-notes-list";
 const isQuickSearch = hash === "#/quick-search"; // 0.7.0 quick search
+const isAutofillPrompt = hash === "#/autofill-prompt"; // browser-autofill approval window
 
 if (isStickyNote) {
   // ── Sticky Note window ────────────────────────────────────────────────────
@@ -41,8 +42,20 @@ if (isStickyNote) {
       </Suspense>
     </React.StrictMode>,
   );
+} else if (isAutofillPrompt) {
+  // Browser-autofill approval window (created hidden by Rust on the first request). It mounts none of
+  // the main window's hooks (auto-lock, session lock, tour, updater): only the prompt itself.
+  const AutofillPromptApp = lazy(() => import("./autofill/AutofillPromptApp"));
+
+  ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
+    <React.StrictMode>
+      <Suspense fallback={null}>
+        <AutofillPromptApp />
+      </Suspense>
+    </React.StrictMode>,
+  );
 } else {
-  // ── Main app window ───────────────────────────────────────────────────────
+  //── Main app window ───────────────────────────────────────────────────────
   import("./mainApp").then((m) => m.initMainApp());
   import("./quick/quickSearch").then((m) => m.initQuickSearchBridge()); // 0.7.0 quick search
 }

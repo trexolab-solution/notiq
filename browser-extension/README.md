@@ -4,6 +4,12 @@ Fills and saves logins with your Notiq vault. Passwords never leave your compute
 running Notiq app through a local native-messaging bridge, and **every fill and every save needs your approval
 inside Notiq** (the vault must be unlocked).
 
+The approval appears in a **small, always-on-top Notiq window** centred on your screen; the main Notiq window is
+not brought forward and can stay in the tray. The window shows the site that is asking (check it), lets you unlock a
+locked vault right there (master password, or Windows Hello when it is on), pick the account and press **Allow**, or
+confirm a save. Esc / **Deny** / **Not now** refuses. When you answer, the window disappears and the browser gets
+the focus back. A site you allowed for 5 minutes fills without any window appearing.
+
 ## Install (developer mode)
 1. Start Notiq once (it registers the bridge for Chrome, Edge and Brave).
 2. Open `chrome://extensions` (or `edge://extensions`, `brave://extensions`), turn on **Developer mode**, click

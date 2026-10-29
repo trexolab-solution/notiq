@@ -617,6 +617,8 @@ pub fn run() {
                     .with_state_flags(
                         StateFlags::SIZE | StateFlags::POSITION | StateFlags::MAXIMIZED,
                     )
+                    // Sized to its content and centred on each show; nothing to remember.
+                    .with_denylist(&[autofill::PROMPT_LABEL])
                     .build(),
             )
             // Auto-start on machine boot (cross-platform). The "--hidden" arg
@@ -693,6 +695,8 @@ pub fn run() {
         clipboard::secure_copy,
         // 0.7.0 autofill
         autofill::autofill_ui_ready,
+        autofill::autofill_prompt_show,
+        autofill::autofill_prompt_hide,
         native_host_reg::autofill_status,
         native_host_reg::autofill_repair,
         native_host_reg::autofill_extension_dir,
@@ -766,6 +770,8 @@ pub fn run() {
         clipboard::secure_copy,
         // 0.7.0 autofill
         autofill::autofill_ui_ready,
+        autofill::autofill_prompt_show,
+        autofill::autofill_prompt_hide,
         native_host_reg::autofill_status,
         native_host_reg::autofill_repair,
         native_host_reg::autofill_extension_dir,
@@ -795,6 +801,10 @@ pub fn run() {
                 let _ = window.emit("vault-window-hidden", ());
                 let _ = window.hide();
                 api.prevent_close();
+            } else if window.label() == autofill::PROMPT_LABEL {
+                // Kept alive (hidden) between requests; closing it (Alt+F4) answers the open request with Deny.
+                api.prevent_close();
+                let _ = window.emit_to(autofill::PROMPT_LABEL, autofill::DISMISS_EVENT, ());
             }
         }
     });

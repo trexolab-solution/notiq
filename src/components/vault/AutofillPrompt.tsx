@@ -1,17 +1,18 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { Dialog, DialogBody, DialogButton, DialogCheckbox, DialogFooter } from "../ui/Dialog";
+import { Dialog, DialogBody, DialogButton, DialogFooter } from "../ui/Dialog";
+import { FillChoice } from "./autofillBodies";
 import { useVaultStore } from "../../store/vaultStore";
 import { toast } from "../../lib/toast";
 import {
-  clearTrust, credentialsFor, decideTrusted, indexOfAccount, isTrusted, lookalikeWarning, scanLogins, trustHost,
-  type LoginMatch,
+  clearTrust, credentialsFor, decideTrusted, indexOfAccount, isFallbackRequest, isTrusted, lookalikeWarning, scanLogins,
+  trustHost, type LoginMatch,
 } from "../../lib/autofill";
 import type { Lookalike } from "../../lib/lookalike";
 
 /** `account`: optional vault-relative path the extension asks for (from an earlier `choose` reply). */
-interface Req { id: string; host: string; account?: string }
+interface Req { id: string; host: string; account?: string; fallback?: boolean }
 
 const reply = (id: string, payload: unknown) => invoke("autofill_reply", { id, payload });
 
@@ -19,8 +20,11 @@ const reply = (id: string, payload: unknown) => invoke("autofill_reply", { id, p
 const warnLookalike = (host: string, l: Lookalike | null) => { if (l) toast.warning(lookalikeWarning(host, l), 12000); };
 
 /**
- * A browser extension asked to fill a login. Nothing is released until the vault is unlocked and the user presses
- * Allow here, or the user allowed this exact site for 5 minutes (then it is answered without a dialog).
+ * FALLBACK ONLY. Fill requests are normally answered by the small autofill window
+ * (src/autofill/AutofillPromptApp.tsx). Rust sends a request here, marked `fallback: true`, only when
+ * that window can't be created; every other `autofill:request` is ignored so a request is never
+ * handled twice. Nothing is released until the vault is unlocked and the user presses Allow, or the
+ * user allowed this exact site for 5 minutes.
  */
 export function AutofillPrompt() {
   const [req, setReq] = useState<Req | null>(null);
@@ -33,6 +37,7 @@ export function AutofillPrompt() {
     let cancelled = false;
     const un = listen<Req>("autofill:request", async (e) => {
       const r = e.payload;
+      if (!isFallbackRequest(r)) return;
       const vault = useVaultStore.getState();
       // Trust window: only while the vault is already unlocked; never a dialog, never more than host matches.
       if (vault.unlocked && isTrusted(r.host)) {
@@ -61,11 +66,16 @@ export function AutofillPrompt() {
     });
     // Tell the backend we're listening (an app started by the extension waits for this before emitting).
     void un.then(() => { if (!cancelled) void invoke("autofill_ui_ready").catch(() => {}); });
+    // Rust stopped waiting (timeout): close a prompt that is still open for that request.
+    const unCancel = listen<{ id: string }>("autofill:cancel", (e) => {
+      setReq((cur) => (cur && cur.id === e.payload.id ? null : cur));
+    });
     // Closing the window to the tray ends every trust window.
     const unHide = listen("vault-window-hidden", () => clearTrust());
     return () => {
       cancelled = true;
       void un.then((f) => f());
+      void unCancel.then((f) => f());
       void unHide.then((f) => f());
     };
   }, []);
@@ -98,21 +108,7 @@ export function AutofillPrompt() {
         message={<>Your browser is on <strong>{req.host}</strong> and asked for a saved login.</>}
         detail="Only allow this if you just pressed Fill there."
       >
-        <div className="flex flex-col gap-1">
-          {matches.map((m, i) => (
-            <label key={m.path} className="flex items-center gap-2 text-xs px-2 py-1.5 rounded cursor-pointer border border-[var(--color-border)]">
-              <input type="radio" name="login" checked={pick === i} onChange={() => setPick(i)} />
-              <span className="font-medium">{m.entry.title || m.entry.url}</span>
-              <span className="text-[var(--color-text-muted)] truncate">{m.entry.username}</span>
-            </label>
-          ))}
-        </div>
-        <DialogCheckbox
-          checked={trust}
-          onChange={setTrust}
-          label={<>Allow <strong>{req.host}</strong> for 5 minutes</>}
-          hint="Fills on this exact site without asking until then, while the vault stays unlocked."
-        />
+        <FillChoice host={req.host} matches={matches} pick={pick} onPick={setPick} trust={trust} onTrust={setTrust} />
       </DialogBody>
       <DialogFooter>
         <DialogButton cancel onClick={() => void deny()}>Deny</DialogButton>

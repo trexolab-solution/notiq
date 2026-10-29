@@ -1,0 +1,97 @@
+/* ══════════════════════════════════════════════════════════════════════════════
+   AUTOFILL PROMPT — the small always-on-top approval window (src/autofill/) and
+   the shared prompt bodies (components/vault/autofillBodies.tsx). Built on the
+   dialog tokens in dialog.css: the window itself is the dialog panel.
+══════════════════════════════════════════════════════════════════════════════ */
+
+/* The window: no page chrome, the panel fills it edge to edge (Windows draws the rounded frame). */
+html.is-autofill-prompt,
+html.is-autofill-prompt body,
+html.is-autofill-prompt #root { height: 100%; margin: 0; overflow: hidden; background: var(--color-bg-secondary); }
+
+.af-window {
+  display: flex; flex-direction: column;
+  height: 100vh;
+  background: var(--color-bg-secondary);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  font-size: 12.5px;
+  outline: none;
+}
+.af-window ::selection { background: color-mix(in srgb, var(--color-primary) 35%, transparent); }
+.af-window input { caret-color: var(--color-primary); }
+
+/* Header: who is asking, for which site. The site is the largest text in the window so a fake host is obvious. */
+.af-head {
+  display: flex; align-items: flex-start; gap: 12px;
+  flex: none;
+  padding: 14px 10px 12px var(--dlg-pad-x);
+  border-bottom: 1px solid var(--color-border);
+  user-select: none;
+}
+.af-head > .dlg-icon { margin-top: 2px; }
+.af-head-text { flex: 1; min-width: 0; }
+.af-host {
+  margin: 0;
+  font-size: 15px; font-weight: 600; line-height: 1.3; letter-spacing: -0.005em;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+/* Subdomains are quieter than the registrable domain they belong to. */
+.af-host-prefix { font-weight: 400; color: var(--color-text-muted); }
+.af-sub { margin: 3px 0 0; font-size: 12px; line-height: 1.45; color: var(--color-text-muted); }
+
+/* Body scrolls on its own; header and footer stay put. Padding lives on the inner block so it can be measured. */
+.af-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+.af-content { padding: 14px var(--dlg-pad-x) 12px; }
+.af-content > * + * { margin-top: 12px; }
+.af-content > .dlg-check { margin-top: 14px; }
+.af-window .dlg-footer { padding-top: 0; }
+
+.af-lead { margin: 0; font-size: 13px; line-height: 1.5; color: var(--color-text); }
+.af-detail { margin: 0; font-size: 12px; line-height: 1.5; color: var(--color-text-muted); }
+.af-label { display: block; margin-bottom: 4px; font-size: 12px; color: var(--color-text-muted); }
+.af-error { display: block; margin-top: 4px; font-size: 12px; line-height: 1.45; color: var(--color-danger); }
+.af-muted { color: var(--color-text-muted); }
+.af-host-inline { overflow-wrap: anywhere; }
+
+/* Account list (radio group). */
+.af-logins { display: flex; flex-direction: column; gap: 4px; }
+.af-login {
+  display: flex; align-items: center; gap: 10px;
+  padding: 7px 10px;
+  border: 1px solid var(--color-border); border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.1s, border-color 0.1s;
+}
+.af-login:hover { background: color-mix(in srgb, var(--color-text) 4%, transparent); }
+.af-login[data-selected] {
+  border-color: color-mix(in srgb, var(--color-primary) 60%, var(--color-border));
+  background: color-mix(in srgb, var(--color-primary) 8%, transparent);
+}
+.af-login > input { margin: 0; flex: none; accent-color: var(--color-primary); }
+.af-login:has(input:focus-visible) { outline: 2px solid color-mix(in srgb, var(--color-primary) 70%, transparent); outline-offset: 1px; }
+.af-login-text { display: flex; flex-direction: column; min-width: 0; }
+.af-login-title { font-size: 12.5px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.af-login-user { font-size: 11.5px; color: var(--color-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Save / update fields. */
+.af-fields {
+  display: grid; grid-template-columns: 72px minmax(0, 1fr); align-items: center;
+  gap: 8px 10px; margin: 0;
+  font-size: 12px;
+}
+.af-fields dt { color: var(--color-text-muted); }
+.af-fields dd { margin: 0; min-width: 0; }
+.af-note { margin: 0; font-size: 12px; line-height: 1.5; color: var(--color-text-muted); }
+.af-icon-btn {
+  display: inline-flex; padding: 4px; border: none; border-radius: 4px;
+  background: transparent; color: var(--color-text-muted); cursor: pointer;
+}
+.af-icon-btn:hover { background: var(--color-bg-tertiary); color: var(--color-text); }
+.af-icon-btn:focus-visible { outline: 2px solid color-mix(in srgb, var(--color-primary) 70%, transparent); outline-offset: 1px; }
+
+/* Secondary full-width action ("Unlock with Windows Hello"). */
+.af-wide-btn { width: 100%; }
+
+.af-window .dlg-callout { margin: 0; }

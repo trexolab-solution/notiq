@@ -17,7 +17,7 @@ use std::{
 };
 
 use serde::Serialize;
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 use zeroize::Zeroizing;
 
 use crate::vault_core::{self as vc, KdfParams, Throttle, VaultError, VaultKey, VaultMeta, VAULT_ID_LEN};
@@ -134,6 +134,19 @@ impl VaultState {
         st.db = None; // dropping zeroises the contents
         st.stamp = None;
     }
+}
+
+/// Emitted to every window whenever the vault is unlocked or locked (`{unlocked, source}`), so a
+/// window other than the one that did it (main ⇄ autofill prompt) can follow. `source` is the label
+/// of the window whose command changed the state; that window already knows and ignores the event.
+pub const STATE_EVENT: &str = "vault:state-changed";
+
+pub fn state_payload(unlocked: bool, source: &str) -> serde_json::Value {
+    serde_json::json!({ "unlocked": unlocked, "source": source })
+}
+
+pub(crate) fn notify_state(app: &AppHandle, unlocked: bool, source: &str) {
+    let _ = app.emit(STATE_EVENT, state_payload(unlocked, source));
 }
 
 #[derive(Serialize)]
@@ -257,6 +270,7 @@ pub fn vault_status(app: AppHandle, state: State<'_, VaultState>) -> Result<Vaul
 #[tauri::command]
 pub async fn vault_create(
     app: AppHandle,
+    window: tauri::Window,
     state: State<'_, VaultState>,
     password: String,
 ) -> Result<String, String> {
@@ -267,12 +281,14 @@ pub async fn vault_create(
     let (meta, key, recovery) = blocking(move || vc::create_vault(&password, KdfParams::default())).await?;
     save_meta(&app, &meta)?;
     state.set(key, meta.vault_id_bytes().map_err(|e| e.to_string())?);
+    notify_state(&app, true, window.label());
     Ok(recovery)
 }
 
 #[tauri::command]
 pub async fn vault_unlock(
     app: AppHandle,
+    window: tauri::Window,
     state: State<'_, VaultState>,
     password: String,
 ) -> Result<(), String> {
@@ -281,6 +297,7 @@ pub async fn vault_unlock(
     let password = Zeroizing::new(password);
     let key = guarded(&state, move || vc::unlock_with_password(&m, &password)).await?;
     state.set(key, meta.vault_id_bytes().map_err(|e| e.to_string())?);
+    notify_state(&app, true, window.label());
     Ok(())
 }
 
@@ -288,6 +305,7 @@ pub async fn vault_unlock(
 #[tauri::command]
 pub async fn vault_unlock_with_recovery(
     app: AppHandle,
+    window: tauri::Window,
     state: State<'_, VaultState>,
     recovery_key: String,
     new_password: String,
@@ -304,6 +322,7 @@ pub async fn vault_unlock_with_recovery(
     .await?;
     save_meta(&app, &new_meta)?;
     state.set(key, new_meta.vault_id_bytes().map_err(|e| e.to_string())?);
+    notify_state(&app, true, window.label());
     Ok(())
 }
 
@@ -331,9 +350,12 @@ pub async fn vault_change_password(
 
 /// Drops the key from memory (zeroised on drop).
 #[tauri::command]
-pub fn vault_lock(state: State<'_, VaultState>) {
-    *state.guard() = None;
+pub fn vault_lock(app: AppHandle, window: tauri::Window, state: State<'_, VaultState>) {
+    let was_unlocked = state.guard().take().is_some();
     state.clear_db();
+    if was_unlocked {
+        notify_state(&app, false, window.label());
+    }
 }
 
 // ─── the vault database (single encrypted file) ──────────────────────────────
@@ -664,6 +686,13 @@ pub fn vault_legacy_cleanup(state: State<'_, VaultState>) -> Result<u32, String>
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn state_event_payload() {
+        assert_eq!(STATE_EVENT, "vault:state-changed");
+        assert_eq!(state_payload(true, "autofill-prompt"), serde_json::json!({"unlocked": true, "source": "autofill-prompt"}));
+        assert_eq!(state_payload(false, "main")["unlocked"], serde_json::json!(false));
+    }
 
     fn tmp(name: &str) -> PathBuf {
         let d = std::env::temp_dir().join(format!("nq-vault-{name}-{}", std::process::id()));
