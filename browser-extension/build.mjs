@@ -13,6 +13,9 @@ import { fileURLToPath } from "node:url";
 
 export const FIREFOX_ID = "autofill@notiq.app";
 export const FIREFOX_MIN = "121.0";
+// Loaded by background.js with importScripts() in the Chromium service worker; Firefox
+// (background.scripts, no importScripts) gets it listed before background.js instead.
+export const BACKGROUND_SHARED = "shared.js";
 // Fixed timestamp so identical input gives byte-identical zips: 2026-01-01 00:00:00 (DOS format).
 const DOS_TIME = 0;
 const DOS_DATE = ((2026 - 1980) << 9) | (1 << 5) | 1;
@@ -35,7 +38,7 @@ export function transformFirefox(m) {
   delete out.key;
   const bg = out.background || {};
   const script = bg.service_worker || (bg.scripts && bg.scripts[0]) || "background.js";
-  out.background = { scripts: [script] };
+  out.background = { scripts: [BACKGROUND_SHARED, script] };
   out.browser_specific_settings = {
     gecko: {
       id: FIREFOX_ID,
@@ -78,7 +81,10 @@ export function validateBuild(manifest, files, version, { store = false, firefox
   }
   if (firefox) {
     if (manifest.background?.service_worker) throw new Error("firefox build must not use service_worker");
-    if (manifest.background?.scripts?.[0] !== "background.js") throw new Error("firefox build needs background.scripts");
+    const scripts = manifest.background?.scripts || [];
+    if (scripts[scripts.length - 1] !== "background.js" || scripts[0] !== BACKGROUND_SHARED) {
+      throw new Error("firefox build needs background.scripts [shared.js, background.js]");
+    }
     if (manifest.browser_specific_settings?.gecko?.id !== FIREFOX_ID) throw new Error("firefox gecko id missing");
   } else if (!manifest.background?.service_worker) {
     throw new Error("chromium build needs background.service_worker");
@@ -87,6 +93,7 @@ export function validateBuild(manifest, files, version, { store = false, firefox
     if (!manifest.permissions?.includes(p)) throw new Error(`permission missing: ${p}`);
   }
   if (!manifest.content_scripts?.length) throw new Error("content_scripts missing");
+  if (!files.has(BACKGROUND_SHARED)) throw new Error(`runtime file missing: ${BACKGROUND_SHARED}`);
   JSON.parse(files.get("manifest.json").toString("utf8"));
 }
 

@@ -23,7 +23,14 @@ Updating from 0.1: click the reload button on the extension's card. The browser 
 - **Fill from the field:** on a login page a small gold Notiq key appears inside the username/email and password
   fields. Click it, then press **Allow** in Notiq. The icon spins while Notiq waits for you, shows a check when the
   fields are filled, or a short message if something went wrong (vault locked, you declined, no saved login…).
+- **Suggestion on focus:** when you click or tab into a detected username/email/password field, a small
+  **Fill with Notiq** button (with the `Alt+Shift+L` hint) appears under it. It shows no usernames or other vault
+  data: clicking it does exactly what clicking the key icon does, and Notiq still asks you to Allow. It never takes
+  focus from the field; press **↓** to reach it from the keyboard (Enter fills, ↑ goes back), **Esc** hides it for
+  that field until the page is reloaded, typing or clicking elsewhere hides it. It is not shown on one-time-code,
+  search or other non-login fields, in other sites' iframes, or when the icon is turned off.
 - **Fill from the toolbar:** click the Notiq toolbar icon (or press `Alt+Shift+L`) → **Fill login for this site**.
+  The popup header shows whether Notiq is running.
 - **Save a new login:** sign in or sign up with a password Notiq doesn't know yet. When the next page no longer shows
   a password field, a card in the top-right corner asks **Save login to Notiq?** with the site and username (never
   the password). **Save** → approve in Notiq → "Saved to Notiq", "Password updated in Notiq" or "Already saved".
@@ -48,12 +55,23 @@ Updating from 0.1: click the reload button on the extension's card. The browser 
 
 ### Settings (toolbar popup)
 - **Offer to save new logins** (on by default).
-- **Show Notiq icon on login fields** (on by default). Turning it off keeps the toolbar button and shortcut.
+- **Show Notiq icon on login fields** (on by default). Turning it off keeps the toolbar button and shortcut (and
+  also hides the focus suggestion).
+- **Suggest on field focus** (on by default): the **Fill with Notiq** button under a focused login field.
 - **Never save for these sites:** the sites you chose "Never for this site" on; click × to allow offers again.
+
+### Theme
+The popup and everything the extension draws on pages (key icon, suggestion, save card, menus) use the colours of
+the theme you picked in Notiq. The background asks the app for it (`{op:"theme"}`, which carries no site or page
+data and never starts Notiq) when the service worker starts, when the popup opens, and at most once a minute when
+you first use the in-page UI on a page (never on page load). The reply is strictly validated (`#rrggbb` colours, a
+`dark`/`light` mode, a short id) and cached in `chrome.storage.local`; it is applied only as CSS custom properties,
+one validated value at a time. Without a theme from the app (older app, not running yet) the extension uses Notiq's
+default dark or light colours, following your system setting.
 
 ## Permissions, and why
 - `nativeMessaging` — talk to the Notiq app on this computer. This is the only channel anything travels over.
-- `storage` — your three settings above, and (in memory-only session storage, never on disk) a just-submitted
+- `storage` — your settings above, the cached app theme, and (in memory-only session storage, never on disk) a just-submitted
   login for at most 90 seconds while the save offer is open.
 - `activeTab`, `scripting` — the toolbar button fills the tab you clicked it on.
 - **Content script on all `https://` sites (plus `http://localhost` / `127.0.0.1`)** — this is what makes the browser
@@ -83,6 +101,10 @@ Updating from 0.1: click the reload button on the extension's card. The browser 
   that tab and host in the last 2 minutes, once.
 - `{op:"save", host, url, username, password, title}` → `{ok:true, status:"saved"|"updated"|"unchanged"}` or `{error}`.
 - `{op:"ping"}`.
+- `{op:"theme"}` → `{ok:true, theme:{id, mode:"dark"|"light", bg, bgSecondary, bgTertiary, text, textMuted, border,
+  primary, primaryText, danger, success}}` (colours `#rrggbb`), or `{ok:true, theme:null}` when the app has none.
+  Never launches the app. `{error:"unknown_op"}` from an older app is treated as no theme; when the app is
+  unreachable the cached theme is kept.
 
 ## Known limits
 - Login forms in iframes from another site get no icon and aren't captured (anti-phishing). The toolbar button
@@ -105,7 +127,8 @@ iframe and an iframe from `127.0.0.1` (another site, so it is ignored).
 
 `test/e2e-cdp.mjs` is a developer check (not part of the extension): it loads this folder into Playwright's copy of
 Chromium, mocks the Notiq app in the service worker, and drives the test page with real (trusted) input over the
-DevTools protocol — `node browser-extension/test/e2e-cdp.mjs` (needs Node 22+, Python, and a Chromium from
+DevTools protocol — `node browser-extension/test/e2e-cdp.mjs` (set `NOTIQ_SHOTS=<folder>` to also save popup and
+focus-suggestion screenshots in dark, light and a custom theme) (needs Node 22+, Python, and a Chromium from
 `npx playwright install chromium` or `NOTIQ_CHROME=<path to chrome.exe>`).
 
 ## Packaging & store submission
@@ -114,16 +137,18 @@ DevTools protocol — `node browser-extension/test/e2e-cdp.mjs` (needs Node 22+,
 ```
 node browser-extension/build.mjs [--out dist]     # Node 20+, no dependencies
 node browser-extension/build.mjs --check          # validate only, write nothing
-node --test browser-extension/test/build.test.mjs # unit tests for the transforms and the zip writer
+node --test browser-extension/test/*.test.mjs    # unit tests: transforms, zip writer, shared.js (theme, suggestion)
 ```
-Only runtime files are packaged (manifest, `content.js`, `background.js`, popup, icons). Output is reproducible
+Only runtime files are packaged (manifest, `shared.js`, `content.js`, `background.js`, popup, icons). `shared.js` holds
+the pure helpers (theme validation, suggestion placement); the content script and popup load it first, the Chromium
+service worker loads it with `importScripts`, and the Firefox build lists it before `background.js`. Output is reproducible
 (fixed timestamps). It writes, with a size and SHA-256 table:
 
 | File | Use | Manifest |
 | --- | --- | --- |
 | `notiq-autofill-<ver>-chrome.zip` | sideload / GitHub release | unchanged, keeps `key` so the ID stays `cfddmbiaaboejbhnijkjodcganjdbcel` |
 | `notiq-autofill-<ver>-store.zip` | Chrome Web Store, Edge Add-ons | `key` removed (the store assigns the ID) |
-| `notiq-autofill-<ver>-firefox.zip` | Firefox / AMO | `background.scripts` instead of `service_worker`, `browser_specific_settings.gecko` (id `autofill@notiq.app`, min 121.0, `data_collection_permissions: none`), `key` removed |
+| `notiq-autofill-<ver>-firefox.zip` | Firefox / AMO | `background.scripts` (`shared.js`, `background.js`) instead of `service_worker`, `browser_specific_settings.gecko` (id `autofill@notiq.app`, min 121.0, `data_collection_permissions: none`), `key` removed |
 
 The release workflow (`.github/workflows/release.yml`, job `extension`) builds these on every `v*` tag and attaches
 them to the draft release. Bump `version` in `manifest.json` before tagging (stores reject a non-increasing version).

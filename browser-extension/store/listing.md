@@ -16,10 +16,11 @@ Notiq Autofill fills and saves logins with the vault in the Notiq desktop app.
 IMPORTANT: this extension does nothing on its own. It needs the free Notiq desktop app (v0.7.0 or newer) installed and running on the same computer, with your vault unlocked.
 
 What it does
-- Fill: on a login page a small Notiq key appears in the username and password fields. Click it, approve in the Notiq app, and the fields are filled. The toolbar button and Alt+Shift+L do the same.
+- Fill: on a login page a small Notiq key appears in the username and password fields, and focusing one of them shows a small "Fill with Notiq" button under it (no usernames or other vault data are shown before you approve). Click either, approve in the Notiq app, and the fields are filled. The toolbar button and Alt+Shift+L do the same.
 - Save: after you sign in or sign up with a new password, a small card asks "Save login to Notiq?". Choose Save, approve in Notiq, done. "Never for this site" stops offers for that site.
 - Generate: on sign-up and change-password forms, create a strong random password and have it saved when you submit.
 - Several logins for one site: pick one from a short list of titles and usernames.
+- Looks like your Notiq app: the popup and the in-page buttons follow the theme you use in Notiq (or your system's light/dark setting).
 
 Privacy by design
 - Approvals happen in the Notiq desktop app. Every fill and every save needs your explicit approval there.
@@ -35,8 +36,8 @@ Fill and save website logins using the user's local Notiq vault, with every fill
 ## Permission justifications
 Paste each into the matching field of the dashboard.
 
-- **nativeMessaging**: The only way the extension talks to the Notiq desktop app on the user's computer. Fill and save requests (site name, and for saves the username/password the user just submitted) go through it to the local app, nowhere else.
-- **storage**: Stores three user settings and the user's "never save for these sites" list (local storage), and holds a just-submitted login in session (memory-only) storage for at most 90 seconds while the save offer is open; it is cleared when the tab closes.
+- **nativeMessaging**: The only way the extension talks to the Notiq desktop app on the user's computer. Fill and save requests (site name, and for saves the username/password the user just submitted) go through it to the local app, nowhere else. It also asks the app for its colour theme (a request that carries no site or page data) so the extension's UI matches the app.
+- **storage**: Stores four user settings, the user's "never save for these sites" list and the Notiq app's colour theme (local storage), and holds a just-submitted login in session (memory-only) storage for at most 90 seconds while the save offer is open; it is cleared when the tab closes.
 - **activeTab**: The toolbar button and Alt+Shift+L fill the tab the user is currently on, only when the user triggers it.
 - **scripting**: Used with activeTab to run the fill step in the tab the user clicked the toolbar button on.
 - **Content script on all https sites (https://*/*) and http://localhost, http://127.0.0.1**: A login form can be on any site, so the script has to be present on any https page to find login fields and to notice a submitted login for the save offer. It only inspects login forms, makes no network requests, contacts the Notiq app only after a user click or submitted form, and keeps its UI in a closed shadow DOM. http://localhost and 127.0.0.1 are for testing.
@@ -60,7 +61,7 @@ Size **1280x800** (24-bit PNG or JPEG, no alpha), 3 to 5 images. Chrome needs at
 2. The Notiq desktop app showing the approval prompt for a fill.
 3. The "Save login to Notiq?" card with site and username.
 4. The generate-strong-password menu on a sign-up form.
-5. The toolbar popup with the three settings.
+5. The toolbar popup with its settings (or the "Fill with Notiq" suggestion under a focused login field).
 
 Use fake demo data only. Also optional: small promo tile 440x280 (Chrome), marquee 1400x560.
 

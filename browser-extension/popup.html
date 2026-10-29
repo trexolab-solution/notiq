@@ -1,50 +1,153 @@
 <!doctype html>
+<html lang="en">
 <meta charset="utf-8">
+<title>Notiq Autofill</title>
 <style>
-  :root { color-scheme: light dark; }
-  body { width: 280px; margin: 0; padding: 14px; font: 13px system-ui, sans-serif; }
-  h1 { font-size: 14px; margin: 0 0 8px; }
-  h2 { font-size: 11px; margin: 14px 0 6px; text-transform: uppercase; letter-spacing: .04em; opacity: .6; }
-  p { margin: 6px 0; opacity: .8; line-height: 1.4; }
-  button { width: 100%; padding: 9px; border: 0; border-radius: 8px; background: #6366f1; color: #fff; font: inherit; font-weight: 600; cursor: pointer; }
-  button:disabled { opacity: .6; cursor: default; }
-  #msg { min-height: 18px; }
-  #msg.err { color: #ef4444; opacity: 1; }
-  #msg.ok { color: #22c55e; opacity: 1; }
-  hr { border: 0; border-top: 1px solid rgba(128,128,128,.25); margin: 12px 0 4px; }
-  label.row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 5px 0; cursor: pointer; }
-  label.row input { width: 16px; height: 16px; margin: 0; accent-color: #6366f1; flex: none; cursor: pointer; }
-  details { margin-top: 6px; }
-  summary { cursor: pointer; padding: 5px 0; }
-  summary .count { opacity: .6; }
-  ul { list-style: none; margin: 4px 0 0; padding: 0; max-height: 140px; overflow-y: auto; }
-  li { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 3px 0 3px 4px; border-radius: 6px; }
-  li:hover { background: rgba(128,128,128,.12); }
-  li span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  li button { width: 22px; height: 22px; padding: 0; flex: none; background: transparent; color: inherit; opacity: .6; font-size: 15px; line-height: 1; }
-  li button:hover { opacity: 1; background: rgba(239,68,68,.15); color: #ef4444; }
-  .empty { opacity: .6; padding: 3px 4px; }
-  #choose { margin: 4px 0 6px; max-height: 220px; }
+  /* Colours: --nq-* custom properties set by NotiqShared.applyTheme (the Notiq app's
+     theme, or a built-in dark/light default that follows the OS). Tints via color-mix(). */
+  :root {
+    --nq-bg: #0f172a; --nq-bg2: #1e293b; --nq-bg3: #334155; --nq-text: #e2e8f0; --nq-muted: #94a3b8;
+    --nq-border: #334155; --nq-primary: #c9a84c; --nq-on-primary: #0f172a; --nq-danger: #f87171; --nq-success: #4ade80;
+    --hover: color-mix(in srgb, var(--nq-text) 7%, transparent);
+    --line: color-mix(in srgb, var(--nq-border) 80%, transparent);
+    --ring: color-mix(in srgb, var(--nq-primary) 70%, transparent);
+    --primary-hover: color-mix(in srgb, var(--nq-primary) 86%, var(--nq-text));
+    --card: color-mix(in srgb, var(--nq-bg2) 70%, var(--nq-bg));
+    color-scheme: dark;
+  }
+  @media (prefers-color-scheme: light) {
+    :root:not([data-nq-mode]) {
+      --nq-bg: #ffffff; --nq-bg2: #f1f5f9; --nq-bg3: #e2e8f0; --nq-text: #1e293b; --nq-muted: #64748b;
+      --nq-border: #cbd5e1; --nq-primary: #b45309; --nq-on-primary: #ffffff; --nq-danger: #dc2626; --nq-success: #16a34a;
+      color-scheme: light;
+    }
+  }
+  * { box-sizing: border-box; }
+  html { background: var(--nq-bg); }
+  body { width: 320px; margin: 0; padding: 16px; background: var(--nq-bg); color: var(--nq-text);
+    font: 13px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; -webkit-font-smoothing: antialiased; }
+  button { font: inherit; color: inherit; }
+  :focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+
+  /* header */
+  .hdr { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; }
+  .mark { width: 32px; height: 32px; border-radius: 8px; flex: none; display: block; }
+  .brand { min-width: 0; flex: 1; }
+  h1 { margin: 0; font-size: 14px; font-weight: 650; letter-spacing: -.005em; line-height: 1.25; }
+  .status { display: flex; align-items: center; gap: 6px; margin-top: 2px; font-size: 12px; color: var(--nq-muted); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--nq-muted);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--nq-muted) 18%, transparent); }
+  .status[data-state="on"] .dot { background: var(--nq-success); box-shadow: 0 0 0 3px color-mix(in srgb, var(--nq-success) 20%, transparent); }
+  .status[data-state="off"] .dot { background: var(--nq-danger); box-shadow: 0 0 0 3px color-mix(in srgb, var(--nq-danger) 20%, transparent); }
+
+  /* primary action */
+  #fill { display: flex; align-items: center; gap: 8px; width: 100%; padding: 10px 12px; border: 0; border-radius: 10px;
+    background: var(--nq-primary); color: var(--nq-on-primary); font-weight: 600; cursor: pointer; text-align: left;
+    box-shadow: 0 1px 2px color-mix(in srgb, #000 20%, transparent); transition: background-color .15s; }
+  #fill:hover { background: var(--primary-hover); }
+  #fill:disabled { opacity: .6; cursor: default; }
+  #fill svg { width: 16px; height: 16px; flex: none; }
+  #fill .label { flex: 1; min-width: 0; }
+  .chip { flex: none; padding: 2px 6px; border-radius: 6px; font: 600 11px/16px system-ui, -apple-system, "Segoe UI", sans-serif;
+    background: transparent; border: 1px solid color-mix(in srgb, var(--nq-on-primary) 40%, transparent); color: inherit; white-space: nowrap; }
+  .chip:empty { display: none; }
+
+  #msg { margin: 8px 0 0; min-height: 0; font-size: 12.5px; color: var(--nq-muted); }
+  #msg:empty { display: none; }
+  #msg.err { color: var(--nq-danger); }
+  #msg.ok { color: var(--nq-success); }
+  .help { margin: 8px 0 0; font-size: 12px; line-height: 1.5; color: var(--nq-muted); }
+
+  /* chooser: one card per login */
+  #choose { list-style: none; margin: 8px 0 0; padding: 0; max-height: 216px; overflow-y: auto; display: grid; gap: 4px; }
+  #choose[hidden] { display: none; }
   #choose li { padding: 0; }
-  #choose button.choice { display: block; width: 100%; padding: 7px 9px; text-align: left; background: rgba(128,128,128,.1);
-    color: inherit; font-weight: 400; border-radius: 7px; opacity: 1; height: auto; font-size: 13px; }
-  #choose button.choice:hover, #choose button.choice:focus-visible { background: rgba(99,102,241,.18); color: inherit; outline: none; }
-  #choose button.choice:focus-visible { box-shadow: inset 0 0 0 2px #6366f1; }
+  #choose button.choice { display: block; width: 100%; padding: 8px 12px; text-align: left; cursor: pointer;
+    background: var(--card); border: 1px solid var(--line); border-radius: 8px; transition: border-color .15s, background-color .15s; }
+  #choose button.choice:hover { background: var(--hover); border-color: color-mix(in srgb, var(--nq-primary) 45%, var(--nq-border)); }
+  #choose button.choice:focus-visible { outline: 2px solid var(--ring); outline-offset: 0; border-color: transparent; }
   .choice .t, .choice .u { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .choice .t { font-weight: 600; }
-  .choice .u { font-size: 12px; opacity: .7; }
+  .choice .u { font-size: 12px; color: var(--nq-muted); }
+
+  /* settings card */
+  .card { margin-top: 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); overflow: hidden; }
+  h2 { margin: 0; padding: 12px 12px 4px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--nq-muted); }
+  label.row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 12px; cursor: pointer; }
+  label.row + label.row, label.row + details, details { border-top: 1px solid var(--line); }
+  label.row:hover { background: var(--hover); }
+  .row .txt { min-width: 0; }
+  .row .sub { display: block; font-size: 11.5px; color: var(--nq-muted); margin-top: 1px; }
+  label.row.off { cursor: default; }
+  label.row.off .txt { opacity: .5; }
+  label.row.off:hover { background: none; }
+
+  /* toggle switch: still a real checkbox (role=switch) */
+  input[role="switch"] { appearance: none; -webkit-appearance: none; margin: 0; flex: none; position: relative; width: 32px; height: 18px;
+    border-radius: 9px; cursor: pointer; background: color-mix(in srgb, var(--nq-text) 22%, transparent); transition: background-color .15s; }
+  input[role="switch"]::before { content: ""; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%;
+    background: var(--nq-bg); box-shadow: 0 1px 2px color-mix(in srgb, #000 30%, transparent); transition: transform .15s; }
+  input[role="switch"]:checked { background: var(--nq-primary); }
+  input[role="switch"]:checked::before { transform: translateX(14px); background: var(--nq-on-primary); }
+  input[role="switch"]:disabled { cursor: default; opacity: .45; }
+  input[role="switch"]:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+
+  /* never-save disclosure */
+  summary { display: flex; align-items: center; gap: 8px; padding: 8px 12px; cursor: pointer; list-style: none; }
+  summary::-webkit-details-marker { display: none; }
+  summary:hover { background: var(--hover); }
+  summary:focus-visible { outline-offset: -2px; }
+  summary .caret { width: 12px; height: 12px; flex: none; margin-left: auto; color: var(--nq-muted); transition: transform .15s; }
+  details[open] summary .caret { transform: rotate(90deg); }
+  summary .count { font-size: 11px; font-weight: 600; padding: 0 6px; border-radius: 9px; line-height: 16px;
+    background: color-mix(in srgb, var(--nq-text) 10%, transparent); color: var(--nq-muted); }
+  summary .count:empty { display: none; }
+  #neverList { list-style: none; margin: 0; padding: 0 8px 8px; max-height: 140px; overflow-y: auto; }
+  #neverList li { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 2px 4px 2px 8px; border-radius: 6px; }
+  #neverList li:hover { background: var(--hover); }
+  #neverList li span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #neverList li button { width: 24px; height: 24px; padding: 0; flex: none; border: 0; border-radius: 6px; background: transparent;
+    color: var(--nq-muted); font-size: 16px; line-height: 1; cursor: pointer; }
+  #neverList li button:hover { background: color-mix(in srgb, var(--nq-danger) 15%, transparent); color: var(--nq-danger); }
+  #neverList .empty { color: var(--nq-muted); padding: 4px 8px; }
+
+  footer { margin-top: 12px; text-align: center; font-size: 11px; color: var(--nq-muted); }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before { transition: none !important; animation: none !important; }
+  }
 </style>
-<h1>Notiq Autofill</h1>
-<button id="fill">Fill login for this site</button>
-<p id="msg"></p>
-<ul id="choose" role="listbox" aria-label="Choose a login" hidden></ul>
-<p>Notiq will ask you to approve before anything is filled or saved. Shortcut: Alt+Shift+L.</p>
-<hr>
-<h2>Settings</h2>
-<label class="row">Offer to save new logins <input type="checkbox" id="offerSave"></label>
-<label class="row">Show Notiq icon on login fields <input type="checkbox" id="showIcon"></label>
-<details id="never">
-  <summary>Never save for these sites <span class="count" id="neverCount"></span></summary>
-  <ul id="neverList"></ul>
-</details>
+<header class="hdr">
+  <img class="mark" src="icon48.png" alt="" width="32" height="32">
+  <div class="brand">
+    <h1>Notiq Autofill</h1>
+    <div class="status" id="status" role="status" data-state="unknown"><span class="dot" aria-hidden="true"></span><span id="statusText">Checking Notiq…</span></div>
+  </div>
+</header>
+<main>
+  <button id="fill" type="button" aria-describedby="help">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="7.5" cy="15.5" r="4.5"/><path d="M10.7 12.3 20 3"/><path d="M16.5 6.5l3 3"/><path d="M14 9l2 2"/></svg>
+    <span class="label">Fill login for this site</span>
+    <kbd class="chip" id="shortcut">Alt+Shift+L</kbd>
+  </button>
+  <p id="msg" role="status" aria-live="polite"></p>
+  <ul id="choose" role="listbox" aria-label="Choose a login" hidden></ul>
+  <p class="help" id="help">You approve every fill and save in the Notiq app first.</p>
+
+  <section class="card" aria-labelledby="settingsTitle">
+    <h2 id="settingsTitle">Settings</h2>
+    <label class="row"><span class="txt">Offer to save new logins</span><input type="checkbox" role="switch" id="offerSave"></label>
+    <label class="row"><span class="txt">Show Notiq icon on login fields</span><input type="checkbox" role="switch" id="showIcon"></label>
+    <label class="row" id="suggestRow"><span class="txt">Suggest on field focus<span class="sub">“Fill with Notiq” under login fields</span></span><input type="checkbox" role="switch" id="suggestOnFocus"></label>
+    <details id="never">
+      <summary>Never save for these sites <span class="count" id="neverCount"></span>
+        <svg class="caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
+      </summary>
+      <ul id="neverList"></ul>
+    </details>
+  </section>
+</main>
+<footer id="version"></footer>
+<script src="shared.js"></script>
 <script src="popup.js"></script>
+</html>

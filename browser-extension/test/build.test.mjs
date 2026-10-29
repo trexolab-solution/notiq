@@ -20,7 +20,7 @@ test("store drops key, keeps service worker", () => {
 test("firefox transform", () => {
   const m = transformFirefox(manifest);
   assert.equal("key" in m, false);
-  assert.deepEqual(m.background, { scripts: ["background.js"] });
+  assert.deepEqual(m.background, { scripts: ["shared.js", "background.js"] });
   assert.equal(m.browser_specific_settings.gecko.id, FIREFOX_ID);
   assert.equal(m.browser_specific_settings.gecko.strict_min_version, "121.0");
   assert.deepEqual(m.permissions, manifest.permissions);
@@ -43,6 +43,19 @@ test("validate rejects key in store, missing file, wrong version", () => {
   files.delete("content.js");
   assert.throws(() => validateBuild(manifest, files, manifest.version), /missing/);
   assert.throws(() => validateBuild(manifest, fileMap(manifest), "9.9.9"), /version/);
+});
+test("validate rejects a build without shared.js", () => {
+  const files = fileMap(manifest);
+  files.delete("shared.js");
+  assert.throws(() => validateBuild(manifest, files, manifest.version), /shared\.js/);
+});
+test("content scripts load shared.js before content.js", () => {
+  assert.deepEqual(manifest.content_scripts[0].js, ["shared.js", "content.js"]);
+});
+test("no new permissions in 0.4.0", () => {
+  assert.deepEqual([...manifest.permissions].sort(), ["activeTab", "nativeMessaging", "scripting", "storage"]);
+  assert.equal("host_permissions" in manifest, false);
+  assert.equal("web_accessible_resources" in manifest, false);
 });
 test("crc32 known value", () => assert.equal(crc32(Buffer.from("123456789")), 0xcbf43926));
 test("zip is deterministic and readable", () => {
