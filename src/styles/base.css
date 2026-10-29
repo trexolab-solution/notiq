@@ -81,3 +81,9 @@ html,
   outline: 2px solid color-mix(in srgb, var(--color-primary) 55%, transparent);
   outline-offset: 2px;
 }
+
+/* Edge/WebView2 adds its own reveal (eye) and clear buttons to password inputs; the app draws its own. */
+input[type="password"]::-ms-reveal,
+input[type="password"]::-ms-clear {
+  display: none;
+}
