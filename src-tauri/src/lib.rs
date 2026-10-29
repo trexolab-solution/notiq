@@ -12,6 +12,7 @@ mod vault_core;
 mod vault_db;
 mod profile;
 mod session_lock;
+mod hello; // 0.7.0 hello
 #[cfg(desktop)]
 use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem},
@@ -690,6 +691,11 @@ pub fn run() {
         autofill::autofill_ui_ready,
         native_host_reg::autofill_status,
         native_host_reg::autofill_repair,
+        // 0.7.0 hello
+        hello::hello_status,
+        hello::hello_enable,
+        hello::hello_disable,
+        hello::hello_unlock,
     ]);
 
     #[cfg(not(desktop))]
@@ -747,6 +753,11 @@ pub fn run() {
         autofill::autofill_ui_ready,
         native_host_reg::autofill_status,
         native_host_reg::autofill_repair,
+        // 0.7.0 hello
+        hello::hello_status,
+        hello::hello_enable,
+        hello::hello_disable,
+        hello::hello_unlock,
     ]);
 
     #[cfg(desktop)]

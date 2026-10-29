@@ -66,6 +66,16 @@ impl VaultState {
         *self.guard() = Some(Unlocked { key, vault_id });
     }
 
+    // 0.7.0 hello: the Windows Hello unlock installs a key it unwrapped (and verified) itself,
+    // exactly like a successful password unlock.
+    pub(crate) fn is_unlocked(&self) -> bool {
+        self.guard().is_some()
+    }
+
+    pub(crate) fn install_key(&self, key: VaultKey, vault_id: [u8; VAULT_ID_LEN]) {
+        self.set(key, vault_id);
+    }
+
     /// Runs `f` on the vault database (loaded on first use). `f` returns its result and
     /// whether it changed the DB; a changed DB is sealed and written back atomically
     /// before this returns. Lock order is always key, then store.

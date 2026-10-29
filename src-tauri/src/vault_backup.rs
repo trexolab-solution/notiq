@@ -206,7 +206,9 @@ pub fn vault_backup_import(app: AppHandle, state: State<'_, VaultState>, path: S
     let root = state.root().unwrap_or_else(|| data_dir.clone());
     fs::create_dir_all(&root).map_err(|e| e.to_string())?;
     state.lock_all();
-    install(&data_dir, &meta_file, &vdb::db_path(&root), &data, replace, now_secs())
+    let out = install(&data_dir, &meta_file, &vdb::db_path(&root), &data, replace, now_secs())?;
+    crate::hello::invalidate(&app); // 0.7.0 hello: a restored vault always needs the master password first
+    Ok(out)
 }
 
 // ─── tests ───────────────────────────────────────────────────────────────────
