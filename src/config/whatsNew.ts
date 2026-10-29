@@ -17,6 +17,7 @@ Thanks for updating! Here's what's new in this release.
 
 ## ✨ Highlights
 
+- **Browser extension included** — the Notiq Autofill extension now ships inside the app. Open **Settings → Vault → Browser autofill → Install the browser extension** for the folder, buttons that open your browser's extensions page, and the *Developer mode → Load unpacked* steps.
 - **Back up your vault** — export one encrypted \`.nqbackup\` file (Settings → Vault → Backup) and restore it on a new PC from the vault setup screen. Notiq reminds you when it's time. Nothing is uploaded, ever.
 - **More than passwords** — new **Card**, **Wi-Fi** and **Recovery codes** entries, custom fields on every entry, extra websites on a login, **file attachments** and **version history** (the last 10 versions of each entry, restorable). All of it stays inside the one encrypted file.
 - **Vault health & import** — an offline check for weak, reused and old passwords, and import from Chrome, Bitwarden or KeePass CSV files.
