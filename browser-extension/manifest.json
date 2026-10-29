@@ -33,7 +33,7 @@
     }
   ],
   "commands": {
-    "_execute_action": {
+    "fill-login": {
       "suggested_key": {
         "default": "Alt+Shift+L"
       },

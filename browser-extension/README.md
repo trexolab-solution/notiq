@@ -23,13 +23,13 @@ Updating from 0.1: click the reload button on the extension's card. The browser 
 - **Fill from the field:** on a login page a small gold Notiq key appears inside the username/email and password
   fields. Click it, then press **Allow** in Notiq. The icon spins while Notiq waits for you, shows a check when the
   fields are filled, or a short message if something went wrong (vault locked, you declined, no saved login…).
-- **Suggestion on focus:** when you click or tab into a detected username/email/password field, a small
+- **Suggestion on focus** (off by default; enable it in the popup): when you click or tab into a detected username/email/password field, a small
   **Fill with Notiq** button (with the `Alt+Shift+L` hint) appears under it. It shows no usernames or other vault
   data: clicking it does exactly what clicking the key icon does, and Notiq still asks you to Allow. It never takes
   focus from the field; press **↓** to reach it from the keyboard (Enter fills, ↑ goes back), **Esc** hides it for
   that field until the page is reloaded, typing or clicking elsewhere hides it. It is not shown on one-time-code,
   search or other non-login fields, in other sites' iframes, or when the icon is turned off.
-- **Fill from the toolbar:** click the Notiq toolbar icon (or press `Alt+Shift+L`) → **Fill login for this site**.
+- **Fill from the toolbar:** click the Notiq toolbar icon → **Fill login for this site**. Or press `Alt+Shift+L` on a page to fill right away, as if you had clicked the Notiq icon of the focused login field (the first one if none is focused).
   The popup header shows whether Notiq is running.
 - **Save a new login:** sign in or sign up with a password Notiq doesn't know yet. When the next page no longer shows
   a password field, a card in the top-right corner asks **Save login to Notiq?** with the site and username (never
@@ -55,9 +55,9 @@ Updating from 0.1: click the reload button on the extension's card. The browser 
 
 ### Settings (toolbar popup)
 - **Offer to save new logins** (on by default).
-- **Show Notiq icon on login fields** (on by default). Turning it off keeps the toolbar button and shortcut (and
+- **Show Notiq icon on login fields** (on by default). Turning it off keeps the toolbar button and shortcut (the shortcut then opens the popup) (and
   also hides the focus suggestion).
-- **Suggest on field focus** (on by default): the **Fill with Notiq** button under a focused login field.
+- **Suggest on field focus** (off by default; turn it on in the popup): the **Fill with Notiq** button under a focused login field.
 - **Never save for these sites:** the sites you chose "Never for this site" on; click × to allow offers again.
 
 ### Theme

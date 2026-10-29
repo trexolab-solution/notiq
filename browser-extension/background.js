@@ -6,7 +6,7 @@ const HOST = "com.trexolab.notiq";
 const PENDING_TTL = 90 * 1000;
 const MAX = { host: 253, url: 2048, title: 80, username: 512, password: 1024, message: 8192, neverSave: 500,
   choices: 20, account: 256, choiceTitle: 200 };
-const SETTINGS_DEFAULTS = { offerSave: true, showIcon: true, suggestOnFocus: true, neverSave: [] };
+const SETTINGS_DEFAULTS = { offerSave: true, showIcon: true, suggestOnFocus: false, neverSave: [] };
 const OFFER_TTL = 2 * 60 * 1000;
 
 // Conservative "same site" test for login iframes: the frame's host must equal
@@ -271,7 +271,7 @@ async function getSettings() {
   return {
     offerSave: s.offerSave !== false,
     showIcon: s.showIcon !== false,
-    suggestOnFocus: s.suggestOnFocus !== false,
+    suggestOnFocus: s.suggestOnFocus === true,
     neverSave: Array.isArray(s.neverSave) ? s.neverSave.filter((h) => typeof h === "string").map((h) => h.toLowerCase()) : [],
   };
 }
@@ -450,6 +450,16 @@ chrome.runtime.onMessage.addListener((msg, sender, send) => {
     return true;
   }
   return false;
+});
+
+// Alt+Shift+L: tell the page to behave as if its Notiq icon was clicked (the focused login field,
+// else the first one). The page handles approval, chooser and errors exactly as for a click.
+// With the page icon turned off there is nothing to click, so the shortcut opens the toolbar popup instead.
+chrome.commands.onCommand.addListener(async (command, tab) => {
+  if (command !== "fill-login") return;
+  if (!(await getSettings()).showIcon) { try { await chrome.action.openPopup(); } catch { /* needs a recent Chrome/Edge */ } return; }
+  const send = (t) => t && typeof t.id === "number" && chrome.tabs.sendMessage(t.id, { type: "fillShortcut" }).catch(() => {});
+  if (tab) send(tab); else chrome.tabs.query({ active: true, currentWindow: true }).then(([t]) => send(t));
 });
 
 // Service-worker start (it also restarts after idling, hence the throttle).

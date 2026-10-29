@@ -101,7 +101,7 @@
   const NEW_HINT = /new.?pass|confirm|repeat|retype|re-?enter|verify|pass(word)?.?2/i;
   const MAX_CHOICES = 20;
 
-  const settings = { offerSave: true, showIcon: true, suggestOnFocus: true, neverSave: [] };
+  const settings = { offerSave: true, showIcon: true, suggestOnFocus: false, neverSave: [] };
   let cachedTheme = null; // validated theme from the Notiq app (chrome.storage.local `theme`), or null
   let filled = null;   // { username, password } that Notiq just put on this page (memory only)
   let lastUser = null; // { host, value, at } last username typed here (multi-step flows)
@@ -1047,6 +1047,12 @@
     }
     // A same-site frame captured a login; the offer card lives in the top frame.
     if (msg && msg.type === "checkPending" && IS_TOP) schedulePending(1200);
+    // Alt+Shift+L (background): same as clicking the icon of the focused login field, else the first visible one.
+    if (msg && msg.type === "fillShortcut") {
+      const active = document.activeElement;
+      const field = icons.has(active) ? active : [...icons.keys()].find((f) => f.isConnected && shown(f));
+      if (field && (active === field || document.hasFocus())) onIconClick(field);
+    }
     return false;
   });
 
@@ -1054,7 +1060,7 @@
   function applySettings(s) {
     if ("offerSave" in s) settings.offerSave = s.offerSave !== false;
     if ("showIcon" in s) settings.showIcon = s.showIcon !== false;
-    if ("suggestOnFocus" in s) settings.suggestOnFocus = s.suggestOnFocus !== false;
+    if ("suggestOnFocus" in s) settings.suggestOnFocus = s.suggestOnFocus === true;
     if ("theme" in s) { cachedTheme = NS.validateTheme(s.theme); applyThemeNow(); }
     if ("neverSave" in s) {
       settings.neverSave = Array.isArray(s.neverSave)
@@ -1110,7 +1116,7 @@
     window.navigation.addEventListener("navigatesuccess", onUrlMaybeChanged);
   }
 
-  chrome.storage.local.get({ offerSave: true, showIcon: true, suggestOnFocus: true, neverSave: [], theme: null }, (s) => {
+  chrome.storage.local.get({ offerSave: true, showIcon: true, suggestOnFocus: false, neverSave: [], theme: null }, (s) => {
     applySettings(s || {});
     scan();
     schedulePending(300);

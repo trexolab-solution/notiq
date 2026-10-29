@@ -45,7 +45,7 @@ const shortcut = document.getElementById("shortcut");
 try {
   if (chrome.commands && typeof chrome.commands.getAll === "function") {
     chrome.commands.getAll((cmds) => {
-      const c = Array.isArray(cmds) ? cmds.find((x) => x && x.name === "_execute_action") : null;
+      const c = Array.isArray(cmds) ? cmds.find((x) => x && x.name === "fill-login") : null;
       if (c && typeof c.shortcut === "string") shortcut.textContent = c.shortcut.slice(0, 32);
     });
   }
@@ -111,7 +111,7 @@ function fill(account) {
 btn.addEventListener("click", () => fill());
 
 // ---------- settings (chrome.storage.local; content.js reacts to changes) ----------
-const DEFAULTS = { offerSave: true, showIcon: true, suggestOnFocus: true, neverSave: [], theme: null };
+const DEFAULTS = { offerSave: true, showIcon: true, suggestOnFocus: false, neverSave: [], theme: null };
 const offerSave = document.getElementById("offerSave");
 const showIcon = document.getElementById("showIcon");
 const suggestOnFocus = document.getElementById("suggestOnFocus");
@@ -152,7 +152,7 @@ function renderNever(hosts) {
 function render(s) {
   offerSave.checked = s.offerSave !== false;
   showIcon.checked = s.showIcon !== false;
-  suggestOnFocus.checked = s.suggestOnFocus !== false;
+  suggestOnFocus.checked = s.suggestOnFocus === true;
   // The suggestion is part of the in-field UI: it never shows while the icon is off.
   suggestOnFocus.disabled = !showIcon.checked;
   suggestRow.classList.toggle("off", !showIcon.checked);

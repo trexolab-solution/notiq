@@ -195,7 +195,7 @@ async function load(url = PAGE) {
   await sleep(900); // document_idle + settings read + scan
 }
 async function resetState(settings = {}) {
-  await SW(`chrome.storage.session.clear().then(() => chrome.storage.local.clear()).then(() => chrome.storage.local.set(${JSON.stringify(settings)})).then(() => true)`);
+  await SW(`chrome.storage.session.clear().then(() => chrome.storage.local.clear()).then(() => chrome.storage.local.set(${JSON.stringify({ suggestOnFocus: true, ...settings })})).then(() => true)`); // the suggestion is off by default; most checks need it on
   await resetCalls();
 }
 async function waitFor(fn, ms = 4000) {
@@ -832,13 +832,15 @@ try {
   check("validated theme cached in storage.local", stored && stored.id === "nord" && stored.bg === "#2e3440", JSON.stringify(stored));
   const popVars = await waitFor(async () => { const v = await evalIn(pop2, `getComputedStyle(document.documentElement).getPropertyValue("--nq-bg").trim()`); return v === "#2e3440" && v; }, 2000);
   check("popup styles itself from the theme", popVars === "#2e3440");
+  await SW(`chrome.storage.local.remove("suggestOnFocus").then(() => true)`); // real default: off
+  await sleep(300);
   const popInfo = await evalIn(pop2, `({ ver: document.getElementById("version").textContent, sw: [...document.querySelectorAll('input[type=checkbox]')].map((i) => i.getAttribute("role") + ":" + i.id + ":" + i.checked),
     status: document.getElementById("status").dataset.state, bg: getComputedStyle(document.body).backgroundColor })`);
   check("popup: version footer, three role=switch toggles incl. 'Suggest on field focus', status dot",
-    popInfo.ver === "Notiq Autofill v0.4.0" && popInfo.sw.join() === "switch:offerSave:true,switch:showIcon:true,switch:suggestOnFocus:true" &&
+    popInfo.ver === "Notiq Autofill v0.4.0" && popInfo.sw.join() === "switch:offerSave:true,switch:showIcon:true,switch:suggestOnFocus:false" &&
     ["on", "off"].includes(popInfo.status) && popInfo.bg === "rgb(46, 52, 64)", JSON.stringify(popInfo));
   await evalIn(pop2, `document.getElementById("suggestOnFocus").click(), true`);
-  check("popup toggle writes suggestOnFocus", await waitFor(async () => (await local()).suggestOnFocus === false, 1500));
+  check("popup toggle writes suggestOnFocus", await waitFor(async () => (await local()).suggestOnFocus === true, 1500));
   await evalIn(pop2, `document.getElementById("showIcon").click(), true`);
   await sleep(300);
   check("suggest toggle is disabled while the icon is off", await evalIn(pop2, `document.getElementById("suggestOnFocus").disabled`));
