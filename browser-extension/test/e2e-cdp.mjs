@@ -11,7 +11,7 @@
 // uses CDP Input events — which the page sees as trusted user input — to click and
 // type. Synthetic DOM events are used for the "untrusted" cases.
 import { spawn } from "node:child_process";
-import { mkdtempSync, readdirSync, existsSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, existsSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -88,7 +88,9 @@ async function mockNative(replies) {
     return chrome.runtime.sendNativeMessage === fake;
   })()`);
 }
-const calls = () => SW("globalThis.__calls || []");
+// Vault traffic only: the content-free {op:"theme"} refresh is checked separately (allCalls).
+const allCalls = () => SW("globalThis.__calls || []");
+const calls = async () => (await allCalls()).filter((c) => c.op !== "theme");
 const resetCalls = () => SW("(globalThis.__calls = [], true)");
 const session = () => SW("chrome.storage.session.get(null)");
 const local = () => SW("chrome.storage.local.get(null)");
@@ -229,8 +231,8 @@ try {
   ({ sessionId: sw } = await cdp("Target.attachToTarget", { targetId: swTarget.targetId, flatten: true }));
   await cdp("Runtime.enable", {}, sw);
   const manifest = await SW("chrome.runtime.getManifest()");
-  check("manifest version 0.3.0 with storage permission and all-frames content script (same-site gated)",
-    manifest.version === "0.3.0" && manifest.permissions.includes("storage") && manifest.content_scripts[0].all_frames === true &&
+  check("manifest version 0.4.0 with storage permission and all-frames content script (same-site gated)",
+    manifest.version === "0.4.0" && manifest.permissions.includes("storage") && manifest.content_scripts[0].all_frames === true &&
     typeof manifest.key === "string" && manifest.key.length > 100);
 
   const { targetId } = await cdp("Target.createTarget", { url: "about:blank" });
@@ -697,6 +699,247 @@ try {
   check("same-site test: subdomains allowed, other sites / public suffixes / IPs refused",
     JSON.stringify(ss) === JSON.stringify([true, true, true, false, false, false, false, false, false, false]), JSON.stringify(ss));
   await mockNative(NATIVE);
+
+
+  // ===================== 0.4.0 =====================
+  // 22. "Fill with Notiq" suggestion on field focus
+  const suggestInfo = () => inShadow(`function () {
+    const s = this.querySelector(".nq-suggest");
+    if (!s || s.style.display === "none") return null;
+    const b = s.querySelector(".nq-sbtn");
+    const r = b.getBoundingClientRect(), n = s.getBoundingClientRect();
+    // top/left from the style (the entry animation shifts the box for a moment)
+    return { text: s.textContent, role: s.getAttribute("role"), itemRole: b.getAttribute("role"), x: r.x + r.width / 2, y: parseFloat(s.style.top) + (r.bottom - n.top) - r.height / 2,
+      top: parseFloat(s.style.top), left: parseFloat(s.style.left), width: n.width, active: this.activeElement === b, count: this.querySelectorAll(".nq-suggest").length };
+  }`);
+  const activeId = () => P("document.activeElement && document.activeElement.id");
+  await cdp("Target.activateTarget", { targetId }); // the page tab must be the active one (fills from background tabs are refused)
+  const fieldBox = (id) => P(`(() => { const r = document.getElementById(${JSON.stringify(id)}).getBoundingClientRect(); return { left: r.left, bottom: r.bottom, width: r.width }; })()`);
+  await mockNative(NATIVE);
+  await resetState();
+  await load();
+  check("no suggestion before a field is focused", !(await suggestInfo()));
+  await clickId("s-user");
+  const sg1 = await waitFor(suggestInfo, 1500);
+  const fb1 = await fieldBox("s-user");
+  check("focusing a login field shows 'Fill with Notiq' + shortcut hint right under it",
+    sg1 && sg1.text === "Fill with NotiqAlt+Shift+L" && Math.abs(sg1.top - (fb1.bottom + 4)) <= 1 && Math.abs(sg1.left - fb1.left) <= 1 && sg1.count === 1,
+    JSON.stringify({ sg1, fb1 }));
+  check("suggestion uses menu/menuitem roles and shows no vault data", sg1 && sg1.role === "menu" && sg1.itemRole === "menuitem" && !/alice|@/.test(sg1.text));
+  check("focus stays in the field while the suggestion shows", (await activeId()) === "s-user");
+  check("showing the suggestion asks Notiq for nothing", (await calls()).length === 0);
+  await inShadow(`function () { const b = this.querySelector(".nq-sbtn"); b.click(); b.dispatchEvent(new MouseEvent("click", { bubbles: true, composed: true })); }`);
+  await sleep(600);
+  check("synthetic click on the suggestion is ignored", (await calls()).length === 0 && !!(await suggestInfo()));
+  const sg1b = await suggestInfo();
+  await mouseClick(sg1b.x, sg1b.y);
+  check("a real click keeps focus in the field (no focus steal)", ["s-user", "s-pass"].includes(await activeId()));
+  await waitFor(async () => (await calls()).length === 1, 3000);
+  const c22 = await calls();
+  check("clicking the suggestion runs the same fill as the key icon", c22.length === 1 && c22[0].op === "fill" && c22[0].host === "localhost", JSON.stringify(c22));
+  const v22 = await waitFor(async () => { const v = await P(`document.getElementById("s-pass").value`); return v === "Notiq-Filled-1!" && v; }, 3000);
+  check("…and the form is filled after approval", !!v22);
+  await sleep(300);
+  check("suggestion is gone after the click and not re-opened by the fill's own focus", !(await suggestInfo()));
+
+  // keyboard
+  await resetState();
+  await load();
+  await clickId("s-user");
+  await waitFor(suggestInfo, 1500);
+  await key("ArrowDown", "ArrowDown", 40);
+  await sleep(150);
+  check("ArrowDown from the field moves focus into the suggestion", !!(await suggestInfo())?.active);
+  await key("ArrowUp", "ArrowUp", 38);
+  await sleep(150);
+  check("ArrowUp returns focus to the field", (await activeId()) === "s-user" && !!(await suggestInfo()));
+  await key("ArrowDown", "ArrowDown", 40);
+  await key("Enter", "Enter", 13);
+  await waitFor(async () => (await calls()).length === 1, 3000);
+  check("Enter on the focused suggestion fills (one request)", (await calls()).length === 1 && (await calls())[0].op === "fill");
+  await waitFor(async () => (await P(`document.getElementById("s-pass").value`)) === "Notiq-Filled-1!", 3000);
+
+  // Esc dismisses per field; typing and clicking outside hide it
+  await resetState();
+  await load();
+  await clickId("s-user");
+  await waitFor(suggestInfo, 1500);
+  await key("Escape", "Escape", 27);
+  await sleep(200);
+  check("Esc hides the suggestion and keeps focus in the field", !(await suggestInfo()) && (await activeId()) === "s-user");
+  await clickId("s-pass");
+  const sgPw = await waitFor(suggestInfo, 1500);
+  check("another login field still gets its suggestion", !!sgPw);
+  await cdp("Input.insertText", { text: "x" }, page);
+  await sleep(200);
+  check("typing into the field hides the suggestion", !(await suggestInfo()));
+  await clickId("s-user");
+  await sleep(500);
+  check("a field dismissed with Esc gets no suggestion again on this page", !(await suggestInfo()));
+  await clickId("t-user");
+  await waitFor(suggestInfo, 1500);
+  const h1 = await P(`(() => { const r = document.querySelector("h1").getBoundingClientRect(); return { x: r.x + 10, y: r.y + r.height / 2 }; })()`);
+  await mouseClick(h1.x, h1.y);
+  await sleep(200);
+  check("clicking outside hides the suggestion", !(await suggestInfo()));
+  await clickId("u-name");
+  await sleep(500);
+  check("non-login fields (full name) get no suggestion", !(await suggestInfo()));
+  await P(`document.body.style.minHeight = "3000px"`);
+  await P(`document.getElementById("t-user").focus()`);
+  await sleep(300);
+  const sgScroll = await suggestInfo();
+  await P(`window.scrollBy(0, 40)`);
+  await sleep(250);
+  const sgScroll2 = await suggestInfo();
+  const fbT = await fieldBox("t-user");
+  check("suggestion follows the field on scroll", sgScroll && sgScroll2 && sgScroll2.top !== sgScroll.top && Math.abs(sgScroll2.top - (fbT.bottom + 4)) <= 1, JSON.stringify({ sgScroll, sgScroll2, fbT }));
+  await SW(`chrome.storage.local.set({ suggestOnFocus: false }).then(() => true)`);
+  check("turning 'Suggest on field focus' off hides it live", await waitFor(async () => !(await suggestInfo()), 1500));
+  await clickId("s-pass");
+  await sleep(500);
+  check("suggestOnFocus=false: no suggestion (icons still shown)", !(await suggestInfo()) && ((await icons()) || []).length > 0);
+  await resetState({ showIcon: false });
+  await load();
+  await clickId("s-user");
+  await sleep(600);
+  check("showIcon=false: no suggestion either", !(await suggestInfo()) && ((await icons()) || []).length === 0);
+  // OTP field on the extra page gets no suggestion
+  await resetState();
+  await load(EXTRA);
+  const otpIds = await P(`[...document.querySelectorAll("input")].filter((i) => /otp|code/i.test(i.id + i.name + i.autocomplete) && i.maxLength !== 1 && i.offsetWidth > 0).map((i) => i.id).filter(Boolean)`);
+  if (otpIds.length) {
+    await clickId(otpIds[0]);
+    await sleep(500);
+    check("one-time-code fields get no suggestion", !(await suggestInfo()), otpIds[0]);
+  }
+
+  // 23. Theme from the Notiq app
+  const THEME = { id: "nord", mode: "dark", bg: "#2e3440", bgSecondary: "#3b4252", bgTertiary: "#434c5e", text: "#eceff4",
+    textMuted: "#8892a4", border: "#4c566a", primary: "#88c0d0", primaryText: "#1d232d", danger: "#bf616a", success: "#a3be8c" };
+  const LIGHT = { id: "light", mode: "light", bg: "#f8fafc", bgSecondary: "#f1f5f9", bgTertiary: "#e2e8f0", text: "#1e293b",
+    textMuted: "#64748b", border: "#cbd5e1", primary: "#b45309", primaryText: "#ffffff", danger: "#dc2626", success: "#16a34a" };
+  const themeCalls = async () => (await allCalls()).filter((c) => c.op === "theme");
+  await resetState();
+  await mockNative({ ...NATIVE, theme: { ok: true, theme: THEME } });
+  await resetCalls();
+  const { targetId: pop2Target } = await cdp("Target.createTarget", { url: `chrome-extension://${extId}/popup.html` });
+  const { sessionId: pop2 } = await cdp("Target.attachToTarget", { targetId: pop2Target, flatten: true });
+  await cdp("Runtime.enable", {}, pop2);
+  const stored = await waitFor(async () => (await local()).theme, 3000);
+  const tc = await themeCalls();
+  check("opening the popup refreshes the theme ({op:'theme'} only, no host)", tc.length === 1 && JSON.stringify(tc[0]) === '{"op":"theme"}', JSON.stringify(tc));
+  check("validated theme cached in storage.local", stored && stored.id === "nord" && stored.bg === "#2e3440", JSON.stringify(stored));
+  const popVars = await waitFor(async () => { const v = await evalIn(pop2, `getComputedStyle(document.documentElement).getPropertyValue("--nq-bg").trim()`); return v === "#2e3440" && v; }, 2000);
+  check("popup styles itself from the theme", popVars === "#2e3440");
+  const popInfo = await evalIn(pop2, `({ ver: document.getElementById("version").textContent, sw: [...document.querySelectorAll('input[type=checkbox]')].map((i) => i.getAttribute("role") + ":" + i.id + ":" + i.checked),
+    status: document.getElementById("status").dataset.state, bg: getComputedStyle(document.body).backgroundColor })`);
+  check("popup: version footer, three role=switch toggles incl. 'Suggest on field focus', status dot",
+    popInfo.ver === "Notiq Autofill v0.4.0" && popInfo.sw.join() === "switch:offerSave:true,switch:showIcon:true,switch:suggestOnFocus:true" &&
+    ["on", "off"].includes(popInfo.status) && popInfo.bg === "rgb(46, 52, 64)", JSON.stringify(popInfo));
+  await evalIn(pop2, `document.getElementById("suggestOnFocus").click(), true`);
+  check("popup toggle writes suggestOnFocus", await waitFor(async () => (await local()).suggestOnFocus === false, 1500));
+  await evalIn(pop2, `document.getElementById("showIcon").click(), true`);
+  await sleep(300);
+  check("suggest toggle is disabled while the icon is off", await evalIn(pop2, `document.getElementById("suggestOnFocus").disabled`));
+  await SW(`chrome.storage.local.set({ showIcon: true, suggestOnFocus: true }).then(() => true)`);
+  await cdp("Target.activateTarget", { targetId });
+
+  await load();
+  await clickId("s-user");
+  await waitFor(suggestInfo, 1500);
+  const pageVars = () => inShadow(`function () { const r = this.querySelector(".nq-root"); const s = this.querySelector(".nq-suggest");
+    return { bg: r.style.getPropertyValue("--nq-bg"), mode: r.getAttribute("data-nq-mode"), suggestBg: s ? getComputedStyle(s).backgroundColor : null,
+      iconColor: getComputedStyle(this.querySelector(".nq-icon")).color }; }`);
+  const pv = await pageVars();
+  check("in-page UI (suggestion, icon) uses the app's theme", pv.bg === "#2e3440" && pv.mode === "dark" && pv.suggestBg === "rgb(46, 52, 64)" && pv.iconColor === "rgb(136, 192, 208)", JSON.stringify(pv));
+  await SW(`chrome.storage.local.set({ theme: ${JSON.stringify(LIGHT)} }).then(() => true)`);
+  const pvLive = await waitFor(async () => { const v = await pageVars(); return v.bg === "#f8fafc" && v; }, 1500);
+  check("theme change applies live in the page", pvLive && pvLive.mode === "light" && pvLive.suggestBg === "rgb(248, 250, 252)", JSON.stringify(pvLive));
+  await SW(`chrome.storage.local.set({ theme: { ...${JSON.stringify(LIGHT)}, bg: "#fff;background:red" } }).then(() => true)`);
+  const pvBad = await waitFor(async () => { const v = await pageVars(); return v.bg !== "#f8fafc" && v; }, 1500);
+  check("a malformed cached theme is re-validated in the page (falls back to a default)", pvBad && ["#0f172a", "#ffffff"].includes(pvBad.bg), JSON.stringify(pvBad));
+
+  const refresh = () => SW(`chrome.storage.session.remove("themeAt").then(() => refreshTheme(60000)).then((t) => t)`);
+  await SW(`chrome.storage.local.set({ theme: ${JSON.stringify(THEME)} }).then(() => true)`);
+  await mockNative({ ...NATIVE, theme: { ok: true, theme: { ...LIGHT, primary: "#b4530" } } });
+  await refresh();
+  check("invalid theme reply is rejected (cache kept)", (await local()).theme?.id === "nord");
+  await mockNative({ ...NATIVE, theme: { error: "app_not_running" } });
+  await refresh();
+  check("app not running: cached theme kept", (await local()).theme?.id === "nord");
+  await mockNative({ ...NATIVE, theme: { error: "unknown_op" } });
+  await refresh();
+  check("older app (unknown_op): treated as no theme", (await local()).theme === undefined);
+  await SW(`chrome.storage.local.set({ theme: ${JSON.stringify(THEME)} }).then(() => true)`);
+  await mockNative({ ...NATIVE, theme: { ok: true, theme: null } });
+  await refresh();
+  check("theme:null clears the cached theme", (await local()).theme === undefined);
+
+  // content-script nudge: at most one host round trip a minute, and never on page load
+  await mockNative({ ...NATIVE, theme: { ok: true, theme: THEME } });
+  await SW(`chrome.storage.session.set({ themeAt: Date.now() }).then(() => true)`);
+  await resetCalls();
+  await load();
+  check("page load asks Notiq nothing, not even the theme", (await allCalls()).length === 0);
+  await clickId("s-user");
+  await waitFor(suggestInfo, 1500);
+  await sleep(600);
+  check("nudge within a minute of the last refresh does not reach the host", (await themeCalls()).length === 0);
+  await SW(`chrome.storage.session.set({ themeAt: Date.now() - 120000 }).then(() => true)`);
+  await load();
+  await clickId("s-user");
+  await waitFor(async () => (await themeCalls()).length === 1, 2000);
+  await load();
+  await clickId("s-user");
+  await sleep(800);
+  const tc2 = await themeCalls();
+  check("stale theme: first nudge refreshes once, the next page does not", tc2.length === 1 && JSON.stringify(tc2[0]) === '{"op":"theme"}', JSON.stringify(tc2));
+  check("theme arrived through the nudge", (await local()).theme?.id === "nord");
+
+  // Screenshots for visual review (NOTIQ_SHOTS=<dir>).
+  if (process.env.NOTIQ_SHOTS) {
+    const dir = resolve(process.env.NOTIQ_SHOTS);
+    mkdirSync(dir, { recursive: true });
+    const shoot = async (session, file, clip) => {
+      const { data } = await cdp("Page.captureScreenshot", { format: "png", ...(clip ? { clip: { ...clip, scale: 1 } } : {}) }, session);
+      writeFileSync(join(dir, file), Buffer.from(data, "base64"));
+    };
+    await cdp("Page.enable", {}, pop2);
+    await cdp("Emulation.setDeviceMetricsOverride", { width: 320, height: 640, deviceScaleFactor: 2, mobile: false }, pop2);
+    const DEFAULT_DARK = { id: "notiq-dark", mode: "dark", bg: "#0f172a", bgSecondary: "#1e293b", bgTertiary: "#334155", text: "#e2e8f0",
+      textMuted: "#94a3b8", border: "#334155", primary: "#c9a84c", primaryText: "#0f172a", danger: "#f87171", success: "#4ade80" };
+    for (const [name, theme] of [["dark", DEFAULT_DARK], ["light", LIGHT], ["nord", THEME]]) {
+      await cdp("Target.activateTarget", { targetId: pop2Target });
+      await SW(`chrome.storage.local.set({ theme: ${JSON.stringify(theme)}, neverSave: ["accounts.example.com", "old-bank.example"] }).then(() => true)`);
+      await evalIn(pop2, `(() => { document.getElementById("never").open = true; return true; })()`);
+      await sleep(300);
+      const h = await evalIn(pop2, `Math.ceil(document.documentElement.getBoundingClientRect().height)`);
+      await shoot(pop2, `popup-${name}.png`, { x: 0, y: 0, width: 320, height: h });
+      await evalIn(pop2, `(() => { const m = document.getElementById("msg"); m.className = ""; m.textContent = "Several logins match. Pick one:";
+        const c = document.getElementById("choose"); c.hidden = false; c.textContent = "";
+        for (const [t, u] of [["Work", "alice@work.com"], ["Home", "alice@home.example"]]) { const li = document.createElement("li"); const b = document.createElement("button");
+          b.className = "choice"; const a = document.createElement("span"); a.className = "t"; a.textContent = t; const d = document.createElement("span"); d.className = "u"; d.textContent = u;
+          b.append(a, d); li.append(b); c.append(li); } return true; })()`);
+      await sleep(150);
+      const h2 = await evalIn(pop2, `Math.ceil(document.documentElement.getBoundingClientRect().height)`);
+      await shoot(pop2, `popup-chooser-${name}.png`, { x: 0, y: 0, width: 320, height: h2 });
+      await evalIn(pop2, `(() => { document.getElementById("choose").hidden = true; document.getElementById("msg").textContent = ""; return true; })()`);
+      await cdp("Target.activateTarget", { targetId });
+      await load();
+      await clickId("s-user");
+      await waitFor(suggestInfo, 1500);
+      await sleep(250);
+      const fb = await fieldBox("s-user");
+      const r = await P(`(() => { const r = document.getElementById("simple").getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height }; })()`);
+      await shoot(page, `suggest-${name}.png`, { x: Math.max(0, r.x - 8), y: Math.max(0, r.y - 8), width: r.width + 16, height: Math.max(r.height, fb.bottom - r.y + 60) + 16 });
+    }
+    await SW(`chrome.storage.local.set({ theme: ${JSON.stringify(DEFAULT_DARK)} }).then(() => true)`);
+    await cdp("Target.closeTarget", { targetId: pop2Target });
+    console.log(`screenshots written to ${dir}`);
+  } else {
+    await cdp("Target.closeTarget", { targetId: pop2Target });
+  }
 
   exitCode = results.every((r) => r.ok) ? 0 : 1;
 } catch (e) {

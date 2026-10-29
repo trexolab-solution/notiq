@@ -21,6 +21,9 @@
 (() => {
   "use strict";
 
+  const NS = globalThis.NotiqShared; // shared.js, loaded just before this file
+  if (!NS) return;
+
   const isLocalHost = (h) => h === "localhost" || h === "127.0.0.1";
   const pageHost = () => String(location.hostname || "").toLowerCase();
   const secureUrl = (protocol, host) => protocol === "https:" || (protocol === "http:" && isLocalHost(host));
@@ -98,7 +101,8 @@
   const NEW_HINT = /new.?pass|confirm|repeat|retype|re-?enter|verify|pass(word)?.?2/i;
   const MAX_CHOICES = 20;
 
-  const settings = { offerSave: true, showIcon: true, neverSave: [] };
+  const settings = { offerSave: true, showIcon: true, suggestOnFocus: true, neverSave: [] };
+  let cachedTheme = null; // validated theme from the Notiq app (chrome.storage.local `theme`), or null
   let filled = null;   // { username, password } that Notiq just put on this page (memory only)
   let lastUser = null; // { host, value, at } last username typed here (multi-step flows)
   let lastSent = null; // { username, password, at } dedupe of capture messages
@@ -214,80 +218,106 @@
   const anyVisiblePassword = () => inputsIn(document).some((i) => isPassword(i) && shown(i));
 
   // ---------- overlay (one closed shadow root) ----------
+  // Colours come only from the --nq-* custom properties that NotiqShared.applyTheme
+  // sets (one validated #rrggbb value at a time) on .nq-root; tints are color-mix().
   const CSS = `
 :host { all: initial; }
+.nq-root { --nq-font: system-ui, -apple-system, "Segoe UI", sans-serif;
+  --nq-hover: color-mix(in srgb, var(--nq-primary) 16%, transparent);
+  --nq-line: color-mix(in srgb, var(--nq-primary) 38%, var(--nq-border));
+  --nq-ring: color-mix(in srgb, var(--nq-primary) 60%, transparent);
+  --nq-shadow: 0 12px 32px color-mix(in srgb, #000 45%, transparent), 0 2px 6px color-mix(in srgb, #000 25%, transparent);
+  --nq-primary-hover: color-mix(in srgb, var(--nq-primary) 86%, var(--nq-text));
+  color: var(--nq-text); font: 13px/1.4 var(--nq-font); }
+.nq-root[data-nq-mode="light"] { --nq-shadow: 0 10px 28px color-mix(in srgb, #0f172a 16%, transparent), 0 1px 3px color-mix(in srgb, #0f172a 14%, transparent); }
 .nq-wrap { position: fixed; width: ${ICON}px; height: ${ICON}px; pointer-events: none; }
 .nq-icon { all: initial; box-sizing: border-box; position: absolute; inset: 0; width: 100%; height: 100%;
   display: flex; align-items: center; justify-content: center; border-radius: 5px; cursor: pointer;
-  pointer-events: auto; background: #1c1b18; color: #c9a84c; opacity: .92;
-  box-shadow: 0 0 0 1px rgba(201,168,76,.6), 0 1px 3px rgba(0,0,0,.35); transition: opacity .15s, transform .15s; }
+  pointer-events: auto; background: var(--nq-bg2); color: var(--nq-primary); opacity: .94;
+  box-shadow: 0 0 0 1px var(--nq-ring), 0 1px 3px color-mix(in srgb, #000 30%, transparent); transition: opacity .15s, transform .15s; }
 .nq-icon:hover { opacity: 1; transform: scale(1.08); }
-.nq-icon:focus-visible { outline: 2px solid #c9a84c; outline-offset: 2px; }
+.nq-icon:focus-visible { outline: 2px solid var(--nq-primary); outline-offset: 2px; }
 .nq-icon svg { width: 12px; height: 12px; display: block; }
-.nq-spin { display: none; width: 9px; height: 9px; border-radius: 50%; border: 2px solid rgba(201,168,76,.3);
-  border-top-color: #c9a84c; animation: nq-rot .8s linear infinite; }
+.nq-spin { display: none; width: 9px; height: 9px; border-radius: 50%; border: 2px solid color-mix(in srgb, var(--nq-primary) 30%, transparent);
+  border-top-color: var(--nq-primary); animation: nq-rot .8s linear infinite; }
 .nq-ok, .nq-err { display: none !important; }
 .waiting .nq-key, .done .nq-key, .error .nq-key { display: none; }
 .waiting .nq-spin { display: block; }
 .done .nq-ok, .error .nq-err { display: block !important; }
-.done .nq-icon { color: #7bd88f; }
-.error .nq-icon { color: #f0a35e; box-shadow: 0 0 0 1px rgba(240,163,94,.7), 0 1px 3px rgba(0,0,0,.35); }
+.done .nq-icon { color: var(--nq-success); }
+.error .nq-icon { color: var(--nq-danger); box-shadow: 0 0 0 1px color-mix(in srgb, var(--nq-danger) 70%, transparent), 0 1px 3px color-mix(in srgb, #000 30%, transparent); }
 .nq-tip { display: none; position: absolute; top: ${ICON + 6}px; right: 0; width: max-content; max-width: 240px;
-  padding: 6px 9px; border-radius: 7px; background: #1c1b18; color: #f3efe4; border: 1px solid rgba(201,168,76,.4);
-  font: 500 12px/1.35 system-ui, -apple-system, "Segoe UI", sans-serif; box-shadow: 0 6px 18px rgba(0,0,0,.35); }
+  padding: 6px 9px; border-radius: 7px; background: var(--nq-bg); color: var(--nq-text); border: 1px solid var(--nq-line);
+  font: 500 12px/1.35 var(--nq-font); box-shadow: var(--nq-shadow); }
 .has-tip .nq-tip { display: block; }
 .nq-bar { box-sizing: border-box; position: fixed; top: 16px; right: 16px; width: 360px; max-width: calc(100vw - 32px);
-  pointer-events: auto; background: #1c1b18; color: #f3efe4; border: 1px solid rgba(201,168,76,.5);
+  pointer-events: auto; background: var(--nq-bg); color: var(--nq-text); border: 1px solid var(--nq-line);
   border-radius: 12px; padding: 14px 14px 12px;
-  box-shadow: 0 14px 36px rgba(0,0,0,.45); font: 13px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
+  box-shadow: var(--nq-shadow); font: 13px/1.4 var(--nq-font);
   animation: nq-in .22s ease-out; }
 .nq-bar.out { opacity: 0; transform: translateY(-6px); transition: opacity .18s, transform .18s; }
 .nq-head { display: flex; gap: 10px; align-items: center; min-width: 0; }
-.nq-logo { flex: none; width: 30px; height: 30px; border-radius: 8px; background: rgba(201,168,76,.14); color: #c9a84c;
+.nq-logo { flex: none; width: 30px; height: 30px; border-radius: 8px; background: color-mix(in srgb, var(--nq-primary) 14%, transparent); color: var(--nq-primary);
   display: flex; align-items: center; justify-content: center; }
 .nq-logo svg { width: 16px; height: 16px; }
 .nq-text { min-width: 0; }
 .nq-title { font-weight: 650; font-size: 14px; }
-.nq-sub { font-size: 12px; opacity: .72; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nq-sub { font-size: 12px; color: var(--nq-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .nq-status { display: none; margin-top: 10px; font-size: 12.5px; align-items: center; gap: 8px; }
 .nq-status.show { display: flex; }
-.nq-status.err { color: #f0a35e; }
-.nq-status.ok { color: #7bd88f; }
+.nq-status.err { color: var(--nq-danger); }
+.nq-status.ok { color: var(--nq-success); }
 .nq-status .nq-spin { display: block; flex: none; }
 .nq-actions { display: flex; gap: 8px; margin-top: 12px; align-items: center; }
-.nq-btn { all: initial; box-sizing: border-box; font: 600 12.5px/1 system-ui, -apple-system, "Segoe UI", sans-serif;
-  padding: 8px 12px; border-radius: 8px; cursor: pointer; color: #f3efe4; border: 1px solid rgba(243,239,228,.2); }
-.nq-btn:hover { border-color: rgba(243,239,228,.45); }
-.nq-btn:focus-visible { outline: 2px solid #c9a84c; outline-offset: 2px; }
-.nq-primary { background: #c9a84c; color: #1c1b18; border-color: #c9a84c; }
-.nq-primary:hover { background: #d6b75e; border-color: #d6b75e; }
-.nq-quiet { margin-left: auto; border-color: transparent; opacity: .72; font-weight: 500; }
-.nq-quiet:hover { opacity: 1; border-color: transparent; text-decoration: underline; }
+.nq-btn { all: initial; box-sizing: border-box; font: 600 12.5px/1 var(--nq-font);
+  padding: 8px 12px; border-radius: 8px; cursor: pointer; color: var(--nq-text); border: 1px solid color-mix(in srgb, var(--nq-text) 20%, transparent); }
+.nq-btn:hover { border-color: color-mix(in srgb, var(--nq-text) 45%, transparent); }
+.nq-btn:focus-visible { outline: 2px solid var(--nq-primary); outline-offset: 2px; }
+.nq-primary { background: var(--nq-primary); color: var(--nq-on-primary); border-color: var(--nq-primary); }
+.nq-primary:hover { background: var(--nq-primary-hover); border-color: var(--nq-primary-hover); }
+.nq-quiet { margin-left: auto; border-color: transparent; color: var(--nq-muted); font-weight: 500; }
+.nq-quiet:hover { color: var(--nq-text); border-color: transparent; text-decoration: underline; }
 .nq-menu { box-sizing: border-box; position: fixed; width: 260px; max-width: calc(100vw - 16px); max-height: 340px;
-  overflow-y: auto; pointer-events: auto; background: #1c1b18; color: #f3efe4; border: 1px solid rgba(201,168,76,.4);
-  border-radius: 10px; padding: 5px; box-shadow: 0 10px 28px rgba(0,0,0,.45);
-  font: 13px/1.35 system-ui, -apple-system, "Segoe UI", sans-serif; animation: nq-in .16s ease-out; }
-.nq-mhead { padding: 6px 9px 4px; font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; opacity: .62; }
+  overflow-y: auto; pointer-events: auto; background: var(--nq-bg); color: var(--nq-text); border: 1px solid var(--nq-line);
+  border-radius: 10px; padding: 5px; box-shadow: var(--nq-shadow);
+  font: 13px/1.35 var(--nq-font); animation: nq-in .16s ease-out; }
+.nq-mhead { padding: 6px 9px 4px; font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--nq-muted); }
 .nq-item { all: initial; box-sizing: border-box; display: block; width: 100%; padding: 8px 9px; border-radius: 7px;
-  cursor: pointer; color: #f3efe4; text-align: left; font: 500 13px/1.3 system-ui, -apple-system, "Segoe UI", sans-serif; }
-.nq-item:hover, .nq-item:focus { background: rgba(201,168,76,.16); outline: none; }
-.nq-item:focus-visible { box-shadow: inset 0 0 0 2px #c9a84c; }
+  cursor: pointer; color: var(--nq-text); text-align: left; font: 500 13px/1.3 var(--nq-font); }
+.nq-item:hover, .nq-item:focus { background: var(--nq-hover); outline: none; }
+.nq-item:focus-visible { box-shadow: inset 0 0 0 2px var(--nq-primary); }
 .nq-ititle { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
-.nq-isub { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 2px; font-size: 11.5px; opacity: .7; font-weight: 400; }
-.nq-mstatus { padding: 8px 9px 4px; color: #7bd88f; font-weight: 600; }
-.nq-pw { display: block; margin: 4px 9px 6px; padding: 6px 8px; border-radius: 6px; background: rgba(243,239,228,.08);
+.nq-isub { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 2px; font-size: 11.5px; color: var(--nq-muted); font-weight: 400; }
+.nq-mstatus { padding: 8px 9px 4px; color: var(--nq-success); font-weight: 600; }
+.nq-pw { display: block; margin: 4px 9px 6px; padding: 6px 8px; border-radius: 6px; background: var(--nq-bg2);
   font: 12.5px/1.35 ui-monospace, Consolas, monospace; word-break: break-all; user-select: all; }
 .nq-mrow { display: flex; gap: 6px; padding: 4px 2px 2px; }
 .nq-mrow .nq-item { flex: 1; text-align: center; }
+.nq-suggest { box-sizing: border-box; position: fixed; pointer-events: auto; padding: 4px; border-radius: 10px;
+  background: var(--nq-bg); color: var(--nq-text); border: 1px solid var(--nq-line); box-shadow: var(--nq-shadow);
+  animation: nq-in .14s ease-out; }
+.nq-sbtn { all: initial; box-sizing: border-box; display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 8px;
+  border-radius: 7px; cursor: pointer; color: var(--nq-text); font: 600 13px/1.2 var(--nq-font); }
+.nq-sbtn:hover, .nq-sbtn:focus { background: var(--nq-hover); outline: none; }
+.nq-sbtn:focus-visible { box-shadow: inset 0 0 0 2px var(--nq-primary); }
+.nq-smark { flex: none; width: 22px; height: 22px; border-radius: 6px; display: flex; align-items: center; justify-content: center;
+  background: color-mix(in srgb, var(--nq-primary) 16%, transparent); color: var(--nq-primary); }
+.nq-smark svg { width: 12px; height: 12px; display: block; }
+.nq-slabel { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nq-kbd { flex: none; padding: 3px 6px; border-radius: 5px; border: 1px solid var(--nq-border); background: var(--nq-bg2);
+  color: var(--nq-muted); font: 500 11px/1 var(--nq-font); white-space: nowrap; }
 @keyframes nq-rot { to { transform: rotate(360deg); } }
 @keyframes nq-in { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) {
-  .nq-icon, .nq-bar, .nq-bar.out, .nq-menu { animation: none !important; transition: none !important; }
+  .nq-icon, .nq-bar, .nq-bar.out, .nq-menu, .nq-suggest { animation: none !important; transition: none !important; }
   .nq-icon:hover { transform: none; }
-  .nq-spin { animation: none !important; border-color: #c9a84c; border-style: dotted; }
+  .nq-spin { animation: none !important; border-color: var(--nq-primary); border-style: dotted; }
 }`;
 
-  let shadowHost = null, root = null;
+  let shadowHost = null, root = null, layer = null;
+  const darkScheme = typeof matchMedia === "function" ? matchMedia("(prefers-color-scheme: dark)") : null;
+  const applyThemeNow = () => { if (layer) NS.applyTheme(layer, cachedTheme, !!(darkScheme && darkScheme.matches)); };
+  if (darkScheme && typeof darkScheme.addEventListener === "function") darkScheme.addEventListener("change", applyThemeNow);
   function ensureRoot() {
     if (!shadowHost) {
       shadowHost = document.createElement("div");
@@ -300,8 +330,24 @@
       const style = document.createElement("style");
       style.textContent = CSS;
       root.appendChild(style);
+      // Everything we draw goes in this layer; the theme variables are set on it
+      // (inside the closed root, so the page can't override them).
+      layer = document.createElement("div");
+      layer.className = "nq-root";
+      root.appendChild(layer);
+      applyThemeNow();
     }
     if (!shadowHost.isConnected) document.documentElement.appendChild(shadowHost);
+  }
+  // Once per page, when the user first meets our UI (never on page load): ask the
+  // background to refresh the Notiq app's theme. The message carries nothing; the
+  // background throttles it (one host round trip a minute) and the result arrives
+  // through chrome.storage. Only the top frame may ask.
+  let themeNudged = false;
+  function nudgeTheme() {
+    if (themeNudged || !IS_TOP) return;
+    themeNudged = true;
+    send({ type: "theme" });
   }
 
   const SVG_NS = "http://www.w3.org/2000/svg";
@@ -362,7 +408,7 @@
       if (e.isTrusted !== true) return;
       onIconClick(field);
     });
-    root.appendChild(wrap);
+    layer.appendChild(wrap);
     icons.set(field, { wrap, btn, tip, timer: 0 });
     if (ro) ro.observe(field);
   }
@@ -373,6 +419,7 @@
     ic.wrap.remove();
     icons.delete(field);
     if (ro) ro.unobserve(field);
+    if (suggest && suggest.field === field) hideSuggest();
   }
   const clearIcons = () => { for (const f of Array.from(icons.keys())) removeIcon(f); };
 
@@ -409,6 +456,7 @@
       ic.wrap.style.top = `${Math.round(r.top + (r.height - size) / 2)}px`;
     }
     positionMenu();
+    positionSuggest();
   }
 
   function scan() {
@@ -417,6 +465,117 @@
     for (const f of Array.from(icons.keys())) if (!found.has(f)) removeIcon(f);
     for (const f of found) if (!icons.has(f)) addIcon(f);
     schedulePosition();
+    // A field that got focus before it was detected (autofocus, SPA): suggest now.
+    if (pendingFocus && pendingFocus === document.activeElement && icons.has(pendingFocus)) {
+      const f = pendingFocus;
+      pendingFocus = null;
+      maybeSuggest(f);
+    }
+  }
+
+  // ---------- "Fill with Notiq" suggestion under a focused login field ----------
+  // Shows no vault data at all: one button that does exactly what the key icon
+  // does (so nothing is asked of Notiq until the user clicks it, and the fill
+  // still needs approval in the app). Lives in the same closed shadow root.
+  let suggest = null;      // { node, btn, field }
+  let pendingFocus = null; // focused input not (yet) detected as a login field
+  let typedField = null;   // the field the user typed into since it got focus
+  let quiet = 0;           // >0 while we move focus ourselves (fills, menus)
+  const dismissedFields = new WeakSet(); // Esc: no suggestion on that field again on this page
+  function focusQuietly(f, opts) {
+    quiet++;
+    try { f.focus(opts); } finally { quiet--; }
+  }
+  const viewport = () => ({ width: window.innerWidth, height: window.innerHeight });
+  function maybeSuggest(field) {
+    if (quiet || !isInput(field)) return;
+    const ok = NS.shouldSuggest({
+      showIcon: settings.showIcon, suggestOnFocus: settings.suggestOnFocus, detected: icons.has(field),
+      dismissed: dismissedFields.has(field), menuOpen: !!menu, filling, typed: typedField === field,
+      rect: field.getBoundingClientRect(), viewport: viewport(),
+    });
+    if (!ok) { if (suggest && suggest.field === field) hideSuggest(); return; }
+    if (suggest && suggest.field === field) { positionSuggest(); return; }
+    hideSuggest();
+    ensureRoot();
+    const node = el("div", "nq-suggest");
+    node.setAttribute("role", "menu");
+    node.setAttribute("aria-label", "Notiq");
+    node.addEventListener("mousedown", (e) => e.preventDefault()); // never take focus from the field
+    const btn = el("button", "nq-sbtn");
+    btn.type = "button";
+    btn.tabIndex = -1; // reached with ArrowDown from the field
+    btn.setAttribute("role", "menuitem");
+    const mark = el("span", "nq-smark");
+    mark.appendChild(svg("", KEY));
+    btn.appendChild(mark);
+    btn.appendChild(el("span", "nq-slabel", "Fill with Notiq"));
+    btn.appendChild(el("span", "nq-kbd", "Alt+Shift+L"));
+    btn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.isTrusted !== true) return;
+      const fromKeyboard = root.activeElement === btn;
+      hideSuggest();
+      if (!field.isConnected || !icons.has(field)) return;
+      if (fromKeyboard) focusQuietly(field, { preventScroll: true }); // back to the field first
+      onIconClick(field);
+    });
+    btn.addEventListener("keydown", (e) => {
+      if (e.isTrusted !== true) return;
+      if (e.key !== "ArrowUp" && e.key !== "Tab") return; // Enter/Space click; Esc is handled in onKeydown
+      e.preventDefault();
+      e.stopPropagation();
+      if (field.isConnected) focusQuietly(field, { preventScroll: true });
+    });
+    node.appendChild(btn);
+    layer.appendChild(node);
+    suggest = { node, btn, field };
+    positionSuggest();
+    nudgeTheme();
+  }
+  function hideSuggest() {
+    if (!suggest) return;
+    const s = suggest;
+    suggest = null;
+    s.node.remove();
+  }
+  function positionSuggest() {
+    if (!suggest) return;
+    const { node, field } = suggest;
+    if (!field.isConnected || !icons.has(field) || !settings.showIcon || !settings.suggestOnFocus) { hideSuggest(); return; }
+    node.style.display = "block";
+    const r = field.getBoundingClientRect();
+    const pos = NS.suggestPosition(r, node.offsetHeight || 40, viewport());
+    if (!pos || r.width < MIN_W || r.height < MIN_H) { node.style.display = "none"; return; }
+    node.style.width = `${pos.width}px`;
+    node.style.left = `${pos.left}px`;
+    node.style.top = `${pos.top}px`;
+    if (bar && NS.rectsOverlap(node.getBoundingClientRect(), bar.node.getBoundingClientRect())) node.style.display = "none";
+  }
+  function dismissSuggest(refocus) {
+    if (!suggest) return;
+    const f = suggest.field;
+    dismissedFields.add(f);
+    hideSuggest();
+    if (refocus && f.isConnected) focusQuietly(f, { preventScroll: true });
+  }
+  function onFocusIn(e) {
+    scheduleScan();
+    schedulePosition();
+    const t = realTarget(e);
+    if (t === shadowHost) return; // focus moved into our own UI
+    if (suggest && suggest.field !== t) hideSuggest();
+    if (quiet || !isInput(t)) return;
+    typedField = null;
+    if (icons.has(t)) { pendingFocus = null; maybeSuggest(t); } else pendingFocus = t;
+  }
+  function onInput(e) {
+    if (e.isTrusted !== true) return;
+    const t = realTarget(e);
+    if (!isInput(t)) return;
+    typedField = t; // typing means the user isn't after the suggestion
+    if (suggest && suggest.field === t) hideSuggest();
   }
 
   // ---------- small menu next to an icon (generator, account chooser) ----------
@@ -428,7 +587,7 @@
     menu = null;
     if (m.cleanup) m.cleanup();
     m.node.remove();
-    if (refocus && m.field.isConnected) { try { m.field.focus({ preventScroll: true }); } catch { /* ignore */ } }
+    if (refocus && m.field.isConnected) { try { focusQuietly(m.field, { preventScroll: true }); } catch { /* ignore */ } }
   }
   function positionMenu() {
     if (!menu) return;
@@ -484,7 +643,8 @@
       e.stopPropagation();
       handled();
     });
-    root.appendChild(node);
+    hideSuggest();
+    layer.appendChild(node);
     menu = { node, field, cleanup: null };
     build(node);
     positionMenu();
@@ -579,7 +739,7 @@
   // ---------- fill (only after a trusted click on our icon) ----------
   function setValue(input, value) {
     const d = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(input), "value");
-    input.focus();
+    focusQuietly(input);
     if (d && d.set) d.set.call(input, value); else input.value = value;
     input.dispatchEvent(new Event("input", { bubbles: true }));
     input.dispatchEvent(new Event("change", { bubbles: true }));
@@ -588,14 +748,14 @@
     boxes.forEach((b, k) => {
       const ch = code[k];
       const d = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(b), "value");
-      b.focus();
+      focusQuietly(b);
       b.dispatchEvent(new KeyboardEvent("keydown", { key: ch, bubbles: true, cancelable: true }));
       if (d && d.set) d.set.call(b, ch); else b.value = ch;
       b.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: ch }));
       b.dispatchEvent(new KeyboardEvent("keyup", { key: ch, bubbles: true }));
       b.dispatchEvent(new Event("change", { bubbles: true }));
     });
-    boxes[boxes.length - 1].focus();
+    focusQuietly(boxes[boxes.length - 1]);
   }
   function fillFields(anchor, cred) {
     let pw = isPassword(anchor) ? anchor : inputsIn(anchor.form || scopeOf(anchor)).find((i) => isPassword(i) && usable(i)) || null;
@@ -621,6 +781,8 @@
     return n;
   }
   function onIconClick(field) {
+    hideSuggest();
+    nudgeTheme();
     if (menu && menu.field === field) { closeMenu(true); return; }
     closeMenu(false);
     if (filling) return;
@@ -632,6 +794,7 @@
   async function doFill(anchor, field, account) {
     if (filling) return;
     filling = true;
+    hideSuggest();
     setState(field, "waiting", "Approve in Notiq");
     const res = await send(account ? { type: "fill", account } : { type: "fill" });
     filling = false;
@@ -717,6 +880,23 @@
   }
   function onKeydown(e) {
     if (e.isTrusted !== true) return;
+    if (suggest) {
+      const t = realTarget(e);
+      const inField = t === suggest.field, inSuggest = t === shadowHost && root.activeElement === suggest.btn;
+      if (e.key === "Escape" && (inField || inSuggest)) {
+        e.preventDefault();
+        e.stopPropagation();
+        dismissSuggest(inSuggest);
+        return;
+      }
+      if (e.key === "ArrowDown" && inField && !e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey &&
+        suggest.node.style.display !== "none") {
+        e.preventDefault();
+        e.stopPropagation();
+        suggest.btn.focus({ preventScroll: true });
+        return;
+      }
+    }
     if (e.key === "Escape" && menu) { closeMenu(true); return; }
     if (e.key === "Escape" && bar) { closeBar(true); return; }
     if (e.key !== "Enter") return;
@@ -736,6 +916,7 @@
     if (e.isTrusted !== true) return;
     const t = realTarget(e);
     if (menu && t !== shadowHost) closeMenu(false); // click outside our UI closes the menu
+    if (suggest && t !== shadowHost && t !== suggest.field) hideSuggest();
     if (!t || !t.closest || t === shadowHost) return;
     const b = t.closest('button, input[type="submit"], input[type="image"], input[type="button"], [role="button"]');
     if (!b) return;
@@ -851,8 +1032,10 @@
     node.appendChild(status);
     node.appendChild(actions);
     for (const ev of ["pointermove", "focusin", "keydown"]) node.addEventListener(ev, () => { if (!saving) armIdle(); });
-    root.appendChild(node);
+    layer.appendChild(node);
     bar = { node };
+    positionSuggest(); // never sits under the card
+    nudgeTheme();
     armIdle();
   }
 
@@ -871,6 +1054,8 @@
   function applySettings(s) {
     if ("offerSave" in s) settings.offerSave = s.offerSave !== false;
     if ("showIcon" in s) settings.showIcon = s.showIcon !== false;
+    if ("suggestOnFocus" in s) settings.suggestOnFocus = s.suggestOnFocus !== false;
+    if ("theme" in s) { cachedTheme = NS.validateTheme(s.theme); applyThemeNow(); }
     if ("neverSave" in s) {
       settings.neverSave = Array.isArray(s.neverSave)
         ? s.neverSave.filter((h) => typeof h === "string").map((h) => h.toLowerCase()).slice(0, 1000)
@@ -880,10 +1065,11 @@
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== "local") return;
     const s = {};
-    for (const k of ["offerSave", "showIcon", "neverSave"]) if (changes[k]) s[k] = changes[k].newValue;
+    for (const k of ["offerSave", "showIcon", "suggestOnFocus", "neverSave", "theme"]) if (changes[k]) s[k] = changes[k].newValue;
     applySettings(s);
     scan();
     if (!settings.showIcon) closeMenu(false);
+    if (!settings.showIcon || !settings.suggestOnFocus) hideSuggest();
     if (bar && !settings.offerSave) closeBar(false);
   });
 
@@ -914,7 +1100,9 @@
   document.addEventListener("keydown", onKeydown, true);
   document.addEventListener("click", onClick, true);
   document.addEventListener("change", onChange, true);
-  document.addEventListener("focusin", () => { scheduleScan(); schedulePosition(); }, true);
+  document.addEventListener("focusin", onFocusIn, true);
+  document.addEventListener("input", onInput, true);
+  window.addEventListener("blur", () => hideSuggest());
   window.addEventListener("scroll", schedulePosition, { capture: true, passive: true });
   window.addEventListener("resize", schedulePosition, { passive: true });
   window.addEventListener("popstate", onUrlMaybeChanged);
@@ -922,7 +1110,7 @@
     window.navigation.addEventListener("navigatesuccess", onUrlMaybeChanged);
   }
 
-  chrome.storage.local.get({ offerSave: true, showIcon: true, neverSave: [] }, (s) => {
+  chrome.storage.local.get({ offerSave: true, showIcon: true, suggestOnFocus: true, neverSave: [], theme: null }, (s) => {
     applySettings(s || {});
     scan();
     schedulePending(300);

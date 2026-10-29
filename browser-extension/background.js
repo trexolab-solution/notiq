@@ -1,9 +1,12 @@
 // Notiq Autofill — service worker. Talks to the Notiq app through the native host.
+// shared.js (validateTheme etc.): importScripts in the Chromium service worker; the
+// Firefox build lists it in background.scripts before this file instead.
+if (typeof importScripts === "function" && !globalThis.NotiqShared) importScripts("shared.js");
 const HOST = "com.trexolab.notiq";
 const PENDING_TTL = 90 * 1000;
 const MAX = { host: 253, url: 2048, title: 80, username: 512, password: 1024, message: 8192, neverSave: 500,
   choices: 20, account: 256, choiceTitle: 200 };
-const SETTINGS_DEFAULTS = { offerSave: true, showIcon: true, neverSave: [] };
+const SETTINGS_DEFAULTS = { offerSave: true, showIcon: true, suggestOnFocus: true, neverSave: [] };
 const OFFER_TTL = 2 * 60 * 1000;
 
 // Conservative "same site" test for login iframes: the frame's host must equal
@@ -268,6 +271,7 @@ async function getSettings() {
   return {
     offerSave: s.offerSave !== false,
     showIcon: s.showIcon !== false,
+    suggestOnFocus: s.suggestOnFocus !== false,
     neverSave: Array.isArray(s.neverSave) ? s.neverSave.filter((h) => typeof h === "string").map((h) => h.toLowerCase()) : [],
   };
 }
@@ -370,6 +374,41 @@ async function onNever(_msg, sender) {
   return { ok: true };
 }
 
+// ---------- theme from the Notiq app ----------
+// {op:"theme"} -> {ok:true, theme} | {ok:true, theme:null}. Never launches the app.
+// The validated theme is cached in chrome.storage.local `theme`; the popup and the
+// content scripts read it from there (and re-validate it) and follow changes live.
+const THEME_MIN_AGE = 60 * 1000;
+let themeInFlight = null;
+async function refreshTheme(minAge = 0) {
+  if (themeInFlight) return themeInFlight;
+  themeInFlight = (async () => {
+    try {
+      const { themeAt } = await chrome.storage.session.get("themeAt");
+      if (minAge && typeof themeAt === "number" && Date.now() - themeAt < minAge && Date.now() >= themeAt) {
+        return (await chrome.storage.local.get("theme")).theme || null;
+      }
+      await chrome.storage.session.set({ themeAt: Date.now() });
+      const got = NotiqShared.themeReplyAction(await ask({ op: "theme" }));
+      const cur = NotiqShared.validateTheme((await chrome.storage.local.get("theme")).theme);
+      if (got.action === "set") {
+        if (!NotiqShared.sameTheme(cur, got.theme)) await chrome.storage.local.set({ theme: got.theme });
+        return got.theme;
+      }
+      if (got.action === "clear") {
+        if ((await chrome.storage.local.get("theme")).theme !== undefined) await chrome.storage.local.remove("theme");
+        return null;
+      }
+      return cur; // unreachable / malformed reply: keep what we have
+    } finally {
+      themeInFlight = null;
+    }
+  })();
+  return themeInFlight;
+}
+// Content scripts only nudge (at most one host round trip per minute); they read the theme from storage.
+const onThemeNudge = () => refreshTheme(THEME_MIN_AGE).then(() => ({ ok: true }), () => ({ ok: true }));
+
 const CONTENT_HANDLERS = {
   fill: (m, s) => fillForSender(s, m),
   capture: onCapture,
@@ -377,6 +416,7 @@ const CONTENT_HANDLERS = {
   save: onSave,
   dismiss: onDismiss,
   never: onNever,
+  theme: onThemeNudge,
 };
 
 function messageTooBig(msg) {
@@ -405,8 +445,15 @@ chrome.runtime.onMessage.addListener((msg, sender, send) => {
     return true;
   }
   if (msg.type === "ping") { ask({ op: "ping" }).then(send); return true; }
+  if (msg.type === "theme") {
+    refreshTheme(0).then((theme) => send({ ok: true, theme }), () => send({ ok: true, theme: null }));
+    return true;
+  }
   return false;
 });
+
+// Service-worker start (it also restarts after idling, hence the throttle).
+refreshTheme(THEME_MIN_AGE).catch(() => {});
 
 chrome.tabs.onRemoved.addListener((tabId) => {
   offers.delete(tabId);
