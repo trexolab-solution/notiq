@@ -17,12 +17,13 @@ Thanks for updating! Here's what's new in this release.
 
 ## ✨ Highlights
 
-- **One encrypted vault file** — every locked note, login, SSH entry and API key now lives in a single encrypted database (**vault.nqdb**) unlocked by one master password. Titles, folders and tags are hidden too. Everything stays on this device: **cloud sync and backup have been removed**, so copy \`vault.nqdb\` and \`vault.json\` yourself if you want a backup. Notes from older versions are moved over automatically the first time you unlock, and Notiq asks before deleting the old files.
-- **A real file manager for secrets** — the 🔒 panel now has folders, drag-and-drop, rename, duplicate, tags with filtering, starred items, search and a **Recycle Bin** (restore, delete forever, auto-purge after 30 days).
-- **Smarter entries** — a new **SSH / server** editor (key or password sign-in, key analysis, a copyable \`ssh\` command, key file import), a **password generator** with options you can remember, and icon-only copy buttons that confirm and clear the clipboard after 20 seconds.
-- **Safer default location** — the vault now lives in Notiq's app-data folder by default, and you get a warning before choosing a folder synced by OneDrive, Dropbox, Google Drive or iCloud.
-- **Browser autofill, improved** — the Chrome / Edge / Brave extension (v0.2.0, in the repo's \`browser-extension\` folder) shows a Notiq icon on login fields and can offer to **save new logins** from the browser. Every fill and every save needs your approval in Notiq, and focus now returns to your browser afterwards.
-- **Fixes** — the Source / Preview / Split switch is back for locked notes, and the New-in-vault menu no longer gets cut off.
+- **Back up your vault** — export one encrypted \`.nqbackup\` file (Settings → Vault → Backup) and restore it on a new PC from the vault setup screen. Notiq reminds you when it's time. Nothing is uploaded, ever.
+- **More than passwords** — new **Card**, **Wi-Fi** and **Recovery codes** entries, custom fields on every entry, extra websites on a login, **file attachments** and **version history** (the last 10 versions of each entry, restorable). All of it stays inside the one encrypted file.
+- **Vault health & import** — an offline check for weak, reused and old passwords, and import from Chrome, Bitwarden or KeePass CSV files.
+- **Stronger privacy on Windows** — copied secrets stay out of clipboard history, the vault locks when you lock your PC or it sleeps, and revealed passwords hide on their own. Optional **quick search** (\`Ctrl+Alt+K\`) and an experimental **Windows Hello** unlock are off until you turn them on.
+- **Smarter browser autofill** — a Notiq icon on sign-up fields can generate a password, a 5-minute "allow this site" option means fewer prompts, an in-page chooser handles several accounts, and Notiq starts itself from the browser when it's closed. Look-alike sites are blocked and reported. A new **Browser autofill** panel in Settings shows the connection status and has a **Repair** button.
+- **Safer matching** — a login saved for \`co.uk\`-style suffixes no longer matches every site under it.
+- **Housekeeping** — the app checks for updates every hour while it runs, and developer builds no longer share data with an installed Notiq.
 
 ---
 
