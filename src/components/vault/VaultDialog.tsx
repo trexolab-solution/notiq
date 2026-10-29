@@ -4,6 +4,7 @@ import { Modal } from "../ui/Modal";
 import { Input } from "../ui/Input";
 import { PasswordInput } from "../ui/PasswordInput";
 import { Button } from "../ui/Button";
+import { RestoreBackupDialog } from "./RestoreBackupDialog";
 import { toast } from "../../lib/toast";
 import { useVaultStore, type VaultDialogMode } from "../../store/vaultStore";
 import { useAppStore } from "../../store";
@@ -38,6 +39,7 @@ function VaultDialogInner({ mode }: { mode: VaultDialogMode }) {
   // After setup succeeds we show the recovery key once.
   const [recoveryKey, setRecoveryKey] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  const [restoring, setRestoring] = useState(false);
 
   const cancel = () => useVaultStore.getState().finish(false);
 
@@ -147,6 +149,18 @@ function VaultDialogInner({ mode }: { mode: VaultDialogMode }) {
     mode === "setup" ? "Set up Secure Vault" :
     mode === "unlock" ? "Unlock vault" : "Reset with recovery key";
 
+  // After a restore the vault exists and is locked: switch this dialog to the unlock step.
+  if (restoring) {
+    return (
+      <RestoreBackupDialog
+        onClose={() => {
+          setRestoring(false);
+          if (useVaultStore.getState().exists) useVaultStore.getState().setDialog("unlock");
+        }}
+      />
+    );
+  }
+
   return (
     <Modal onClose={cancel} zClassName="z-[70]">
       <form className={panel} onSubmit={submit} role="dialog" aria-modal="true" aria-label={title}>
@@ -202,6 +216,14 @@ function VaultDialogInner({ mode }: { mode: VaultDialogMode }) {
               onClick={() => useVaultStore.getState().setDialog("recover")}
             >
               Forgot password?
+            </button>
+          ) : mode === "setup" ? (
+            <button
+              type="button"
+              className="text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text)] underline cursor-pointer"
+              onClick={() => setRestoring(true)}
+            >
+              Restore from backup file
             </button>
           ) : <span />}
           <div className="flex gap-2">

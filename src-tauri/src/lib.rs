@@ -6,6 +6,7 @@ mod ai;
 mod clipboard;
 pub mod autofill;
 mod vault;
+mod vault_backup;
 mod vault_core;
 mod vault_db;
 mod profile;
@@ -667,6 +668,11 @@ pub fn run() {
         vault::vault_legacy_count,
         vault::vault_import_legacy,
         vault::vault_legacy_cleanup,
+        // 0.7.0 backup
+        vault_backup::vault_verify_password,
+        vault_backup::vault_backup_export,
+        vault_backup::vault_backup_inspect,
+        vault_backup::vault_backup_import,
         autofill::autofill_reply,
         // 0.7.0 clipboard
         clipboard::secure_copy,
@@ -706,6 +712,11 @@ pub fn run() {
         vault::vault_legacy_count,
         vault::vault_import_legacy,
         vault::vault_legacy_cleanup,
+        // 0.7.0 backup
+        vault_backup::vault_verify_password,
+        vault_backup::vault_backup_export,
+        vault_backup::vault_backup_inspect,
+        vault_backup::vault_backup_import,
         autofill::autofill_reply,
         // 0.7.0 clipboard
         clipboard::secure_copy,
