@@ -17,6 +17,7 @@ Thanks for updating! Here's what's new in this release.
 
 ## ✨ Highlights
 
+- **New notifications and dialogs** — messages now look like VS Code's: notifications with icons, action buttons and expandable details, a bell in the status bar with a history and *Do not disturb*, and one consistent dialog design for confirmations and approvals.
 - **Settings is now a tab** — open it with \`Ctrl+,\` and work in a full page like VS Code's: search every setting, jump between sections, see which settings you've changed and reset any of them with one click. Settings also appear in the command palette (\`Ctrl+Shift+P\`). The Vault settings are grouped into Locking, Storage, Backup, Quick unlock, Quick search and more.
 - **Browser extension included** — the Notiq Autofill extension now ships inside the app. Open **Settings → Vault → Browser autofill → Install the browser extension** for the folder, buttons that open your browser's extensions page, and the *Developer mode → Load unpacked* steps.
 - **Back up your vault** — export one encrypted \`.nqbackup\` file (Settings → Vault → Backup) and restore it on a new PC from the vault setup screen. Notiq reminds you when it's time. Nothing is uploaded, ever.
