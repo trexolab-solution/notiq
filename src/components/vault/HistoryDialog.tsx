@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
-import { Eye, EyeOff, History, RotateCcw, X } from "lucide-react";
-import { Modal } from "../ui/Modal";
+import { Eye, EyeOff, History, RotateCcw } from "lucide-react";
 import { Button } from "../ui/Button";
+import { Dialog, DialogBody, DialogText } from "../ui/Dialog";
 import { ConfirmDialog } from "../ui/ConfirmDialog";
 import { useAppStore } from "../../store";
 import { useAutoHide } from "../../hooks/useAutoHide";
@@ -74,31 +74,26 @@ export function HistoryDialog({ tab, onClose }: { tab: Tab; onClose: () => void 
     }
   };
 
-  const panel = "w-[640px] max-w-[94vw] max-h-[86vh] flex flex-col rounded-xl bg-[var(--color-bg-secondary)] border border-[var(--color-border)] shadow-2xl text-[var(--color-text)]";
-
   return (
-    <Modal onClose={onClose} zClassName="z-[80]" dismissable={!confirm}>
-      <div className={panel} role="dialog" aria-modal="true" aria-labelledby="hist-title">
-        <div className="flex items-center gap-2 px-5 pt-4 pb-2">
-          <History size={18} style={{ color: "var(--color-primary)" }} />
-          <h2 id="hist-title" className="text-sm font-semibold flex-1 truncate">History · {tab.title}</h2>
-          <Button size="sm" aria-label="Close" icon={<X size={14} />} onClick={onClose} />
+    <Dialog onClose={onClose} zClassName="z-[80]" dismissable={!confirm} size="lg"
+            title={`History · ${tab.title}`} icon={<History size={16} />}>
+      <DialogBody flush fill>
+        <div className="dlg-inset flex flex-col gap-2">
+          <DialogText>
+            Earlier versions are kept encrypted inside the vault — the last {VAULT_MAX_HISTORY} saves of each entry. Restoring keeps the
+            current version in this list too.
+          </DialogText>
+          {error && <p role="alert" className="text-xs text-[var(--color-danger)]">{error}</p>}
         </div>
-        <p className="px-5 pb-3 text-xs text-[var(--color-text-muted)]">
-          Earlier versions are kept encrypted inside the vault — the last {VAULT_MAX_HISTORY} saves of each entry. Restoring keeps the
-          current version in this list too.
-        </p>
-
-        {error && <p role="alert" className="px-5 pb-3 text-xs text-[var(--color-danger)]">{error}</p>}
 
         {revs === null && !error ? (
-          <p className="px-5 pb-5 text-xs text-[var(--color-text-muted)]">Loading…</p>
+          <p className="dlg-inset pb-5 text-xs text-[var(--color-text-muted)]">Loading…</p>
         ) : revs && revs.length === 0 ? (
-          <p className="px-5 pb-5 text-sm text-[var(--color-text-muted)]">
+          <p className="dlg-inset pb-5 text-sm text-[var(--color-text-muted)]">
             No earlier versions yet. Each time you save a change to this entry, the previous version is kept here.
           </p>
         ) : revs && (
-          <div className="flex min-h-0 flex-1 border-t border-[var(--color-border)]">
+          <div className="flex min-h-[240px] flex-1 border-t border-[var(--color-border)]">
             <ul className="w-[200px] shrink-0 overflow-y-auto border-r border-[var(--color-border)] py-1" aria-label="Versions">
               {revs.map((r) => (
                 <li key={r.index}>
@@ -143,7 +138,7 @@ export function HistoryDialog({ tab, onClose }: { tab: Tab; onClose: () => void 
             </div>
           </div>
         )}
-      </div>
+      </DialogBody>
       {confirm && sel !== null && (
         <ConfirmDialog
           title="Restore this version?"
@@ -154,6 +149,6 @@ export function HistoryDialog({ tab, onClose }: { tab: Tab; onClose: () => void 
           onCancel={() => setConfirm(false)}
         />
       )}
-    </Modal>
+    </Dialog>
   );
 }

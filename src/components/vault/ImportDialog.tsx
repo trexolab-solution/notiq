@@ -2,9 +2,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { readTextFile } from "@tauri-apps/plugin-fs";
-import { AlertTriangle, FileUp, X } from "lucide-react";
-import { Modal } from "../ui/Modal";
-import { Button } from "../ui/Button";
+import { AlertTriangle, FileUp } from "lucide-react";
+import { Dialog, DialogBody, DialogButton, DialogFooter } from "../ui/Dialog";
 import { useVaultStore } from "../../store/vaultStore";
 import { useAppStore } from "../../store";
 import {
@@ -114,18 +113,9 @@ export function ImportDialog({ onClose }: { onClose: () => void }) {
   const pct = progress.total ? Math.round((progress.done / progress.total) * 100) : 0;
 
   return (
-    <Modal onClose={() => { if (stage !== "running") onClose(); }} dismissable={stage !== "running"} zClassName="z-[70]">
-      <div role="dialog" aria-modal="true" aria-label="Import logins"
-           className="w-[720px] max-w-[94vw] max-h-[88vh] flex flex-col rounded-xl bg-[var(--color-bg-secondary)] border border-[var(--color-border)] shadow-2xl text-[var(--color-text)]">
-        <div className="flex items-center gap-2 px-5 pt-4 pb-2">
-          <FileUp size={18} style={{ color: "var(--color-primary)" }} aria-hidden />
-          <h2 className="text-sm font-semibold flex-1">Import logins from CSV</h2>
-          {stage !== "running" && (
-            <button type="button" className="vt-icon-btn" aria-label="Close" onClick={onClose}><X size={14} /></button>
-          )}
-        </div>
-
-        <div className="px-5 pb-4 flex-1 min-h-0 overflow-auto flex flex-col gap-3 text-xs">
+    <Dialog onClose={() => { if (stage !== "running") onClose(); }} dismissable={stage !== "running"} zClassName="z-[70]"
+            size="xl" title="Import logins from CSV" icon={<FileUp size={16} />}>
+        <DialogBody fill className="text-xs">
           {stage === "pick" && (
             <>
               <p className="text-[var(--color-text-muted)]">
@@ -134,10 +124,6 @@ export function ImportDialog({ onClose }: { onClose: () => void }) {
               </p>
               {warning}
               {error && <div role="alert" className="text-[var(--color-danger)]">{error}</div>}
-              <div className="flex justify-end gap-2">
-                <Button onClick={onClose}>Cancel</Button>
-                <Button variant="primary" disabled={busy} onClick={() => void pickFile()}>{busy ? "Reading…" : "Choose CSV file…"}</Button>
-              </div>
             </>
           )}
 
@@ -225,13 +211,6 @@ export function ImportDialog({ onClose }: { onClose: () => void }) {
                 {dupCount ? ` (${dupCount} duplicate${dupCount === 1 ? "" : "s"})` : ""}.
               </div>
               {warning}
-              <div className="flex justify-end gap-2">
-                <Button onClick={() => { setStage("pick"); setParsed(null); }}>Back</Button>
-                <Button variant="primary" disabled={!mappingUsable(map) || counts.create + counts.update === 0}
-                        onClick={() => void runImport()}>
-                  Import {counts.create + counts.update} login{counts.create + counts.update === 1 ? "" : "s"}
-                </Button>
-              </div>
             </>
           )}
 
@@ -265,13 +244,30 @@ export function ImportDialog({ onClose }: { onClose: () => void }) {
                 </div>
               )}
               {warning}
-              <div className="flex justify-end">
-                <Button variant="primary" onClick={onClose}>Done</Button>
-              </div>
             </>
           )}
-        </div>
-      </div>
-    </Modal>
+        </DialogBody>
+
+        {stage === "pick" && (
+          <DialogFooter>
+            <DialogButton cancel onClick={onClose}>Cancel</DialogButton>
+            <DialogButton variant="primary" disabled={busy} onClick={() => void pickFile()}>{busy ? "Reading…" : "Choose CSV file…"}</DialogButton>
+          </DialogFooter>
+        )}
+        {stage === "review" && map && counts && (
+          <DialogFooter divided>
+            <DialogButton onClick={() => { setStage("pick"); setParsed(null); }}>Back</DialogButton>
+            <DialogButton variant="primary" disabled={!mappingUsable(map) || counts.create + counts.update === 0}
+                          onClick={() => void runImport()}>
+              Import {counts.create + counts.update} login{counts.create + counts.update === 1 ? "" : "s"}
+            </DialogButton>
+          </DialogFooter>
+        )}
+        {stage === "done" && result && (
+          <DialogFooter>
+            <DialogButton variant="primary" onClick={onClose}>Done</DialogButton>
+          </DialogFooter>
+        )}
+    </Dialog>
   );
 }

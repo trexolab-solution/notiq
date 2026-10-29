@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { KeyRound, Lock, Copy, ShieldCheck, Printer } from "lucide-react";
-import { Modal } from "../ui/Modal";
+import { KeyRound, Lock, Copy, Printer } from "lucide-react";
+import { Dialog, DialogBody, DialogButton, DialogCheckbox, DialogFooter } from "../ui/Dialog";
 import { Input } from "../ui/Input";
 import { PasswordInput } from "../ui/PasswordInput";
 import { Button } from "../ui/Button";
@@ -124,22 +124,16 @@ function VaultDialogInner({ mode }: { mode: VaultDialogMode }) {
     }
   };
 
-  const panel = "w-[400px] max-w-[92vw] rounded-xl p-5 bg-[var(--color-bg-secondary)] border border-[var(--color-border)] shadow-2xl text-[var(--color-text)]";
   const label = "block text-xs mb-1 text-[var(--color-text-muted)]";
 
   // ── Step 2 of setup: show the recovery key exactly once ───────────────────
   if (recoveryKey) {
     return (
-      <Modal onClose={() => {}} dismissable={false} zClassName="z-[70]">
-        <div className={panel} role="dialog" aria-modal="true" aria-label="Save your recovery key">
-          <div className="flex items-center gap-2 mb-2">
-            <ShieldCheck size={18} style={{ color: "var(--color-primary)" }} />
-            <h2 className="text-sm font-semibold">Save your recovery key</h2>
-          </div>
-          <p className="text-xs mb-3 text-[var(--color-text-muted)]">
-            If you forget your master password, this key is the <b>only</b> way to open your locked notes.
-            It is shown once and is not stored anywhere. Keep it somewhere safe and offline.
-          </p>
+      <Dialog onClose={() => {}} dismissable={false} zClassName="z-[70]" size="sm" title="Save your recovery key" icon="shield">
+        <DialogBody
+          message={<>If you forget your master password, this key is the <b>only</b> way to open your locked notes.</>}
+          detail="It is shown once and is not stored anywhere. Keep it somewhere safe and offline."
+        >
           <div
             className="font-mono text-sm tracking-wide text-center select-all break-all rounded-md p-3 mb-3 bg-[var(--color-bg-tertiary)] border border-[var(--color-border)]"
             data-testid="recovery-key"
@@ -151,25 +145,22 @@ function VaultDialogInner({ mode }: { mode: VaultDialogMode }) {
             <Button size="sm" icon={<Copy size={12} />} onClick={copyKey}>Copy</Button>
           </div>
           {showKit && <RecoveryKitDialog recoveryKey={recoveryKey} onClose={() => setShowKit(false)} />}
-          <label className="flex items-center gap-2 text-xs mb-4 cursor-pointer select-none">
-            <input type="checkbox" checked={saved} onChange={(e) => setSaved(e.target.checked)} />
-            I have saved my recovery key
-          </label>
-          <div className="flex justify-end">
-            <Button
-              variant="primary"
-              disabled={!saved}
-              onClick={async () => {
-                setShowKit(false);
-                setRecoveryKey(null);
-                await succeed();
-              }}
-            >
-              Done
-            </Button>
-          </div>
-        </div>
-      </Modal>
+          <DialogCheckbox checked={saved} onChange={setSaved} label="I have saved my recovery key" />
+        </DialogBody>
+        <DialogFooter>
+          <DialogButton
+            variant="primary"
+            disabled={!saved}
+            onClick={async () => {
+              setShowKit(false);
+              setRecoveryKey(null);
+              await succeed();
+            }}
+          >
+            Done
+          </DialogButton>
+        </DialogFooter>
+      </Dialog>
     );
   }
 
@@ -190,13 +181,10 @@ function VaultDialogInner({ mode }: { mode: VaultDialogMode }) {
   }
 
   return (
-    <Modal onClose={cancel} zClassName="z-[70]">
-      <form className={panel} onSubmit={submit} role="dialog" aria-modal="true" aria-label={title}>
-        <div className="flex items-center gap-2 mb-1">
-          {mode === "recover" ? <KeyRound size={18} /> : <Lock size={18} style={{ color: "var(--color-primary)" }} />}
-          <h2 className="text-sm font-semibold">{title}</h2>
-        </div>
-        <p className="text-xs mb-4 text-[var(--color-text-muted)]">
+    <Dialog onClose={cancel} zClassName="z-[70]" size="sm" onSubmit={submit} title={title}
+            icon={mode === "recover" ? <KeyRound size={16} /> : <Lock size={16} />}>
+      <DialogBody>
+        <p className="dlg-detail dlg-detail--block mb-4">
           {mode === "setup" && "Choose a master password. It encrypts your locked notes on this device and is never stored or sent anywhere."}
           {mode === "unlock" && "Enter your master password to open locked notes."}
           {mode === "recover" && "Enter the recovery key you saved at setup, then choose a new master password."}
@@ -242,32 +230,31 @@ function VaultDialogInner({ mode }: { mode: VaultDialogMode }) {
           </Button>
         )}
 
-        <div className="flex items-center justify-between mt-4">
-          {mode === "unlock" ? (
-            <button
-              type="button"
-              className="text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text)] underline cursor-pointer"
-              onClick={() => useVaultStore.getState().setDialog("recover")}
-            >
-              Forgot password?
-            </button>
-          ) : mode === "setup" ? (
-            <button
-              type="button"
-              className="text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text)] underline cursor-pointer"
-              onClick={() => setRestoring(true)}
-            >
-              Restore from backup file
-            </button>
-          ) : <span />}
-          <div className="flex gap-2">
-            <Button type="button" onClick={cancel}>Cancel</Button>
-            <Button type="submit" variant="primary" disabled={busy}>
-              {busy ? "Working…" : mode === "setup" ? "Create vault" : mode === "unlock" ? "Unlock" : "Reset & unlock"}
-            </Button>
-          </div>
-        </div>
-      </form>
-    </Modal>
+      </DialogBody>
+      <DialogFooter
+        start={mode === "unlock" ? (
+          <button
+            type="button"
+            className="dlg-link"
+            onClick={() => useVaultStore.getState().setDialog("recover")}
+          >
+            Forgot password?
+          </button>
+        ) : mode === "setup" ? (
+          <button
+            type="button"
+            className="dlg-link"
+            onClick={() => setRestoring(true)}
+          >
+            Restore from backup file
+          </button>
+        ) : undefined}
+      >
+        <DialogButton cancel onClick={cancel}>Cancel</DialogButton>
+        <DialogButton type="submit" variant="primary" disabled={busy}>
+          {busy ? "Working…" : mode === "setup" ? "Create vault" : mode === "unlock" ? "Unlock" : "Reset & unlock"}
+        </DialogButton>
+      </DialogFooter>
+    </Dialog>
   );
 }

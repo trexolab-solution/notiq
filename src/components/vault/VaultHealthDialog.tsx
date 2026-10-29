@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { RefreshCw, ShieldCheck, X } from "lucide-react";
-import { Modal } from "../ui/Modal";
+import { RefreshCw } from "lucide-react";
 import { Button } from "../ui/Button";
+import { Dialog, DialogBody, DialogButton, DialogFooter } from "../ui/Dialog";
 import { useVaultStore } from "../../store/vaultStore";
 import { vaultErrorMessage } from "../../lib/vault";
 import {
@@ -59,21 +59,12 @@ export function VaultHealthDialog({ onClose }: { onClose: () => void }) {
   const issueTotal = report ? report.items.filter((i) => i.issues.length).length : 0;
 
   return (
-    <Modal onClose={onClose} zClassName="z-[70]">
-      <div role="dialog" aria-modal="true" aria-label="Vault health"
-           className="w-[640px] max-w-[94vw] max-h-[86vh] flex flex-col rounded-xl bg-[var(--color-bg-secondary)] border border-[var(--color-border)] shadow-2xl text-[var(--color-text)]">
-        <div className="flex items-center gap-2 px-5 pt-4 pb-2">
-          <ShieldCheck size={18} style={{ color: "var(--color-primary)" }} aria-hidden />
-          <h2 className="text-sm font-semibold flex-1">Vault health</h2>
-          <Button size="sm" icon={<RefreshCw size={13} className={progress ? "animate-spin" : ""} />}
-                  disabled={!!progress} onClick={() => void check()}>Re-check</Button>
-          <button type="button" className="vt-icon-btn" aria-label="Close" onClick={onClose}><X size={14} /></button>
-        </div>
-        <p className="px-5 text-xs text-[var(--color-text-muted)]">
-          Checked on this device only. Nothing is sent anywhere, and passwords are never shown here.
-        </p>
-
-        <div className="px-5 py-3 flex-1 min-h-0 flex flex-col gap-3">
+    <Dialog onClose={onClose} zClassName="z-[70]" size="lg" title="Vault health" icon="shield"
+            headerActions={
+              <Button size="sm" icon={<RefreshCw size={13} className={progress ? "animate-spin" : ""} />}
+                      disabled={!!progress} onClick={() => void check()}>Re-check</Button>
+            }>
+      <DialogBody fill detail="Checked on this device only. Nothing is sent anywhere, and passwords are never shown here.">
           {error && <div role="alert" className="text-xs text-[var(--color-danger)]">{error}</div>}
           {progress && (
             <div className="text-xs text-[var(--color-text-muted)]" aria-live="polite">
@@ -140,11 +131,10 @@ export function VaultHealthDialog({ onClose }: { onClose: () => void }) {
               </div>
             </>
           )}
-        </div>
-        <div className="px-5 pb-4 text-[11px] text-[var(--color-text-muted)]">
-          "Old" uses the date the entry was last saved.
-        </div>
-      </div>
-    </Modal>
+      </DialogBody>
+      <DialogFooter start={<span className="text-[11px] text-[var(--color-text-muted)]">"Old" uses the date the entry was last saved.</span>}>
+        <DialogButton variant="primary" onClick={onClose}>Done</DialogButton>
+      </DialogFooter>
+    </Dialog>
   );
 }
