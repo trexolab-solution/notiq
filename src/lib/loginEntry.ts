@@ -4,8 +4,10 @@ export interface LoginEntry {
   v: 1;
   kind: "login";
   title: string;
-  /** Sites this login applies to; the first is the main one. */
+  /** The main site of this login. */
   url: string;
+  /** Extra sites the same login works on (e.g. a second domain or regional site). Optional in old entries. */
+  urls: string[];
   username: string;
   password: string;
   /** Optional base32 TOTP secret (2-step verification). */
@@ -16,7 +18,7 @@ export interface LoginEntry {
 export const LOGIN_EXT = "login";
 
 export const emptyLogin = (title = ""): LoginEntry => ({
-  v: 1, kind: "login", title, url: "", username: "", password: "", totp: "", notes: "",
+  v: 1, kind: "login", title, url: "", urls: [], username: "", password: "", totp: "", notes: "",
 });
 
 export const serializeLogin = (e: LoginEntry): string => JSON.stringify(e);
@@ -26,11 +28,18 @@ export function parseLogin(raw: string): LoginEntry {
   try {
     const o = JSON.parse(raw) as Partial<LoginEntry>;
     const s = (v: unknown) => (typeof v === "string" ? v : "");
-    return { v: 1, kind: "login", title: s(o.title), url: s(o.url), username: s(o.username),
+    const urls = Array.isArray(o.urls) ? o.urls.filter((u): u is string => typeof u === "string" && u.trim() !== "").slice(0, 20) : [];
+    return { v: 1, kind: "login", title: s(o.title), url: s(o.url), urls, username: s(o.username),
              password: s(o.password), totp: s(o.totp), notes: s(o.notes) };
   } catch {
     return emptyLogin();
   }
+}
+
+/** Every site a login applies to: the main `url` first, then `urls`, without blanks or duplicates. */
+export function loginUrls(e: Pick<LoginEntry, "url" | "urls">): string[] {
+  const seen = new Set<string>();
+  return [e.url, ...(e.urls ?? [])].map((u) => u.trim()).filter((u) => u && !seen.has(u.toLowerCase()) && seen.add(u.toLowerCase()));
 }
 
 /** Host of a URL or bare domain (`https://Accounts.Google.com/x` → `accounts.google.com`). */

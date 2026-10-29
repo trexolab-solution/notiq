@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { emptyLogin, generatePassword, hostOf, parseLogin, serializeLogin, totpCode } from "./loginEntry";
+import { emptyLogin, generatePassword, hostOf, loginUrls, parseLogin, serializeLogin, totpCode } from "./loginEntry";
 
 describe("loginEntry", () => {
   it("round-trips and tolerates garbage", () => {
@@ -28,5 +28,22 @@ describe("loginEntry", () => {
     expect(await totpCode(secret, 59_000, 8)).toBe("94287082");
     expect(await totpCode(secret, 1_111_111_109_000, 8)).toBe("07081804");
     expect(await totpCode("not base32!", 0)).toBeNull();
+  });
+});
+
+describe("login urls", () => {
+  it("old entries without urls still parse", () => {
+    const e = parseLogin(JSON.stringify({ v: 1, kind: "login", title: "t", url: "a.com", username: "u", password: "p", totp: "", notes: "" }));
+    expect(e.urls).toEqual([]);
+    expect(loginUrls(e)).toEqual(["a.com"]);
+  });
+
+  it("round-trips extra urls and cleans blanks/duplicates", () => {
+    const e = { ...emptyLogin("x"), url: "https://a.com", urls: ["b.com", " ", "B.COM", "c.org"] };
+    expect(loginUrls(parseLogin(serializeLogin(e)))).toEqual(["https://a.com", "b.com", "c.org"]);
+  });
+
+  it("ignores non-string urls entries", () => {
+    expect(parseLogin('{"url":"a.com","urls":[1,null,"b.com"]}').urls).toEqual(["b.com"]);
   });
 });
