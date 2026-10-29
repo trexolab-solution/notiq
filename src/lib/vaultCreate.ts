@@ -6,15 +6,19 @@ import { vaultWriteFile, vaultErrorMessage } from "./vault";
 import { readFileEntry } from "./fileOps";
 import { emptyLogin, LOGIN_EXT, serializeLogin } from "./loginEntry";
 import { emptySecret, SECRET_KINDS, serializeSecret } from "./secretEntry";
+import { CODES_EXT, emptyCodes, serializeCodes } from "./recoveryCodes";
 import { toast } from "./toast";
 
-export type NewEntryKind = "note" | "login" | "ssh" | "secret";
+export type NewEntryKind = "note" | "login" | "ssh" | "secret" | "card" | "wifi" | "codes";
 
 export const NEW_ENTRY_OPTIONS: { kind: NewEntryKind; label: string; hint: string }[] = [
   { kind: "note",   label: "Secure note",     hint: "Free text, Markdown" },
   { kind: "login",  label: "Login",           hint: "Site, username, password, 2-step code" },
   { kind: "ssh",    label: SECRET_KINDS.ssh.label,    hint: SECRET_KINDS.ssh.hint },
   { kind: "secret", label: SECRET_KINDS.secret.label, hint: SECRET_KINDS.secret.hint },
+  { kind: "card",   label: SECRET_KINDS.card.label,   hint: SECRET_KINDS.card.hint },
+  { kind: "wifi",   label: SECRET_KINDS.wifi.label,   hint: SECRET_KINDS.wifi.hint },
+  { kind: "codes",  label: "Recovery codes",          hint: "Backup codes, mark each one used" },
 ];
 
 const nameOf = (p: string) => (p.split(/[\\/]/).pop() ?? "").replace(/\.nqv$/i, "");
@@ -36,6 +40,7 @@ export async function createVaultEntry(kind: NewEntryKind): Promise<void> {
 /** Default name for a new entry created straight from the sidebar (renamed inline right after). */
 export const DEFAULT_ENTRY_NAME: Record<NewEntryKind, string> = {
   note: "Untitled note", login: "New login", ssh: "New server", secret: "New API key",
+  card: "New card", wifi: "New Wi-Fi", codes: "New recovery codes",
 };
 
 /**
@@ -57,6 +62,7 @@ async function writeAndOpen(kind: NewEntryKind, path: string) {
   const title = nameOf(path);
   if (kind === "note") await vaultWriteFile(path, "", "md");
   else if (kind === "login") await vaultWriteFile(path, serializeLogin(emptyLogin(title)), LOGIN_EXT);
+  else if (kind === "codes") await vaultWriteFile(path, serializeCodes(emptyCodes(title)), CODES_EXT);
   else await vaultWriteFile(path, serializeSecret(emptySecret(kind, title)), SECRET_KINDS[kind].ext);
   window.dispatchEvent(new Event(VAULT_DIR_EVENT));
   useAppStore.getState().openFilesAsTabs([await readFileEntry(path)]);

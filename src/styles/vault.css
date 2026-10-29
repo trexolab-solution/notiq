@@ -81,6 +81,9 @@
 .vt-row-icon.k-login  { color: color-mix(in srgb, var(--color-accent) 75%, var(--color-text-muted)); }
 .vt-row-icon.k-ssh    { color: color-mix(in srgb, var(--color-success) 70%, var(--color-text-muted)); }
 .vt-row-icon.k-secret { color: color-mix(in srgb, var(--color-warning) 75%, var(--color-text-muted)); }
+.vt-row-icon.k-card   { color: color-mix(in srgb, var(--color-danger) 65%, var(--color-text-muted)); }
+.vt-row-icon.k-wifi   { color: color-mix(in srgb, var(--color-primary) 60%, var(--color-success) 40%); }
+.vt-row-icon.k-codes  { color: color-mix(in srgb, var(--color-accent) 50%, var(--color-warning) 50%); }
 .vt-row-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; }
 .vt-row-tags { display: flex; gap: 3px; flex-shrink: 1; min-width: 0; max-width: 45%; overflow: hidden; }
 .vt-row-tag {

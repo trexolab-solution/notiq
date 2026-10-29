@@ -5,11 +5,7 @@ import { useClickOutside } from "../../../hooks/useClickOutside";
 import { useEscapeKey } from "../../../hooks/useEscapeKey";
 import { EntryIcon } from "./EntryIcon";
 
-const KIND_ICON: Record<NewEntryKind, "note" | "login" | "ssh" | "secret"> = {
-  note: "note", login: "login", ssh: "ssh", secret: "secret",
-};
-
-/** Header "+" dropdown: the four entry types. Creates in the selected folder. */
+/** Header "+" dropdown: every entry type. Creates in the selected folder. */
 export function NewEntryMenu({ targetLabel, onPick }: { targetLabel: string; onPick: (k: NewEntryKind) => void }) {
   const [open, setOpen] = useState(false);
   const wrap = useRef<HTMLDivElement>(null);
@@ -74,7 +70,7 @@ export function NewEntryMenu({ targetLabel, onPick }: { targetLabel: string; onP
               className="vt-menu-item"
               onClick={() => { setOpen(false); onPick(o.kind); }}
             >
-              <EntryIcon kind={KIND_ICON[o.kind]} />
+              <EntryIcon kind={o.kind} />
               <span className="min-w-0">
                 <span className="block text-xs font-medium">{o.label}</span>
                 <span className="block text-[11px] text-[var(--color-text-muted)]">{o.hint}</span>

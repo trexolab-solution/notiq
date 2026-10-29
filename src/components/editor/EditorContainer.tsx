@@ -5,6 +5,8 @@ import { isVaultPath } from "../../lib/vault";
 import { SECRET_KINDS } from "../../lib/secretEntry";
 import { SecretEntryEditor } from "../vault/SecretEntryEditor";
 import { SshEntryEditor } from "../vault/SshEntryEditor";
+import { RecoveryCodesEditor } from "../vault/RecoveryCodesEditor";
+import { CODES_EXT } from "../../lib/recoveryCodes";
 import { FileText, Plus } from "lucide-react";
 import { useAppStore } from "../../store";
 import { MonacoMarkdownEditor, type MonacoEditorHandle } from "./MonacoMarkdownEditor";
@@ -154,6 +156,7 @@ export const EditorContainer = React.memo(function EditorContainer() {
   if (activeTab.vaultLocked) return <LockedNoteView tab={activeTab} />;
   if (activeTab.vaultExt === LOGIN_EXT && isVaultPath(activeTab.filePath)) return <LoginEntryEditor tab={activeTab} />;
   if (activeTab.vaultExt === "ssh" && isVaultPath(activeTab.filePath)) return <SshEntryEditor tab={activeTab} />;
+  if (activeTab.vaultExt === CODES_EXT && isVaultPath(activeTab.filePath)) return <RecoveryCodesEditor tab={activeTab} />;
   if (activeTab.vaultExt && SECRET_KINDS[activeTab.vaultExt] && isVaultPath(activeTab.filePath)) {
     return <SecretEntryEditor tab={activeTab} kind={activeTab.vaultExt} />;
   }

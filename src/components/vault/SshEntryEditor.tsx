@@ -9,6 +9,9 @@ import { Tooltip } from "../ui/Tooltip";
 import { useAppStore } from "../../store";
 import { useAutoHide } from "../../hooks/useAutoHide";
 import { CopyIconButton } from "./CopyIconButton";
+import { CustomFieldsEditor } from "./CustomFieldsEditor";
+import { AttachmentsPanel } from "./AttachmentsPanel";
+import { EntryHeader, SaveHint } from "./EntryParts";
 import { toast } from "../../lib/toast";
 import { parseSecret, serializeSecret } from "../../lib/secretEntry";
 import { analyzeKey, inferAuth, normalizeKey, portError, sshCommand, type SshAuth } from "../../lib/sshEntry";
@@ -120,10 +123,7 @@ export function SshEntryEditor({ tab }: { tab: Tab }) {
   return (
     <div data-tour="editor" className="flex-1 min-h-0 overflow-y-auto bg-[var(--color-editor-bg)]">
       <div className="max-w-xl mx-auto px-6 py-8 flex flex-col gap-6 text-[var(--color-text)]">
-        <div className="flex items-center gap-2">
-          <Terminal size={18} style={{ color: "var(--color-primary)" }} />
-          <h1 className="text-base font-semibold">SSH / server</h1>
-        </div>
+        <EntryHeader icon={Terminal} title="SSH / server" tab={tab} />
 
         <div>
           <label className={label} htmlFor="ssh-title">Name</label>
@@ -236,9 +236,9 @@ export function SshEntryEditor({ tab }: { tab: Tab }) {
           </div>
         </CollapsibleSection>
 
-        <p className="text-xs text-[var(--color-text-muted)]">
-          Saved with the vault when you save this tab (Ctrl+S). Copied values are cleared from the clipboard after 20 seconds.
-        </p>
+        <CustomFieldsEditor value={entry.custom} onChange={(custom) => save({ ...entry, custom })} />
+        <AttachmentsPanel tab={tab} />
+        <SaveHint />
       </div>
     </div>
   );
