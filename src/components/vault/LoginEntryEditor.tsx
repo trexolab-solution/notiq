@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { ExternalLink, Eye, EyeOff, KeyRound } from "lucide-react";
+import { ExternalLink, Eye, EyeOff, KeyRound, Plus, X } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { Button } from "../ui/Button";
 import { Input } from "../ui/Input";
@@ -7,8 +7,12 @@ import { useAppStore } from "../../store";
 import { CopyIconButton } from "./CopyIconButton";
 import { useAutoHide } from "../../hooks/useAutoHide";
 import { GeneratePasswordButton } from "./GeneratePasswordButton";
+import { Tooltip } from "../ui/Tooltip";
+import { CustomFieldsEditor } from "./CustomFieldsEditor";
+import { AttachmentsPanel } from "./AttachmentsPanel";
+import { EntryHeader, SaveHint } from "./EntryParts";
 import {
-  hostOf, parseLogin, serializeLogin, totpCode, totpRemaining, type LoginEntry,
+  extraUrlError, hostOf, MAX_LOGIN_URLS, parseLogin, serializeLogin, totpCode, totpRemaining, type LoginEntry,
 } from "../../lib/loginEntry";
 import type { Tab } from "../../types";
 
@@ -44,10 +48,7 @@ export function LoginEntryEditor({ tab }: { tab: Tab }) {
   return (
     <div data-tour="editor" className="flex-1 min-h-0 overflow-y-auto bg-[var(--color-editor-bg)]">
       <div className="max-w-xl mx-auto px-6 py-8 flex flex-col gap-4 text-[var(--color-text)]">
-        <div className="flex items-center gap-2">
-          <KeyRound size={18} style={{ color: "var(--color-primary)" }} />
-          <h1 className="text-base font-semibold">Login</h1>
-        </div>
+        <EntryHeader icon={KeyRound} title="Login" tab={tab} />
 
         <div>
           <label className={label} htmlFor="le-title">Name</label>
@@ -64,6 +65,7 @@ export function LoginEntryEditor({ tab }: { tab: Tab }) {
                       onClick={() => { void openUrl(`https://${host}`); }}>Open</Button>
             )}
           </div>
+          <OtherSites entry={entry} onChange={(urls) => set({ urls })} />
         </div>
 
         <div>
@@ -108,10 +110,65 @@ export function LoginEntryEditor({ tab }: { tab: Tab }) {
                     className="w-full rounded-md px-2.5 py-2 text-sm bg-[var(--color-bg-tertiary)] border border-[var(--color-border)] outline-none focus:border-[var(--color-primary)]" />
         </div>
 
-        <p className="text-xs text-[var(--color-text-muted)]">
-          Saved with the vault when you save this tab (Ctrl+S). Copied values are cleared from the clipboard after 20 seconds.
-        </p>
+        <CustomFieldsEditor value={entry.custom ?? []} onChange={(custom) => set({ custom })} />
+        <AttachmentsPanel tab={tab} />
+        <SaveHint />
       </div>
+    </div>
+  );
+}
+
+/** Compact list of extra sites the same login works on (`entry.urls`), with an add box. */
+function OtherSites({ entry, onChange }: { entry: LoginEntry; onChange: (urls: string[]) => void }) {
+  const [draft, setDraft] = useState("");
+  const [err, setErr] = useState<string | null>(null);
+  const [adding, setAdding] = useState(false);
+  const urls = entry.urls ?? [];
+  const full = urls.length >= MAX_LOGIN_URLS;
+
+  const add = () => {
+    const why = extraUrlError(draft, entry);
+    if (why) { setErr(why); return; }
+    onChange([...urls, draft.trim()]);
+    setDraft(""); setErr(null);
+  };
+
+  return (
+    <div className="mt-2 flex flex-col gap-1">
+      {urls.map((u, i) => (
+        <div key={`${u}-${i}`} className="flex items-center gap-2 pl-2 text-xs">
+          <span className="text-[var(--color-text-muted)]" aria-hidden>+</span>
+          <span className="flex-1 min-w-0 truncate" title={u}>{u}</span>
+          <Tooltip content="Remove this site">
+            <Button size="sm" variant="danger" aria-label={`Remove ${u}`} icon={<X size={12} />}
+                    onClick={() => onChange(urls.filter((_, j) => j !== i))} />
+          </Tooltip>
+        </div>
+      ))}
+      {adding ? (
+        <div>
+          <div className="flex items-center gap-2">
+            <Input aria-label="Another site for this login" value={draft} autoFocus spellCheck={false} placeholder="e.g. https://login.example.co.uk"
+                   aria-invalid={!!err} className={err ? "!border-[var(--color-danger)]" : ""}
+                   onChange={(e) => { setDraft(e.target.value); setErr(null); }}
+                   onKeyDown={(e) => {
+                     if (e.key === "Enter") { e.preventDefault(); add(); }
+                     else if (e.key === "Escape") { e.preventDefault(); setAdding(false); setDraft(""); setErr(null); }
+                   }} />
+            <Button size="sm" onClick={add}>Add</Button>
+            <Button size="sm" onClick={() => { setAdding(false); setDraft(""); setErr(null); }}>Cancel</Button>
+          </div>
+          {err && <p className="text-xs mt-1 text-[var(--color-danger)]">{err}</p>}
+        </div>
+      ) : (
+        <div>
+          <Button size="sm" icon={<Plus size={12} />} disabled={full}
+                  title={full ? `At most ${MAX_LOGIN_URLS} other sites` : "Use this login on another website too"}
+                  onClick={() => setAdding(true)}>
+            {urls.length ? "Add another site" : "Other sites"}
+          </Button>
+        </div>
+      )}
     </div>
   );
 }

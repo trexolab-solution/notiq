@@ -22,12 +22,11 @@ export interface MenuHandlers {
 }
 
 const icon = (el: JSX.Element) => <span className="inline-flex">{el}</span>;
-const KIND = { note: "note", login: "login", ssh: "ssh", secret: "secret" } as const;
 
 function newItems(parent: string, h: MenuHandlers): ContextMenuItem[] {
   return [
     ...NEW_ENTRY_OPTIONS.map((o): ContextMenuItem => ({
-      type: "item", label: `New ${o.label.toLowerCase()}`, icon: <EntryIcon kind={KIND[o.kind]} size={14} />,
+      type: "item", label: `New ${o.label.toLowerCase()}`, icon: <EntryIcon kind={o.kind} size={14} />,
       onClick: () => h.create(o.kind, parent),
     })),
     { type: "item", label: "New folder", icon: icon(<FolderPlus size={14} />), onClick: () => h.create("folder", parent) },

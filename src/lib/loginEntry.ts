@@ -1,4 +1,5 @@
 import { DEFAULT_PW_OPTIONS, generateWithOptions } from "./passwordGen";
+import { parseCustomFields, type CustomField } from "./customFields";
 /** A structured login stored in the vault (file type `login`). */
 export interface LoginEntry {
   v: 1;
@@ -13,12 +14,14 @@ export interface LoginEntry {
   /** Optional base32 TOTP secret (2-step verification). */
   totp: string;
   notes: string;
+  /** User-defined extra fields (0.7.0). Always set by emptyLogin/parseLogin; optional for older callers. */
+  custom?: CustomField[];
 }
 
 export const LOGIN_EXT = "login";
 
 export const emptyLogin = (title = ""): LoginEntry => ({
-  v: 1, kind: "login", title, url: "", urls: [], username: "", password: "", totp: "", notes: "",
+  v: 1, kind: "login", title, url: "", urls: [], username: "", password: "", totp: "", notes: "", custom: [],
 });
 
 export const serializeLogin = (e: LoginEntry): string => JSON.stringify(e);
@@ -30,7 +33,7 @@ export function parseLogin(raw: string): LoginEntry {
     const s = (v: unknown) => (typeof v === "string" ? v : "");
     const urls = Array.isArray(o.urls) ? o.urls.filter((u): u is string => typeof u === "string" && u.trim() !== "").slice(0, 20) : [];
     return { v: 1, kind: "login", title: s(o.title), url: s(o.url), urls, username: s(o.username),
-             password: s(o.password), totp: s(o.totp), notes: s(o.notes) };
+             password: s(o.password), totp: s(o.totp), notes: s(o.notes), custom: parseCustomFields(o.custom) };
   } catch {
     return emptyLogin();
   }
@@ -40,6 +43,21 @@ export function parseLogin(raw: string): LoginEntry {
 export function loginUrls(e: Pick<LoginEntry, "url" | "urls">): string[] {
   const seen = new Set<string>();
   return [e.url, ...(e.urls ?? [])].map((u) => u.trim()).filter((u) => u && !seen.has(u.toLowerCase()) && seen.add(u.toLowerCase()));
+}
+
+export const MAX_LOGIN_URLS = 20;
+
+/** Why `candidate` can't be added to a login's "other sites", or null if it can. */
+export function extraUrlError(candidate: string, e: Pick<LoginEntry, "url" | "urls">): string | null {
+  const t = candidate.trim();
+  if (!t) return "Enter a website address";
+  const host = hostOf(t);
+  if (!host || !/^[a-z0-9.-]+$|^\[[0-9a-f:]+\]$/i.test(host) || (!host.includes(".") && host !== "localhost")) {
+    return "That doesn't look like a website address";
+  }
+  if ((e.urls ?? []).length >= MAX_LOGIN_URLS) return `At most ${MAX_LOGIN_URLS} other sites`;
+  if ([e.url, ...(e.urls ?? [])].some((u) => u.trim() && hostOf(u) === host)) return "That site is already on this login";
+  return null;
 }
 
 /** Host of a URL or bare domain (`https://Accounts.Google.com/x` → `accounts.google.com`). */
