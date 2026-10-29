@@ -11,6 +11,7 @@ import { useAiChatPanel }          from "./hooks/useAiChatPanel";
 import { useAppStartup }           from "./hooks/useAppStartup";
 
 import { useAppStore }             from "./store";
+import { publishAutofillTheme }    from "./lib/autofillTheme";
 import { isMarkdownLike }          from "./lib/language";
 import { displayPathOf }           from "./lib/vault";
 import { LOGIN_EXT }               from "./lib/loginEntry";
@@ -90,6 +91,10 @@ export default function App() {
     setAiChatMounted(true);
     setAiChatOpen((v) => !v);
   }, []);
+
+  // Share the current theme with the browser extension (startup + every change). Main window only.
+  const themeId = useAppStore((s) => s.themeId);
+  useEffect(() => { publishAutofillTheme(themeId); }, [themeId]);
 
   // Mount graph lazily on first tab (moved from render to effect to avoid setState during render)
   useEffect(() => {

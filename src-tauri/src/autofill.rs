@@ -11,6 +11,7 @@
 //!
 //! Protocol (extension → host → app, one JSON object per message):
 //! * `{op:"ping"}` → `{ok:true}` (never starts the app)
+//! * `{op:"theme"}` → `{ok:true, theme:{id,mode,bg,...}|null}` from `autofill-theme.json` (never starts the app, no token)
 //! * `{op:"launch"}` → `{ok:true}` once the app answers (starts it if needed) or `{error:"app_not_running"}`
 //! * `{op:"fill", host, account?}` → `{ok:true, username, password, title, code?}` | `{choose:[{account,title,username}]}`
 //!   | `{error}`. `account` is a vault entry's relative path from an earlier `choose`.
@@ -739,13 +740,75 @@ fn connect() -> Option<Conn> {
     Some((s, r))
 }
 
-/// Ops that may start Notiq when it isn't running (a user action in the browser). `ping` never does.
+/// Ops that may start Notiq when it isn't running (a user action in the browser). `ping` and `theme` never do.
 fn may_launch(op: &str) -> bool {
     matches!(op, "fill" | "save" | "launch")
 }
 
+// ─── Theme shared with the extension ─────────────────────────────────────────
+
+const THEME_FILE: &str = "autofill-theme.json";
+const THEME_MAX_BYTES: usize = 2048;
+const THEME_COLOR_KEYS: [&str; 9] =
+    ["bg", "bgSecondary", "bgTertiary", "text", "textMuted", "border", "primary", "primaryText", "danger"];
+
+fn is_hex_color(s: &str) -> bool {
+    s.len() == 7 && s.starts_with('#') && s[1..].bytes().all(|b| b.is_ascii_hexdigit())
+}
+
+/// Validates a theme object (`id`, `mode`, and every colour `#rrggbb`). Returns a normalised copy with only known keys.
+pub fn validate_theme(v: &Value) -> Option<Value> {
+    let o = v.as_object()?;
+    let id = o.get("id")?.as_str()?;
+    if id.is_empty() || id.len() > 64 || !id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-') {
+        return None;
+    }
+    let mode = o.get("mode")?.as_str()?;
+    if mode != "dark" && mode != "light" {
+        return None;
+    }
+    let mut out = serde_json::Map::new();
+    out.insert("id".into(), json!(id));
+    out.insert("mode".into(), json!(mode));
+    for k in THEME_COLOR_KEYS.iter().chain(std::iter::once(&"success")) {
+        let c = o.get(*k)?.as_str()?;
+        if !is_hex_color(c) {
+            return None;
+        }
+        out.insert((*k).into(), json!(c));
+    }
+    Some(Value::Object(out))
+}
+
+/// Parses and validates the stored theme document (size-capped).
+pub fn parse_theme_doc(raw: &str) -> Option<Value> {
+    if raw.len() > THEME_MAX_BYTES {
+        return None;
+    }
+    validate_theme(&serde_json::from_str::<Value>(raw).ok()?)
+}
+
+/// The `theme` op: the exported theme, or `null`. Never needs the app, the vault or the IPC token.
+fn theme_reply() -> Value {
+    let theme = data_dir_plain()
+        .and_then(|d| std::fs::read_to_string(d.join(THEME_FILE)).ok())
+        .and_then(|raw| parse_theme_doc(&raw));
+    json!({ "ok": true, "theme": theme })
+}
+
+/// Called by the main window whenever the theme changes; stores it for the browser extension (not secret).
+#[tauri::command]
+pub fn autofill_set_theme(theme: Value) -> Result<(), String> {
+    let t = validate_theme(&theme).ok_or("bad_theme")?;
+    let dir = data_dir_plain().ok_or("no_data_dir")?;
+    atomic_write(&dir.join(THEME_FILE), t.to_string().as_bytes())
+}
+
 fn forward(conn: &mut Option<Conn>, req: &Value) -> Value {
     let op = req.get("op").and_then(|v| v.as_str()).unwrap_or("");
+    if op == "theme" {
+        return theme_reply();
+    }
     for attempt in 0..2 {
         if conn.is_none() {
             *conn = connect();
@@ -993,7 +1056,48 @@ mod tests {
     #[test]
     fn may_launch_only_for_user_actions() {
         assert!(may_launch("fill") && may_launch("save") && may_launch("launch"));
-        assert!(!may_launch("ping") && !may_launch("hello") && !may_launch(""));
+        assert!(!may_launch("ping") && !may_launch("hello") && !may_launch("theme") && !may_launch(""));
+    }
+
+    fn sample_theme() -> Value {
+        json!({ "id": "one-dark", "mode": "dark", "bg": "#0f172a", "bgSecondary": "#1e293b", "bgTertiary": "#334155",
+                "text": "#e2e8f0", "textMuted": "#64748b", "border": "#334155", "primary": "#c9a84c",
+                "primaryText": "#0f172a", "danger": "#f87171", "success": "#4ade80" })
+    }
+
+    #[test]
+    fn theme_validation() {
+        assert_eq!(validate_theme(&sample_theme()), Some(sample_theme()));
+        for (k, bad) in [("mode", json!("sepia")), ("bg", json!("red")), ("primary", json!("#fff")), ("id", json!("a b")),
+                         ("id", json!("x".repeat(65))), ("danger", json!(5))] {
+            let mut t = sample_theme();
+            t[k] = bad;
+            assert!(validate_theme(&t).is_none(), "{k}");
+        }
+        let mut t = sample_theme();
+        t.as_object_mut().unwrap().remove("success");
+        assert!(validate_theme(&t).is_none());
+        assert!(validate_theme(&json!("x")).is_none());
+        // unknown keys are dropped
+        let mut t = sample_theme();
+        t["extra"] = json!("<script>");
+        assert_eq!(validate_theme(&t), Some(sample_theme()));
+    }
+
+    #[test]
+    fn theme_doc_parsing_caps_size_and_rejects_garbage() {
+        assert_eq!(parse_theme_doc(&sample_theme().to_string()), Some(sample_theme()));
+        assert!(parse_theme_doc("not json").is_none());
+        let mut big = sample_theme();
+        big["pad"] = json!("x".repeat(THEME_MAX_BYTES));
+        assert!(parse_theme_doc(&big.to_string()).is_none());
+    }
+
+    #[test]
+    fn theme_op_never_needs_the_app() {
+        let r = forward(&mut None, &json!({ "op": "theme" }));
+        assert_eq!(r["ok"], json!(true));
+        assert!(r.get("theme").is_some());
     }
 
     #[test]

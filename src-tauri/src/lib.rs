@@ -695,6 +695,7 @@ pub fn run() {
         clipboard::secure_copy,
         // 0.7.0 autofill
         autofill::autofill_ui_ready,
+        autofill::autofill_set_theme,
         autofill::autofill_prompt_show,
         autofill::autofill_prompt_hide,
         native_host_reg::autofill_status,
@@ -770,6 +771,7 @@ pub fn run() {
         clipboard::secure_copy,
         // 0.7.0 autofill
         autofill::autofill_ui_ready,
+        autofill::autofill_set_theme,
         autofill::autofill_prompt_show,
         autofill::autofill_prompt_hide,
         native_host_reg::autofill_status,
