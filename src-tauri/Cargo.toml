@@ -30,6 +30,9 @@ argon2 = "0.5"
 chacha20poly1305 = "0.10"
 rand = "0.8"
 zeroize = "1"
+# 0.7.0 hello: HKDF-SHA256 for the Windows Hello KEK (already in the dependency tree)
+hkdf = "0.12"
+sha2 = "0.10"
 
 
 [target.'cfg(any(target_os = "macos", windows, target_os = "linux"))'.dependencies]
@@ -46,4 +49,4 @@ windows-sys = { version = "0.61", features = ["Win32_UI_Shell", "Win32_UI_Window
 # Native silent print-to-PDF via WebView2 (ICoreWebView2_7::PrintToPdf).
 # Versions must match what wry/tauri already pull in (see Cargo.lock).
 webview2-com = "0.39"
-windows = { version = "0.62", features = ["Win32_Foundation"] }
+windows = { version = "0.62", features = ["Win32_Foundation", "Foundation", "Security_Credentials", "Security_Cryptography", "Storage_Streams"] }

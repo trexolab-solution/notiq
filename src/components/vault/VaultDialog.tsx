@@ -14,6 +14,7 @@ import { copySecret } from "../../lib/secureCopy";
 import {
   vaultCreate, vaultUnlock, vaultUnlockWithRecovery, vaultErrorMessage,
 } from "../../lib/vault";
+import { helloStatus, helloUnlock, isHelloCancel } from "../../lib/hello"; // 0.7.0 hello
 
 const MIN_LEN = 8;
 
@@ -48,6 +49,29 @@ function VaultDialogInner({ mode }: { mode: VaultDialogMode }) {
     useVaultStore.getState().setUnlocked(true);
     await useAppStore.getState().unlockVaultTabs();
     useVaultStore.getState().finish(true);
+  };
+
+  // 0.7.0 hello: offered on the unlock step only when turned on; never auto-triggered.
+  const [helloOn, setHelloOn] = useState(false);
+  useEffect(() => {
+    if (mode !== "unlock") return;
+    let live = true;
+    void helloStatus().then((s) => { if (live) setHelloOn(s.enabled); });
+    return () => { live = false; };
+  }, [mode]);
+  const unlockWithHello = async () => {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await helloUnlock();
+      await succeed();
+    } catch (err) {
+      const msg = vaultErrorMessage(err);
+      setError(isHelloCancel(msg) ? null : msg);
+      setHelloOn((await helloStatus()).enabled);
+      setBusy(false);
+    }
   };
 
   const needsNewPassword = mode === "setup" || mode === "recover";
@@ -206,6 +230,12 @@ function VaultDialogInner({ mode }: { mode: VaultDialogMode }) {
         )}
 
         {error && <p role="alert" className="text-xs mb-3 text-[var(--color-danger)]">{error}</p>}
+
+        {mode === "unlock" && helloOn && (
+          <Button type="button" className="w-full justify-center mb-1" disabled={busy} onClick={() => void unlockWithHello()}>
+            Unlock with Windows Hello
+          </Button>
+        )}
 
         <div className="flex items-center justify-between mt-4">
           {mode === "unlock" ? (
