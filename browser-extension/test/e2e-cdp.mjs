@@ -231,8 +231,8 @@ try {
   ({ sessionId: sw } = await cdp("Target.attachToTarget", { targetId: swTarget.targetId, flatten: true }));
   await cdp("Runtime.enable", {}, sw);
   const manifest = await SW("chrome.runtime.getManifest()");
-  check("manifest version 0.4.0 with storage permission and all-frames content script (same-site gated)",
-    manifest.version === "0.4.0" && manifest.permissions.includes("storage") && manifest.content_scripts[0].all_frames === true &&
+  check("manifest version 0.4.1 with storage permission and all-frames content script (same-site gated)",
+    manifest.version === "0.4.1" && manifest.permissions.includes("storage") && manifest.content_scripts[0].all_frames === true &&
     typeof manifest.key === "string" && manifest.key.length > 100);
 
   const { targetId } = await cdp("Target.createTarget", { url: "about:blank" });
@@ -837,7 +837,7 @@ try {
   const popInfo = await evalIn(pop2, `({ ver: document.getElementById("version").textContent, sw: [...document.querySelectorAll('input[type=checkbox]')].map((i) => i.getAttribute("role") + ":" + i.id + ":" + i.checked),
     status: document.getElementById("status").dataset.state, bg: getComputedStyle(document.body).backgroundColor })`);
   check("popup: version footer, three role=switch toggles incl. 'Suggest on field focus', status dot",
-    popInfo.ver === "Notiq Autofill v0.4.0" && popInfo.sw.join() === "switch:offerSave:true,switch:showIcon:true,switch:suggestOnFocus:false" &&
+    popInfo.ver === "Notiq Autofill v0.4.1" && popInfo.sw.join() === "switch:offerSave:true,switch:showIcon:true,switch:suggestOnFocus:false" &&
     ["on", "off"].includes(popInfo.status) && popInfo.bg === "rgb(46, 52, 64)", JSON.stringify(popInfo));
   await evalIn(pop2, `document.getElementById("suggestOnFocus").click(), true`);
   check("popup toggle writes suggestOnFocus", await waitFor(async () => (await local()).suggestOnFocus === true, 1500));
