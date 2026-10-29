@@ -179,6 +179,9 @@
 .settings-section { padding-top: 32px; }
 .settings-section + .settings-section { margin-top: 24px; }
 .settings-section[hidden] { display: none; }
+/* While searching, drop a section whose rows are all hidden or not rendered right now (e.g. AI-only rows
+   while AI is off), so no empty heading is left behind. */
+.settings-filtering .settings-section:not(:has([data-setting-row], [data-setting-block])) { display: none; }
 .settings-section-title {
   margin: 0 0 16px;
   font-size: 15px;
@@ -188,12 +191,10 @@
   color: var(--color-text);
   scroll-margin-top: calc(var(--settings-header-h, 64px) + 16px);
 }
-.settings-section-title:focus { outline: none; }
-.settings-section-title:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--color-primary) 55%, transparent);
-  outline-offset: 4px;
-  border-radius: 4px;
-}
+/* The heading only receives focus programmatically (so screen readers announce the section after a jump);
+   it isn't interactive, so it never draws a focus box. */
+.settings-section-title:focus,
+.settings-section-title:focus-visible { outline: none; }
 /* A revealed row receives focus programmatically; the reveal highlight already marks it. */
 .settings-page [data-setting-row]:focus:not(:focus-visible),
 .settings-page [data-setting-block]:focus:not(:focus-visible) { outline: none; }

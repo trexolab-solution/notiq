@@ -229,7 +229,7 @@ export const ProviderConfigCard = React.memo(function ProviderConfigCard({
             aria-label={`${PROVIDER_LABEL[provider]} model`}
           />
           <Button variant="ghost" size="sm" icon={<RefreshCw size={13} className={loadingModels ? "animate-spin" : ""} />} onClick={loadModels} aria-label="Refresh models" />
-          <Button variant="ghost" size="sm" icon={<Zap size={13} />} onClick={testModel} disabled={testing || !model}>
+          <Button className="settings-btn" variant="ghost" size="sm" icon={<Zap size={13} />} onClick={testModel} disabled={testing || !model}>
             Test
           </Button>
         </div>

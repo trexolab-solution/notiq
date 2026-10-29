@@ -224,7 +224,7 @@ export const AISettingsSection = React.memo(function AISettingsSection({ onRunSe
             description="Open the guided walkthrough for provider, key and model."
             keywords={["wizard", "onboarding", "guided", "walkthrough", "configure"]}
           >
-            <Button variant="ghost" size="sm" icon={<Wand2 size={13} />} onClick={runSetupAgain}>
+            <Button className="settings-btn" variant="ghost" size="sm" icon={<Wand2 size={13} />} onClick={runSetupAgain}>
               Run setup again
             </Button>
           </SettingRow>

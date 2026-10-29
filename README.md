@@ -14,7 +14,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.7.1-orange" alt="Version" />
+  <img src="https://img.shields.io/badge/version-0.8.0-orange" alt="Version" />
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue" alt="Platform" />
   <img src="https://img.shields.io/badge/Tauri-v2-24C8DB?logo=tauri&logoColor=white" alt="Tauri v2" />
   <img src="https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black" alt="React 18" />
@@ -154,13 +154,15 @@ Thirteen built-in color themes — switch instantly from the sidebar or Settings
 
 ### Settings (`Ctrl+,`)
 
-Extensive editor customization:
+Settings opens as a **tab**, like VS Code's Settings editor, and everything is on one scrolling page:
 
-- **Font** — size (8–32 px), family (JetBrains Mono, Fira Code, Cascadia Code, Consolas, Courier New)
-- **Editor** — word wrap, line numbers, minimap, bracket colorization, cursor style & blinking, auto-closing brackets, whitespace rendering, smooth scrolling, folding, format on paste
-- **Tab behavior** — tab size (2–8 spaces), default editor mode for new tabs
-- **Terminal** — font size, cursor style, cursor blinking, scrollback buffer size
-- **AI** — enable/disable AI, choose provider (Ollama Cloud or Local), manage your API key, select and test a model, and tune autocomplete (trigger mode, debounce, context lines)
+- **Search** the box at the top (or `Ctrl+F` / `/`) filters every setting live; settings also show up in the command palette (`Ctrl+Shift+P`) and open straight on the right row
+- **Sections** (left nav follows your scroll; chips on narrow windows) — General, Editor, AI, Vault, Terminal, Appearance, Shortcuts, Updates, About
+- **Modified marker and Reset** — a setting that differs from its default gets a dot and a one-click *Reset to default*; *Restore defaults* resets the editor and terminal settings at once
+- **Editor** — font size/family/spacing, word wrap, line numbers, minimap, bracket colorization, cursor style & animation, whitespace, folding, smooth scrolling, tab size, default view mode, auto-closing brackets, format on paste
+- **Terminal** — font size, cursor, scrollback, panel position
+- **AI** — enable/disable, provider (Ollama Cloud or Local, optional fallback), API keys, model picker and test, autocomplete tuning
+- **Vault** — locking, storage folder, backup, quick unlock, quick search, password generator, master password, browser-autofill install and status
 
 ---
 

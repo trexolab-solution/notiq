@@ -77,13 +77,13 @@ export const VaultSection = React.memo(function VaultSection() {
           keywords={["lock now", "lock", "unlock", "set up vault", "create vault", "master password"]}
         >
           {state === "none" && (
-            <Button variant="primary" size="sm" onClick={() => void useVaultStore.getState().ensureUnlocked()}>Set up vault</Button>
+            <Button className="settings-btn-primary" variant="primary" size="sm" onClick={() => void useVaultStore.getState().ensureUnlocked()}>Set up vault</Button>
           )}
           {state === "locked" && (
-            <Button variant="primary" size="sm" onClick={() => void useVaultStore.getState().ensureUnlocked()}>Unlock</Button>
+            <Button className="settings-btn-primary" variant="primary" size="sm" onClick={() => void useVaultStore.getState().ensureUnlocked()}>Unlock</Button>
           )}
           {state === "unlocked" && (
-            <Button size="sm" onClick={() => void useAppStore.getState().lockVault()}>Lock now</Button>
+            <Button className="settings-btn" size="sm" onClick={() => void useAppStore.getState().lockVault()}>Lock now</Button>
           )}
         </SettingRow>
 

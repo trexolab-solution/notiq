@@ -87,7 +87,7 @@ export function QuickSearchRow() {
       >
         <div className="flex items-center gap-2">
           <kbd className={kbd}>{rec ? "Press keys…" : combo}</kbd>
-          <Button size="sm" disabled={!loaded || busy} onClick={() => { setErr(null); setRec((r) => !r); }}>
+          <Button className="settings-btn" size="sm" disabled={!loaded || busy} onClick={() => { setErr(null); setRec((r) => !r); }}>
             {rec ? "Cancel" : "Change"}
           </Button>
         </div>

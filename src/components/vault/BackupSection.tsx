@@ -64,7 +64,7 @@ export function BackupSection() {
         help="Your vault lives only on this computer. Without the backup file plus the master password or recovery key, a backup cannot be opened, so keep it somewhere safe."
         keywords={["backup", "last backup", "export", "save a copy", ".nqbackup", "encrypted"]}
       >
-        <Button size="sm" variant="primary" icon={<Download size={12} />} disabled={!exists || busy} onClick={() => void start()}>
+        <Button className="settings-btn-primary" size="sm" variant="primary" icon={<Download size={12} />} disabled={!exists || busy} onClick={() => void start()}>
           Export backup…
         </Button>
       </SettingRow>
@@ -75,7 +75,7 @@ export function BackupSection() {
         description="Restore a .nqbackup file. If a vault already exists here it will be replaced (a copy is kept)."
         keywords={["restore", "backup", "import", ".nqbackup", "recover"]}
       >
-        <Button size="sm" icon={<FileUp size={12} />} onClick={() => setRestoring(true)}>Import backup…</Button>
+        <Button className="settings-btn" size="sm" icon={<FileUp size={12} />} onClick={() => setRestoring(true)}>Import backup…</Button>
       </SettingRow>
 
       <SettingRow
@@ -136,7 +136,7 @@ function PasswordPrompt({ onCancel, onVerified }: { onCancel: () => void; onVeri
         <PasswordInput autoFocus autoComplete="current-password" value={pw} onChange={(e) => setPw(e.target.value)} />
         {error && <p role="alert" className="text-xs mt-2 text-[var(--color-danger)]">{error}</p>}
         <div className="flex justify-end gap-2 mt-4">
-          <Button type="button" onClick={onCancel}>Cancel</Button>
+          <Button className="settings-btn" type="button" onClick={onCancel}>Cancel</Button>
           <Button type="submit" variant="primary" disabled={busy}>{busy ? "Checking…" : "Continue"}</Button>
         </div>
       </form>

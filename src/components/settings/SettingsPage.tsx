@@ -176,7 +176,9 @@ export function SettingsPage({ tabId }: { tabId: string }) {
     return observeSections(
       root,
       () => Array.from(root.querySelectorAll<HTMLElement>("[data-section]")),
-      stickyOffset,
+      // A jump (nav click / deep link) leaves the target heading ~one heading-height below the header, so the
+      // reading line sits a little under the header: that section must already count as current.
+      () => stickyOffset() + 96,
       (id) => { if (Date.now() >= spyPausedUntil.current) setActive(id as SectionId); },
     );
   }, [shown, stickyOffset]);

@@ -80,9 +80,9 @@ export function HelloRow() {
         keywords={["windows hello", "fingerprint", "face", "pin", "biometric", "quick unlock", "unlock"]}
       >
         {status.enabled ? (
-          <Button size="sm" variant="ghost" disabled={busy} onClick={() => void disable()}>Turn off</Button>
+          <Button className="settings-btn" size="sm" variant="ghost" disabled={busy} onClick={() => void disable()}>Turn off</Button>
         ) : !asking ? (
-          <Button size="sm" disabled={!exists || !unlocked || busy} onClick={() => setAsking(true)}
+          <Button className="settings-btn" size="sm" disabled={!exists || !unlocked || busy} onClick={() => setAsking(true)}
                   title={unlocked ? undefined : "Unlock the vault first"}>
             Turn on
           </Button>
@@ -101,7 +101,7 @@ export function HelloRow() {
             <Button type="submit" size="sm" variant="primary" disabled={busy || !password}>
               {busy ? "Waiting for Windows Hello…" : "Turn on Windows Hello"}
             </Button>
-            <Button type="button" size="sm" disabled={busy} onClick={closeForm}>Cancel</Button>
+            <Button className="settings-btn" type="button" size="sm" disabled={busy} onClick={closeForm}>Cancel</Button>
           </div>
         </form>
       )}

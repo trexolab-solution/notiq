@@ -96,15 +96,15 @@ export const AutofillSection = React.memo(function AutofillSection() {
           ) : (
             <div className="flex items-center gap-2 rounded-md px-2 py-1.5 bg-[var(--color-bg)] border border-[var(--color-border)]">
               <code className="flex-1 min-w-0 truncate text-[11px] text-[var(--color-text)]" title={extDir ?? undefined}>{extDir ?? "…"}</code>
-              <Button size="sm" variant="ghost" aria-label="Copy folder path" disabled={!extDir}
+              <Button className="settings-btn" size="sm" variant="ghost" aria-label="Copy folder path" disabled={!extDir}
                       icon={<Copy size={12} />} onClick={() => extDir && void copy(extDir)}>{copied ? "Copied" : "Copy"}</Button>
             </div>
           )}
           <div className="flex flex-wrap items-center gap-2">
-            <Button size="sm" icon={<FolderOpen size={12} />} disabled={!extDir} onClick={() => void run(autofillOpenExtensionDir)}>Open folder</Button>
-            <Button size="sm" icon={<Globe size={12} />} onClick={() => void openBrowser("edge")}>Edge extensions</Button>
-            <Button size="sm" icon={<Globe size={12} />} onClick={() => void openBrowser("chrome")}>Chrome extensions</Button>
-            <Button size="sm" icon={<Globe size={12} />} onClick={() => void openBrowser("brave")}>Brave extensions</Button>
+            <Button className="settings-btn" size="sm" icon={<FolderOpen size={12} />} disabled={!extDir} onClick={() => void run(autofillOpenExtensionDir)}>Open folder</Button>
+            <Button className="settings-btn" size="sm" icon={<Globe size={12} />} onClick={() => void openBrowser("edge")}>Edge extensions</Button>
+            <Button className="settings-btn" size="sm" icon={<Globe size={12} />} onClick={() => void openBrowser("chrome")}>Chrome extensions</Button>
+            <Button className="settings-btn" size="sm" icon={<Globe size={12} />} onClick={() => void openBrowser("brave")}>Brave extensions</Button>
           </div>
           <p className="text-[11px] text-[var(--color-text-muted)]">
             After a Notiq update the files in this folder are refreshed; press the reload button on the extension's card in the
@@ -124,8 +124,8 @@ export const AutofillSection = React.memo(function AutofillSection() {
         }
       >
         <div className="flex items-center gap-2">
-          <Button size="sm" variant="ghost" onClick={() => void refresh()} aria-label="Refresh status"><RefreshCw size={12} /></Button>
-          <Button size="sm" icon={<Wrench size={12} />} disabled={busy || !status?.supported} onClick={() => void repair()}>
+          <Button className="settings-btn" size="sm" variant="ghost" onClick={() => void refresh()} aria-label="Refresh status"><RefreshCw size={12} /></Button>
+          <Button className="settings-btn" size="sm" icon={<Wrench size={12} />} disabled={busy || !status?.supported} onClick={() => void repair()}>
             {busy ? "Repairing…" : "Repair"}
           </Button>
         </div>

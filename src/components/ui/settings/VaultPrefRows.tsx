@@ -58,7 +58,7 @@ export function PanicShortcutRow() {
     >
       <div className="flex items-center gap-2">
         <kbd className={kbd}>{rec ? "Press keys…" : combo}</kbd>
-        <Button size="sm" onClick={() => { setErr(null); setRec((r) => !r); }}>{rec ? "Cancel" : "Change"}</Button>
+        <Button className="settings-btn" size="sm" onClick={() => { setErr(null); setRec((r) => !r); }}>{rec ? "Cancel" : "Change"}</Button>
       </div>
     </SettingRow>
   );
@@ -84,7 +84,7 @@ export function StorageFolderRow() {
       modified={custom}
       onReset={() => void resetVaultDir()}
     >
-      <Button size="sm" icon={<FolderOpen size={12} />} onClick={() => void pickVaultDir()}>Choose…</Button>
+      <Button className="settings-btn" size="sm" icon={<FolderOpen size={12} />} onClick={() => void pickVaultDir()}>Choose…</Button>
     </SettingRow>
   );
 }
@@ -124,7 +124,7 @@ export function PasswordGeneratorRow() {
           <div className="rounded-lg p-3 border border-[var(--color-border)] bg-[var(--color-bg-tertiary)] max-w-sm w-full">
             <PasswordOptionsForm value={opts} onChange={(o) => { setOpts(o); setPwOptions(o); }} />
           </div>
-          {optsModified && <Button size="sm" variant="ghost" onClick={resetOpts}>Reset to defaults</Button>}
+          {optsModified && <Button className="settings-btn" size="sm" variant="ghost" onClick={resetOpts}>Reset to defaults</Button>}
         </div>
       </SettingsBlock>
     </>
