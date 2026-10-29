@@ -24,13 +24,13 @@ export function recordSeenVersion(version: string = APP_VERSION): void {
 }
 
 /**
- * True only when a *previous, different* version was recorded — i.e. the app was
- * genuinely updated. A fresh install (or a pre-feature user with no stored
- * version) returns false, so the "What's New" note never greets a first-timer.
+ * True when this launch runs a different version than the last recorded one. Callers
+ * must already have ruled out a first-timer (tour not completed): a completed tour with
+ * no recorded version is a user who updated from a release that predates this record,
+ * and they should get the note too.
  */
 export function wasUpdated(current: string = APP_VERSION): boolean {
-  const seen = getLastSeenVersion();
-  return seen !== null && seen !== current;
+  return getLastSeenVersion() !== current;
 }
 
 /** Whether the first-run welcome tour has been completed or skipped. */
