@@ -108,6 +108,17 @@ impl VaultState {
         }
     }
 
+    /// The folder that holds vault.nqdb, once known.
+    pub(crate) fn root(&self) -> Option<PathBuf> {
+        self.store.lock().unwrap_or_else(|e| e.into_inner()).root.clone()
+    }
+
+    /// Drops the key and the cached database (used when the vault files are swapped out).
+    pub(crate) fn lock_all(&self) {
+        *self.guard() = None;
+        self.clear_db();
+    }
+
     fn clear_db(&self) {
         let mut st = self.store.lock().unwrap_or_else(|e| e.into_inner());
         st.db = None; // dropping zeroises the contents
@@ -129,12 +140,12 @@ pub struct VaultFile {
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
-fn meta_path(app: &AppHandle) -> Result<PathBuf, String> {
+pub(crate) fn meta_path(app: &AppHandle) -> Result<PathBuf, String> {
     let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
     Ok(dir.join(META_FILE))
 }
 
-fn load_meta(app: &AppHandle) -> Result<Option<VaultMeta>, String> {
+pub(crate) fn load_meta(app: &AppHandle) -> Result<Option<VaultMeta>, String> {
     match fs::read_to_string(meta_path(app)?) {
         Ok(s) => VaultMeta::from_json(&s).map(Some).map_err(|e| e.to_string()),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
@@ -142,7 +153,7 @@ fn load_meta(app: &AppHandle) -> Result<Option<VaultMeta>, String> {
     }
 }
 
-fn require_meta(app: &AppHandle) -> Result<VaultMeta, String> {
+pub(crate) fn require_meta(app: &AppHandle) -> Result<VaultMeta, String> {
     load_meta(app)?.ok_or_else(|| ERR_NO_VAULT.to_string())
 }
 
@@ -196,7 +207,7 @@ async fn blocking<T: Send + 'static>(
 
 /// Like `blocking`, but for operations that check a password / recovery key:
 /// refuses while throttled, counts wrong credentials, and resets on success.
-async fn guarded<T: Send + 'static>(
+pub(crate) async fn guarded<T: Send + 'static>(
     state: &VaultState,
     f: impl FnOnce() -> Result<T, VaultError> + Send + 'static,
 ) -> Result<T, String> {
