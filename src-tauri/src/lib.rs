@@ -4,6 +4,7 @@ use tauri::Manager;
 
 mod ai;
 pub mod autofill;
+mod native_host_reg; // 0.7.0 autofill
 mod vault;
 mod vault_core;
 mod vault_db;
@@ -666,6 +667,10 @@ pub fn run() {
         vault::vault_import_legacy,
         vault::vault_legacy_cleanup,
         autofill::autofill_reply,
+        // 0.7.0 autofill
+        autofill::autofill_ui_ready,
+        native_host_reg::autofill_status,
+        native_host_reg::autofill_repair,
     ]);
 
     #[cfg(not(desktop))]
@@ -703,6 +708,10 @@ pub fn run() {
         vault::vault_import_legacy,
         vault::vault_legacy_cleanup,
         autofill::autofill_reply,
+        // 0.7.0 autofill
+        autofill::autofill_ui_ready,
+        native_host_reg::autofill_status,
+        native_host_reg::autofill_repair,
     ]);
 
     #[cfg(desktop)]
