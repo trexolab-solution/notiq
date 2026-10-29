@@ -8,6 +8,7 @@ import { toast } from "../../lib/toast";
 import { useVaultStore, type VaultDialogMode } from "../../store/vaultStore";
 import { useAppStore } from "../../store";
 import { useVaultAutoLock } from "../../hooks/useVaultAutoLock";
+import { useVaultSessionLock } from "../../hooks/useVaultSessionLock";
 import {
   vaultCreate, vaultUnlock, vaultUnlockWithRecovery, vaultErrorMessage,
 } from "../../lib/vault";
@@ -21,6 +22,7 @@ export function VaultDialog() {
   // This component is mounted once for the whole app, so it also hosts the
   // vault's global behaviour (idle / close-to-tray auto-lock).
   useVaultAutoLock();
+  useVaultSessionLock();
   // key={mode} remounts on mode switch so passwords never leak between steps.
   return (
     mode ? <VaultDialogInner key={mode} mode={mode} /> : null

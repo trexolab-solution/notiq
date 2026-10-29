@@ -53,7 +53,8 @@ mod imp {
     use std::sync::OnceLock;
 
     use tauri::{AppHandle, Emitter};
-    use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
+    use windows_sys::Win32::Foundation::{HANDLE, HWND, LPARAM, LRESULT, WPARAM};
+    use windows_sys::Win32::System::Power::{RegisterSuspendResumeNotification, UnregisterSuspendResumeNotification};
     use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
     use windows_sys::Win32::System::RemoteDesktop::{
         WTSRegisterSessionNotification, WTSUnRegisterSessionNotification, NOTIFY_FOR_THIS_SESSION,
@@ -69,6 +70,10 @@ mod imp {
     static APP: OnceLock<AppHandle> = OnceLock::new();
     /// The message-only window (0 = none), so `Guard::drop` can ask it to close.
     static HWND_STORE: AtomicIsize = AtomicIsize::new(0);
+    /// Handle from RegisterSuspendResumeNotification (0 = none). A message-only window does NOT get the
+    /// broadcast WM_POWERBROADCAST, so suspend notifications have to be requested for it explicitly.
+    static POWER_STORE: AtomicIsize = AtomicIsize::new(0);
+    const DEVICE_NOTIFY_WINDOW_HANDLE: u32 = 0;
 
     /// Managed by Tauri; dropped when the app is torn down, which closes the window and ends the thread.
     pub struct Guard;
@@ -105,6 +110,10 @@ mod imp {
                 // SAFETY: registered below with the same hwnd, on the same thread.
                 unsafe {
                     WTSUnRegisterSessionNotification(hwnd);
+                    let power = POWER_STORE.swap(0, Ordering::AcqRel);
+                    if power != 0 {
+                        UnregisterSuspendResumeNotification(power as _);
+                    }
                     PostQuitMessage(0);
                 }
                 0
@@ -137,7 +146,13 @@ mod imp {
                 return;
             }
             if WTSRegisterSessionNotification(hwnd, NOTIFY_FOR_THIS_SESSION) == 0 {
-                eprintln!("session_lock: WTSRegisterSessionNotification failed (suspend events still work)");
+                eprintln!("session_lock: WTSRegisterSessionNotification failed (Win+L won't lock the vault)");
+            }
+            let power = RegisterSuspendResumeNotification(hwnd as HANDLE, DEVICE_NOTIFY_WINDOW_HANDLE);
+            if (power as isize) == 0 {
+                eprintln!("session_lock: RegisterSuspendResumeNotification failed (sleep won't lock the vault)");
+            } else {
+                POWER_STORE.store(power as isize, Ordering::Release);
             }
             HWND_STORE.store(hwnd as isize, Ordering::Release);
 
