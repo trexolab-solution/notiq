@@ -2,16 +2,25 @@ import { invoke } from "@tauri-apps/api/core";
 import { ensureVaultDir } from "./vaultDir";
 import { vaultList, vaultMkdir, vaultReadFile, vaultWriteFile, VAULT_CHANGED_EVENT } from "./vault";
 import { childNames, joinRel, nameError, normRel, toFull, uniqueName } from "./vaultTree";
-import { emptyLogin, hostOf, LOGIN_EXT, parseLogin, serializeLogin, totpCode, type LoginEntry } from "./loginEntry";
+import { emptyLogin, hostOf, LOGIN_EXT, loginUrls, parseLogin, serializeLogin, totpCode, type LoginEntry } from "./loginEntry";
+import { siteMatches } from "./publicSuffix";
+import { lookalikeOf, type Lookalike } from "./lookalike";
 
 /** `path` is the full path, `rel` the vault-relative one (forward slashes) used as the protocol's `account`. */
 export interface LoginMatch { path: string; rel?: string; entry: LoginEntry }
 
-/** `login.example.com` matches a login saved for `example.com`, never the reverse. */
+/**
+ * `login.example.com` matches a login saved for `example.com`, never the reverse.
+ * Public-suffix aware: a login saved for `co.uk` matches no `.co.uk` site; IP addresses and
+ * `localhost` match only exactly; ports are ignored. See `siteMatches` in publicSuffix.ts.
+ */
 export function hostMatches(pageHost: string, savedHost: string): boolean {
-  const p = pageHost.toLowerCase();
-  const s = savedHost.toLowerCase();
-  return !!s && (p === s || p.endsWith(`.${s}`));
+  return siteMatches(pageHost, savedHost);
+}
+
+/** True when any of the login's sites (`url` and every extra `urls` entry) matches `pageHost`. */
+export function entryMatches(pageHost: string, entry: Pick<LoginEntry, "url" | "urls">): boolean {
+  return loginUrls(entry).some((u) => hostMatches(pageHost, hostOf(u)));
 }
 
 async function listVaultFiles(): Promise<{ path: string; rel: string }[]> {
@@ -23,17 +32,31 @@ async function listVaultFiles(): Promise<{ path: string; rel: string }[]> {
 
 /** Saved logins whose site matches `pageHost`. Requires an unlocked vault. */
 export async function findLogins(pageHost: string): Promise<LoginMatch[]> {
-  const found: LoginMatch[] = [];
+  return (await scanLogins(pageHost)).matches;
+}
+
+/**
+ * Host-matched logins plus, when there are none, the saved site `pageHost` imitates (if any).
+ * The look-alike is only used to warn the user in the app: it never changes what is sent.
+ */
+export async function scanLogins(pageHost: string): Promise<{ matches: LoginMatch[]; lookalike: Lookalike | null }> {
+  const matches: LoginMatch[] = [];
+  const savedHosts = new Set<string>();
   for (const { path, rel } of await listVaultFiles()) {
     try {
       const f = await vaultReadFile(path);
       if (f.ext !== LOGIN_EXT) continue;
       const entry = parseLogin(f.content);
-      if (hostMatches(pageHost, hostOf(entry.url))) found.push({ path, rel, entry });
+      if (entryMatches(pageHost, entry)) matches.push({ path, rel, entry });
+      for (const u of loginUrls(entry)) { const h = hostOf(u); if (h) savedHosts.add(h); }
     } catch { /* unreadable file: skip */ }
   }
-  return found;
+  return { matches, lookalike: matches.length ? null : lookalikeOf(pageHost, [...savedHosts]) };
 }
+
+/** The in-app warning shown when a fill request came from a possible fake site. */
+export const lookalikeWarning = (pageHost: string, l: Lookalike) =>
+  `Blocked a possible fake site: ${pageHost} looks like ${l.saved}`;
 
 // ─── Fewer prompts: requested account + per-site trust window ────────────────
 

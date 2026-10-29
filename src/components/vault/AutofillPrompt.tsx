@@ -5,14 +5,20 @@ import { ShieldCheck } from "lucide-react";
 import { Modal } from "../ui/Modal";
 import { Button } from "../ui/Button";
 import { useVaultStore } from "../../store/vaultStore";
+import { toast } from "../../lib/toast";
 import {
-  clearTrust, credentialsFor, decideTrusted, findLogins, indexOfAccount, isTrusted, trustHost, type LoginMatch,
+  clearTrust, credentialsFor, decideTrusted, indexOfAccount, isTrusted, lookalikeWarning, scanLogins, trustHost,
+  type LoginMatch,
 } from "../../lib/autofill";
+import type { Lookalike } from "../../lib/lookalike";
 
 /** `account`: optional vault-relative path the extension asks for (from an earlier `choose` reply). */
 interface Req { id: string; host: string; account?: string }
 
 const reply = (id: string, payload: unknown) => invoke("autofill_reply", { id, payload });
+
+/** The page looks like a saved site but isn't one: the reply stays `no_match`; only the user is warned, in the app. */
+const warnLookalike = (host: string, l: Lookalike | null) => { if (l) toast.warning(lookalikeWarning(host, l), 12000); };
 
 /**
  * A browser extension asked to fill a login. Nothing is released until the vault is unlocked and the user presses
@@ -33,8 +39,9 @@ export function AutofillPrompt() {
       // Trust window: only while the vault is already unlocked; never a dialog, never more than host matches.
       if (vault.unlocked && isTrusted(r.host)) {
         try {
-          const d = decideTrusted(await findLogins(r.host), r.account);
-          if (d.kind === "no_match") await reply(r.id, { error: "no_match" });
+          const scan = await scanLogins(r.host);
+          const d = decideTrusted(scan.matches, r.account);
+          if (d.kind === "no_match") { await reply(r.id, { error: "no_match" }); warnLookalike(r.host, scan.lookalike); }
           else if (d.kind === "choose") await reply(r.id, { choose: d.options });
           else await reply(r.id, { ok: true, ...(await credentialsFor(d.match)) });
         } catch {
@@ -47,8 +54,8 @@ export function AutofillPrompt() {
         return;
       }
       try {
-        const found = await findLogins(r.host);
-        if (!found.length) { await reply(r.id, { error: "no_match" }); return; }
+        const { matches: found, lookalike } = await scanLogins(r.host);
+        if (!found.length) { await reply(r.id, { error: "no_match" }); warnLookalike(r.host, lookalike); return; }
         setMatches(found); setPick(Math.max(0, indexOfAccount(found, r.account))); setTrust(false); setReq(r);
       } catch {
         await reply(r.id, { error: "failed" });
