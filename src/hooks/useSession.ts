@@ -73,6 +73,11 @@ graph LR
 *This note is just a regular note — feel free to edit or delete it. Happy writing!*
 `;
 
+let resolveSessionLoaded: () => void = () => {};
+/** Settles once the saved session has been restored (or restoring failed) — anything that
+ *  opens tabs at startup must wait for it, because `hydrate` replaces the tab list. */
+export const sessionLoaded: Promise<void> = new Promise((r) => { resolveSessionLoaded = r; });
+
 export function useSession() {
   const hydrate = useAppStore((s) => s.hydrate);
   const addTab = useAppStore((s) => s.addTab);
@@ -94,7 +99,7 @@ export function useSession() {
     }).catch(() => {
       // Ensure the window still shows even if hydration fails
       useAppStore.setState({ sessionReady: true });
-    });
+    }).finally(resolveSessionLoaded);
   }, []); // Init-once: hydrate/addTab are stable Zustand actions
 
   // Flush any pending timers on window close — Notepad++ behaviour

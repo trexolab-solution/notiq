@@ -4,6 +4,7 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 
 import { useAppStore } from "../store";
 import { bootstrapAutostart } from "../lib/autostart";
+import { sessionLoaded } from "./useSession";
 import { isTourCompleted, wasUpdated, recordSeenVersion } from "../lib/firstRun";
 import { readFileEntry, type FileEntry } from "../lib/fileOps";
 import { WHATS_NEW } from "../config/whatsNew";
@@ -74,7 +75,7 @@ export function useAppStartup({
   // gets the tour (and silently records the version); an update opens the note.
   useEffect(() => {
     if (!isTourCompleted()) setShowTour(true);
-    else if (wasUpdated(APP_VERSION)) openWhatsNew();
+    else if (wasUpdated(APP_VERSION)) void sessionLoaded.then(openWhatsNew); // after restore, or hydrate() would drop it
     recordSeenVersion(APP_VERSION);
   }, [openWhatsNew]); // effectively run-once (openWhatsNew is stable)
 
