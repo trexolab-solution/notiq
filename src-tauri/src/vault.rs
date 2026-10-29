@@ -21,7 +21,7 @@ use tauri::{AppHandle, Manager, State};
 use zeroize::Zeroizing;
 
 use crate::vault_core::{self as vc, KdfParams, Throttle, VaultError, VaultKey, VaultMeta, VAULT_ID_LEN};
-use crate::vault_db::{self as vdb, Db, ListItem};
+use crate::vault_db::{self as vdb, AttachmentMeta, Db, ListItem, RevisionMeta};
 
 const META_FILE: &str = "vault.json";
 const NQV_EXT: &str = "nqv";
@@ -90,8 +90,8 @@ impl VaultState {
         };
         let dirty = dirty || purged;
         if dirty {
-            let saved = st.db.as_ref().expect("still loaded").seal(&u.key, &u.vault_id)
-                .and_then(|bytes| vdb::save(&root, &bytes));
+            // save_db keeps a one-time vault.nqdb.v1.bak when this save upgrades an older format.
+            let saved = vdb::save_db(&root, st.db.as_mut().expect("still loaded"), &u.key, &u.vault_id);
             if let Err(e) = saved { st.db = None; return Err(e); }
             st.stamp = fs::metadata(vdb::db_path(&root)).and_then(|m| m.modified()).ok();
         }
@@ -439,6 +439,104 @@ pub fn vault_rename(state: State<'_, VaultState>, from: String, to: String) -> R
     })
 }
 
+// ─── 0.7.0: revision history ─────────────────────────────────────────────────
+
+/// Earlier versions of a note, newest first (index 0). No content.
+#[tauri::command]
+pub fn vault_history_list(state: State<'_, VaultState>, path: String) -> Result<Vec<RevisionMeta>, String> {
+    state.with_db(|db, root, _, _| Ok((db.history_list(&vdb::rel_from_full(root, &path)?)?, false)))
+}
+
+#[tauri::command]
+pub fn vault_history_get(state: State<'_, VaultState>, path: String, index: u32) -> Result<VaultFile, String> {
+    state.with_db(|db, root, _, _| {
+        let r = db.history_get(&vdb::rel_from_full(root, &path)?, index as usize)?;
+        Ok((VaultFile { content: r.content.clone(), ext: r.ext.clone() }, false))
+    })
+}
+
+/// Makes revision `index` the current content; the current content becomes the newest revision.
+#[tauri::command]
+pub fn vault_history_restore(state: State<'_, VaultState>, path: String, index: u32) -> Result<(), String> {
+    state.with_db(|db, root, _, _| {
+        db.history_restore(&vdb::rel_from_full(root, &path)?, index as usize)?;
+        Ok(((), true))
+    })
+}
+
+// ─── 0.7.0: attachments (stored inside vault.nqdb) ───────────────────────────
+
+/// Attaches a file (`data_b64` = standard base64 of its bytes) to a note.
+#[tauri::command]
+pub fn vault_attach_add(state: State<'_, VaultState>, path: String, name: String, data_b64: String) -> Result<AttachmentMeta, String> {
+    let data_b64 = Zeroizing::new(data_b64);
+    state.with_db(|db, root, _, _| Ok((db.attach_add(&vdb::rel_from_full(root, &path)?, &name, &data_b64)?, true)))
+}
+
+#[tauri::command]
+pub fn vault_attach_list(state: State<'_, VaultState>, path: String) -> Result<Vec<AttachmentMeta>, String> {
+    state.with_db(|db, root, _, _| Ok((db.attach_list(&vdb::rel_from_full(root, &path)?)?, false)))
+}
+
+/// The attachment's bytes as standard base64.
+#[tauri::command]
+pub fn vault_attach_get(state: State<'_, VaultState>, path: String, id: String) -> Result<String, String> {
+    state.with_db(|db, root, _, _| Ok((db.attach_get(&vdb::rel_from_full(root, &path)?, &id)?.data.clone(), false)))
+}
+
+/// Refuses relative paths, a missing parent folder, the vault database or its backups,
+/// and an existing file unless `overwrite`.
+fn check_export_dest(root: &Path, dest: &Path, overwrite: bool) -> Result<(), String> {
+    if !dest.is_absolute() || dest.file_name().is_none() {
+        return Err("Choose a full file path to save the attachment to".into());
+    }
+    if !dest.parent().map(Path::is_dir).unwrap_or(false) {
+        return Err("The destination folder doesn't exist".into());
+    }
+    let name = dest.file_name().map(|n| n.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
+    let same_dir = |a: &Path, b: &Path| match (a.canonicalize(), b.canonicalize()) {
+        (Ok(x), Ok(y)) => x == y,
+        _ => false,
+    };
+    if name.starts_with(vdb::DB_FILE) && dest.parent().is_some_and(|p| same_dir(p, root)) {
+        return Err("Can't overwrite the vault database".into());
+    }
+    if dest.is_dir() {
+        return Err("The destination is a folder".into());
+    }
+    if dest.exists() && !overwrite {
+        return Err("A file with that name already exists".into());
+    }
+    Ok(())
+}
+
+/// Writes the attachment's decrypted bytes to `dest_path` (an absolute path the user chose).
+#[tauri::command]
+pub fn vault_attach_export(
+    state: State<'_, VaultState>,
+    path: String,
+    id: String,
+    dest_path: String,
+    overwrite: bool,
+) -> Result<(), String> {
+    state.with_db(|db, root, _, _| {
+        let a = db.attach_get(&vdb::rel_from_full(root, &path)?, &id)?;
+        let dest = PathBuf::from(&dest_path);
+        check_export_dest(root, &dest, overwrite)?;
+        let bytes = vdb::b64_decode(&a.data).ok_or("The attachment is damaged")?;
+        atomic_write(&dest, &bytes)?;
+        Ok(((), false))
+    })
+}
+
+#[tauri::command]
+pub fn vault_attach_remove(state: State<'_, VaultState>, path: String, id: String) -> Result<(), String> {
+    state.with_db(|db, root, _, _| {
+        db.attach_remove(&vdb::rel_from_full(root, &path)?, &id)?;
+        Ok(((), true))
+    })
+}
+
 // ─── default storage folder ──────────────────────────────────────────────────
 
 /// Where the vault lives when the user hasn't chosen a folder: the app-data folder next to
@@ -570,5 +668,21 @@ mod tests {
         assert_eq!(pick_default_dir(&app2, Some(&docs2)), docs2);
         assert_eq!(pick_default_dir(&app2, None), app2);
         for d in [app, docs, app2, docs2] { let _ = fs::remove_dir_all(d); }
+    }
+
+    #[test]
+    fn export_destination_is_validated() {
+        let (root, out) = (tmp("exp-root"), tmp("exp-out"));
+        let f = out.join("a.png");
+        assert!(check_export_dest(&root, &f, false).is_ok());
+        assert!(check_export_dest(&root, Path::new("a.png"), true).is_err(), "relative");
+        assert!(check_export_dest(&root, &out.join("missing").join("a.png"), true).is_err(), "no parent");
+        assert!(check_export_dest(&root, &out, true).is_err(), "a folder");
+        fs::write(&f, b"x").unwrap();
+        assert!(check_export_dest(&root, &f, false).is_err());
+        assert!(check_export_dest(&root, &f, true).is_ok());
+        assert!(check_export_dest(&root, &root.join(vdb::DB_FILE), true).is_err());
+        assert!(check_export_dest(&root, &root.join("VAULT.NQDB.bak.1"), true).is_err());
+        for d in [root, out] { let _ = fs::remove_dir_all(d); }
     }
 }

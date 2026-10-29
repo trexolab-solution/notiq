@@ -61,6 +61,10 @@ export interface VaultItem {
   starred: boolean;
   /** Set only for items in the Recycle Bin (ms since epoch). */
   trashed_at: number | null;
+  /** Number of attached files (0 for folders). */
+  attachments: number;
+  /** Number of stored earlier versions (0 for folders). */
+  history: number;
 }
 
 /** Fired after anything in the vault tree changed (create/rename/move/trash/…). */
@@ -79,6 +83,76 @@ export const vaultSetTags     = (path: string, tags: string[]) => invoke<void>("
 export const vaultSetStarred  = (path: string, starred: boolean) => invoke<void>("vault_set_starred", { path, starred }).then(changed);
 /** Resolves the new entry's full virtual path. */
 export const vaultDuplicate   = (path: string) => invoke<string>("vault_duplicate", { path }).then(changed);
+
+// ── Version history (0.7.0) ───────────────────────────────────────────────────
+// Up to 10 earlier versions per note, newest first; recorded when a save changes
+// the content or file type. Kept in the recycle bin, removed on permanent delete.
+
+/** One earlier version of a note (no content). */
+export interface VaultRevision {
+  /** 0 = newest. */
+  index: number;
+  /** When that version was saved, ms since epoch. */
+  updated: number;
+  ext: string;
+  /** Content size in bytes. */
+  size: number;
+}
+
+export const VAULT_MAX_HISTORY = 10;
+
+export const vaultHistoryList = (path: string) => invoke<VaultRevision[]>("vault_history_list", { path });
+export const vaultHistoryGet = (path: string, index: number) => invoke<VaultFile>("vault_history_get", { path, index });
+/** Makes version `index` current; the current content becomes the newest version. */
+export const vaultHistoryRestore = (path: string, index: number) =>
+  invoke<void>("vault_history_restore", { path, index }).then(changed);
+
+// ── Attachments (0.7.0) ───────────────────────────────────────────────────────
+// Stored encrypted inside vault.nqdb. Data travels as standard base64.
+
+/** An attached file's metadata (never its data). */
+export interface VaultAttachment {
+  /** 32 hex chars. */
+  id: string;
+  name: string;
+  mime: string;
+  /** Bytes. */
+  size: number;
+  /** ms since epoch. */
+  added: number;
+}
+
+export const VAULT_ATTACH_MAX_BYTES = 5 * 1024 * 1024;
+export const VAULT_ATTACH_MAX_TOTAL = 25 * 1024 * 1024;
+export const VAULT_ATTACH_MAX_PER_NOTE = 20;
+
+export const vaultAttachAdd = (path: string, name: string, dataB64: string) =>
+  invoke<VaultAttachment>("vault_attach_add", { path, name, dataB64 }).then(changed);
+export const vaultAttachList = (path: string) => invoke<VaultAttachment[]>("vault_attach_list", { path });
+/** Resolves the attachment's bytes as base64. */
+export const vaultAttachGet = (path: string, id: string) => invoke<string>("vault_attach_get", { path, id });
+/** Writes the decrypted file to an absolute `destPath`; rejects an existing file unless `overwrite`. */
+export const vaultAttachExport = (path: string, id: string, destPath: string, overwrite = false) =>
+  invoke<void>("vault_attach_export", { path, id, destPath, overwrite });
+export const vaultAttachRemove = (path: string, id: string) =>
+  invoke<void>("vault_attach_remove", { path, id }).then(changed);
+
+/** Bytes → standard base64 (chunked so large files don't overflow the call stack). */
+export function bytesToBase64(bytes: Uint8Array): string {
+  let bin = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  }
+  return btoa(bin);
+}
+
+/** Standard base64 → bytes. */
+export function base64ToBytes(b64: string): Uint8Array {
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
 
 export const vaultLegacyCount = () => invoke<number>("vault_legacy_count");
 export const vaultImportLegacy = () => invoke<number>("vault_import_legacy");

@@ -665,6 +665,15 @@ pub fn run() {
         vault::vault_legacy_count,
         vault::vault_import_legacy,
         vault::vault_legacy_cleanup,
+        // 0.7.0 db v2
+        vault::vault_history_list,
+        vault::vault_history_get,
+        vault::vault_history_restore,
+        vault::vault_attach_add,
+        vault::vault_attach_list,
+        vault::vault_attach_get,
+        vault::vault_attach_export,
+        vault::vault_attach_remove,
         autofill::autofill_reply,
     ]);
 
@@ -702,6 +711,15 @@ pub fn run() {
         vault::vault_legacy_count,
         vault::vault_import_legacy,
         vault::vault_legacy_cleanup,
+        // 0.7.0 db v2
+        vault::vault_history_list,
+        vault::vault_history_get,
+        vault::vault_history_restore,
+        vault::vault_attach_add,
+        vault::vault_attach_list,
+        vault::vault_attach_get,
+        vault::vault_attach_export,
+        vault::vault_attach_remove,
         autofill::autofill_reply,
     ]);
 

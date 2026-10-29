@@ -14,7 +14,7 @@ use std::{
 
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
-use zeroize::Zeroize;
+use zeroize::{Zeroize, Zeroizing};
 
 use crate::vault_core::{self as vc, VaultKey, VAULT_ID_LEN};
 
@@ -24,7 +24,87 @@ pub const DB_EXT: &str = "db";
 const BAK_PREFIX: &str = "vault.nqdb.bak";
 const BAK_KEEP: usize = 3;
 const BAK_EVERY_SECS: u64 = 10 * 60;
+/// One-time copy of a format-1 database, made before the first save that upgrades it.
+const V1_BAK: &str = "vault.nqdb.v1.bak";
 const NQV: &str = ".nqv";
+
+/// Current on-disk format. 1 = 0.6.0 (notes, folders, tags, stars, trash);
+/// 2 = 0.7.0 (+ per-entry revision history and attachments).
+pub const DB_VERSION: u32 = 2;
+/// Revisions kept per note (newest first).
+pub const MAX_HISTORY: usize = 10;
+pub const MAX_ATTACH_BYTES: u64 = 5 * 1024 * 1024;
+pub const MAX_ATTACH_TOTAL: u64 = 25 * 1024 * 1024;
+pub const MAX_ATTACH_PER_ENTRY: usize = 20;
+pub const MAX_ATTACH_NAME: usize = 120;
+
+/// An earlier version of a note's content.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct Revision {
+    /// Unix ms when this version was last saved.
+    pub updated: u64,
+    #[serde(default)]
+    pub ext: String,
+    #[serde(default)]
+    pub content: String,
+}
+
+impl Drop for Revision {
+    fn drop(&mut self) {
+        self.content.zeroize();
+    }
+}
+
+/// A file attached to a note, stored inside the encrypted database.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct Attachment {
+    /// 32 hex chars.
+    pub id: String,
+    pub name: String,
+    #[serde(default)]
+    pub mime: String,
+    /// Decoded size in bytes.
+    pub size: u64,
+    /// Unix ms when it was attached.
+    #[serde(default)]
+    pub added: u64,
+    /// Standard base64 (with padding) of the file's bytes.
+    #[serde(default)]
+    pub data: String,
+}
+
+impl Drop for Attachment {
+    fn drop(&mut self) {
+        self.data.zeroize();
+    }
+}
+
+/// What lists show for an attachment (never the data).
+#[derive(Serialize, Debug, PartialEq, Clone)]
+pub struct AttachmentMeta {
+    pub id: String,
+    pub name: String,
+    pub mime: String,
+    pub size: u64,
+    pub added: u64,
+}
+
+impl Attachment {
+    pub fn meta(&self) -> AttachmentMeta {
+        AttachmentMeta { id: self.id.clone(), name: self.name.clone(), mime: self.mime.clone(), size: self.size, added: self.added }
+    }
+}
+
+/// What lists show for a revision (never the content).
+#[derive(Serialize, Debug, PartialEq, Clone)]
+pub struct RevisionMeta {
+    /// 0 = newest.
+    pub index: u32,
+    pub updated: u64,
+    pub ext: String,
+    /// Content length in bytes (UTF-8).
+    pub size: u64,
+}
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Entry {
@@ -51,12 +131,41 @@ pub struct Entry {
     /// Unix ms when moved to the recycle bin; `Some` = trashed (hidden from normal views).
     #[serde(default)]
     pub trashed_at: Option<u64>,
+    /// Earlier contents, newest first, at most [`MAX_HISTORY`]. Never set on folders.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub history: Vec<Revision>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub attachments: Vec<Attachment>,
+}
+
+/// Dropping an entry (purge, empty trash, lock) wipes its content; revisions and
+/// attachments wipe themselves.
+impl Drop for Entry {
+    fn drop(&mut self) {
+        self.content.zeroize();
+    }
 }
 
 impl Entry {
+    fn blank(id: String, path: &str, dir: bool, updated: u64) -> Entry {
+        Entry {
+            id, path: path.into(), ext: String::new(), content: String::new(), updated, deleted: false, dir,
+            tags: vec![], starred: false, trashed_at: None, history: vec![], attachments: vec![],
+        }
+    }
+
     /// A live (not tombstoned, not trashed) entry.
     pub fn is_live(&self) -> bool {
         !self.deleted && self.trashed_at.is_none()
+    }
+
+    /// Saves the current (ext, content) as the newest revision before it is replaced.
+    /// Folders and empty content are not recorded; a repeat of the newest revision is skipped.
+    fn push_revision(&mut self) {
+        if self.dir || self.content.is_empty() { return; }
+        if self.history.first().is_some_and(|r| r.ext == self.ext && r.content == self.content) { return; }
+        self.history.insert(0, Revision { updated: self.updated, ext: self.ext.clone(), content: self.content.clone() });
+        self.history.truncate(MAX_HISTORY); // dropped revisions zeroise themselves
     }
 }
 
@@ -69,15 +178,12 @@ pub struct Db {
     /// Set once the old per-note `.nqv` files have been imported on this vault.
     #[serde(default)]
     pub legacy_imported: bool,
+    /// Format version the data was loaded from (not stored). Below [`DB_VERSION`], the
+    /// first save keeps a one-time copy of the old file (see [`save_db`]).
+    #[serde(skip)]
+    pub loaded_v: u32,
 }
-
-impl Drop for Db {
-    fn drop(&mut self) {
-        for e in self.entries.values_mut() {
-            e.content.zeroize();
-        }
-    }
-}
+// Zeroising on drop happens per entry (see `Drop for Entry`).
 
 #[derive(Serialize, Debug, PartialEq, Clone)]
 pub struct ListItem {
@@ -88,13 +194,22 @@ pub struct ListItem {
     pub tags: Vec<String>,
     pub starred: bool,
     pub trashed_at: Option<u64>,
+    /// Number of attachments (data is never listed).
+    pub attachments: u32,
+    /// Number of stored revisions.
+    pub history: u32,
 }
 
 fn item(e: &Entry) -> ListItem {
     ListItem {
         rel: e.path.clone(), ext: e.ext.clone(), updated: e.updated, dir: e.dir,
         tags: e.tags.clone(), starred: e.starred, trashed_at: e.trashed_at,
+        attachments: e.attachments.len() as u32, history: e.history.len() as u32,
     }
+}
+
+fn blank_dir(rel: &str, t: u64, trashed_at: Option<u64>) -> ListItem {
+    ListItem { rel: rel.into(), ext: String::new(), updated: t, dir: true, tags: vec![], starred: false, trashed_at, attachments: 0, history: 0 }
 }
 
 /// How long a trashed entry is kept before it is purged for good.
@@ -172,9 +287,7 @@ fn parent_dirs(rel: &str) -> impl Iterator<Item = String> + '_ {
 
 impl Db {
     pub fn new() -> Self {
-        let mut d = Db::default();
-        d.v = 1;
-        d
+        Db { v: DB_VERSION, loaded_v: DB_VERSION, ..Db::default() }
     }
 
     fn live_id(&self, rel: &str, dir: bool) -> Option<&str> {
@@ -200,13 +313,13 @@ impl Db {
             return Err("A folder with that name already exists".into());
         }
         let id = self.live_id(rel, false).map(str::to_string).unwrap_or_else(new_id);
-        let e = self.entries.entry(id.clone()).or_insert_with(|| Entry {
-            id, path: rel.into(), ext: String::new(), content: String::new(), updated: 0, deleted: false, dir: false,
-            tags: vec![], starred: false, trashed_at: None,
-        });
-        e.ext = ext.into();
-        e.content.zeroize();
-        e.content = content.into();
+        let e = self.entries.entry(id.clone()).or_insert_with(|| Entry::blank(id, rel, false, 0));
+        if e.ext != ext || e.content != content {
+            e.push_revision();
+            e.ext = ext.into();
+            e.content.zeroize();
+            e.content = content.into();
+        }
         e.updated = now_ms();
         Ok(())
     }
@@ -218,10 +331,7 @@ impl Db {
         if self.live_id(rel, true).is_some() { return Ok(()); }
         if self.live_id(rel, false).is_some() { return Err("A note with that name already exists".into()); }
         let id = new_id();
-        self.entries.insert(id.clone(), Entry {
-            id, path: rel.into(), ext: String::new(), content: String::new(), updated: now_ms(), deleted: false, dir: true,
-            tags: vec![], starred: false, trashed_at: None,
-        });
+        self.entries.insert(id.clone(), Entry::blank(id, rel, true, now_ms()));
         Ok(())
     }
 
@@ -276,9 +386,8 @@ impl Db {
     pub fn list(&self) -> Vec<ListItem> {
         let mut dirs: BTreeMap<String, ListItem> = BTreeMap::new();
         let mut out = vec![];
-        let blank = |rel: &str| ListItem { rel: rel.into(), ext: String::new(), updated: 0, dir: true, tags: vec![], starred: false, trashed_at: None };
         for e in self.entries.values().filter(|e| e.is_live()) {
-            for d in parent_dirs(&e.path) { dirs.entry(d.clone()).or_insert_with(|| blank(&d)); }
+            for d in parent_dirs(&e.path) { dirs.entry(d.clone()).or_insert_with(|| blank_dir(&d, 0, None)); }
             if e.dir { dirs.insert(e.path.clone(), item(e)); } else { out.push(item(e)); }
         }
         out.extend(dirs.into_values());
@@ -300,7 +409,7 @@ impl Db {
         }
         for (d, t) in implied {
             if out.contains_key(&(d.clone(), true)) || self.occupied(&d) { continue; }
-            out.insert((d.clone(), true), ListItem { rel: d, ext: String::new(), updated: t, dir: true, tags: vec![], starred: false, trashed_at: Some(t) });
+            out.insert((d.clone(), true), blank_dir(&d, t, Some(t)));
         }
         let mut v: Vec<ListItem> = out.into_values().collect();
         v.sort_by(|a, b| a.rel.to_lowercase().cmp(&b.rel.to_lowercase()));
@@ -357,7 +466,7 @@ impl Db {
     fn remove_where(&mut self, f: impl Fn(&Entry) -> bool) -> usize {
         let ids: Vec<String> = self.entries.values().filter(|e| f(e)).map(|e| e.id.clone()).collect();
         for id in &ids {
-            if let Some(mut e) = self.entries.remove(id) { e.content.zeroize(); }
+            self.entries.remove(id); // Drop zeroises content, history and attachments
         }
         ids.len()
     }
@@ -397,13 +506,191 @@ impl Db {
     }
 
     /// Copy a note to "<name> (copy).nqv" (then "(copy 2)" …); returns the new rel path.
+    /// The copy starts without history or attachments.
     pub fn duplicate(&mut self, rel: &str) -> Result<String, String> {
-        let src = self.get(rel).ok_or("Only notes can be duplicated")?.clone();
+        let src = self.get(rel).ok_or("Only notes can be duplicated")?;
+        let (ext, content, tags) = (src.ext.clone(), Zeroizing::new(src.content.clone()), src.tags.clone());
         let to = (1u64..).map(|n| variant_path(rel, "copy", n, true)).find(|c| !self.occupied(c)).expect("unbounded");
-        self.put(&to, &src.ext, &src.content)?;
-        self.set_tags(&to, src.tags.clone())?;
+        self.put(&to, &ext, &content)?;
+        self.set_tags(&to, tags)?;
         Ok(to)
     }
+
+    fn live_file(&self, rel: &str) -> Result<&Entry, String> {
+        self.get(rel).ok_or_else(|| "This note no longer exists in the vault".to_string())
+    }
+
+    fn live_file_mut(&mut self, rel: &str) -> Result<&mut Entry, String> {
+        let id = self.live_id(rel, false).ok_or("This note no longer exists in the vault")?.to_string();
+        Ok(self.entries.get_mut(&id).expect("live id"))
+    }
+
+    // ─── history ─────────────────────────────────────────────────────────────
+
+    pub fn history_list(&self, rel: &str) -> Result<Vec<RevisionMeta>, String> {
+        Ok(self.live_file(rel)?.history.iter().enumerate().map(|(i, r)| RevisionMeta {
+            index: i as u32, updated: r.updated, ext: r.ext.clone(), size: r.content.len() as u64,
+        }).collect())
+    }
+
+    pub fn history_get(&self, rel: &str, index: usize) -> Result<&Revision, String> {
+        self.live_file(rel)?.history.get(index).ok_or_else(|| "That version no longer exists".to_string())
+    }
+
+    /// Brings back revision `index`; the current content becomes the newest revision.
+    pub fn history_restore(&mut self, rel: &str, index: usize) -> Result<(), String> {
+        let r = self.history_get(rel, index)?;
+        let (ext, content) = (r.ext.clone(), Zeroizing::new(r.content.clone()));
+        self.put(rel, &ext, &content)
+    }
+
+    // ─── attachments ─────────────────────────────────────────────────────────
+
+    /// Bytes of attachment data held by the whole vault (recycle bin included).
+    pub fn attachments_total(&self) -> u64 {
+        self.entries.values().flat_map(|e| e.attachments.iter()).map(|a| a.size).sum()
+    }
+
+    pub fn attach_add(&mut self, rel: &str, name: &str, data_b64: &str) -> Result<AttachmentMeta, String> {
+        let name = sanitize_attachment_name(name)?;
+        if self.live_file(rel)?.attachments.len() >= MAX_ATTACH_PER_ENTRY {
+            return Err(format!("A note can have at most {MAX_ATTACH_PER_ENTRY} attachments"));
+        }
+        let too_big = || format!("Attachments can be at most {} MB each", MAX_ATTACH_BYTES / (1024 * 1024));
+        // Refuse oversized input before decoding it.
+        if data_b64.len() as u64 > MAX_ATTACH_BYTES.div_ceil(3) * 4 + 4 { return Err(too_big()); }
+        let bytes = b64_decode(data_b64).ok_or("The attachment data isn't valid base64")?;
+        let size = bytes.len() as u64;
+        if size > MAX_ATTACH_BYTES { return Err(too_big()); }
+        let used = self.attachments_total();
+        if used + size > MAX_ATTACH_TOTAL {
+            return Err(format!(
+                "The vault can hold at most {} MB of attachments ({:.1} MB already used)",
+                MAX_ATTACH_TOTAL / (1024 * 1024), used as f64 / (1024.0 * 1024.0)
+            ));
+        }
+        let now = now_ms();
+        let a = Attachment { id: new_id(), mime: guess_mime(&name).into(), name, size, added: now, data: b64_encode(&bytes) };
+        let meta = a.meta();
+        let e = self.live_file_mut(rel)?;
+        e.attachments.push(a);
+        e.updated = now;
+        Ok(meta)
+    }
+
+    pub fn attach_list(&self, rel: &str) -> Result<Vec<AttachmentMeta>, String> {
+        Ok(self.live_file(rel)?.attachments.iter().map(Attachment::meta).collect())
+    }
+
+    pub fn attach_get(&self, rel: &str, id: &str) -> Result<&Attachment, String> {
+        self.live_file(rel)?.attachments.iter().find(|a| a.id == id).ok_or_else(|| "That attachment no longer exists".to_string())
+    }
+
+    pub fn attach_remove(&mut self, rel: &str, id: &str) -> Result<(), String> {
+        let e = self.live_file_mut(rel)?;
+        let i = e.attachments.iter().position(|a| a.id == id).ok_or("That attachment no longer exists")?;
+        e.attachments.remove(i); // zeroised on drop
+        e.updated = now_ms();
+        Ok(())
+    }
+}
+
+// ─── attachment helpers ──────────────────────────────────────────────────────
+
+/// Keeps only the last path component, drops control chars, replaces characters that
+/// aren't allowed in file names, trims, and caps the length (keeping a short extension).
+pub fn sanitize_attachment_name(name: &str) -> Result<String, String> {
+    let base = name.rsplit(['/', '\\']).next().unwrap_or("");
+    let cleaned: String = base
+        .chars()
+        .filter(|c| !c.is_control())
+        .map(|c| if matches!(c, ':' | '*' | '?' | '"' | '<' | '>' | '|') { '_' } else { c })
+        .collect();
+    let cleaned = cleaned.trim().trim_end_matches(['.', ' ']).to_string();
+    if cleaned.is_empty() { return Err("The attachment needs a file name".into()); }
+    if cleaned.chars().count() <= MAX_ATTACH_NAME { return Ok(cleaned); }
+    let ext = cleaned.rfind('.').filter(|&i| i > 0).map(|i| &cleaned[i..]).filter(|x| x.chars().count() <= 17).unwrap_or("");
+    let stem: String = cleaned[..cleaned.len() - ext.len()].chars().take(MAX_ATTACH_NAME - ext.chars().count()).collect();
+    Ok(format!("{}{ext}", stem.trim_end()))
+}
+
+/// MIME type from the file extension; `application/octet-stream` when unknown.
+pub fn guess_mime(name: &str) -> &'static str {
+    let ext = name.rsplit_once('.').map(|(_, e)| e.to_ascii_lowercase()).unwrap_or_default();
+    match ext.as_str() {
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "svg" => "image/svg+xml",
+        "bmp" => "image/bmp",
+        "ico" => "image/x-icon",
+        "pdf" => "application/pdf",
+        "txt" | "log" => "text/plain",
+        "md" => "text/markdown",
+        "csv" => "text/csv",
+        "html" | "htm" => "text/html",
+        "json" => "application/json",
+        "xml" => "application/xml",
+        "zip" => "application/zip",
+        "gz" => "application/gzip",
+        "7z" => "application/x-7z-compressed",
+        "tar" => "application/x-tar",
+        "mp3" => "audio/mpeg",
+        "wav" => "audio/wav",
+        "mp4" => "video/mp4",
+        "webm" => "video/webm",
+        "doc" => "application/msword",
+        "docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "xls" => "application/vnd.ms-excel",
+        "xlsx" => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "ppt" => "application/vnd.ms-powerpoint",
+        "pptx" => "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        "pem" | "crt" | "cer" | "key" => "application/x-pem-file",
+        _ => "application/octet-stream",
+    }
+}
+
+const B64: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+/// Standard base64 with padding.
+pub fn b64_encode(b: &[u8]) -> String {
+    let mut s = String::with_capacity(b.len().div_ceil(3) * 4);
+    for ch in b.chunks(3) {
+        let n = (ch[0] as u32) << 16 | (*ch.get(1).unwrap_or(&0) as u32) << 8 | *ch.get(2).unwrap_or(&0) as u32;
+        s.push(B64[(n >> 18 & 63) as usize] as char);
+        s.push(B64[(n >> 12 & 63) as usize] as char);
+        s.push(if ch.len() > 1 { B64[(n >> 6 & 63) as usize] as char } else { '=' });
+        s.push(if ch.len() > 2 { B64[(n & 63) as usize] as char } else { '=' });
+    }
+    s
+}
+
+/// Standard base64; padding optional, no whitespace. `None` when malformed.
+pub fn b64_decode(s: &str) -> Option<Zeroizing<Vec<u8>>> {
+    let body = s.trim_end_matches('=');
+    let pad = s.len() - body.len();
+    if pad > 2 || (pad > 0 && s.len() % 4 != 0) || body.len() % 4 == 1 { return None; }
+    let mut out = Zeroizing::new(Vec::with_capacity(body.len() * 3 / 4));
+    let (mut acc, mut bits) = (0u32, 0u32);
+    for &c in body.as_bytes() {
+        let v = match c {
+            b'A'..=b'Z' => c - b'A',
+            b'a'..=b'z' => c - b'a' + 26,
+            b'0'..=b'9' => c - b'0' + 52,
+            b'+' => 62,
+            b'/' => 63,
+            _ => return None,
+        };
+        acc = (acc << 6) | v as u32;
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            out.push((acc >> bits) as u8);
+            acc &= (1 << bits) - 1;
+        }
+    }
+    Some(out)
 }
 
 // ─── sealed form ─────────────────────────────────────────────────────────────
@@ -418,7 +705,11 @@ impl Db {
     pub fn open(key: &VaultKey, vault_id: &[u8; VAULT_ID_LEN], bytes: &[u8]) -> Result<Option<Db>, String> {
         let (ext, plain) = vc::open(key, vault_id, bytes).map_err(|e| e.to_string())?;
         if ext != DB_EXT { return Ok(None); }
-        serde_json::from_slice(&plain).map(Some).map_err(|_| "The vault database is corrupted".to_string())
+        let mut db: Db = serde_json::from_slice(&plain).map_err(|_| "The vault database is corrupted".to_string())?;
+        // Older formats load through serde defaults; the next save writes the current one.
+        db.loaded_v = db.v;
+        db.v = DB_VERSION;
+        Ok(Some(db))
     }
 }
 
@@ -426,6 +717,10 @@ impl Db {
 
 pub fn db_path(root: &Path) -> PathBuf {
     root.join(DB_FILE)
+}
+
+pub fn v1_bak_path(root: &Path) -> PathBuf {
+    root.join(V1_BAK)
 }
 
 fn bak_path(root: &Path, n: usize) -> PathBuf {
@@ -480,6 +775,22 @@ pub fn save(root: &Path, bytes: &[u8]) -> Result<(), String> {
         }
     }
     crate::vault::atomic_write(&main, bytes)
+}
+
+/// Seals `db` and writes it (see [`save`]). The first save of a database loaded from an
+/// older format first copies the existing file to `vault.nqdb.v1.bak` (never overwriting
+/// one that is already there), so the upgrade can always be undone by hand.
+pub fn save_db(root: &Path, db: &mut Db, key: &VaultKey, vault_id: &[u8; VAULT_ID_LEN]) -> Result<(), String> {
+    let bytes = db.seal(key, vault_id)?;
+    if db.loaded_v < DB_VERSION {
+        let (main, bak) = (db_path(root), v1_bak_path(root));
+        if main.exists() && !bak.exists() {
+            fs::copy(&main, &bak).map_err(|e| format!("Couldn't back up the old vault database before upgrading it: {e}"))?;
+        }
+    }
+    save(root, &bytes)?;
+    db.loaded_v = DB_VERSION;
+    Ok(())
 }
 
 // ─── tests ───────────────────────────────────────────────────────────────────
@@ -744,6 +1055,262 @@ mod tests {
         fs::copy(db_path(&dir), bak_path(&dir, 1)).unwrap();
         fs::write(db_path(&dir), b"garbage").unwrap();
         assert_eq!(load(&dir, &k, &id).unwrap().get("a.nqv").unwrap().content, "x");
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    // ─── 0.7.0: format v2 (history + attachments) ────────────────────────────
+
+    fn tmpdir(tag: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!("nqdb-{tag}-{}", new_id()));
+        fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    /// A 0.6.0 database exactly as that version wrote it.
+    const V1_FIXTURE: &str = r#"{"v":1,"entries":{
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa":{"id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","path":"Work/plan.nqv","ext":"md","content":"the plan","updated":1700000000000,"deleted":false,"dir":false,"tags":["work"],"starred":true,"trashed_at":null},
+        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb":{"id":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","path":"Work","ext":"","content":"","updated":1700000000000,"deleted":false,"dir":true,"tags":[],"starred":false,"trashed_at":null},
+        "cccccccccccccccccccccccccccccccc":{"id":"cccccccccccccccccccccccccccccccc","path":"old.nqv","ext":"login","content":"{}","updated":1700000000001,"deleted":false,"dir":false,"tags":[],"starred":false,"trashed_at":4102444800000}
+    },"legacy_imported":true}"#;
+
+    #[test]
+    fn v1_file_loads_and_first_upgrading_save_keeps_a_one_time_backup() {
+        let (k, id) = keys();
+        let dir = tmpdir("mig");
+        let v1 = vc::seal(&k, &id, DB_EXT, V1_FIXTURE.as_bytes()).unwrap();
+        fs::write(db_path(&dir), &v1).unwrap();
+
+        let mut db = load(&dir, &k, &id).unwrap();
+        assert_eq!((db.loaded_v, db.v), (1, DB_VERSION));
+        let e = db.get("Work/plan.nqv").unwrap();
+        assert!(e.content == "the plan" && e.tags == vec!["work"] && e.starred && e.history.is_empty() && e.attachments.is_empty());
+        assert!(db.legacy_imported);
+        assert_eq!(db.list_trash()[0].rel, "old.nqv");
+        let li = db.list();
+        assert!(li.iter().all(|i| i.attachments == 0 && i.history == 0));
+        assert!(!v1_bak_path(&dir).exists(), "loading alone writes nothing");
+
+        db.put("Work/plan.nqv", "md", "the new plan").unwrap();
+        save_db(&dir, &mut db, &k, &id).unwrap();
+        assert_eq!(fs::read(v1_bak_path(&dir)).unwrap(), v1, "backup is the untouched v1 file");
+        assert_eq!(db.loaded_v, DB_VERSION);
+
+        let back = load(&dir, &k, &id).unwrap();
+        assert_eq!(back.loaded_v, DB_VERSION);
+        let e = back.get("Work/plan.nqv").unwrap();
+        assert_eq!(e.content, "the new plan");
+        assert_eq!(e.history[0].content, "the plan");
+
+        // An existing .v1.bak is never overwritten, even by another upgrade.
+        fs::write(v1_bak_path(&dir), b"keep me").unwrap();
+        let mut db: Db = serde_json::from_str(V1_FIXTURE).unwrap();
+        db.loaded_v = 1;
+        save_db(&dir, &mut db, &k, &id).unwrap();
+        assert_eq!(fs::read(v1_bak_path(&dir)).unwrap(), b"keep me");
+        // A v2 database never makes one.
+        let dir2 = tmpdir("mig2");
+        let mut db = Db::new();
+        db.put("a.nqv", "md", "x").unwrap();
+        save_db(&dir2, &mut db, &k, &id).unwrap();
+        save_db(&dir2, &mut db, &k, &id).unwrap();
+        assert!(!v1_bak_path(&dir2).exists());
+        fs::remove_dir_all(&dir).ok();
+        fs::remove_dir_all(&dir2).ok();
+    }
+
+    #[test]
+    fn v2_round_trips_and_unknown_future_fields_are_ignored() {
+        let (k, id) = keys();
+        let mut db = Db::new();
+        db.put("a.nqv", "md", "1").unwrap();
+        db.put("a.nqv", "md", "2").unwrap();
+        let m = db.attach_add("a.nqv", "k.pem", &b64_encode(b"-----KEY-----")).unwrap();
+        let back = Db::open(&k, &id, &db.seal(&k, &id).unwrap()).unwrap().unwrap();
+        let e = back.get("a.nqv").unwrap();
+        assert_eq!(e.history, db.get("a.nqv").unwrap().history);
+        assert_eq!(e.attachments, db.get("a.nqv").unwrap().attachments);
+        assert_eq!(back.attach_list("a.nqv").unwrap(), vec![m]);
+
+        let future = r#"{"v":3,"newTopLevel":{"x":1},"entries":{"i1":{"id":"i1","path":"a.nqv","ext":"md","content":"x","updated":5,
+            "colour":"red","history":[{"updated":1,"ext":"md","content":"o","author":"me"}],
+            "attachments":[{"id":"0123456789abcdef0123456789abcdef","name":"f.txt","mime":"text/plain","size":2,"added":3,"data":"aGk=","sha":"zz"}]}}}"#;
+        let sealed = vc::seal(&k, &id, DB_EXT, future.as_bytes()).unwrap();
+        let db = Db::open(&k, &id, &sealed).unwrap().unwrap();
+        let e = db.get("a.nqv").unwrap();
+        assert_eq!(e.history[0].content, "o");
+        assert_eq!(b64_decode(&db.attach_get("a.nqv", "0123456789abcdef0123456789abcdef").unwrap().data).unwrap().as_slice(), b"hi");
+    }
+
+    #[test]
+    fn history_records_changes_dedupes_and_caps() {
+        let mut db = Db::new();
+        db.put("a.nqv", "md", "").unwrap();
+        db.put("a.nqv", "md", "v0").unwrap();
+        assert!(db.get("a.nqv").unwrap().history.is_empty(), "empty content isn't a revision");
+        db.put("a.nqv", "md", "v0").unwrap();
+        assert!(db.get("a.nqv").unwrap().history.is_empty(), "unchanged save isn't a revision");
+        db.put("a.nqv", "txt", "v0").unwrap();
+        assert_eq!(db.history_list("a.nqv").unwrap().len(), 1, "an ext change is a revision");
+        for i in 1..=15 { db.put("a.nqv", "md", &format!("v{i}")).unwrap(); }
+        let h = db.history_list("a.nqv").unwrap();
+        assert_eq!(h.len(), MAX_HISTORY);
+        assert_eq!(db.history_get("a.nqv", 0).unwrap().content, "v14", "newest first");
+        assert_eq!(db.history_get("a.nqv", 9).unwrap().content, "v5", "oldest dropped");
+        assert_eq!((h[0].index, h[0].size, h[0].ext.as_str()), (0, 3, "md"));
+        assert!(db.history_get("a.nqv", 10).is_err());
+        assert_eq!(db.list()[0].history, 10);
+
+        // dedupe against the newest revision: a -> b -> a -> b keeps alternating, but
+        // re-saving the same previous content twice in a row is skipped
+        let mut db = Db::new();
+        db.put("b.nqv", "md", "x").unwrap();
+        db.put("b.nqv", "md", "y").unwrap();
+        db.entries.values_mut().next().unwrap().content = "x".into(); // newest revision == current
+        db.put("b.nqv", "md", "z").unwrap();
+        assert_eq!(db.get("b.nqv").unwrap().history.len(), 1);
+
+        // folders never get history
+        db.mkdir("D").unwrap();
+        assert!(db.entries.values().filter(|e| e.dir).all(|e| e.history.is_empty()));
+    }
+
+    #[test]
+    fn history_restore_makes_current_a_revision() {
+        let mut db = Db::new();
+        db.put("a.nqv", "md", "one").unwrap();
+        db.put("a.nqv", "md", "two").unwrap();
+        db.put("a.nqv", "md", "three").unwrap();
+        db.history_restore("a.nqv", 1).unwrap(); // "one"
+        let e = db.get("a.nqv").unwrap();
+        assert_eq!(e.content, "one");
+        assert_eq!(e.history.iter().map(|r| r.content.as_str()).collect::<Vec<_>>(), vec!["three", "two", "one"]);
+        assert!(db.history_restore("a.nqv", 99).is_err() && db.history_restore("x.nqv", 0).is_err());
+    }
+
+    #[test]
+    fn trash_keeps_history_and_attachments_duplicate_copies_neither() {
+        let mut db = Db::new();
+        db.put("a.nqv", "md", "1").unwrap();
+        db.put("a.nqv", "md", "2").unwrap();
+        db.attach_add("a.nqv", "f.txt", &b64_encode(b"hi")).unwrap();
+        let d = db.duplicate("a.nqv").unwrap();
+        let c = db.get(&d).unwrap();
+        assert!(c.history.is_empty() && c.attachments.is_empty() && c.content == "2");
+        db.trash("a.nqv").unwrap();
+        let t = db.list_trash();
+        assert_eq!((t[0].history, t[0].attachments), (1, 1));
+        assert!(db.history_list("a.nqv").is_err(), "trashed notes aren't reachable by path");
+        db.restore("a.nqv").unwrap();
+        assert_eq!(db.history_list("a.nqv").unwrap().len(), 1);
+        assert_eq!(db.attach_list("a.nqv").unwrap().len(), 1);
+    }
+
+    #[test]
+    fn purge_empty_trash_and_expiry_remove_history_and_attachments() {
+        let mut db = Db::new();
+        for n in ["a", "b", "c"] {
+            let rel = format!("{n}.nqv");
+            db.put(&rel, "md", "1").unwrap();
+            db.put(&rel, "md", "2").unwrap();
+            db.attach_add(&rel, "f.bin", &b64_encode(&[7u8; 1000])).unwrap();
+        }
+        assert_eq!(db.attachments_total(), 3000);
+        db.trash("a.nqv").unwrap();
+        db.purge("a.nqv").unwrap();
+        db.trash_at("b.nqv", 1).unwrap();
+        db.purge_expired(TRASH_KEEP_MS + 10);
+        db.trash("c.nqv").unwrap();
+        db.empty_trash();
+        assert!(db.entries.is_empty());
+        assert_eq!(db.attachments_total(), 0);
+    }
+
+    #[test]
+    fn attachment_add_list_get_remove_and_limits() {
+        let mut db = Db::new();
+        db.put("a.nqv", "md", "x").unwrap();
+        let m = db.attach_add("a.nqv", "C:\\Users\\me\\Photo.PNG", &b64_encode(b"\x89PNG")).unwrap();
+        assert_eq!((m.name.as_str(), m.mime.as_str(), m.size), ("Photo.PNG", "image/png", 4));
+        assert_eq!(m.id.len(), 32);
+        assert!(m.id.chars().all(|c| c.is_ascii_hexdigit()));
+        assert_eq!(db.attach_add("a.nqv", "blob", "AA==").unwrap().mime, "application/octet-stream");
+        assert_eq!(db.attach_list("a.nqv").unwrap().len(), 2);
+        assert_eq!(db.list()[0].attachments, 2);
+        let listed = serde_json::to_string(&db.list()).unwrap() + &serde_json::to_string(&db.attach_list("a.nqv").unwrap()).unwrap();
+        assert!(!listed.contains("iVBO") && !listed.contains("\"data\""), "lists never carry data");
+        assert_eq!(b64_decode(&db.attach_get("a.nqv", &m.id).unwrap().data).unwrap().as_slice(), b"\x89PNG");
+        db.attach_remove("a.nqv", &m.id).unwrap();
+        assert!(db.attach_get("a.nqv", &m.id).is_err() && db.attach_remove("a.nqv", &m.id).is_err());
+
+        // errors
+        assert!(db.attach_add("a.nqv", "x.txt", "not base64!").unwrap_err().contains("base64"));
+        assert!(db.attach_add("a.nqv", " / ", "AA==").is_err());
+        assert!(db.attach_add("missing.nqv", "x", "AA==").is_err());
+        db.mkdir("D").unwrap();
+        assert!(db.attach_add("D", "x", "AA==").is_err(), "folders can't hold attachments");
+        let big = b64_encode(&vec![0u8; MAX_ATTACH_BYTES as usize + 1]);
+        assert!(db.attach_add("a.nqv", "big", &big).unwrap_err().contains("5 MB"));
+        assert!(db.attach_add("a.nqv", "big", &(big + "AAAA")).unwrap_err().contains("5 MB"));
+
+        // per-entry count
+        for i in 0..(MAX_ATTACH_PER_ENTRY - 1) { db.attach_add("a.nqv", &format!("{i}"), "AA==").unwrap(); }
+        assert!(db.attach_add("a.nqv", "one-more", "AA==").unwrap_err().contains("20"));
+
+        // vault-wide total
+        let mut db = Db::new();
+        let four = b64_encode(&vec![1u8; 4 * 1024 * 1024]);
+        for i in 0..6 {
+            let rel = format!("n{i}.nqv");
+            db.put(&rel, "md", "x").unwrap();
+            db.attach_add(&rel, "f", &four).unwrap();
+        }
+        db.put("last.nqv", "md", "x").unwrap();
+        assert!(db.attach_add("last.nqv", "f", &four).unwrap_err().contains("25 MB"));
+        db.attach_add("last.nqv", "f", &b64_encode(&vec![1u8; 1024 * 1024])).unwrap(); // exactly 25 MB
+        assert_eq!(db.attachments_total(), MAX_ATTACH_TOTAL);
+    }
+
+    #[test]
+    fn attachment_names_are_sanitised() {
+        assert_eq!(sanitize_attachment_name("../../etc/passwd").unwrap(), "passwd");
+        assert_eq!(sanitize_attachment_name("a\u{0}b\nc:d?.txt. ").unwrap(), "abc_d_.txt");
+        assert_eq!(sanitize_attachment_name(".env").unwrap(), ".env");
+        assert!(sanitize_attachment_name("..").is_err() && sanitize_attachment_name("dir/").is_err());
+        let long = format!("{}.tar.gz", "n".repeat(300));
+        let s = sanitize_attachment_name(&long).unwrap();
+        assert_eq!(s.chars().count(), MAX_ATTACH_NAME);
+        assert!(s.ends_with(".gz") && s.starts_with("nnn"));
+        assert_eq!(sanitize_attachment_name(&"é".repeat(200)).unwrap().chars().count(), MAX_ATTACH_NAME);
+    }
+
+    #[test]
+    fn base64_matches_the_standard_vectors() {
+        for (raw, enc) in [("", ""), ("f", "Zg=="), ("fo", "Zm8="), ("foo", "Zm9v"), ("foob", "Zm9vYg=="), ("fooba", "Zm9vYmE="), ("foobar", "Zm9vYmFy")] {
+            assert_eq!(b64_encode(raw.as_bytes()), enc);
+            assert_eq!(b64_decode(enc).unwrap().as_slice(), raw.as_bytes());
+        }
+        assert_eq!(b64_decode("Zm8").unwrap().as_slice(), b"fo", "padding optional");
+        assert!(b64_decode("Zm9vY").is_none() && b64_decode("Zg===").is_none() && b64_decode("Zm8=Zm8=").is_none() && b64_decode("Zm 9v").is_none());
+        let all: Vec<u8> = (0..=255u8).collect();
+        assert_eq!(b64_decode(&b64_encode(&all)).unwrap().as_slice(), all.as_slice());
+    }
+
+    #[test]
+    fn four_mb_attachment_round_trips_through_seal_and_disk() {
+        let (k, id) = keys();
+        let dir = tmpdir("big");
+        let data: Vec<u8> = (0..4 * 1024 * 1024u32).map(|i| (i.wrapping_mul(2654435761) >> 13) as u8).collect();
+        let mut db = Db::new();
+        db.put("a.nqv", "md", "x").unwrap();
+        let m = db.attach_add("a.nqv", "blob.bin", &b64_encode(&data)).unwrap();
+        save_db(&dir, &mut db, &k, &id).unwrap();
+        // a second save rotates nothing new within 10 minutes but must still succeed
+        save_db(&dir, &mut db, &k, &id).unwrap();
+        let back = load(&dir, &k, &id).unwrap();
+        let a = back.attach_get("a.nqv", &m.id).unwrap();
+        assert_eq!(a.size, data.len() as u64);
+        assert_eq!(b64_decode(&a.data).unwrap().as_slice(), data.as_slice());
+        assert!(bak_path(&dir, 1).exists(), ".bak.1 rotation still happens");
         fs::remove_dir_all(&dir).ok();
     }
 }
