@@ -75,3 +75,12 @@ test("zip is deterministic and readable", () => {
   const body = z1.subarray(off2 + 30 + n2, off2 + 30 + n2 + csize);
   assert.equal((z1.readUInt16LE(off2 + 8) === 8 ? inflateRawSync(body) : body).toString(), "hello hello hello hello");
 });
+
+// The installer copies the extension from tauri.conf.json's resources; a file missing there makes
+// "Load unpacked" fail on the installed copy even though the repo folder works.
+test("every file the extension needs ships in the installer resources", () => {
+  const dir = dirname(fileURLToPath(import.meta.url));
+  const conf = JSON.parse(readFileSync(join(dir, "..", "..", "src-tauri", "tauri.conf.json"), "utf8"));
+  const shipped = new Set(Object.values(conf.bundle.resources).filter((v) => v.startsWith("browser-extension/")).map((v) => v.slice("browser-extension/".length)));
+  for (const f of ["manifest.json", ...referencedFiles(manifest)]) assert.ok(shipped.has(f), `${f} missing from tauri.conf.json bundle.resources`);
+});
