@@ -7,7 +7,7 @@ import { Button } from "../ui/Button";
 import { RestoreBackupDialog } from "./RestoreBackupDialog";
 import { RecoveryKitDialog } from "./RecoveryKitDialog"; // 0.7.0 recovery kit
 import { toast } from "../../lib/toast";
-import { useVaultStore, type VaultDialogMode } from "../../store/vaultStore";
+import { initVaultStateSync, useVaultStore, type VaultDialogMode } from "../../store/vaultStore";
 import { useAppStore } from "../../store";
 import { useVaultAutoLock } from "../../hooks/useVaultAutoLock";
 import { useVaultSessionLock } from "../../hooks/useVaultSessionLock";
@@ -23,6 +23,8 @@ const MIN_LEN = 8;
 export function VaultDialog() {
   const mode = useVaultStore((s) => s.dialog);
   useEffect(() => { void useVaultStore.getState().refresh(); }, []);
+  // Follow an unlock done in the autofill prompt window (and its saved logins).
+  useEffect(() => initVaultStateSync("main"), []);
   // This component is mounted once for the whole app, so it also hosts the
   // vault's global behaviour (idle / close-to-tray auto-lock).
   useVaultAutoLock();

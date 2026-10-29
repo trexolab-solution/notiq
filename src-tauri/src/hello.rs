@@ -460,7 +460,7 @@ pub async fn hello_disable(app: AppHandle) -> Result<(), String> {
 
 /// Hello prompt → signature → KEK → unwrap → the vault is unlocked exactly like a password unlock.
 #[tauri::command]
-pub async fn hello_unlock(app: AppHandle, state: State<'_, VaultState>) -> Result<(), String> {
+pub async fn hello_unlock(app: AppHandle, window: tauri::Window, state: State<'_, VaultState>) -> Result<(), String> {
     let meta = require_meta(&app)?;
     let vault_id = meta.vault_id_bytes().map_err(|e| e.to_string())?;
     let Some(mut file) = read_file(&app)? else {
@@ -513,6 +513,7 @@ pub async fn hello_unlock(app: AppHandle, state: State<'_, VaultState>) -> Resul
         let _ = atomic_write(&hello_path(&app)?, file.to_json().as_bytes());
     }
     state.install_key(key, vault_id);
+    crate::vault::notify_state(&app, true, window.label());
     Ok(())
 }
 

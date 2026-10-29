@@ -1,0 +1,15 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "autofill-prompt",
+  "description": "Minimal capability for the browser-autofill approval window (vault, hello and autofill commands are app commands, allowed for every window)",
+  "windows": ["autofill-prompt"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-hide",
+    "core:window:allow-show",
+    "core:window:allow-set-focus",
+    "core:window:allow-set-size",
+    "core:window:allow-center",
+    "core:window:allow-set-always-on-top"
+  ]
+}

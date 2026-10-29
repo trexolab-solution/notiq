@@ -23,8 +23,26 @@ export function entryMatches(pageHost: string, entry: Pick<LoginEntry, "url" | "
   return loginUrls(entry).some((u) => hostMatches(pageHost, hostOf(u)));
 }
 
+/**
+ * Where the vault lives. The main window uses `ensureVaultDir` (it may create a folder the user
+ * picked); the autofill prompt window has no file-system permission and swaps in a resolver that
+ * only tells the backend the folder (see `setVaultRootResolver`).
+ */
+let rootResolver: () => Promise<string> = ensureVaultDir;
+export function setVaultRootResolver(f: () => Promise<string>): void { rootResolver = f; }
+const vaultRoot = async () => (await rootResolver()).replace(/\\/g, "/").replace(/\/+$/, "");
+
+/**
+ * Requests are routed to the small autofill prompt window. The main window only handles the ones Rust
+ * sends it when that window is unavailable, marked `fallback: true`; it must ignore everything else so a
+ * request is never handled twice.
+ */
+export function isFallbackRequest(payload: unknown): boolean {
+  return !!payload && typeof payload === "object" && (payload as { fallback?: unknown }).fallback === true;
+}
+
 async function listVaultFiles(): Promise<{ path: string; rel: string }[]> {
-  const root = (await ensureVaultDir()).replace(/\\/g, "/").replace(/\/+$/, "");
+  const root = await vaultRoot();
   return (await vaultList())
     .filter((i) => !i.dir && /\.nqv$/i.test(i.rel))
     .map((i) => ({ path: `${root}/${i.rel}`, rel: normRel(i.rel) }));
@@ -175,11 +193,16 @@ export function defaultLoginName(title: string, host: string): string {
   return clean || host;
 }
 
-/** Writes the login to the vault (create under Logins/, or replace only the password). */
+/**
+ * Writes the login to the vault (create under Logins/, or replace only the password).
+ * `refreshTabs: false` skips refreshing the open vault tabs (the autofill prompt window has no tabs;
+ * it tells the main window through the `vault:entries-changed` event instead).
+ */
 export async function saveLogin(
   plan: SavePlan,
   req: { url: string; host: string; username: string; password: string; title: string },
   name?: string,
+  { refreshTabs = true }: { refreshTabs?: boolean } = {},
 ): Promise<"saved" | "updated"> {
   let status: "saved" | "updated";
   if (plan.kind === "update" && plan.target) {
@@ -188,7 +211,7 @@ export async function saveLogin(
     await vaultWriteFile(plan.target.path, serializeLogin({ ...cur, password: req.password }), LOGIN_EXT);
     status = "updated";
   } else {
-    const root = (await ensureVaultDir()).replace(/\\/g, "/").replace(/\/+$/, "");
+    const root = await vaultRoot();
     const items = await vaultList();
     if (!items.some((i) => i.dir && normRel(i.rel).toLowerCase() === LOGINS_FOLDER.toLowerCase())) {
       await vaultMkdir(toFull(root, LOGINS_FOLDER));
@@ -205,6 +228,7 @@ export async function saveLogin(
     status = "saved";
   }
   window.dispatchEvent(new Event(VAULT_CHANGED_EVENT));
+  if (!refreshTabs) return status;
   // Lazy import keeps this module (and its pure helpers) testable without the app store.
   const { useAppStore } = await import("../store");
   await useAppStore.getState().refreshVaultTabs();
