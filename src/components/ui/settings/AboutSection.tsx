@@ -34,7 +34,7 @@ export const AboutSection = React.memo(function AboutSection() {
               </p>
               <p className="settings-about-legal">
                 Made by{" "}
-                <a href="https://trexolab.com" target="_blank" rel="noopener noreferrer" className="link-inline">TrexoLab</a>
+                <a href="https://trexolab-solution.github.io/notiq/" target="_blank" rel="noopener noreferrer" className="link-inline">TrexoLab</a>
                 {" · "}&copy; {new Date().getFullYear()} TrexoLab. All rights reserved.
               </p>
             </div>
@@ -44,10 +44,10 @@ export const AboutSection = React.memo(function AboutSection() {
 
       <SettingsGroup id="about.links" title="Links">
         <SettingRow {...m("about.links.website")}>
-          <LinkButton href="https://trexolab.com" icon={<Globe size={14} aria-hidden />}>trexolab.com</LinkButton>
+          <LinkButton href="https://trexolab-solution.github.io/notiq/" icon={<Globe size={14} aria-hidden />}>trexolab-solution.github.io/notiq</LinkButton>
         </SettingRow>
         <SettingRow {...m("about.links.source")}>
-          <LinkButton href="https://github.com/trexolab/notiq" icon={<GitFork size={14} aria-hidden />}>GitHub</LinkButton>
+          <LinkButton href="https://github.com/trexolab-solution/notiq" icon={<GitFork size={14} aria-hidden />}>GitHub</LinkButton>
         </SettingRow>
       </SettingsGroup>
     </div>
