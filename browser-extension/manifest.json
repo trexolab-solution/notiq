@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Notiq Autofill",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Fill and save logins with your Notiq vault. Nothing leaves your computer; you approve every fill and save inside the Notiq app.",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA7GA790+Gr+v8M1EZLGUNEvGRaEI/bExDlTcaTbURV4AIACCcuLtUC+8HMZaDDj+vtSlN04Xmw46vxDPbarDQerwJFO1gijh4Bn8u9QQZw6gCN9nRmiS6YPfvYS6r/+r3MGgpxgbX6C84PCc19SzB6RSMKd8V2tP9Aer5U4lEKnxNDamfki+qgqLKeWQQMDGDzYgHHi+AtmwTG75Nn6zyIMgOPzm694JjFAq32lXOKXUtbOSMBrAzIxG+hU24J1X779ymi/ZhaWpekHWSHoA2UGbV9WwxwVsicr+Nuifhag/8MnIQKiJZQXZxdRFIjn8Z1Tg8K0TaYmb5wKSYb4j4YQIDAQAB",
   "permissions": [
@@ -28,7 +28,7 @@
         "content.js"
       ],
       "run_at": "document_idle",
-      "all_frames": false
+      "all_frames": true
     }
   ],
   "commands": {

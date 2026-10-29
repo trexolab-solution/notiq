@@ -1,24 +1,71 @@
-// Notiq Autofill — content script (top frame only).
+// Notiq Autofill — content script (top frame, plus same-site frames).
 //
 // 1. Detects login fields and puts a small Notiq icon inside them. Clicking the
 //    icon (a real, trusted user click only) asks the background to fill; the
 //    Notiq app still asks the user to Allow. Nothing is requested on page load,
 //    so the icon never reveals whether the vault has a login for this site.
+//    On sign-up / change-password fields the icon opens a small menu that can
+//    generate a strong password locally (it is only sent anywhere through the
+//    normal save offer after the form is submitted).
 // 2. Notices a submitted login and, once the page no longer shows a password
-//    field, offers "Save login to Notiq?". Saving again needs approval in Notiq.
+//    field, offers "Save login to Notiq?" (or "Update password in Notiq?" for a
+//    change-password form). Saving again needs approval in Notiq.
 //
-// Everything visible lives in ONE closed shadow root, so page CSS/JS cannot
-// read or restyle it. No secret is ever written to the page DOM, a page-visible
-// object, window.postMessage or the console.
+// Frames: the script runs in every frame, but quits at once unless the frame
+// and all its ancestors are on the same site as the top page (anti-phishing).
+// The background re-checks this from the tab's real URL before any fill.
+//
+// Everything visible lives in ONE closed shadow root per frame, so page CSS/JS
+// cannot read or restyle it. No secret is ever written to the page DOM, a
+// page-visible object, window.postMessage or the console.
 (() => {
   "use strict";
-  if (window.top !== window) return;
 
   const isLocalHost = (h) => h === "localhost" || h === "127.0.0.1";
   const pageHost = () => String(location.hostname || "").toLowerCase();
-  const pageSecure = () =>
-    location.protocol === "https:" || (location.protocol === "http:" && isLocalHost(pageHost()));
+  const secureUrl = (protocol, host) => protocol === "https:" || (protocol === "http:" && isLocalHost(host));
+  const pageSecure = () => secureUrl(location.protocol, pageHost());
   if (!pageSecure()) return;
+
+  // Conservative "same site": the top host's last two labels, or last three when
+  // it looks like example.co.uk. A bare public suffix or an IP only matches itself.
+  const SLD = new Set(["co", "com", "org", "net", "gov", "ac", "edu"]);
+  const isIp = (h) => /^[\d.]+$/.test(h) || h.includes(":");
+  function siteOf(host) {
+    const l = host.split(".");
+    if (l.length >= 3 && l[l.length - 1].length === 2 && SLD.has(l[l.length - 2])) return l.slice(-3).join(".");
+    return l.slice(-2).join(".");
+  }
+  function sameSite(host, top) {
+    host = String(host || "").toLowerCase();
+    top = String(top || "").toLowerCase();
+    if (!host || !top) return false;
+    if (host === top) return true;
+    if (isIp(top) || isIp(host)) return false;
+    const site = siteOf(top);
+    const l = site.split(".");
+    if (l.length < 2 || (l.length === 2 && l[1].length === 2 && SLD.has(l[0]))) return false;
+    return host === site || host.endsWith(`.${site}`);
+  }
+
+  const IS_TOP = window.top === window;
+  let TOP_HOST = pageHost();
+  if (!IS_TOP) {
+    let ao = null;
+    try { ao = location.ancestorOrigins; } catch { ao = null; }
+    if (!ao || !ao.length) return;
+    const hosts = [];
+    for (let i = 0; i < ao.length; i++) {
+      let u;
+      try { u = new URL(ao[i]); } catch { return; } // opaque ("null") origins: sandboxed frames
+      const h = u.hostname.toLowerCase();
+      if (!h || !secureUrl(u.protocol, h)) return;
+      hosts.push(h);
+    }
+    TOP_HOST = hosts[hosts.length - 1];
+    if (!hosts.every((h) => sameSite(h, TOP_HOST)) || !sameSite(pageHost(), TOP_HOST)) return; // cross-site frame: do nothing at all
+  }
+  const topHost = () => (IS_TOP ? pageHost() : TOP_HOST);
 
   // Same wording as popup.js, plus the save-specific errors.
   const TEXT = {
@@ -34,6 +81,7 @@
     expired: "This save offer expired.",
     busy: "Notiq is already waiting for your approval.",
     no_reply: "Notiq didn't answer. Reload the page and try again.",
+    stale: "That list of logins expired. Try again.",
   };
   const GENERIC = "Something went wrong.";
   const SAVE_TEXT = { saved: "Saved to Notiq", updated: "Password updated in Notiq", unchanged: "Already saved" };
@@ -46,6 +94,9 @@
   const USER_HINT = /user|email|login|account/i;
   const OTP_HINT = /otp|totp|2fa|mfa|verification|security.?code|one.?time/i;
   const SUBMIT_TEXT = /log ?in|sign ?in|sign ?up|continue|next|submit|register|create|save|change|update|enter|weiter|anmelden/i;
+  const CURRENT_HINT = /current|old|existing/i;
+  const NEW_HINT = /new.?pass|confirm|repeat|retype|re-?enter|verify|pass(word)?.?2/i;
+  const MAX_CHOICES = 20;
 
   const settings = { offerSave: true, showIcon: true, neverSave: [] };
   let filled = null;   // { username, password } that Notiq just put on this page (memory only)
@@ -106,6 +157,39 @@
       if (inputsIn(n).some((x) => x !== field && isTextual(x))) return n;
     }
     return field.parentElement || document;
+  }
+
+  // Sign-up / change-password detection.
+  const isCurrentPw = (i) => isPassword(i) && (acOf(i).includes("current-password") || CURRENT_HINT.test(hintOf(i)));
+  // For a "new password" field: the fields a generated password goes into (the
+  // new one and any confirm field in the same form) and the current-password
+  // field if the form has one. null for ordinary login password fields.
+  function newPasswordInfo(field) {
+    if (!isPassword(field) || isCurrentPw(field)) return null;
+    const pws = inputsIn(scopeOf(field)).filter((i) => isPassword(i) && usable(i));
+    const isNew = acOf(field).includes("new-password") || NEW_HINT.test(hintOf(field)) || pws.length >= 2;
+    if (!isNew) return null;
+    const targets = pws.filter((i) => !isCurrentPw(i));
+    if (!targets.includes(field)) targets.unshift(field);
+    return { targets, current: pws.find(isCurrentPw) || null };
+  }
+
+  // Split one-time-code boxes: 4–8 consecutive single-character inputs, at
+  // least one of which says it takes a code / digits.
+  function otpBoxes() {
+    const isBox = (i) => ["text", "tel", "number"].includes(typeOf(i)) && i.maxLength === 1 && shown(i) && !i.readOnly;
+    const runs = [];
+    let run = [];
+    for (const i of inputsIn(document)) {
+      if (typeOf(i) === "hidden") continue;
+      if (isBox(i)) { run.push(i); continue; }
+      if (run.length) runs.push(run);
+      run = [];
+    }
+    if (run.length) runs.push(run);
+    const codeLike = (i) => acOf(i).includes("one-time-code") || attr(i, "inputmode").toLowerCase() === "numeric" ||
+      typeOf(i) === "number" || isOtp(i);
+    return runs.find((r) => r.length >= 4 && r.length <= 8 && r.some(codeLike)) || null;
   }
 
   // ---------- detection ----------
@@ -179,10 +263,26 @@
 .nq-primary:hover { background: #d6b75e; border-color: #d6b75e; }
 .nq-quiet { margin-left: auto; border-color: transparent; opacity: .72; font-weight: 500; }
 .nq-quiet:hover { opacity: 1; border-color: transparent; text-decoration: underline; }
+.nq-menu { box-sizing: border-box; position: fixed; width: 260px; max-width: calc(100vw - 16px); max-height: 340px;
+  overflow-y: auto; pointer-events: auto; background: #1c1b18; color: #f3efe4; border: 1px solid rgba(201,168,76,.4);
+  border-radius: 10px; padding: 5px; box-shadow: 0 10px 28px rgba(0,0,0,.45);
+  font: 13px/1.35 system-ui, -apple-system, "Segoe UI", sans-serif; animation: nq-in .16s ease-out; }
+.nq-mhead { padding: 6px 9px 4px; font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; opacity: .62; }
+.nq-item { all: initial; box-sizing: border-box; display: block; width: 100%; padding: 8px 9px; border-radius: 7px;
+  cursor: pointer; color: #f3efe4; text-align: left; font: 500 13px/1.3 system-ui, -apple-system, "Segoe UI", sans-serif; }
+.nq-item:hover, .nq-item:focus { background: rgba(201,168,76,.16); outline: none; }
+.nq-item:focus-visible { box-shadow: inset 0 0 0 2px #c9a84c; }
+.nq-ititle { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.nq-isub { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 2px; font-size: 11.5px; opacity: .7; font-weight: 400; }
+.nq-mstatus { padding: 8px 9px 4px; color: #7bd88f; font-weight: 600; }
+.nq-pw { display: block; margin: 4px 9px 6px; padding: 6px 8px; border-radius: 6px; background: rgba(243,239,228,.08);
+  font: 12.5px/1.35 ui-monospace, Consolas, monospace; word-break: break-all; user-select: all; }
+.nq-mrow { display: flex; gap: 6px; padding: 4px 2px 2px; }
+.nq-mrow .nq-item { flex: 1; text-align: center; }
 @keyframes nq-rot { to { transform: rotate(360deg); } }
 @keyframes nq-in { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) {
-  .nq-icon, .nq-bar, .nq-bar.out { animation: none !important; transition: none !important; }
+  .nq-icon, .nq-bar, .nq-bar.out, .nq-menu { animation: none !important; transition: none !important; }
   .nq-icon:hover { transform: none; }
   .nq-spin { animation: none !important; border-color: #c9a84c; border-style: dotted; }
 }`;
@@ -308,6 +408,7 @@
       ic.wrap.style.left = `${Math.round(r.right - size - pad)}px`;
       ic.wrap.style.top = `${Math.round(r.top + (r.height - size) / 2)}px`;
     }
+    positionMenu();
   }
 
   function scan() {
@@ -318,6 +419,163 @@
     schedulePosition();
   }
 
+  // ---------- small menu next to an icon (generator, account chooser) ----------
+  let menu = null; // { node, field, cleanup }
+  const menuItems = (node) => Array.from(node.querySelectorAll(".nq-item"));
+  function closeMenu(refocus) {
+    if (!menu) return;
+    const m = menu;
+    menu = null;
+    if (m.cleanup) m.cleanup();
+    m.node.remove();
+    if (refocus && m.field.isConnected) { try { m.field.focus({ preventScroll: true }); } catch { /* ignore */ } }
+  }
+  function positionMenu() {
+    if (!menu) return;
+    const { node, field } = menu;
+    if (!field.isConnected) { closeMenu(false); return; }
+    const r = field.getBoundingClientRect();
+    const vw = window.innerWidth, vh = window.innerHeight;
+    if (r.bottom < 0 || r.top > vh || r.right < 0 || r.left > vw) { node.style.display = "none"; return; }
+    node.style.display = "block";
+    const w = node.offsetWidth, h = node.offsetHeight;
+    const left = Math.max(8, Math.min(vw - w - 8, r.right - w));
+    let top = r.bottom + 4;
+    if (top + h > vh - 8 && r.top - h - 4 >= 8) top = r.top - h - 4;
+    node.style.left = `${Math.round(left)}px`;
+    node.style.top = `${Math.round(top)}px`;
+  }
+  function menuItem(title, sub, fn) {
+    const b = el("button", "nq-item");
+    b.type = "button";
+    b.tabIndex = -1;
+    b.setAttribute("role", "menuitem");
+    b.appendChild(el("span", "nq-ititle", title));
+    if (sub) b.appendChild(el("span", "nq-isub", sub));
+    b.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.isTrusted !== true) return;
+      fn(b);
+    });
+    return b;
+  }
+  function focusItem(node, k) {
+    const items = menuItems(node);
+    if (items.length) items[(k + items.length) % items.length].focus({ preventScroll: true });
+  }
+  // build(node) fills the menu; the first item gets keyboard focus.
+  function openMenu(field, label, build) {
+    closeMenu(false);
+    ensureRoot();
+    const node = el("div", "nq-menu");
+    node.setAttribute("role", "menu");
+    node.setAttribute("aria-label", label);
+    node.addEventListener("mousedown", (e) => e.preventDefault());
+    node.addEventListener("keydown", (e) => {
+      if (e.isTrusted !== true) return;
+      const items = menuItems(node);
+      const at = items.indexOf(root.activeElement);
+      const handled = { ArrowDown: () => focusItem(node, at + 1), ArrowUp: () => focusItem(node, at < 0 ? -1 : at - 1),
+        Home: () => focusItem(node, 0), End: () => focusItem(node, -1),
+        Escape: () => closeMenu(true), Tab: () => closeMenu(true) }[e.key];
+      if (!handled) return;
+      e.preventDefault();
+      e.stopPropagation();
+      handled();
+    });
+    root.appendChild(node);
+    menu = { node, field, cleanup: null };
+    build(node);
+    positionMenu();
+    focusItem(node, 0);
+  }
+
+  // ---------- strong password generator (local only) ----------
+  // No look-alikes (I l 1 O o 0). Uniform choice per character by rejection
+  // sampling; a password missing a class is thrown away and drawn again, which
+  // keeps the result uniform over all valid passwords (no shuffle needed).
+  const GEN_SETS = ["ABCDEFGHJKLMNPQRSTUVWXYZ", "abcdefghijkmnpqrstuvwxyz", "23456789", "!#$%&*+-=?@^_"];
+  const GEN_ALL = GEN_SETS.join("");
+  const GEN_LEN = 20;
+  function randomIndex(n) {
+    const limit = Math.floor(0x100000000 / n) * n;
+    const buf = new Uint32Array(1);
+    for (;;) {
+      crypto.getRandomValues(buf);
+      if (buf[0] < limit) return buf[0] % n;
+    }
+  }
+  function generatePassword() {
+    for (;;) {
+      let out = "";
+      for (let i = 0; i < GEN_LEN; i++) out += GEN_ALL[randomIndex(GEN_ALL.length)];
+      if (GEN_SETS.every((set) => Array.from(out).some((c) => set.includes(c)))) return out;
+    }
+  }
+
+  function openNewPasswordMenu(field, info) {
+    openMenu(field, "Notiq password options", (node) => {
+      node.appendChild(menuItem("Generate strong password", `${GEN_LEN} characters, filled into this form`, () => generateInto(field)));
+      if (info.current) {
+        const cur = info.current;
+        node.appendChild(menuItem("Fill saved login", "Asks Notiq for approval", () => { closeMenu(false); doFill(cur, field); }));
+      }
+    });
+  }
+  function generateInto(field) {
+    const info = newPasswordInfo(field);
+    const targets = info ? info.targets.filter((i) => i.isConnected && usable(i)) : [];
+    if (!targets.length || !menu) { closeMenu(true); setState(field, "error", TEXT.no_fields); return; }
+    let pw = generatePassword();
+    for (const t of targets) setValue(t, pw);
+    setState(field, "done", "");
+    // The password stays in this closure / the fields only: nothing is sent
+    // until the user submits the form and the normal save offer runs.
+    const node = menu.node;
+    node.textContent = "";
+    const status = el("div", "nq-mstatus", targets.length > 1 ? `Strong password filled in ${targets.length} fields` : "Strong password filled");
+    status.setAttribute("role", "status");
+    const box = el("span", "nq-pw");
+    const row = el("div", "nq-mrow");
+    const show = menuItem("Show", null, () => {
+      const on = show.getAttribute("aria-pressed") !== "true";
+      show.setAttribute("aria-pressed", on ? "true" : "false");
+      show.firstChild.textContent = on ? "Hide" : "Show";
+      if (on && pw) { box.textContent = pw; node.insertBefore(box, row); } else { box.textContent = ""; box.remove(); }
+      positionMenu();
+    });
+    show.setAttribute("aria-pressed", "false");
+    row.appendChild(show);
+    row.appendChild(menuItem("Done", null, () => closeMenu(true)));
+    node.appendChild(status);
+    node.appendChild(row);
+    menu.cleanup = () => { box.textContent = ""; pw = null; };
+    positionMenu();
+    focusItem(node, 0);
+  }
+
+  // ---------- account chooser (several logins match) ----------
+  function validChoices(list) {
+    if (!Array.isArray(list) || !list.length || list.length > MAX_CHOICES) return null;
+    const out = [];
+    for (const c of list) {
+      if (!c || typeof c !== "object" || typeof c.account !== "string" || typeof c.title !== "string" || typeof c.username !== "string") return null;
+      if (!c.account || c.account.length > 256 || c.title.length > 200 || c.username.length > MAX_USER) return null;
+      out.push({ account: c.account, title: clean(c.title, 200), username: clean(c.username, MAX_USER) });
+    }
+    return out;
+  }
+  function openChooser(anchor, field, list) {
+    openMenu(field, "Choose a login", (node) => {
+      node.appendChild(el("div", "nq-mhead", "Choose a login"));
+      for (const c of list) {
+        node.appendChild(menuItem(c.title || c.username || "Login", c.title ? c.username || "no username" : "",
+          () => { closeMenu(false); doFill(anchor, field, c.account); }));
+      }
+    });
+  }
+
   // ---------- fill (only after a trusted click on our icon) ----------
   function setValue(input, value) {
     const d = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(input), "value");
@@ -325,6 +583,19 @@
     if (d && d.set) d.set.call(input, value); else input.value = value;
     input.dispatchEvent(new Event("input", { bubbles: true }));
     input.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+  function fillOtpBoxes(boxes, code) {
+    boxes.forEach((b, k) => {
+      const ch = code[k];
+      const d = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(b), "value");
+      b.focus();
+      b.dispatchEvent(new KeyboardEvent("keydown", { key: ch, bubbles: true, cancelable: true }));
+      if (d && d.set) d.set.call(b, ch); else b.value = ch;
+      b.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: ch }));
+      b.dispatchEvent(new KeyboardEvent("keyup", { key: ch, bubbles: true }));
+      b.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    boxes[boxes.length - 1].focus();
   }
   function fillFields(anchor, cred) {
     let pw = isPassword(anchor) ? anchor : inputsIn(anchor.form || scopeOf(anchor)).find((i) => isPassword(i) && usable(i)) || null;
@@ -338,20 +609,41 @@
       setValue(anchor, cred.username); n++;
     }
     if (cred.code) {
-      const otp = inputsIn(document).find((i) => isTextual(i) && isOtp(i) && shown(i) && !i.readOnly);
-      if (otp) { setValue(otp, cred.code); n++; }
+      const boxes = otpBoxes();
+      if (boxes && boxes.length === cred.code.length && /^[0-9A-Za-z]+$/.test(cred.code)) {
+        fillOtpBoxes(boxes, cred.code); n++;
+      } else {
+        const otp = inputsIn(document).find((i) => isTextual(i) && isOtp(i) && i.maxLength !== 1 && shown(i) && !i.readOnly);
+        if (otp) { setValue(otp, cred.code); n++; }
+      }
     }
     if (n) filled = { username: cred.username || "", password: cred.password || "" };
     return n;
   }
-  async function onIconClick(field) {
+  function onIconClick(field) {
+    if (menu && menu.field === field) { closeMenu(true); return; }
+    closeMenu(false);
+    if (filling) return;
+    const info = newPasswordInfo(field);
+    if (info) openNewPasswordMenu(field, info);
+    else doFill(field, field);
+  }
+  // anchor: the field the credentials are filled around; field: the icon that shows progress.
+  async function doFill(anchor, field, account) {
     if (filling) return;
     filling = true;
     setState(field, "waiting", "Approve in Notiq");
-    const res = await send({ type: "fill" });
+    const res = await send(account ? { type: "fill", account } : { type: "fill" });
     filling = false;
-    if (res.ok && typeof res.password === "string" && res.host === pageHost() && field.isConnected) {
-      const n = fillFields(field, {
+    if (res && res.choose !== undefined) {
+      const list = validChoices(res.choose);
+      if (!list || !field.isConnected || !anchor.isConnected || account) { setState(field, "error", GENERIC); return; }
+      setState(field, "idle", "");
+      openChooser(anchor, field, list);
+      return;
+    }
+    if (res.ok && typeof res.password === "string" && res.host === topHost() && field.isConnected && anchor.isConnected) {
+      const n = fillFields(anchor, {
         username: typeof res.username === "string" ? res.username : "",
         password: res.password,
         code: typeof res.code === "string" ? res.code : "",
@@ -385,7 +677,7 @@
   function capture(scope) {
     if (!settings.offerSave || !pageSecure()) return null;
     const host = pageHost();
-    if (!host || settings.neverSave.includes(host)) return null;
+    if (!host || settings.neverSave.includes(topHost())) return null;
     const ins = inputsIn(scope);
     const pws = ins.filter((i) => isPassword(i) && i.value && shown(i));
     if (!pws.length) {
@@ -404,11 +696,16 @@
     if (lastSent && lastSent.password === password && lastSent.username === username && now - lastSent.at < DEDUPE_MS) return null;
     lastSent = { username, password, at: now };
     if (username) rememberUser(username);
-    const payload = { host, url: cleanUrl(), username, password, title: clean(document.title, 80) };
+    // Change-password form: the saved password is the new one; label the offer "Update".
+    const change = ins.some((i) => isCurrentPw(i) && shown(i)) && !isCurrentPw(pw);
+    const payload = { host, url: cleanUrl(), username, password, title: clean(document.title, 80), change };
     send({ type: "capture", payload });
     // SPAs often don't navigate after login; look again once the form is gone.
-    schedulePending(1500);
-    setTimeout(() => schedulePending(0), 4500);
+    // (Frames: the background asks the top frame to look.)
+    if (IS_TOP) {
+      schedulePending(1500);
+      setTimeout(() => schedulePending(0), 4500);
+    }
     return payload;
   }
 
@@ -420,6 +717,7 @@
   }
   function onKeydown(e) {
     if (e.isTrusted !== true) return;
+    if (e.key === "Escape" && menu) { closeMenu(true); return; }
     if (e.key === "Escape" && bar) { closeBar(true); return; }
     if (e.key !== "Enter") return;
     const t = realTarget(e);
@@ -437,6 +735,7 @@
   function onClick(e) {
     if (e.isTrusted !== true) return;
     const t = realTarget(e);
+    if (menu && t !== shadowHost) closeMenu(false); // click outside our UI closes the menu
     if (!t || !t.closest || t === shadowHost) return;
     const b = t.closest('button, input[type="submit"], input[type="image"], input[type="button"], [role="button"]');
     if (!b) return;
@@ -465,12 +764,12 @@
     pendingTimer = setTimeout(checkPending, delay);
   }
   async function checkPending() {
-    if (bar || !settings.offerSave || anyVisiblePassword()) return;
+    if (!IS_TOP || bar || !settings.offerSave || anyVisiblePassword()) return;
     const res = await send({ type: "pending" });
     const p = res && res.pending;
     if (!p || typeof p.host !== "string" || typeof p.username !== "string") return;
     if (bar || !settings.offerSave || settings.neverSave.includes(p.host.toLowerCase()) || anyVisiblePassword()) return;
-    showBar({ host: clean(p.host, 253).toLowerCase(), username: clean(p.username, MAX_USER) });
+    showBar({ host: clean(p.host, 253).toLowerCase(), username: clean(p.username, MAX_USER), change: p.change === true });
   }
 
   function armIdle() {
@@ -491,12 +790,12 @@
     const node = el("div", "nq-bar");
     node.setAttribute("role", "dialog");
     node.setAttribute("aria-live", "polite");
-    node.setAttribute("aria-label", "Save login to Notiq");
+    node.setAttribute("aria-label", p.change ? "Update password in Notiq" : "Save login to Notiq");
     const head = el("div", "nq-head");
     const logo = el("div", "nq-logo");
     logo.appendChild(svg("", KEY));
     const text = el("div", "nq-text");
-    text.appendChild(el("div", "nq-title", "Save login to Notiq?"));
+    text.appendChild(el("div", "nq-title", p.change ? "Update password in Notiq?" : "Save login to Notiq?"));
     text.appendChild(el("div", "nq-sub", `${p.host} · ${p.username || "no username"}`));
     head.appendChild(logo);
     head.appendChild(text);
@@ -544,7 +843,7 @@
       armIdle();
     };
     setActions(
-      mk("Save", "nq-primary", doSave),
+      mk(p.change ? "Update" : "Save", "nq-primary", doSave),
       mk("Not now", "", () => closeBar(true)),
       mk("Never for this site", "nq-quiet", () => { send({ type: "never" }); closeBar(false); }),
     );
@@ -560,9 +859,11 @@
   // ---------- messages from the extension (never from the page) ----------
   chrome.runtime.onMessage.addListener((msg, sender) => {
     if (!sender || sender.id !== chrome.runtime.id || sender.tab) return false;
-    if (msg && msg.type === "filled" && msg.host === pageHost() && typeof msg.password === "string") {
+    if (msg && msg.type === "filled" && msg.host === topHost() && typeof msg.password === "string") {
       filled = { username: typeof msg.username === "string" ? msg.username : "", password: msg.password };
     }
+    // A same-site frame captured a login; the offer card lives in the top frame.
+    if (msg && msg.type === "checkPending" && IS_TOP) schedulePending(1200);
     return false;
   });
 
@@ -582,6 +883,7 @@
     for (const k of ["offerSave", "showIcon", "neverSave"]) if (changes[k]) s[k] = changes[k].newValue;
     applySettings(s);
     scan();
+    if (!settings.showIcon) closeMenu(false);
     if (bar && !settings.offerSave) closeBar(false);
   });
 

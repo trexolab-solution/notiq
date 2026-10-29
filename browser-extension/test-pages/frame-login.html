@@ -1,0 +1,39 @@
+<!doctype html>
+<!-- A login form meant to be embedded as an iframe by extra.html. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Embedded login</title>
+<style>
+  body { margin: 0; padding: 8px; font: 14px system-ui, sans-serif; color-scheme: light dark; }
+  label { display: block; font-size: 13px; margin: 8px 0 4px; }
+  input { box-sizing: border-box; width: 100%; padding: 8px 10px; font: inherit; border: 1px solid #8888; border-radius: 8px; background: transparent; color: inherit; }
+  button { margin-top: 12px; width: 100%; padding: 9px; border: 0; border-radius: 8px; background: #6366f1; color: #fff; font: inherit; font-weight: 600; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<form id="fr">
+  <label for="fr-user">Email</label>
+  <input id="fr-user" name="email" type="email" autocomplete="username">
+  <label for="fr-pass">Password</label>
+  <input id="fr-pass" name="password" type="password" autocomplete="current-password">
+  <button type="submit">Sign in</button>
+</form>
+<p id="fr-done" hidden>Signed in</p>
+<script>
+  document.getElementById("fr").addEventListener("submit", (e) => {
+    e.preventDefault();
+    document.getElementById("fr").hidden = true;
+    document.getElementById("fr-done").hidden = false;
+  });
+  // Test hook: tell the parent whether an extension overlay host was added to this frame.
+  function report() {
+    const divs = [...document.documentElement.children].filter((n) => n.tagName === "DIV").length;
+    parent.postMessage({ notiqTestFrame: true, host: location.hostname, divs }, "*");
+  }
+  setTimeout(report, 1500);
+  setInterval(report, 1000);
+</script>
+</body>
+</html>
