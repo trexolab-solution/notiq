@@ -78,9 +78,16 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "resources": [
-      "icons/association.ico"
-    ],
+    "resources": {
+      "icons/association.ico": "icons/association.ico",
+      "../browser-extension/manifest.json": "browser-extension/manifest.json",
+      "../browser-extension/content.js": "browser-extension/content.js",
+      "../browser-extension/background.js": "browser-extension/background.js",
+      "../browser-extension/popup.html": "browser-extension/popup.html",
+      "../browser-extension/popup.js": "browser-extension/popup.js",
+      "../browser-extension/icon48.png": "browser-extension/icon48.png",
+      "../browser-extension/icon128.png": "browser-extension/icon128.png"
+    },
     "windows": {
       "nsis": {
         "displayLanguageSelector": false,

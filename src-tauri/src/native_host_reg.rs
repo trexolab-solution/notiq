@@ -479,3 +479,100 @@ mod tests {
         assert!(repair_note(&[], &[], false, "x").contains("No supported browser"));
     }
 }
+
+// ─── browser extension: where it is and how to open its install page ─────────
+
+/// The folder with the extension's files that ships with the app (`browser-extension/` next to the exe /
+/// in the bundle's resources). Dev builds fall back to the repository copy.
+fn extension_dir(app: &tauri::AppHandle) -> Option<std::path::PathBuf> {
+    use tauri::Manager;
+    let bundled = app.path().resource_dir().ok().map(|d| d.join("browser-extension"));
+    if let Some(d) = bundled.filter(|d| d.join("manifest.json").exists()) {
+        return Some(d);
+    }
+    if crate::profile::IS_DEV {
+        let d = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join("browser-extension");
+        if d.join("manifest.json").exists() {
+            return d.canonicalize().ok();
+        }
+    }
+    None
+}
+
+/// Folder to point "Load unpacked" at, or None if the extension files aren't there.
+#[tauri::command]
+pub fn autofill_extension_dir(app: tauri::AppHandle) -> Option<String> {
+    extension_dir(&app).map(|d| plain_path(&d))
+}
+
+/// Resource paths come back in Windows' `\\?\` verbatim form, which a browser's folder picker doesn't accept.
+fn plain_path(p: &std::path::Path) -> String {
+    p.to_string_lossy().trim_start_matches(r"\\?\").to_string()
+}
+
+/// Opens the extension folder in the file manager.
+#[tauri::command]
+pub fn autofill_open_extension_dir(app: tauri::AppHandle) -> Result<(), String> {
+    use tauri_plugin_opener::OpenerExt;
+    let dir = extension_dir(&app).ok_or("The extension files weren't found next to this installation")?;
+    app.opener().open_path(dir.to_string_lossy().to_string(), None::<&str>).map_err(|e| e.to_string())
+}
+
+/// (program, page) for the browsers the extension supports. A fixed allow-list: nothing from the UI is
+/// ever put on a command line.
+fn browser_launch_spec(browser: &str) -> Option<(&'static str, &'static str)> {
+    #[cfg(windows)]
+    let exe = |win: &'static str, _linux: &'static str| win;
+    #[cfg(not(windows))]
+    let exe = |_win: &'static str, linux: &'static str| linux;
+    match browser {
+        "edge" => Some((exe("msedge", "microsoft-edge"), "edge://extensions")),
+        "chrome" => Some((exe("chrome", "google-chrome"), "chrome://extensions")),
+        "brave" => Some((exe("brave", "brave-browser"), "brave://extensions")),
+        _ => None,
+    }
+}
+
+/// Opens the browser's extensions page (where "Developer mode" and "Load unpacked" are).
+#[tauri::command]
+pub fn autofill_open_browser_extensions(browser: String) -> Result<(), String> {
+    let (program, page) = browser_launch_spec(&browser).ok_or("Unsupported browser")?;
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        // `start` resolves the program through Windows' App Paths, like the Run dialog does.
+        std::process::Command::new("cmd")
+            .args(["/C", "start", "", program, page])
+            .creation_flags(0x0800_0000) // CREATE_NO_WINDOW
+            .spawn()
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    }
+    #[cfg(not(windows))]
+    {
+        std::process::Command::new(program).arg(page).spawn().map(|_| ()).map_err(|e| e.to_string())
+    }
+}
+
+#[cfg(test)]
+mod extension_install_tests {
+    use super::{browser_launch_spec, plain_path};
+
+    #[test]
+    fn verbatim_prefix_is_removed_from_the_folder_path() {
+        let p = std::path::Path::new(r"\\?\C:\Users\me\AppData\Local\Notiq\browser-extension");
+        assert_eq!(plain_path(p), r"C:\Users\me\AppData\Local\Notiq\browser-extension");
+        assert_eq!(plain_path(std::path::Path::new(r"C:\x")), r"C:\x");
+    }
+
+    #[test]
+    fn only_known_browsers_have_a_launch_spec() {
+        for b in ["edge", "chrome", "brave"] {
+            let (prog, page) = browser_launch_spec(b).expect("known browser");
+            assert!(!prog.is_empty() && page.ends_with("://extensions"));
+        }
+        for bad in ["", "firefox", "cmd", "edge --evil", "../edge"] {
+            assert!(browser_launch_spec(bad).is_none(), "{bad} must be refused");
+        }
+    }
+}

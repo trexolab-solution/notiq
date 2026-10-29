@@ -469,7 +469,7 @@ The `browser-extension/` folder holds a Chrome / Edge / Brave (and Firefox) exte
 - **Smarter forms:** split one-time-code boxes, login iframes of the same site, and username-first flows are handled.
 - **Safer matching:** a login saved for a site matches that site and its subdomains, never a whole public suffix (such as `co.uk`); one login can list several websites; and a request from a look-alike address (`paypa1.com`, punycode tricks) is refused and reported inside Notiq.
 - **Status and Repair:** **Settings → Vault → Browser autofill** shows whether the native host is registered for each browser and when the extension last connected, with a **Repair** button.
-- **Install:** until the store listings are live, load the `-chrome.zip` / unpacked folder in developer mode (Firefox: temporary add-on). Packages and the build script are documented in [`browser-extension/README.md`](browser-extension/README.md); the extension has its own [privacy policy](docs/extension-privacy.html). The extension reads pages to find login fields, so Chrome shows an "all websites" permission note.
+- **Install:** the extension files ship inside Notiq. Open **Settings → Vault → Browser autofill → Install the browser extension**: it shows the folder, has buttons that open the folder and your browser's extensions page, and walks you through *Developer mode → Load unpacked* (until the store listings are live; Firefox: temporary add-on from the release package). Packages and the build script are documented in [`browser-extension/README.md`](browser-extension/README.md); the extension has its own [privacy policy](docs/extension-privacy.html). The extension reads pages to find login fields, so Chrome shows an "all websites" permission note.
 
 ---
 

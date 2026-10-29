@@ -695,6 +695,9 @@ pub fn run() {
         autofill::autofill_ui_ready,
         native_host_reg::autofill_status,
         native_host_reg::autofill_repair,
+        native_host_reg::autofill_extension_dir,
+        native_host_reg::autofill_open_extension_dir,
+        native_host_reg::autofill_open_browser_extensions,
         // 0.7.0 hello
         hello::hello_status,
         hello::hello_enable,
@@ -765,6 +768,9 @@ pub fn run() {
         autofill::autofill_ui_ready,
         native_host_reg::autofill_status,
         native_host_reg::autofill_repair,
+        native_host_reg::autofill_extension_dir,
+        native_host_reg::autofill_open_extension_dir,
+        native_host_reg::autofill_open_browser_extensions,
         // 0.7.0 hello
         hello::hello_status,
         hello::hello_enable,

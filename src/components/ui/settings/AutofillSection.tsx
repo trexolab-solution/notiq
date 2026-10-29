@@ -1,12 +1,14 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { RefreshCw, Wrench } from "lucide-react";
+import { Copy, FolderOpen, Globe, RefreshCw, Wrench } from "lucide-react";
 import { SettingRow } from "../SettingRow";
 import { Button } from "../Button";
 import { SubHeading } from "./SubHeading";
 import { toast } from "../../../lib/toast";
 import { isTauri } from "../../../lib/tauriWindow";
+import { useCopyToClipboard } from "../../../hooks/useCopyToClipboard";
 import {
-  autofillRepair, autofillStatus, browserRegState, BROWSER_REG_LABEL, type AutofillStatus, type BrowserRegState,
+  autofillExtensionDir, autofillOpenBrowserExtensions, autofillOpenExtensionDir, autofillRepair, autofillStatus,
+  browserRegState, BROWSER_REG_LABEL, type AutofillStatus, type BrowserRegState, type ExtensionBrowser,
 } from "../../../lib/autofill";
 
 const STATE_COLOR: Record<BrowserRegState, string> = {
@@ -28,6 +30,18 @@ export const AutofillSection = React.memo(function AutofillSection() {
   const [status, setStatus] = useState<AutofillStatus | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [extDir, setExtDir] = useState<string | null | undefined>(undefined); // undefined = still loading
+  const { copied, copy } = useCopyToClipboard();
+
+  useEffect(() => {
+    if (!isTauri) return;
+    autofillExtensionDir().then(setExtDir).catch(() => setExtDir(null));
+  }, []);
+
+  const run = async (what: () => Promise<void>) => {
+    try { await what(); } catch (e) { toast.error(String(e)); }
+  };
+  const openBrowser = (b: ExtensionBrowser) => run(() => autofillOpenBrowserExtensions(b));
 
   const refresh = useCallback(async () => {
     if (!isTauri) return;
@@ -62,6 +76,37 @@ export const AutofillSection = React.memo(function AutofillSection() {
   return (
     <div className="flex flex-col gap-3">
       <SubHeading>Browser autofill</SubHeading>
+
+      <div className="rounded-lg border border-[var(--color-border)] p-3 flex flex-col gap-2 bg-[var(--color-bg-tertiary)]">
+        <div className="text-sm font-medium text-[var(--color-text)]">Install the browser extension</div>
+        <ol className="list-decimal pl-5 text-xs leading-relaxed text-[var(--color-text-muted)] flex flex-col gap-0.5">
+          <li>Open your browser's extensions page (buttons below) and turn on <b className="text-[var(--color-text)]">Developer mode</b>.</li>
+          <li>Click <b className="text-[var(--color-text)]">Load unpacked</b> and choose the folder shown here.</li>
+          <li>Come back and press Refresh below: "Extension last seen" shows when it connected.</li>
+        </ol>
+        {extDir === null ? (
+          <p className="text-xs text-[var(--color-warning,#d29922)]">
+            The extension files weren't found next to this installation. Download <code>notiq-autofill-…-chrome.zip</code> from the
+            Notiq release page, unzip it and load that folder instead.
+          </p>
+        ) : (
+          <div className="flex items-center gap-2 rounded-md px-2 py-1.5 bg-[var(--color-bg)] border border-[var(--color-border)]">
+            <code className="flex-1 min-w-0 truncate text-[11px] text-[var(--color-text)]" title={extDir ?? undefined}>{extDir ?? "…"}</code>
+            <Button size="sm" variant="ghost" aria-label="Copy folder path" disabled={!extDir}
+                    icon={<Copy size={12} />} onClick={() => extDir && void copy(extDir)}>{copied ? "Copied" : "Copy"}</Button>
+          </div>
+        )}
+        <div className="flex flex-wrap items-center gap-2">
+          <Button size="sm" icon={<FolderOpen size={12} />} disabled={!extDir} onClick={() => void run(autofillOpenExtensionDir)}>Open folder</Button>
+          <Button size="sm" icon={<Globe size={12} />} onClick={() => void openBrowser("edge")}>Edge extensions</Button>
+          <Button size="sm" icon={<Globe size={12} />} onClick={() => void openBrowser("chrome")}>Chrome extensions</Button>
+          <Button size="sm" icon={<Globe size={12} />} onClick={() => void openBrowser("brave")}>Brave extensions</Button>
+        </div>
+        <p className="text-[11px] text-[var(--color-text-muted)]">
+          After a Notiq update the files in this folder are refreshed; press the reload button on the extension's card in the
+          browser to pick them up. Firefox isn't covered by this folder (use the Firefox package from the release page).
+        </p>
+      </div>
 
       <SettingRow
         label="Browser connection"

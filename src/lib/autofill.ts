@@ -235,6 +235,14 @@ export interface AutofillStatus {
 export const autofillStatus = () => invoke<AutofillStatus>("autofill_status");
 export const autofillRepair = () => invoke<AutofillStatus>("autofill_repair");
 
+/** Folder with the extension files that ships with Notiq (what "Load unpacked" should point at), or null. */
+export const autofillExtensionDir = () => invoke<string | null>("autofill_extension_dir");
+export const autofillOpenExtensionDir = () => invoke<void>("autofill_open_extension_dir");
+export type ExtensionBrowser = "edge" | "chrome" | "brave";
+/** Opens the browser's extensions page (edge://extensions, chrome://extensions, …). */
+export const autofillOpenBrowserExtensions = (browser: ExtensionBrowser) =>
+  invoke<void>("autofill_open_browser_extensions", { browser });
+
 export type BrowserRegState = "ok" | "missing" | "other_copy" | "outdated";
 
 /** One browser's registration as a single state for the status table. */
