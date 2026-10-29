@@ -237,8 +237,8 @@
   font: 500 12px/1.35 system-ui, -apple-system, "Segoe UI", sans-serif; box-shadow: 0 6px 18px rgba(0,0,0,.35); }
 .has-tip .nq-tip { display: block; }
 .nq-bar { box-sizing: border-box; position: fixed; top: 16px; right: 16px; width: 360px; max-width: calc(100vw - 32px);
-  pointer-events: auto; background: #1c1b18; color: #f3efe4; border: 1px solid rgba(201,168,76,.32);
-  border-left: 3px solid #c9a84c; border-radius: 12px; padding: 14px 14px 12px;
+  pointer-events: auto; background: #1c1b18; color: #f3efe4; border: 1px solid rgba(201,168,76,.5);
+  border-radius: 12px; padding: 14px 14px 12px;
   box-shadow: 0 14px 36px rgba(0,0,0,.45); font: 13px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
   animation: nq-in .22s ease-out; }
 .nq-bar.out { opacity: 0; transform: translateY(-6px); transition: opacity .18s, transform .18s; }
