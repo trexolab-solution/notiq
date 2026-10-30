@@ -46,6 +46,12 @@ Updating from 0.1: click the reload button on the extension's card. The browser 
   **Update password in Notiq?**.
 - **Split code boxes:** when Notiq returns a one-time code and the page has 4–8 single-character code boxes, the
   code is typed into them digit by digit and the last box is focused.
+- **Multi-step sign-ins** (Google, Microsoft, most SSO pages: username first, then "Next", then the password): fill
+  the username page as usual and approve once. Only the username goes into that page; when the password field
+  appears (same page or the next page in the same tab, on the same site, within 2 minutes) it is filled too, with no
+  second request to Notiq. Nothing is submitted for you. The password waits in the extension's session memory for
+  that tab only and is dropped once used, after 2 minutes, when the tab closes or leaves the site, on a new fill, or
+  when Notiq reports the vault locked.
 - **Several logins for one site:** Notiq sends back just their titles and usernames; pick one from the list next to
   the icon (or in the toolbar popup), then approve in Notiq as usual. Esc cancels.
 - **Login iframes on the same site** (for example `login.example.com` inside `www.example.com`) get the icon, fill
@@ -124,6 +130,8 @@ python -m http.server 8000
 Open <http://localhost:8000/login.html>: a simple login, a two-step (username first) login and a sign-up form.
 <http://localhost:8000/extra.html> adds a change-password form, a login with split code boxes, a same-site login
 iframe and an iframe from `127.0.0.1` (another site, so it is ignored).
+<http://localhost:8000/signin-steps.html> is a username-first sign-in whose password step is in place ("Next") or
+on a new page ("Next (new page)").
 
 `test/e2e-cdp.mjs` is a developer check (not part of the extension): it loads this folder into Playwright's copy of
 Chromium, mocks the Notiq app in the service worker, and drives the test page with real (trusted) input over the
@@ -137,7 +145,7 @@ focus-suggestion screenshots in dark, light and a custom theme) (needs Node 22+,
 ```
 node browser-extension/build.mjs [--out dist]     # Node 20+, no dependencies
 node browser-extension/build.mjs --check          # validate only, write nothing
-node --test browser-extension/test/*.test.mjs    # unit tests: transforms, zip writer, shared.js (theme, suggestion)
+node --test browser-extension/test/*.test.mjs    # unit tests: transforms, zip writer, shared.js (theme, suggestion), multi-step hand-off
 ```
 Only runtime files are packaged (manifest, `shared.js`, `content.js`, `background.js`, popup, icons). `shared.js` holds
 the pure helpers (theme validation, suggestion placement); the content script and popup load it first, the Chromium

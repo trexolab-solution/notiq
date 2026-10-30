@@ -35,7 +35,10 @@ function ask(msg) {
   return new Promise((resolve) => {
     chrome.runtime.sendNativeMessage(HOST, msg, (res) => {
       if (chrome.runtime.lastError) resolve({ error: "no_host", detail: chrome.runtime.lastError.message });
-      else resolve(res || { error: "no_reply" });
+      else {
+        if (res && res.error === "locked") dropAllSteps().catch(() => {}); // vault locked: no held password survives that
+        resolve(res || { error: "no_reply" });
+      }
     });
   });
 }
@@ -209,17 +212,22 @@ async function fillActiveTab(account) {
   const local = u.hostname === "localhost" || u.hostname === "127.0.0.1";
   if (u.protocol !== "https:" && !(local && u.protocol === "http:")) return { error: "not_https" };
   const host = u.hostname.toLowerCase();
+  await dropStep(tab.id); // a new fill in this tab replaces any held password
   const got = await askFill(tab.id, host, account);
   if (got.error) return { error: got.error };
   if (got.choose) return { choose: got.choose, host };
   const res = got.cred;
+  // Username-first page (no password field in any frame): fill the username now and
+  // hold the password for the next step of this sign-in.
+  const step = typeof res.username === "string" && !!res.username && !(await tabHasPassword(tab.id));
   const out = await chrome.scripting.executeScript({
     target: { tabId: tab.id, allFrames: true },
     func: fillPage,
-    args: [host, { username: res.username, password: res.password, code: res.code }],
+    args: [host, { username: res.username, password: step ? "" : res.password, code: res.code }],
   });
   const frames = out.filter((r) => r.result > 0).map((r) => r.frameId);
-  if (frames.length) notifyFilled(tab.id, host, res, frames);
+  if (frames.length && step) await armStep(tab.id, host, account, res);
+  if (frames.length) notifyFilled(tab.id, host, step ? { ...res, password: "" } : res, frames);
   return frames.length ? { ok: true, host, title: str(res.title, 200) } : { error: "no_fields" };
 }
 
@@ -229,7 +237,7 @@ async function fillActiveTab(account) {
 const fillsInFlight = new Set();
 const savesInFlight = new Set();
 const pendingKey = (tabId) => `pending:${tabId}`;
-const FRAME_TYPES = new Set(["fill", "capture"]);
+const FRAME_TYPES = new Set(["fill", "capture", "stepFill", "stepCancel"]);
 
 // The top page of the sender's tab. For the top frame that is the sender's own
 // URL; for a subframe it is the tab URL (never anything from the message).
@@ -251,14 +259,20 @@ async function fillForSender(sender, msg) {
   if (fillsInFlight.has(tabId)) return { error: "busy" };
   fillsInFlight.add(tabId);
   try {
-    const got = await askFill(tabId, info.host, msg && msg.account !== undefined ? msg.account : undefined);
+    await dropStep(tabId); // a new fill in this tab replaces any held password
+    const account = msg && msg.account !== undefined ? msg.account : undefined;
+    const got = await askFill(tabId, info.host, account);
     if (got.error) return { error: got.error };
     if (got.choose) return { choose: got.choose, host: info.host };
     const res = got.cred;
+    // The content script says this is a username-only page: the password stays here
+    // for the next step instead of going to the page now.
+    const step = !!(msg && msg.step === true && typeof res.username === "string" && res.username);
+    if (step) await armStep(tabId, info.host, account, res);
     return {
       ok: true, host: info.host, title: str(res.title, 200),
       username: typeof res.username === "string" ? res.username : "",
-      password: res.password,
+      password: step ? "" : res.password,
       code: typeof res.code === "string" ? res.code : "",
     };
   } finally {
@@ -374,6 +388,92 @@ async function onNever(_msg, sender) {
   return { ok: true };
 }
 
+// ---------- multi-step logins (username page, then password page) ----------
+// Google, Microsoft and most SSO pages ask for the username, then show the password
+// field after "Next" (an SPA re-render or a navigation). A fill approved on the
+// username page fills only the username; the password waits here for the next step:
+// in chrome.storage.session (memory only, not readable by content scripts), bound to
+// the tab, the approved top host's site and the account, for STEP_TTL. It is handed
+// out once, to a content script of that tab whose top page is still on that site, and
+// dropped on use, expiry, tab close, navigation to another site, a new fill in the
+// tab, or a "locked" reply from Notiq. Nothing is ever submitted for the user.
+const STEP_TTL = 2 * 60 * 1000;
+const stepKey = (tabId) => `step:${tabId}`;
+
+async function armStep(tabId, host, account, res) {
+  await chrome.storage.session.set({
+    [stepKey(tabId)]: {
+      host, account: typeof account === "string" ? account : "", username: res.username, password: res.password, at: Date.now(),
+    },
+  });
+  setTimeout(() => { purgeSteps().catch(() => {}); }, STEP_TTL + 1000); // best effort; reads re-check the age anyway
+}
+const dropStep = (tabId) => chrome.storage.session.remove(stepKey(tabId));
+const stepFresh = (p, now) => !!p && typeof p.at === "number" && now - p.at < STEP_TTL && now >= p.at;
+async function dropAllSteps() {
+  const keys = Object.keys(await chrome.storage.session.get(null)).filter((k) => k.startsWith("step:"));
+  if (keys.length) await chrome.storage.session.remove(keys);
+}
+async function purgeSteps() {
+  const all = await chrome.storage.session.get(null);
+  const now = Date.now();
+  const stale = Object.keys(all).filter((k) => k.startsWith("step:") && !stepFresh(all[k], now));
+  if (stale.length) await chrome.storage.session.remove(stale);
+}
+
+// Toolbar path: is a password field showing in any frame of the tab? (Then it is
+// not a username-first page.) Each frame answers only true/false.
+async function tabHasPassword(tabId) {
+  try {
+    const out = await chrome.scripting.executeScript({
+      target: { tabId, allFrames: true },
+      func: () => [...document.querySelectorAll("input[type=password]")].some((i) => {
+        const r = i.getBoundingClientRect();
+        const cs = getComputedStyle(i);
+        return r.width > 0 && r.height > 0 && cs.visibility !== "hidden" && cs.display !== "none";
+      }),
+    });
+    return out.some((r) => r.result === true);
+  } catch {
+    return true; // can't tell: behave as a normal one-step fill
+  }
+}
+
+// A content script saw an empty login password field appear. Only the tab that holds
+// a password gets it, only while its top page is on the approved site, and only once.
+async function onStepFill(_msg, sender) {
+  const tabId = sender.tab.id;
+  const key = stepKey(tabId);
+  const p = (await chrome.storage.session.get(key))[key];
+  if (!p) return { none: true };
+  const info = topInfo(sender);
+  if (info.error || !sameSite(info.host, p.host) || !stepFresh(p, Date.now()) || typeof p.password !== "string") {
+    await dropStep(tabId);
+    return { none: true };
+  }
+  if (sender.tab.active === false) return { none: true };
+  await dropStep(tabId);
+  return { ok: true, host: info.host, username: typeof p.username === "string" ? p.username : "", password: p.password };
+}
+// The username fill did not happen after all (field gone, nothing filled).
+async function onStepCancel(_msg, sender) {
+  await dropStep(sender.tab.id);
+  return { ok: true };
+}
+
+chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+  // The URL is only visible with host access to the page; otherwise the site check in onStepFill covers it.
+  if (!changeInfo || typeof changeInfo.url !== "string") return;
+  const key = stepKey(tabId);
+  chrome.storage.session.get(key).then((got) => {
+    const p = got[key];
+    if (!p) return;
+    const info = pageInfo(changeInfo.url);
+    if (info.error || !sameSite(info.host, p.host)) return dropStep(tabId);
+  }).catch(() => {});
+});
+purgeSteps().catch(() => {}); // service-worker start
+
 // ---------- theme from the Notiq app ----------
 // {op:"theme"} -> {ok:true, theme} | {ok:true, theme:null}. Never launches the app.
 // The validated theme is cached in chrome.storage.local `theme`; the popup and the
@@ -417,6 +517,8 @@ const CONTENT_HANDLERS = {
   dismiss: onDismiss,
   never: onNever,
   theme: onThemeNudge,
+  stepFill: onStepFill,
+  stepCancel: onStepCancel,
 };
 
 function messageTooBig(msg) {
@@ -468,4 +570,5 @@ refreshTheme(THEME_MIN_AGE).catch(() => {});
 chrome.tabs.onRemoved.addListener((tabId) => {
   offers.delete(tabId);
   chrome.storage.session.remove(pendingKey(tabId));
+  dropStep(tabId);
 });
