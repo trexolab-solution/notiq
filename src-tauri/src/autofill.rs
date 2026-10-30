@@ -736,8 +736,14 @@ fn connect() -> Option<Conn> {
     let mut line = String::new();
     r.read_line(&mut line).ok()?;
     serde_json::from_str::<Value>(line.trim()).ok().filter(|v| v.is_object())?;
-    s.set_read_timeout(Some(ANSWER_TIMEOUT + Duration::from_secs(10))).ok()?;
+    // Replies are read through the clone, and on Windows a cloned socket keeps its own timeout: set it there,
+    // or every answer that needs the user (> 3 s) fails and the request is sent twice.
+    r.get_ref().set_read_timeout(Some(ANSWER_TIMEOUT + Duration::from_secs(10))).ok()?;
     Some((s, r))
+}
+
+fn is_timeout(e: &std::io::Error) -> bool {
+    matches!(e.kind(), std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock)
 }
 
 /// Ops that may start Notiq when it isn't running (a user action in the browser). `ping` and `theme` never do.
@@ -823,9 +829,14 @@ fn forward(conn: &mut Option<Conn>, req: &Value) -> Value {
             return json!({ "ok": true });
         }
         let mut line = String::new();
-        let ok = writeln!(w, "{req}").is_ok() && r.read_line(&mut line).map(|n| n > 0).unwrap_or(false);
-        if ok {
-            return serde_json::from_str(line.trim()).unwrap_or_else(|_| json!({ "error": "bad_reply" }));
+        let read = if writeln!(w, "{req}").is_ok() { r.read_line(&mut line) } else { Ok(0) };
+        match read {
+            Ok(n) if n > 0 => {
+                return serde_json::from_str(line.trim()).unwrap_or_else(|_| json!({ "error": "bad_reply" }));
+            }
+            // The app has the request and is still waiting for the user: sending it again would ask twice.
+            Err(e) if is_timeout(&e) => return json!({ "error": "timeout" }),
+            _ => {}
         }
         *conn = None; // stale connection (app restarted) — reconnect once
         if attempt == 1 {
