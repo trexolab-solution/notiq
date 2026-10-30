@@ -50,7 +50,6 @@ html.is-autofill-prompt #root { height: 100%; margin: 0; overflow: hidden; backg
 
 .af-lead { margin: 0; font-size: 13px; line-height: 1.5; color: var(--color-text); }
 .af-detail { margin: 0; font-size: 12px; line-height: 1.5; color: var(--color-text-muted); }
-.af-label { display: block; margin-bottom: 4px; font-size: 12px; color: var(--color-text-muted); }
 .af-error { display: block; margin-top: 4px; font-size: 12px; line-height: 1.45; color: var(--color-danger); }
 .af-muted { color: var(--color-text-muted); }
 .af-host-inline { overflow-wrap: anywhere; }
@@ -91,7 +90,5 @@ html.is-autofill-prompt #root { height: 100%; margin: 0; overflow: hidden; backg
 .af-icon-btn:hover { background: var(--color-bg-tertiary); color: var(--color-text); }
 .af-icon-btn:focus-visible { outline: 2px solid color-mix(in srgb, var(--color-primary) 70%, transparent); outline-offset: 1px; }
 
-/* Secondary full-width action ("Unlock with Windows Hello"). */
-.af-wide-btn { width: 100%; }
 
 .af-window .dlg-callout { margin: 0; }

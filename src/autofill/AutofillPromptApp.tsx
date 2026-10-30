@@ -6,14 +6,14 @@ import { emitTo, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
 import { KeyRound, Lock, TriangleAlert, X } from "lucide-react";
 import { DialogButton, DialogFooter, DialogIcon } from "../components/ui/DialogParts";
-import { PasswordInput } from "../components/ui/PasswordInput";
 import { FillChoice, SaveFields } from "../components/vault/autofillBodies";
+import { useVaultUnlock } from "../components/vault/unlock/useVaultUnlock";
+import { VaultUnlockActions, VaultUnlockBody } from "../components/vault/unlock/VaultUnlockForm";
 import { useDialogBehaviour } from "../components/ui/useDialogBehaviour";
 import type { DefaultFocus } from "../components/ui/dialogLogic";
 import { applyTheme } from "../lib/themes";
 import { resolveVaultDir } from "../lib/vaultDir";
-import { ERR_LOCKED, vaultErrorMessage, vaultStatus, vaultUnlock } from "../lib/vault";
-import { helloStatus, helloUnlock, isHelloCancel } from "../lib/hello";
+import { ERR_LOCKED, vaultStatus } from "../lib/vault";
 import { nameError } from "../lib/vaultTree";
 import { LOOKALIKE_REASON_TEXT } from "../lib/lookalike";
 import {
@@ -246,8 +246,7 @@ export default function AutofillPromptApp() {
         </Panel>
       );
     case "locked":
-      return <LockedStage key={`locked-${state.job.req.id}`} refs={refs} job={state.job} error={state.error} busy={state.busy}
-                          dispatch={dispatch} onDeny={deny} />;
+      return <LockedStage key={`locked-${state.job.req.id}`} refs={refs} job={state.job} dispatch={dispatch} onDeny={deny} />;
     case "request": {
       const { job, matches, pick, trust, busy } = state;
       return (
@@ -365,82 +364,30 @@ function Panel({ refs, host, sub, icon, tone = "primary", onClose, defaultFocus,
 interface LockedProps {
   refs: Refs;
   job: Job;
-  error: string | null;
-  busy: boolean;
   dispatch: (ev: PromptEvent) => void;
   onDeny: () => void;
 }
 
-/** The vault is locked: the master password (or Windows Hello) unlocks it right here. */
-function LockedStage({ refs, job, error, busy, dispatch, onDeny }: LockedProps) {
-  const [password, setPassword] = useState("");
-  const [helloOn, setHelloOn] = useState(false);
-  const [missing, setMissing] = useState(false);
-
-  useEffect(() => {
-    let live = true;
-    void helloStatus().then((s) => { if (live) setHelloOn(s.enabled); });
-    return () => { live = false; };
-  }, []);
-
-  const submit = async (e: FormEvent) => {
-    e.preventDefault();
-    if (busy) return;
-    if (!password) { setMissing(true); return; }
-    setMissing(false);
-    dispatch({ type: "unlockStarted" });
-    try {
-      // The same throttled command as the main window: wrong passwords count towards the lockout.
-      await vaultUnlock(password);
-      setPassword("");
-      dispatch({ type: "unlocked" });
-    } catch (err) {
-      dispatch({ type: "unlockFailed", error: vaultErrorMessage(err) });
-    }
-  };
-
-  const withHello = async () => {
-    if (busy) return;
-    dispatch({ type: "unlockStarted" });
-    const win = getCurrentWindow();
+/** The vault is locked: the same unlock form as the main window (master password or Windows Hello). */
+function LockedStage({ refs, job, dispatch, onDeny }: LockedProps) {
+  const u = useVaultUnlock({
+    onUnlocked: () => dispatch({ type: "unlocked" }),
+    onStart: () => dispatch({ type: "unlockStarted" }),
+    onFail: (error) => dispatch({ type: "unlockFailed", error }),
     // The Windows Hello dialog must not open underneath this always-on-top window.
-    await win.setAlwaysOnTop(false).catch(() => {});
-    try {
-      await helloUnlock();
-      dispatch({ type: "unlocked" });
-    } catch (err) {
-      const msg = vaultErrorMessage(err);
-      dispatch({ type: "unlockFailed", error: isHelloCancel(msg) ? null : msg });
-      setHelloOn((await helloStatus()).enabled);
-    } finally {
+    beforeHello: () => getCurrentWindow().setAlwaysOnTop(false).catch(() => {}),
+    afterHello: async () => {
+      const win = getCurrentWindow();
       await win.setAlwaysOnTop(true).catch(() => {});
       await win.setFocus().catch(() => {});
-    }
-  };
-
-  const shownError = missing ? "Enter your master password" : error;
-  const what = job.kind === "fill" ? "fill a saved login" : "save a login";
+    },
+  });
+  const fill = job.kind === "fill";
   return (
-    <Panel refs={refs} host={job.req.host} icon={<Lock size={16} />} onClose={onDeny} onSubmit={submit}
-           sub={job.kind === "fill"
-             ? <>The Notiq extension wants to {what}. Unlocking fills it right away.</>
-             : <>The Notiq extension wants to {what}. Unlock the vault to continue.</>}
-           footer={<>
-             <DialogButton cancel onClick={onDeny} disabled={busy}>Cancel</DialogButton>
-             <DialogButton type="submit" variant="primary" disabled={busy}>{busy ? "Unlocking…" : job.kind === "fill" ? "Unlock & fill" : "Unlock"}</DialogButton>
-           </>}>
-      <div>
-        <label className="af-label" htmlFor="af-password">Master password</label>
-        <PasswordInput id="af-password" autoFocus data-autofocus="" autoComplete="current-password" disabled={busy}
-                       value={password} onChange={(e) => { setPassword(e.target.value); setMissing(false); }}
-                       aria-invalid={!!shownError} aria-describedby={shownError ? "af-unlock-err" : undefined} />
-        {shownError && <span id="af-unlock-err" role="alert" className="af-error">{shownError}</span>}
-      </div>
-      {helloOn && (
-        <DialogButton className="af-wide-btn" disabled={busy} onClick={() => void withHello()}>
-          Unlock with Windows Hello
-        </DialogButton>
-      )}
+    <Panel refs={refs} host={job.req.host} icon={<Lock size={16} />} onClose={onDeny} onSubmit={u.submit}
+           sub={`The Notiq extension wants to ${fill ? "fill a saved login" : "save a login"}.`}
+           footer={<VaultUnlockActions u={u} onCancel={onDeny} submitLabel={fill ? "Unlock & fill" : "Unlock & save"} />}>
+      <VaultUnlockBody u={u} purpose={fill ? "unlock and fill it" : "unlock and save it"} idPrefix="af-unlock" />
     </Panel>
   );
 }

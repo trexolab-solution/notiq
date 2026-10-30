@@ -231,7 +231,7 @@ export const SETTINGS_INDEX: SettingMeta[] = [
   { id: "vault.backup.remind", section: "vault", group: "Backup", label: "Remind me to back up",
     description: "A reminder appears if you never backed up (after 3 days) or the last backup is over 30 days old.",
     keywords: ["backup", "reminder", "notification", "nag"] },
-  { id: "vault.quickunlock.hello", section: "vault", group: "Quick unlock", label: "Windows Hello (experimental)",
+  { id: "vault.quickunlock.hello", section: "vault", group: "Quick unlock", label: "PC sign-in unlock (experimental)",
     description: "Unlock with your face, fingerprint or Windows PIN instead of typing the master password.",
     keywords: ["windows hello", "fingerprint", "face", "pin", "biometric", "quick unlock", "unlock"] },
   { id: "vault.quicksearch.enabled", section: "vault", group: "Quick search", label: "Quick search hotkey",

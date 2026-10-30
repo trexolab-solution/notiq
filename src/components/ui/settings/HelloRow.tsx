@@ -10,7 +10,7 @@ import { HELLO_OFF, helloDisable, helloEnable, helloStatus, isHelloCancel, type 
 const DESCRIPTION = "Unlock with your face, fingerprint or Windows PIN instead of typing the master password.";
 const HELP =
   "Convenience unlock with your face, fingerprint or Windows PIN. Your master password stays the root secret: " +
-  "it is still needed after you change your Windows Hello setup, after a restore or recovery, and whenever this is turned off. " +
+  "it is still needed after you change your Windows sign-in options, after a restore or recovery, and whenever this is turned off. " +
   "Like any quick unlock, anyone who can use your signed-in Windows session can also unlock the vault.";
 
 /** 0.7.0 — "Unlock with Windows Hello" (experimental, off by default). Hidden when Hello isn't available. */
@@ -43,7 +43,7 @@ export function HelloRow() {
       await helloEnable(password);
       closeForm();
       setStatus({ supported: true, enabled: true });
-      toast.info("Windows Hello unlock is on. Your master password still works as before.");
+      toast.info("PC sign-in unlock is on. Your master password still works as before.");
     } catch (err) {
       const msg = vaultErrorMessage(err);
       if (isHelloCancel(msg)) toast.info(msg); else setError(msg);
@@ -58,7 +58,7 @@ export function HelloRow() {
     setBusy(true);
     try {
       await helloDisable();
-      toast.info("Windows Hello unlock is off.");
+      toast.info("PC sign-in unlock is off.");
     } catch (err) {
       toast.error(vaultErrorMessage(err));
     } finally {
@@ -74,10 +74,10 @@ export function HelloRow() {
     <>
       <SettingRow
         id="vault.quickunlock.hello"
-        label="Windows Hello (experimental)"
+        label="PC sign-in unlock (experimental)"
         description={hint ?? DESCRIPTION}
         help={HELP}
-        keywords={["windows hello", "fingerprint", "face", "pin", "biometric", "quick unlock", "unlock"]}
+        keywords={["pc sign-in", "windows hello", "fingerprint", "face", "pin", "biometric", "quick unlock", "unlock"]}
       >
         {status.enabled ? (
           <Button className="settings-btn" size="sm" variant="ghost" disabled={busy} onClick={() => void disable()}>Turn off</Button>
@@ -91,15 +91,15 @@ export function HelloRow() {
       {asking && !status.enabled && (
         <form onSubmit={enable} className="setting-subform">
           <PasswordInput placeholder="Master password" autoComplete="current-password" autoFocus
-                         aria-label="Master password to turn on Windows Hello"
+                         aria-label="Master password to turn on PC sign-in unlock"
                          value={password} onChange={(e) => setPassword(e.target.value)} />
           <p className="text-xs text-[var(--color-text-muted)]">
-            Windows will ask you to verify with Windows Hello (possibly more than once).
+            Windows will ask you to confirm it's you (possibly more than once).
           </p>
           {error && <p role="alert" className="text-xs text-[var(--color-danger)]">{error}</p>}
           <div className="setting-subform-actions">
             <Button className="settings-btn-primary" type="submit" size="sm" variant="primary" disabled={busy || !password}>
-              {busy ? "Waiting for Windows Hello…" : "Turn on Windows Hello"}
+              {busy ? "Waiting for verification…" : "Turn on PC sign-in"}
             </Button>
             <Button className="settings-btn" type="button" size="sm" disabled={busy} onClick={closeForm}>Cancel</Button>
           </div>
