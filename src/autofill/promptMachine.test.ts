@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { clearTrust, isTrusted, trustHost, type LoginMatch } from "../lib/autofill";
+import { clearTrust, isTrusted, trustHost, type CardMatch, type LoginMatch } from "../lib/autofill";
+import { cardFill } from "../lib/cardEntry";
 import { emptyLogin } from "../lib/loginEntry";
+import { emptySecret } from "../lib/secretEntry";
 import {
   currentId, dropFromQueue, enqueue, IDLE, MAX_QUEUE, step, type Effect, type Job, type PromptEvent, type PromptState,
 } from "./promptMachine";
@@ -230,5 +232,84 @@ describe("trust window reuse", () => {
     expect(kinds(second.effects)).toEqual(["scan", "release"]);
     clearTrust(); // the vault locked
     expect(isTrusted("example.com")).toBe(false);
+  });
+});
+
+// ─── Card fills ─────────────────────────────────────────────────────────────
+
+const cardMatch = (rel: string, number = "4242424242424242"): CardMatch => {
+  const entry = emptySecret("card", rel);
+  entry.fields = { cardholder: "Ann Lee", number, expiry: "08/29", cvv: "123" };
+  return { path: `/root/${rel}`, rel, entry, fill: cardFill(entry.fields)! };
+};
+const card = (id = "c1"): Job => ({ kind: "card", req: { id, host: "shop.example.com" } });
+
+describe("prompt state machine: card", () => {
+  it("scans cards (not logins), shows the list and releases only the picked card", () => {
+    let r = run(IDLE, start(card()));
+    expect(r.state).toMatchObject({ stage: "checking", silent: false });
+    expect(r.effects).toEqual([{ kind: "scanCards" }]);
+
+    const a = cardMatch("Cards/a.nqv"), b = cardMatch("Cards/b.nqv", "5555555555554444");
+    r = run(r.state, { type: "cardsScanned", cards: [a, b] });
+    expect(r.state).toMatchObject({ stage: "card", pick: 0, busy: false });
+    expect(kinds(r.effects)).toEqual(["show"]);
+
+    r = run(r.state, { type: "pick", index: 7 });
+    expect(r.state).toMatchObject({ pick: 1 });
+    r = run(r.state, { type: "allow" });
+    expect(r.effects).toEqual([{ kind: "releaseCard", id: "c1", card: b }]);
+    expect(step(r.state, { type: "allow" }).effects).toEqual([]); // busy
+    expect(step(r.state, { type: "deny" }).effects).toEqual([]);  // busy: the reply is on its way
+
+    r = run(r.state, { type: "answered" });
+    expect(r.state).toBe(IDLE);
+    expect(kinds(r.effects)).toEqual(["finish"]);
+  });
+
+  it("is never silent: a trusted host and a single card still ask", () => {
+    const r = run(IDLE, start(card(), { trusted: true }), { type: "cardsScanned", cards: [cardMatch("Cards/a.nqv")] });
+    expect(r.state.stage).toBe("card");
+    expect(kinds(r.effects)).toEqual(["scanCards", "show"]);
+  });
+
+  it("unlocking in the prompt still shows the card list (no consent shortcut)", () => {
+    let r = run(IDLE, start(card(), { unlocked: false }));
+    expect(r.state.stage).toBe("locked");
+    r = run(r.state, { type: "unlocked" });
+    expect(r.state).toMatchObject({ stage: "checking", silent: false });
+    expect((r.state as Extract<PromptState, { stage: "checking" }>).consent).toBeFalsy();
+    expect(r.effects).toEqual([{ kind: "scanCards" }]);
+    r = run(r.state, { type: "cardsScanned", cards: [cardMatch("Cards/a.nqv")] });
+    expect(r.state.stage).toBe("card");
+    expect(r.effects.some((e) => e.kind === "releaseCard")).toBe(false);
+  });
+
+  it("no cards → no_card without showing the window", () => {
+    const r = run(IDLE, start(card()), { type: "cardsScanned", cards: [] });
+    expect(replies(r.effects)).toEqual([{ error: "no_card" }]);
+    expect(kinds(r.effects)).toEqual(["scanCards", "reply", "finish"]);
+  });
+
+  it("deny, lock and failures answer like a login fill", () => {
+    const shown = run(IDLE, start(card()), { type: "cardsScanned", cards: [cardMatch("Cards/a.nqv")] }).state;
+    expect(replies(run(shown, { type: "deny" }).effects)).toEqual([{ error: "denied" }]);
+    expect(replies(run(shown, { type: "vaultLocked" }).effects)).toEqual([{ error: "locked" }]);
+    expect(replies(run(IDLE, start(card()), { type: "failed" }).effects)).toEqual([{ error: "failed" }]);
+    expect(replies(run(IDLE, start(card(), { exists: false })).effects)).toEqual([{ error: "locked" }]);
+    expect(replies(run(IDLE, start(card(), { unlocked: false }), { type: "deny" }).effects)).toEqual([{ error: "locked" }]);
+  });
+
+  it("login and card results never cross", () => {
+    // A login scan result can't answer a card request, and card results can't answer a login one.
+    const checkingCard = run(IDLE, start(card())).state;
+    expect(step(checkingCard, { type: "scanned", matches: [m("Logins/a.nqv", "a")], lookalike: null }))
+      .toEqual({ state: checkingCard, effects: [] });
+    const checkingFill = run(IDLE, start(fill())).state;
+    expect(step(checkingFill, { type: "cardsScanned", cards: [cardMatch("Cards/a.nqv")] }))
+      .toEqual({ state: checkingFill, effects: [] });
+    // Trust only exists for logins.
+    const shown = run(IDLE, start(card()), { type: "cardsScanned", cards: [cardMatch("Cards/a.nqv")] }).state;
+    expect(step(shown, { type: "trust", on: true }).state).toBe(shown);
   });
 });
