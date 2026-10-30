@@ -225,11 +225,11 @@ async function fillActiveTab(account) {
 
 // ---------- requests from the in-page content script ----------
 // Top frame: everything. Same-site subframes (checked against the tab's real
-// URL): only "fill" and "capture".
+// URL): only "fill", "capture" and "fillCard".
 const fillsInFlight = new Set();
 const savesInFlight = new Set();
 const pendingKey = (tabId) => `pending:${tabId}`;
-const FRAME_TYPES = new Set(["fill", "capture"]);
+const FRAME_TYPES = new Set(["fill", "capture", "fillCard"]);
 
 // The top page of the sender's tab. For the top frame that is the sender's own
 // URL; for a subframe it is the tab URL (never anything from the message).
@@ -261,6 +261,28 @@ async function fillForSender(sender, msg) {
       password: res.password,
       code: typeof res.code === "string" ? res.code : "",
     };
+  } finally {
+    fillsInFlight.delete(tabId);
+  }
+}
+
+// ---------- payment cards ----------
+// The in-page card icon was clicked (trusted click, checked in content.js). Same rules as a login fill:
+// the host and origin come from the top page's URL (https, or http on localhost), the sender is the top
+// frame or a same-site subframe (checked before this runs), and the card goes back only to that frame.
+// The app always asks the user to pick the card; the reply is re-validated here before it is passed on.
+async function fillCardForSender(sender) {
+  const info = topInfo(sender);
+  if (info.error) return { error: info.error };
+  if (sender.tab.active === false) return { error: "denied" };
+  const tabId = sender.tab.id;
+  if (fillsInFlight.has(tabId)) return { error: "busy" };
+  fillsInFlight.add(tabId);
+  try {
+    const res = await ask({ op: "fill_card", host: info.host, origin: info.origin });
+    if (!res || res.error) return { error: res ? String(res.error).slice(0, 40) : "no_reply" };
+    const card = NotiqShared.validCardReply(res);
+    return card ? { ok: true, host: info.host, card } : { error: "no_reply" };
   } finally {
     fillsInFlight.delete(tabId);
   }
@@ -411,6 +433,7 @@ const onThemeNudge = () => refreshTheme(THEME_MIN_AGE).then(() => ({ ok: true })
 
 const CONTENT_HANDLERS = {
   fill: (m, s) => fillForSender(s, m),
+  fillCard: (_m, s) => fillCardForSender(s),
   capture: onCapture,
   pending: onPending,
   save: onSave,

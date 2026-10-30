@@ -52,6 +52,13 @@ Updating from 0.1: click the reload button on the extension's card. The browser 
   and save offer too. Iframes from any other site are ignored completely.
 - A login matches when the entry's website equals the page's host or a parent domain of it
   (`login.example.com` ↔ `example.com`).
+- **Payment cards:** on a checkout page the card number field gets the same key icon (fields are found by their
+  `cc-number` / `cc-exp` / `cc-exp-month` / `cc-exp-year` / `cc-name` / `cc-csc` autocomplete tokens or by their
+  names and labels; month / year dropdowns work too). Clicking it sends `{op:"fill_card", host, origin}`; Notiq
+  **always** asks you to pick a card (shown as `•••• 4242`), with no "allow for 5 minutes" shortcut, and only then
+  fills number, expiry, cardholder name and the security code if you stored one. Only https pages (or localhost),
+  and only the page itself or a same-site iframe: card fields inside another site's iframe (Stripe, Adyen, …) are
+  never filled.
 
 ### Settings (toolbar popup)
 - **Offer to save new logins** (on by default).
