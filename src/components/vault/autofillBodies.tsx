@@ -1,7 +1,8 @@
 import { Eye, EyeOff } from "lucide-react";
 import { DialogCheckbox } from "../ui/DialogParts";
 import { Input } from "../ui/Input";
-import { LOGINS_FOLDER, type LoginMatch, type SavePlan, type SaveRequest } from "../../lib/autofill";
+import { cardTitle, LOGINS_FOLDER, type CardMatch, type LoginMatch, type SavePlan, type SaveRequest } from "../../lib/autofill";
+import { cardBrand, cardExpired, maskCardNumber } from "../../lib/cardEntry";
 
 /**
  * The interactive parts of the browser-autofill prompts, shared by the small autofill window
@@ -41,6 +42,37 @@ export function FillChoice({ host, matches, pick, onPick, trust, onTrust, disabl
         hint="Fills on this exact site without asking until then, while the vault stays unlocked."
       />
     </>
+  );
+}
+
+export interface CardChoiceProps {
+  cards: CardMatch[];
+  pick: number;
+  onPick: (index: number) => void;
+  disabled?: boolean;
+}
+
+/** Which saved card to send: title, brand, masked number and expiry (never the full number or the CVC). */
+export function CardChoice({ cards, pick, onPick, disabled }: CardChoiceProps) {
+  return (
+    <div role="radiogroup" aria-label="Saved cards" className="af-logins">
+      {cards.map((c, i) => {
+        const brand = cardBrand(c.fill.number);
+        const exp = c.fill.exp_month ? `${c.fill.exp_month}/${c.fill.exp_year.slice(-2)}` : "";
+        const expired = cardExpired(c.fill);
+        return (
+          <label key={c.path} className="af-login" data-selected={pick === i ? "" : undefined}>
+            <input type="radio" name="af-card" checked={pick === i} disabled={disabled} onChange={() => onPick(i)} />
+            <span className="af-login-text">
+              <span className="af-login-title">{cardTitle(c)}</span>
+              <span className="af-login-user">
+                {[brand, maskCardNumber(c.fill.number), exp && (expired ? `expired ${exp}` : `exp ${exp}`)].filter(Boolean).join(" · ")}
+              </span>
+            </span>
+          </label>
+        );
+      })}
+    </div>
   );
 }
 

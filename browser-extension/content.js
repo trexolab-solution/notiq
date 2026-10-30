@@ -85,6 +85,8 @@
     busy: "Notiq is already waiting for your approval.",
     no_reply: "Notiq didn't answer. Reload the page and try again.",
     stale: "That list of logins expired. Try again.",
+    no_card: "No saved card in your vault.",
+    no_card_fields: "Couldn't find card fields on this page.",
   };
   const GENERIC = "Something went wrong.";
   const SAVE_TEXT = { saved: "Saved to Notiq", updated: "Password updated in Notiq", unchanged: "Already saved" };
@@ -200,7 +202,7 @@
   function detect() {
     const out = new Set();
     for (const pw of inputsIn(document)) {
-      if (!isPassword(pw) || !usable(pw)) continue;
+      if (!isPassword(pw) || !usable(pw) || cardKindOf(pw)) continue; // a masked CVC field is not a login
       out.add(pw);
       for (const i of inputsIn(scopeOf(pw))) if (i !== pw && isUserLike(i) && usable(i)) out.add(i);
     }
@@ -390,8 +392,8 @@
     const btn = el("button", "nq-icon");
     btn.type = "button";
     btn.tabIndex = -1; // keyboard users have Alt+Shift+L; don't hijack the page's tab order
-    btn.title = "Fill with Notiq";
-    btn.setAttribute("aria-label", "Fill with Notiq");
+    btn.title = cardFields.has(field) ? "Fill card with Notiq" : "Fill with Notiq";
+    btn.setAttribute("aria-label", btn.title);
     btn.appendChild(svg("nq-key", KEY));
     btn.appendChild(el("span", "nq-spin"));
     btn.appendChild(svg("nq-ok", ["M5 12.5l4.5 4.5L19 7.5"]));
@@ -429,7 +431,9 @@
     clearTimeout(ic.timer);
     ic.wrap.className = `nq-wrap ${state}${text ? " has-tip" : ""}`;
     ic.tip.textContent = text || "";
-    ic.btn.setAttribute("aria-label", text ? `Fill with Notiq: ${text}` : "Fill with Notiq");
+    const label = cardFields.has(field) ? "Fill card with Notiq" : "Fill with Notiq";
+    ic.btn.title = label;
+    ic.btn.setAttribute("aria-label", text ? `${label}: ${text}` : label);
     if (state === "done" || state === "error") {
       ic.timer = setTimeout(() => setState(field, "idle", ""), state === "done" ? 1800 : 5000);
     }
@@ -460,8 +464,10 @@
   }
 
   function scan() {
-    if (!settings.showIcon) { clearIcons(); return; }
+    if (!settings.showIcon) { clearIcons(); cardFields = new Map(); return; }
+    cardFields = detectCards();
     const found = detect();
+    for (const f of cardIconFields(cardFields)) found.add(f);
     for (const f of Array.from(icons.keys())) if (!found.has(f)) removeIcon(f);
     for (const f of found) if (!icons.has(f)) addIcon(f);
     schedulePosition();
@@ -786,6 +792,7 @@
     if (menu && menu.field === field) { closeMenu(true); return; }
     closeMenu(false);
     if (filling) return;
+    if (cardFields.has(field)) { doCardFill(field); return; }
     const info = newPasswordInfo(field);
     if (info) openNewPasswordMenu(field, info);
     else doFill(field, field);
@@ -817,6 +824,83 @@
     }
   }
 
+  // ---------- payment cards (only after a trusted click on a card field's icon) ----------
+  // Card fields are found by their autocomplete tokens (cc-number, cc-exp, cc-exp-month, cc-exp-year,
+  // cc-name, cc-csc) or by name / id / placeholder / label hints (NotiqShared.cardFieldKind). A field
+  // found by hints alone counts only when this frame also shows a card number field. The icon sits in
+  // the card number field (or, in a frame without one, the first tagged card field). Cross-site payment
+  // iframes (Stripe and the like) never get here: the frame check at the top quits first, and the
+  // background re-checks the sender. The card is kept in local variables for the fill only.
+  let cardFields = new Map(); // field -> kind, refreshed by scan()
+
+  function labelOf(f) {
+    let t = attr(f, "aria-label");
+    try { for (const l of Array.from(f.labels || [])) t += ` ${l.textContent || ""}`; } catch { /* no labels */ }
+    return t.slice(0, 200);
+  }
+  function cardKindOf(f) {
+    if (!f || (f.tagName !== "INPUT" && f.tagName !== "SELECT")) return null;
+    return NS.cardFieldKind({
+      tag: f.tagName, type: f.tagName === "SELECT" ? "select" : typeOf(f), autocomplete: attr(f, "autocomplete"),
+      name: f.name, id: f.id, placeholder: attr(f, "placeholder"), label: labelOf(f),
+    });
+  }
+  function detectCards() {
+    const found = [];
+    for (const f of Array.from(document.querySelectorAll("input, select"))) {
+      if (f.tagName === "INPUT" && (typeOf(f) === "hidden" || f.readOnly)) continue;
+      const r = cardKindOf(f);
+      if (r && shown(f)) found.push([f, r]);
+    }
+    const hasNumber = found.some(([, r]) => r.kind === "number");
+    const out = new Map();
+    for (const [f, r] of found) if (r.tagged || hasNumber) out.set(f, r.kind);
+    return out;
+  }
+  function cardIconFields(cards) {
+    const inputs = Array.from(cards.keys()).filter((f) => f.tagName === "INPUT" && usable(f));
+    const numbers = inputs.filter((f) => cards.get(f) === "number");
+    return numbers.length ? numbers : inputs.slice(0, 1);
+  }
+  // Fills the anchor's form when it holds other card fields, else every card field of this frame
+  // (formless checkouts). The first field of each kind wins. Returns how many fields were set.
+  function fillCardFields(anchor, card) {
+    const all = detectCards();
+    const inForm = anchor.form ? Array.from(all.keys()).filter((f) => f.form === anchor.form) : [];
+    const scope = inForm.length > 1 ? inForm : Array.from(all.keys());
+    const done = new Set();
+    let n = 0;
+    for (const f of scope) {
+      const kind = all.get(f);
+      if (done.has(kind)) continue;
+      const v = NS.cardFieldValue(kind, card, {
+        tag: f.tagName, maxLength: f.maxLength, placeholder: attr(f, "placeholder"),
+        options: f.tagName === "SELECT" ? Array.from(f.options).map((o) => ({ value: o.value, text: o.text })) : null,
+      });
+      if (v === null) continue;
+      setValue(f, v);
+      done.add(kind);
+      n++;
+    }
+    if (n && anchor.isConnected) focusQuietly(anchor, { preventScroll: true });
+    return n;
+  }
+  async function doCardFill(field) {
+    if (filling) return;
+    filling = true;
+    hideSuggest();
+    setState(field, "waiting", "Approve in Notiq");
+    const res = await send({ type: "fillCard" });
+    filling = false;
+    const card = res && res.ok && res.host === topHost() && res.card && typeof res.card.number === "string" ? res.card : null;
+    if (card && field.isConnected) {
+      const n = fillCardFields(field, card);
+      setState(field, n ? "done" : "error", n ? "Card filled" : TEXT.no_card_fields);
+    } else {
+      setState(field, "error", res.ok ? GENERIC : errText(res.error));
+    }
+  }
+
   // ---------- capture of submitted logins ----------
   const clean = (s, max) => String(s || "").replace(/[\u0000-\u001f\u007f]+/g, " ").replace(/\s+/g, " ").trim().slice(0, max);
   const cleanUrl = () => clean(location.origin + location.pathname, 2048);
@@ -842,7 +926,7 @@
     const host = pageHost();
     if (!host || settings.neverSave.includes(topHost())) return null;
     const ins = inputsIn(scope);
-    const pws = ins.filter((i) => isPassword(i) && i.value && shown(i));
+    const pws = ins.filter((i) => isPassword(i) && i.value && shown(i) && !cardKindOf(i)); // never offer a CVC as a login
     if (!pws.length) {
       const u = ins.find((i) => isUserLike(i) && i.value && shown(i));
       if (u) rememberUser(u.value);

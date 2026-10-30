@@ -4,9 +4,9 @@ import { flushSync } from "react-dom";
 import { invoke } from "@tauri-apps/api/core";
 import { emitTo, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
-import { KeyRound, Lock, TriangleAlert, X } from "lucide-react";
+import { CreditCard, KeyRound, Lock, TriangleAlert, X } from "lucide-react";
 import { DialogButton, DialogFooter, DialogIcon } from "../components/ui/DialogParts";
-import { FillChoice, SaveFields } from "../components/vault/autofillBodies";
+import { CardChoice, FillChoice, SaveFields } from "../components/vault/autofillBodies";
 import { useVaultUnlock } from "../components/vault/unlock/useVaultUnlock";
 import { VaultUnlockActions, VaultUnlockBody } from "../components/vault/unlock/VaultUnlockForm";
 import { useDialogBehaviour } from "../components/ui/useDialogBehaviour";
@@ -17,7 +17,8 @@ import { ERR_LOCKED, vaultStatus } from "../lib/vault";
 import { nameError } from "../lib/vaultTree";
 import { LOOKALIKE_REASON_TEXT } from "../lib/lookalike";
 import {
-  clearTrust, credentialsFor, isFallbackRequest, isTrusted, saveLogin, scanLogins, setVaultRootResolver, trustHost, type SaveRequest,
+  cardReply, clearTrust, credentialsFor, isFallbackRequest, isTrusted, saveLogin, scanCards, scanLogins, setVaultRootResolver,
+  trustHost, type SaveRequest,
 } from "../lib/autofill";
 import { fitWindowSize, sizeChanged } from "./fitWindowSize";
 import { splitHost } from "./hostParts";
@@ -124,6 +125,17 @@ export default function AutofillPromptApp() {
           dispatch(err === ERR_LOCKED ? { type: "vaultLocked" } : { type: "failed" });
         }
         return;
+      case "scanCards":
+        try {
+          dispatch({ type: "cardsScanned", cards: await scanCards() });
+        } catch (err) {
+          dispatch(err === ERR_LOCKED ? { type: "vaultLocked" } : { type: "failed" });
+        }
+        return;
+      case "releaseCard":
+        await reply(e.id, cardReply(e.card));
+        dispatch({ type: "answered" });
+        return;
       case "release":
         try {
           if (e.trustHost) trustHost(e.trustHost);
@@ -197,6 +209,11 @@ export default function AutofillPromptApp() {
         const { id, host, url, username, password, title } = e.payload;
         accept({ kind: "save", req: { id, host, url, username, password, title } });
       }),
+      // Card requests come only to this window (Rust has no main-window fallback for them).
+      listen<{ id: string; host: string }>("autofill:card", (e) => {
+        const { id, host } = e.payload;
+        accept({ kind: "card", req: { id, host } });
+      }),
       listen<{ id: string }>("autofill:cancel", (e) => {
         queue.current = dropFromQueue(queue.current, e.payload.id);
         dispatch({ type: "cancel", id: e.payload.id });
@@ -242,7 +259,9 @@ export default function AutofillPromptApp() {
       return (
         <Panel key={`checking-${state.job.req.id}`} refs={refs} host={state.job.req.host} icon="shield" onClose={deny}
                sub="Vault unlocked." footer={<DialogButton cancel onClick={deny}>Cancel</DialogButton>}>
-          <p className="af-detail" role="status">Looking for saved logins for this site…</p>
+          <p className="af-detail" role="status">
+            {state.job.kind === "card" ? "Looking for saved cards…" : "Looking for saved logins for this site…"}
+          </p>
         </Panel>
       );
     case "locked":
@@ -260,6 +279,20 @@ export default function AutofillPromptApp() {
           <FillChoice host={job.req.host} matches={matches} pick={pick} disabled={busy}
                       onPick={(index) => dispatch({ type: "pick", index })}
                       trust={trust} onTrust={(on) => dispatch({ type: "trust", on })} />
+        </Panel>
+      );
+    }
+    case "card": {
+      const { job, cards, pick, busy } = state;
+      return (
+        <Panel key={`card-${job.req.id}`} refs={refs} host={job.req.host} icon={<CreditCard size={16} />}
+               sub="The Notiq extension in your browser wants to fill a payment card." onClose={deny} defaultFocus="cancel"
+               footer={<>
+                 <DialogButton cancel onClick={deny} disabled={busy}>Deny</DialogButton>
+                 <DialogButton variant="primary" disabled={busy} onClick={() => dispatch({ type: "allow" })}>Fill card</DialogButton>
+               </>}>
+          <p className="af-detail">Only allow this if you just pressed Fill on this site&rsquo;s checkout.</p>
+          <CardChoice cards={cards} pick={pick} disabled={busy} onPick={(index) => dispatch({ type: "pick", index })} />
         </Panel>
       );
     }
@@ -382,12 +415,14 @@ function LockedStage({ refs, job, dispatch, onDeny }: LockedProps) {
       await win.setFocus().catch(() => {});
     },
   });
-  const fill = job.kind === "fill";
+  const what = job.kind === "fill" ? "fill a saved login" : job.kind === "card" ? "fill a payment card" : "save a login";
+  const submitLabel = job.kind === "fill" ? "Unlock & fill" : job.kind === "card" ? "Unlock & pick card" : "Unlock & save";
+  const purpose = job.kind === "fill" ? "unlock and fill it" : job.kind === "card" ? "unlock and pick a card" : "unlock and save it";
   return (
     <Panel refs={refs} host={job.req.host} icon={<Lock size={16} />} onClose={onDeny} onSubmit={u.submit}
-           sub={`The Notiq extension wants to ${fill ? "fill a saved login" : "save a login"}.`}
-           footer={<VaultUnlockActions u={u} onCancel={onDeny} submitLabel={fill ? "Unlock & fill" : "Unlock & save"} />}>
-      <VaultUnlockBody u={u} purpose={fill ? "unlock and fill it" : "unlock and save it"} idPrefix="af-unlock" />
+           sub={`The Notiq extension wants to ${what}.`}
+           footer={<VaultUnlockActions u={u} onCancel={onDeny} submitLabel={submitLabel} />}>
+      <VaultUnlockBody u={u} purpose={purpose} idPrefix="af-unlock" />
     </Panel>
   );
 }

@@ -16,6 +16,8 @@
 //! * `{op:"fill", host, account?}` → `{ok:true, username, password, title, code?}` | `{choose:[{account,title,username}]}`
 //!   | `{error}`. `account` is a vault entry's relative path from an earlier `choose`.
 //! * `{op:"save", host, url, username, password, title}` → `{ok:true, status}` | `{error}`
+//! * `{op:"fill_card", host, origin}` → `{ok:true, title, name, number, exp_month, exp_year, csc}` | `{error}`.
+//!   Always asks the user (no trust window) and is never handled by the main-window fallback.
 
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read, Write};
@@ -321,9 +323,48 @@ pub fn validate_account(v: Option<&Value>) -> Result<Option<String>, &'static st
     Ok(Some(s.clone()))
 }
 
+/// A page host as the extension sends it: lower-case letters, digits, dots and dashes, 1..=253 chars.
+fn valid_host(host: &str) -> bool {
+    !host.is_empty()
+        && host.len() <= 253
+        && host.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'.' || b == b'-')
+}
+
+/// Strict validation of an untrusted `fill_card` message; returns the page host.
+/// `origin` must be that host's own `https://` origin (optionally with a port); plain `http://` is accepted only
+/// for `localhost` / `127.0.0.1`, so a card is never sent to an insecure page.
+pub fn validate_fill_card(req: &Value) -> Result<String, &'static str> {
+    let get = |k: &str| req.get(k).and_then(|v| v.as_str());
+    let host = get("host").ok_or("bad_request")?;
+    if !valid_host(host) {
+        return Err("bad_host");
+    }
+    let origin = get("origin").ok_or("bad_request")?;
+    if origin.len() > 300 {
+        return Err("bad_request");
+    }
+    let local = host == "localhost" || host == "127.0.0.1";
+    let rest = origin
+        .strip_prefix("https://")
+        .or_else(|| if local { origin.strip_prefix("http://") } else { None })
+        .ok_or("not_https")?;
+    let port_ok = |p: &str| !p.is_empty() && p.len() <= 5 && p.bytes().all(|b| b.is_ascii_digit());
+    let ok = match rest.strip_prefix(host) {
+        Some("") => true,
+        Some(p) => p.strip_prefix(':').is_some_and(port_ok),
+        None => false,
+    };
+    if !ok {
+        return Err("bad_request");
+    }
+    Ok(host.to_string())
+}
+
 /// Forwards a request to the UI and waits for its answer.
 fn handle(app: &AppHandle, req: Value) -> Value {
     let op = req.get("op").and_then(|v| v.as_str()).unwrap_or("");
+    // Card requests are only ever answered by the prompt window (see `await_ui`).
+    let fallback = op != "fill_card";
     let (event, payload, host) = match op {
         "ping" => {
             touch_extension();
@@ -356,9 +397,16 @@ fn handle(app: &AppHandle, req: Value) -> Value {
                 Err(e) => return json!({ "error": e }),
             }
         }
+        "fill_card" => {
+            touch_extension();
+            match validate_fill_card(&req) {
+                Ok(host) => ("autofill:card", json!({ "host": host }), host),
+                Err(e) => return json!({ "error": e }),
+            }
+        }
         _ => return json!({ "error": "unknown_op" }),
     };
-    let reply = await_ui(app, event, payload);
+    let reply = await_ui(app, event, payload, fallback);
     record_request(&host, &reply);
     reply
 }
@@ -504,8 +552,8 @@ fn hide_prompt(app: &AppHandle, restore: bool) {
 
 /// Registers a pending id, routes `event` to the prompt window (or, failing that, the main window)
 /// and waits for the reply. Nothing is shown or focused here: the prompt window shows itself only
-/// when it needs the user.
-fn await_ui(app: &AppHandle, event: &str, mut payload: Value) -> Value {
+/// when it needs the user. Without `allow_fallback` an unavailable prompt window answers `failed` at once.
+fn await_ui(app: &AppHandle, event: &str, mut payload: Value, allow_fallback: bool) -> Value {
     let id = random_token();
     payload["id"] = json!(id);
     let (tx, rx) = channel();
@@ -520,6 +568,11 @@ fn await_ui(app: &AppHandle, event: &str, mut payload: Value) -> Value {
     let routed = ensure_prompt(app).and_then(|()| app.emit_to(PROMPT_LABEL, event, payload.clone()).map_err(|e| e.to_string()));
     let fallback = match routed {
         Ok(()) => None,
+        Err(e) if !allow_fallback => {
+            eprintln!("autofill: prompt window unavailable ({e})");
+            pending().lock().unwrap_or_else(|e| e.into_inner()).remove(&id);
+            return json!({ "error": "failed" });
+        }
         Err(e) => {
             eprintln!("autofill: prompt window unavailable ({e}); using the main window");
             Some(fallback_to_main(app, event, payload))
@@ -748,7 +801,7 @@ fn is_timeout(e: &std::io::Error) -> bool {
 
 /// Ops that may start Notiq when it isn't running (a user action in the browser). `ping` and `theme` never do.
 fn may_launch(op: &str) -> bool {
-    matches!(op, "fill" | "save" | "launch")
+    matches!(op, "fill" | "fill_card" | "save" | "launch")
 }
 
 // ─── Theme shared with the extension ─────────────────────────────────────────
@@ -1065,8 +1118,38 @@ mod tests {
     }
 
     #[test]
+    fn fill_card_accepts_secure_origins_only() {
+        let req = |host: &str, origin: &str| json!({ "op": "fill_card", "host": host, "origin": origin });
+        assert_eq!(validate_fill_card(&req("shop.example.com", "https://shop.example.com")), Ok("shop.example.com".into()));
+        assert_eq!(validate_fill_card(&req("shop.example.com", "https://shop.example.com:8443")), Ok("shop.example.com".into()));
+        assert!(validate_fill_card(&req("localhost", "http://localhost:3000")).is_ok());
+        assert!(validate_fill_card(&req("127.0.0.1", "http://127.0.0.1")).is_ok());
+        assert_eq!(validate_fill_card(&req("shop.example.com", "http://shop.example.com")), Err("not_https"));
+        assert_eq!(validate_fill_card(&req("example.com", "javascript:alert(1)")), Err("not_https"));
+        assert_eq!(validate_fill_card(&req("localhost.evil.com", "http://localhost.evil.com")), Err("not_https"));
+        for (host, origin) in [
+            ("shop.example.com", "https://evil.com"),
+            ("example.com", "https://example.com.evil.com"),
+            ("example.com", "https://example.com/"),
+            ("example.com", "https://example.com:"),
+            ("example.com", "https://example.com:123456"),
+            ("example.com", "https://example.com:80x"),
+        ] {
+            assert_eq!(validate_fill_card(&req(host, origin)), Err("bad_request"), "{origin}");
+        }
+        for host in ["", "Example.com", "a.com:8080", "[::1]", &"a".repeat(254)] {
+            assert_eq!(validate_fill_card(&req(host, "https://x")), Err("bad_host"), "{host}");
+        }
+        let long = format!("https://example.com:{}", "1".repeat(300));
+        assert_eq!(validate_fill_card(&req("example.com", &long)), Err("bad_request"));
+        assert_eq!(validate_fill_card(&json!({ "op": "fill_card", "host": "example.com" })), Err("bad_request"));
+        assert_eq!(validate_fill_card(&json!({ "op": "fill_card", "origin": "https://example.com" })), Err("bad_request"));
+        assert_eq!(validate_fill_card(&json!({ "op": "fill_card", "host": 5, "origin": "https://x" })), Err("bad_request"));
+    }
+
+    #[test]
     fn may_launch_only_for_user_actions() {
-        assert!(may_launch("fill") && may_launch("save") && may_launch("launch"));
+        assert!(may_launch("fill") && may_launch("fill_card") && may_launch("save") && may_launch("launch"));
         assert!(!may_launch("ping") && !may_launch("hello") && !may_launch("theme") && !may_launch(""));
     }
 

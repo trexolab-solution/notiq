@@ -57,6 +57,48 @@ export function expiryError(expiry: string, now = new Date()): string | null {
   return null;
 }
 
+// ─── Browser autofill ────────────────────────────────────────────────────────
+
+/** "•••• 4242": the last four digits only (nothing at all for a number too short to mask). */
+export function maskCardNumber(number: string): string {
+  const d = digitsOnly(number);
+  return d.length >= 8 ? `•••• ${d.slice(-4)}` : "••••";
+}
+
+/** "08/27" → month "08", year "2027"; null when it isn't a valid MM/YY (an expired card still parses). */
+export function expiryParts(expiry: string): { month: string; year: string } | null {
+  const m = /^(\d{2})\/(\d{2})$/.exec(expiry.trim());
+  if (!m || Number(m[1]) < 1 || Number(m[1]) > 12) return null;
+  return { month: m[1], year: `20${m[2]}` };
+}
+
+/** What the browser extension receives for one card. Empty strings stand for fields the card doesn't have. */
+export interface CardFill { name: string; number: string; exp_month: string; exp_year: string; csc: string }
+
+/**
+ * The fill payload for a stored card, or null when its number can't be filled (fewer than 12 or more than
+ * 19 digits). The extension re-validates every field with the same rules before it touches the page.
+ */
+export function cardFill(fields: Record<string, string | undefined>): CardFill | null {
+  const number = digitsOnly(fields.number ?? "");
+  if (number.length < 12 || number.length > 19) return null;
+  const exp = expiryParts(fields.expiry ?? "");
+  const csc = digitsOnly(fields.cvv ?? "");
+  return {
+    name: (fields.cardholder ?? "").replace(/[\u0000-\u001f\u007f]+/g, " ").trim().slice(0, 100),
+    number,
+    exp_month: exp?.month ?? "",
+    exp_year: exp?.year ?? "",
+    csc: csc.length >= 3 && csc.length <= 4 ? csc : "",
+  };
+}
+
+/** True once the month after the card's expiry month has begun; false without an expiry. */
+export function cardExpired(f: Pick<CardFill, "exp_month" | "exp_year">, now = new Date()): boolean {
+  if (!f.exp_month || !f.exp_year) return false;
+  return Number(f.exp_year) * 12 + Number(f.exp_month) - 1 < now.getFullYear() * 12 + now.getMonth();
+}
+
 /** Soft hint under the card number (never blocks saving). */
 export function cardNumberHint(number: string): string | null {
   const d = digitsOnly(number);

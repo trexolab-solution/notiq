@@ -5,6 +5,10 @@ import { childNames, joinRel, nameError, normRel, toFull, uniqueName } from "./v
 import { emptyLogin, hostOf, LOGIN_EXT, loginUrls, parseLogin, serializeLogin, totpCode, type LoginEntry } from "./loginEntry";
 import { siteMatches } from "./publicSuffix";
 import { lookalikeOf, type Lookalike } from "./lookalike";
+import { parseSecret, type SecretEntry } from "./secretEntry";
+import { cardFill, type CardFill } from "./cardEntry";
+
+const CARD_EXT = "card";
 
 /** `path` is the full path, `rel` the vault-relative one (forward slashes) used as the protocol's `account`. */
 export interface LoginMatch { path: string; rel?: string; entry: LoginEntry }
@@ -71,6 +75,39 @@ export async function scanLogins(pageHost: string): Promise<{ matches: LoginMatc
   }
   return { matches, lookalike: matches.length ? null : lookalikeOf(pageHost, [...savedHosts]) };
 }
+
+// ─── Payment cards ───────────────────────────────────────────────────────────
+
+/** A saved card that can be filled (`fill` is what the extension would receive). */
+export interface CardMatch { path: string; rel: string; entry: SecretEntry; fill: CardFill }
+
+/**
+ * Every card in the vault with a fillable number, sorted by title. Cards are not tied to a site, so
+ * the page host plays no part here: the user always picks the card in the approval window.
+ * Only files the listing marks as cards are decrypted.
+ */
+export async function scanCards(): Promise<CardMatch[]> {
+  const root = await vaultRoot();
+  const out: CardMatch[] = [];
+  for (const i of await vaultList()) {
+    if (i.dir || i.ext !== CARD_EXT || !/\.nqv$/i.test(i.rel)) continue;
+    const path = `${root}/${i.rel}`;
+    try {
+      const f = await vaultReadFile(path);
+      if (f.ext !== CARD_EXT) continue;
+      const entry = parseSecret(CARD_EXT, f.content);
+      const fill = cardFill(entry.fields);
+      if (fill) out.push({ path, rel: normRel(i.rel), entry, fill });
+    } catch { /* unreadable file: skip */ }
+  }
+  return out.sort((a, b) => cardTitle(a).localeCompare(cardTitle(b)));
+}
+
+/** The card's name in lists: its title, else the cardholder, else "Card". */
+export const cardTitle = (c: Pick<CardMatch, "entry">) => c.entry.title.trim() || c.entry.fields.cardholder?.trim() || "Card";
+
+/** The reply that releases a card to the extension. Never send it without the user picking the card. */
+export const cardReply = (c: CardMatch) => ({ ok: true, title: cardTitle(c).slice(0, 200), ...c.fill });
 
 /** The in-app warning shown when a fill request came from a possible fake site. */
 export const lookalikeWarning = (pageHost: string, l: Lookalike) =>
