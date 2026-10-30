@@ -646,7 +646,8 @@ try {
     // Injection itself also needs that grant: record what would be injected instead.
     globalThis.__realExec = globalThis.__realExec || chrome.scripting.executeScript.bind(chrome.scripting);
     globalThis.__injected = [];
-    chrome.scripting.executeScript = async (o) => { globalThis.__injected.push({ allFrames: o.target.allFrames, func: o.func.name, args: o.args }); return [{ frameId: 0, result: 1 }]; };
+    // The username-first probe (tabHasPassword) gets what this page has: a visible password field.
+    chrome.scripting.executeScript = async (o) => { if (o.func.name !== "fillPage") return [{ frameId: 0, result: true }]; globalThis.__injected.push({ allFrames: o.target.allFrames, func: o.func.name, args: o.args }); return [{ frameId: 0, result: 1 }]; };
     return true;
   })()`);
   const t20 = await SW("fillActiveTab()");
@@ -898,6 +899,84 @@ try {
   const tc2 = await themeCalls();
   check("stale theme: first nudge refreshes once, the next page does not", tc2.length === 1 && JSON.stringify(tc2[0]) === '{"op":"theme"}', JSON.stringify(tc2));
   check("theme arrived through the nudge", (await local()).theme?.id === "nord");
+
+  // ===================== multi-step sign-in =====================
+  // 24. Username page, then password page: one approval fills both, nothing is submitted
+  const STEPS = `http://localhost:${PORT}/test-pages/signin-steps.html`;
+  const stepEntries = async () => Object.entries(await session()).filter(([k]) => k.startsWith("step:")).map(([, v]) => v);
+  const stepVals = () => P(`({ u: document.getElementById("m-user").value, p: document.getElementById("m-pass").value,
+    done: document.getElementById("m-done").classList.contains("show") })`).catch(() => null);
+  const fillStep1 = async () => {
+    const ui = await iconFor("m-user");
+    if (!ui) return false;
+    await mouseClick(ui.x, ui.y);
+    return !!(await waitFor(async () => (await icons()).some((i) => i.cls.includes("done")), 3000));
+  };
+  await mockNative(NATIVE);
+  await resetState({ suggestOnFocus: false });
+  await load(STEPS);
+  check("username-only page: icon on the username field only", (await icons()).length === 1);
+  check("username-only page: the fill completes", await fillStep1());
+  const v24 = await stepVals();
+  const c24 = await calls();
+  check("username-only page: one fill request, only the username goes in", c24.length === 1 && c24[0].op === "fill" && v24.u === "alice@example.com" && v24.p === "",
+    JSON.stringify({ n: c24.length, u: v24.u, pLen: v24.p.length }));
+  const held = await stepEntries();
+  check("password held in storage.session for this tab and host only",
+    held.length === 1 && held[0].host === "localhost" && held[0].password === "Notiq-Filled-1!" && !JSON.stringify(await local()).includes("Notiq-Filled-1!"));
+  check("page DOM never sees the held password", !(await P(`document.documentElement.outerHTML.includes("Notiq-Filled-1!")`)));
+  await clickId("m-next");
+  const spa = await waitFor(async () => { const v = await stepVals(); return v && v.p === "Notiq-Filled-1!" && v; }, 3000);
+  check("SPA step: password filled without asking Notiq again", spa && (await calls()).length === 1, JSON.stringify(spa && { ...spa, p: "<redacted>" }));
+  check("SPA step: held password gone after use, form not submitted", (await stepEntries()).length === 0 && spa && !spa.done);
+  check("SPA step: the icon shows 'Filled'", !!(await waitFor(async () => (await icons()).some((i) => i.cls.includes("done") && i.tip === "Filled"), 1500)));
+
+  // Next step is a new page on the same site
+  await resetState({ suggestOnFocus: false });
+  await load(STEPS);
+  await fillStep1();
+  await clickId("m-next-nav");
+  await sleep(300);
+  for (let i = 0; i < 30; i++) { await sleep(100); if ((await P("document.readyState").catch(() => "")) === "complete") break; }
+  const nav = await waitFor(async () => { const v = await stepVals(); return v && v.p === "Notiq-Filled-1!" && v; }, 4000);
+  check("new-page step: password filled on the next page, once, without a second request",
+    nav && (await calls()).length === 1 && (await stepEntries()).length === 0 && !nav.done);
+
+  // Expired: nothing is filled and the entry is dropped
+  await resetState({ suggestOnFocus: false });
+  await load(STEPS);
+  await fillStep1();
+  await SW(`chrome.storage.session.get(null).then(async (all) => { for (const k of Object.keys(all)) if (k.startsWith("step:")) await chrome.storage.session.set({ [k]: { ...all[k], at: Date.now() - 121000 } }); return true; })`);
+  await clickId("m-next");
+  await sleep(1200);
+  const exp = await stepVals();
+  check("expired hand-off: password not filled, entry dropped", exp && exp.p === "" && (await stepEntries()).length === 0);
+
+  // Another site (127.0.0.1 is not localhost's site) gets nothing
+  await resetState({ suggestOnFocus: false });
+  await load(STEPS);
+  await fillStep1();
+  await load(`http://127.0.0.1:${PORT}/test-pages/signin-steps.html?step=2`);
+  await sleep(800);
+  const other = await stepVals();
+  check("another site's password page gets nothing and the held password is dropped", other && other.p === "" && (await stepEntries()).length === 0,
+    JSON.stringify(other && { p: other.p.length }));
+
+  // Closing the tab clears it
+  await resetState({ suggestOnFocus: false });
+  const mainPage = page;
+  const { targetId: t24 } = await cdp("Target.createTarget", { url: "about:blank" });
+  ({ sessionId: page } = await cdp("Target.attachToTarget", { targetId: t24, flatten: true }));
+  for (const d of ["Page.enable", "DOM.enable", "Runtime.enable"]) await cdp(d, {}, page);
+  await cdp("Emulation.setDeviceMetricsOverride", { width: 1200, height: 900, deviceScaleFactor: 1, mobile: false }, page);
+  await load(STEPS);
+  await fillStep1();
+  const before24 = (await stepEntries()).length;
+  await cdp("Target.closeTarget", { targetId: t24 });
+  page = mainPage;
+  await waitFor(async () => (await stepEntries()).length === 0, 2000);
+  check("closing the tab drops the held password", before24 === 1 && (await stepEntries()).length === 0, JSON.stringify({ before24 }));
+  await cdp("Target.activateTarget", { targetId });
 
   // Screenshots for visual review (NOTIQ_SHOTS=<dir>).
   if (process.env.NOTIQ_SHOTS) {

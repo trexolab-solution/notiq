@@ -1,0 +1,69 @@
+<!doctype html>
+<!--
+  Multi-step sign-in for the Notiq Autofill extension (served like login.html, from
+  localhost; the path contains "signin", so the username-only field gets an icon).
+  Step 1 asks only for the username. "Next" shows the password field in place (an
+  SPA step); "Next (new page)" goes to ?step=2 instead, a page with only a password
+  field, like Google / Microsoft. Fill step 1 with Notiq and the password follows.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Notiq test page: multi-step sign-in</title>
+<style>
+  :root { color-scheme: light dark; --fg: #1f2328; --bg: #f6f7f9; --card: #fff; --line: #d0d7de; --accent: #6366f1; }
+  @media (prefers-color-scheme: dark) { :root { --fg: #e6edf3; --bg: #0d1117; --card: #161b22; --line: #30363d; } }
+  body { margin: 0; padding: 24px 16px 60px; font: 15px/1.45 system-ui, sans-serif; color: var(--fg); background: var(--bg); }
+  main { max-width: 420px; margin: 0 auto; }
+  h1 { font-size: 22px; margin: 0 0 16px; }
+  form, .done { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 18px; }
+  .hint { font-size: 13px; opacity: .7; margin: 0 0 14px; }
+  label { display: block; font-size: 13px; margin: 10px 0 4px; }
+  input { box-sizing: border-box; width: 100%; padding: 9px 10px; font: inherit; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: inherit; }
+  button { margin-top: 14px; width: 100%; padding: 10px; border: 0; border-radius: 8px; background: var(--accent); color: #fff; font: inherit; font-weight: 600; cursor: pointer; }
+  .done { display: none; text-align: center; }
+  .done.show { display: block; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Sign in</h1>
+  <form id="steps">
+    <div id="m-step1">
+      <label for="m-user">Email or username</label>
+      <input id="m-user" name="identifier" type="email" autocomplete="username">
+      <button type="button" id="m-next">Next</button>
+      <button type="button" id="m-next-nav">Next (new page)</button>
+    </div>
+    <div id="m-step2" hidden>
+      <p class="hint">Signing in as <b id="m-who"></b></p>
+      <label for="m-pass">Password</label>
+      <input id="m-pass" name="password" type="password" autocomplete="current-password">
+      <button type="submit">Sign in</button>
+    </div>
+  </form>
+  <div class="done" id="m-done">Signed in.</div>
+</main>
+<script>
+  const $ = (id) => document.getElementById(id);
+  const toStep2 = (who) => {
+    $("m-step1").hidden = true;
+    $("m-step2").hidden = false;
+    $("m-who").textContent = who;
+  };
+  if (new URLSearchParams(location.search).get("step") === "2") toStep2(sessionStorage.getItem("who") || "");
+  $("m-next").addEventListener("click", () => toStep2($("m-user").value));
+  $("m-next-nav").addEventListener("click", () => {
+    sessionStorage.setItem("who", $("m-user").value);
+    location.href = "?step=2";
+  });
+  $("steps").addEventListener("submit", (e) => {
+    e.preventDefault();
+    $("steps").hidden = true;
+    $("m-done").classList.add("show");
+  });
+</script>
+</body>
+</html>

@@ -464,8 +464,9 @@
   }
 
   function scan() {
-    if (!settings.showIcon) { clearIcons(); cardFields = new Map(); return; }
     cardFields = detectCards();
+    maybeStepFill(); // after detectCards: a masked CVC field is never a password step
+    if (!settings.showIcon) { clearIcons(); return; }
     const found = detect();
     for (const f of cardIconFields(cardFields)) found.add(f);
     for (const f of Array.from(icons.keys())) if (!found.has(f)) removeIcon(f);
@@ -803,7 +804,10 @@
     filling = true;
     hideSuggest();
     setState(field, "waiting", "Approve in Notiq");
-    const res = await send(account ? { type: "fill", account } : { type: "fill" });
+    const step = usernameOnlyPage(anchor);
+    const req = account ? { type: "fill", account } : { type: "fill" };
+    if (step) req.step = true; // the background holds the password for the next page
+    const res = await send(req);
     filling = false;
     if (res && res.choose !== undefined) {
       const list = validChoices(res.choose);
@@ -818,8 +822,10 @@
         password: res.password,
         code: typeof res.code === "string" ? res.code : "",
       });
+      if (step && !n) send({ type: "stepCancel" });
       setState(field, n ? "done" : "error", n ? "Filled" : TEXT.no_fields);
     } else {
+      if (step && res.ok) send({ type: "stepCancel" });
       setState(field, "error", res.ok ? GENERIC : errText(res.error));
     }
   }
@@ -899,6 +905,40 @@
     } else {
       setState(field, "error", res.ok ? GENERIC : errText(res.error));
     }
+  }
+
+  // ---------- multi-step logins (username page, then password page) ----------
+  // On a username-only page the approved fill puts in just the username and the
+  // background keeps the password (memory only, this tab + site, 2 minutes, once).
+  // When an empty login password field then shows up (SPA step or the next page on
+  // the same site) we ask for it once and fill it. Never submits anything.
+  function usernameOnlyPage(anchor) {
+    if (isPassword(anchor) || !isTextual(anchor) || isOtp(anchor) || anyVisiblePassword()) return false;
+    return !inputsIn(anchor.form || scopeOf(anchor)).some((i) => isPassword(i) && usable(i));
+  }
+  const stepAsked = new WeakSet(); // password fields we already asked about
+  let stepBusy = false;
+  function maybeStepFill() {
+    if (stepBusy || filling) return;
+    const pw = inputsIn(document).find((i) => isPassword(i) && !cardFields.has(i) && !stepAsked.has(i) && !i.value && usable(i) && !newPasswordInfo(i));
+    if (!pw) return;
+    stepAsked.add(pw);
+    stepBusy = true;
+    send({ type: "stepFill" }).then((res) => {
+      stepBusy = false;
+      if (!res || !res.ok || typeof res.password !== "string" || !res.password || res.host !== topHost()) return;
+      if (!pw.isConnected || !usable(pw) || pw.value) return;
+      const username = typeof res.username === "string" ? res.username : "";
+      // A username field on this step that holds a different account: not ours to fill.
+      const before = inputsIn(scopeOf(pw)).filter((i) => i !== pw && isTextual(i) && !isOtp(i) && shown(i) && !i.readOnly && precedes(i, pw));
+      const user = before[before.length - 1] || null;
+      if (user && user.value && user.value.trim().toLowerCase() !== username.trim().toLowerCase()) return;
+      const n = fillFields(pw, { username: user && !user.value ? username : "", password: res.password, code: "" });
+      if (n) {
+        filled = { username, password: res.password };
+        if (icons.has(pw)) setState(pw, "done", "Filled");
+      }
+    });
   }
 
   // ---------- capture of submitted logins ----------
