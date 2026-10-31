@@ -1,0 +1,338 @@
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { createPortal } from "react-dom";
+import { Cloud, Loader2, RefreshCw, X } from "lucide-react";
+import { create } from "zustand";
+import { useClickOutside } from "../../hooks/useClickOutside";
+import { useEscapeKey } from "../../hooks/useEscapeKey";
+import { computePopoverPos, type PopoverPos } from "../../lib/popoverPosition";
+import { toast } from "../../lib/toast";
+import { useAppStore } from "../../store";
+import { useVaultStore } from "../../store/vaultStore";
+import { describeSyncResult, syncDevices, syncErrorMessage, syncNow, useSyncStatus, useSyncStore } from "../../lib/vaultSync";
+import { enableSync } from "../../lib/vaultSyncFlows";
+import {
+  ACTION_LABELS, OPEN_SYNC_POPOVER_EVENT, deviceCountLabel, isCacheFresh, markIndicatorTipShown,
+  loadingModel, popoverModel, syncSettingsRow, type BadgeTone, type PopoverAction, type PopoverModel, type SyncPopoverRequest,
+} from "../../lib/syncSurfaces";
+import { useSyncConnect, WAITING_FOR_GOOGLE } from "../vault/sync/useSyncConnect";
+import { AdoptRemoteDialog } from "../vault/sync/AdoptRemoteDialog";
+
+/** Status-bar indicator selector — the default anchor (also the tour anchor). */
+export const SYNC_INDICATOR_SELECTOR = '[data-tour="sync-indicator"]';
+
+// ── Open / close (one popover for the whole window) ────────────────────────────
+
+interface PopoverState {
+  open: boolean;
+  anchor: HTMLElement | null;
+  /** Action to start once open (palette "Connect Google Drive"). */
+  intent: "connect" | null;
+  show: (req?: SyncPopoverRequest) => void;
+  /** Open anchored to `anchor`, or close when it's already open there (trigger buttons). */
+  toggle: (anchor: HTMLElement) => void;
+  close: () => void;
+  clearIntent: () => void;
+}
+
+export const useSyncPopoverStore = create<PopoverState>((set, get) => ({
+  open: false,
+  anchor: null,
+  intent: null,
+  show(req) {
+    const anchor = req?.anchor ?? (document.querySelector(SYNC_INDICATOR_SELECTOR) as HTMLElement | null);
+    set({ open: true, anchor, intent: req?.action ?? null });
+  },
+  toggle(anchor) {
+    const s = get();
+    if (s.open && s.anchor === anchor) set({ open: false });
+    else set({ open: true, anchor, intent: null });
+  },
+  close() { set({ open: false }); },
+  clearIntent() { set({ intent: null }); },
+}));
+
+/** Opens the sync popover from anywhere (same as dispatching `notiq:open-sync-popover`). */
+export function openSyncPopover(req?: SyncPopoverRequest): void {
+  window.dispatchEvent(new CustomEvent<SyncPopoverRequest | undefined>(OPEN_SYNC_POPOVER_EVENT, { detail: req }));
+}
+
+/** "Sync now" with the same result toasts as Settings → Vault → Sync (popover and palette). */
+export async function runSyncNow(): Promise<void> {
+  try {
+    const r = await syncNow();
+    toast.info(describeSyncResult(r) ?? "Your vault is up to date.", { source: "Vault sync" });
+  } catch (e) {
+    toast.error("Sync failed", { source: "Vault sync", detail: syncErrorMessage(e) });
+  } finally {
+    void useSyncStore.getState().refresh();
+  }
+}
+
+// ── Device count (fetched lazily, cached briefly) ──────────────────────────────
+
+let deviceCache: { at: number; count: number } | null = null;
+/** Test hook. */
+export function resetDeviceCache() { deviceCache = null; }
+
+function useDeviceCount(enabled: boolean): number | null {
+  const [count, setCount] = useState<number | null>(() =>
+    enabled && deviceCache && isCacheFresh(deviceCache.at, Date.now()) ? deviceCache.count : null);
+  useEffect(() => {
+    if (!enabled) return;
+    if (deviceCache && isCacheFresh(deviceCache.at, Date.now())) { setCount(deviceCache.count); return; }
+    let live = true;
+    syncDevices()
+      .then((list) => {
+        deviceCache = { at: Date.now(), count: list.length };
+        if (live) setCount(list.length);
+      })
+      .catch((e) => console.warn("vault sync: devices unavailable", e));
+    return () => { live = false; };
+  }, [enabled]);
+  return enabled ? count : null;
+}
+
+// ── Panel (presentation, focus and dismissal) ──────────────────────────────────
+
+const TONE_CLASS: Record<BadgeTone, string> = {
+  ok: "sync-pop__badge--ok",
+  busy: "sync-pop__badge--busy",
+  warn: "sync-pop__badge--warn",
+  danger: "sync-pop__badge--danger",
+  muted: "sync-pop__badge--muted",
+};
+
+const POP_W = 300;
+const POP_MAX_H = 360;
+
+function placeFor(anchor: HTMLElement | null): PopoverPos {
+  if (anchor?.isConnected) return computePopoverPos(anchor, { minWidth: POP_W, maxHeight: POP_MAX_H });
+  // No anchor on screen: bottom-right, above the status bar.
+  const width = Math.min(POP_W, window.innerWidth - 16);
+  return { bottom: 30, left: Math.max(8, window.innerWidth - width - 8), width, flipUp: true };
+}
+
+const focusables = (root: HTMLElement) =>
+  Array.from(root.querySelectorAll<HTMLElement>("button:not([disabled]), [href], input:not([disabled]), [tabindex]:not([tabindex='-1'])"));
+
+export interface SyncPopoverPanelProps {
+  model: PopoverModel;
+  anchor: HTMLElement | null;
+  deviceCount: number | null;
+  /** The action running right now (spinner + disabled). */
+  busy: PopoverAction | null;
+  connecting: boolean;
+  connectError: string | null;
+  onAction: (a: PopoverAction) => void;
+  onCancelConnect: () => void;
+  onClose: () => void;
+}
+
+/** The popover itself (exported for tests). Focus moves in on open and back to the anchor on close. */
+export function SyncPopoverPanel({
+  model, anchor, deviceCount, busy, connecting, connectError, onAction, onCancelConnect, onClose,
+}: SyncPopoverPanelProps) {
+  const panelRef = useRef<HTMLDivElement>(null);
+  const anchorRef = useMemo(() => ({ current: anchor }), [anchor]);
+  const [pos, setPos] = useState<PopoverPos>(() => placeFor(anchor));
+
+  useLayoutEffect(() => {
+    const update = () => setPos(placeFor(anchor));
+    update();
+    window.addEventListener("resize", update);
+    return () => window.removeEventListener("resize", update);
+  }, [anchor]);
+
+  // Focus in on open; back to the trigger (or whatever had focus) on close.
+  useEffect(() => {
+    const before = document.activeElement as HTMLElement | null;
+    const panel = panelRef.current;
+    if (panel) (focusables(panel)[0] ?? panel).focus();
+    return () => {
+      const back = anchor?.isConnected ? anchor : before?.isConnected ? before : null;
+      // Don't steal focus from something the user moved to (e.g. a dialog opened by an action).
+      const active = document.activeElement;
+      if (back && (!active || active === document.body || panel?.contains(active))) back.focus();
+    };
+  }, [anchor]);
+
+  useEscapeKey(onClose);
+  useClickOutside([panelRef, anchorRef], onClose);
+
+  const onKeyDown = (e: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (e.key !== "Tab" || !panelRef.current) return;
+    const list = focusables(panelRef.current);
+    if (!list.length) { e.preventDefault(); return; }
+    const first = list[0];
+    const last = list[list.length - 1];
+    if (e.shiftKey && (document.activeElement === first || document.activeElement === panelRef.current)) {
+      e.preventDefault(); last.focus();
+    } else if (!e.shiftKey && document.activeElement === last) {
+      e.preventDefault(); first.focus();
+    }
+  };
+
+  const facts = [model.lastSynced, deviceCount != null && model.showDevices ? deviceCountLabel(deviceCount) : null]
+    .filter(Boolean).join(" · ");
+
+  return createPortal(
+    <div
+      ref={panelRef}
+      role="dialog"
+      aria-modal="false"
+      aria-labelledby="sync-pop-title"
+      tabIndex={-1}
+      className="sync-pop"
+      data-testid="sync-popover"
+      style={{ top: pos.top, bottom: pos.bottom, left: pos.left, width: pos.width }}
+      onKeyDown={onKeyDown}
+    >
+      <div className="flex items-center gap-2 px-3 pt-2.5 pb-2">
+        <Cloud size={14} className="shrink-0 text-[var(--color-text-muted)]" aria-hidden />
+        <h2 id="sync-pop-title" className="flex-1 m-0 text-[12.5px] font-semibold">Vault sync</h2>
+        <span className={`sync-pop__badge ${TONE_CLASS[model.badge.tone]}`}>{model.badge.label}</span>
+        <button type="button" className="vt-icon-btn" aria-label="Close" onClick={onClose}><X size={13} /></button>
+      </div>
+
+      <div className="flex flex-col gap-2 px-3 pb-3">
+        {model.connected && (
+          <div className="flex items-center gap-2.5">
+            <span className="sync-pop__avatar" aria-hidden>{model.avatar ?? "G"}</span>
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-[12.5px] text-[var(--color-text)]" title={model.account ?? undefined}>
+                {model.account ?? "Google account"}
+              </div>
+              {model.location && <div className="truncate text-[11px] text-[var(--color-text-muted)]">{model.location}</div>}
+            </div>
+          </div>
+        )}
+        {facts && <p className="m-0 text-[11.5px] text-[var(--color-text-muted)]">{facts}</p>}
+        {connecting ? (
+          <p className="m-0 flex items-center gap-1.5 text-[11.5px] text-[var(--color-text-muted)]" role="status">
+            <Loader2 size={12} className="animate-spin" aria-hidden />{WAITING_FOR_GOOGLE}
+          </p>
+        ) : (connectError || model.message) && (
+          <p className={`m-0 text-[11.5px] leading-relaxed ${connectError || model.messageTone === "danger" ? "text-[var(--color-danger)]" : "text-[var(--color-text-muted)]"}`}
+             role={connectError || model.messageTone === "danger" ? "alert" : undefined}>
+            {connectError ?? model.message}
+          </p>
+        )}
+
+        {(model.actions.length > 0 || connecting) && (
+          <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+            {connecting ? (
+              <button type="button" className="sync-pop__btn" onClick={onCancelConnect}>Cancel</button>
+            ) : model.actions.map((a, i) => {
+              const spinning = busy === a || (a === "syncNow" && model.badge.tone === "busy" && model.disabled.includes("syncNow"));
+              return (
+                <button
+                  key={a}
+                  type="button"
+                  className={`sync-pop__btn${i === 0 ? " sync-pop__btn--primary" : ""}`}
+                  data-action={a}
+                  disabled={model.disabled.includes(a) || busy != null}
+                  onClick={() => onAction(a)}
+                >
+                  {(a === "syncNow" || a === "retry" || a === "recheck") && <RefreshCw size={11} className={spinning ? "animate-spin" : undefined} aria-hidden />}
+                  {ACTION_LABELS[a]}
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
+// ── Host (status + actions) ────────────────────────────────────────────────────
+
+/**
+ * Mounted once (in the status bar). Listens for `notiq:open-sync-popover`, renders the popover for the live
+ * status and runs its actions with the same flows as Settings → Vault → Sync (connect, enable incl. the A/B/C
+ * dialog, sync now). Keeps the connect wait and the A/B/C dialog alive when the popover closes.
+ */
+export function SyncPopoverHost() {
+  const { open, anchor, intent, show, close, clearIntent } = useSyncPopoverStore();
+  const status = useSyncStatus();
+  const statusError = useSyncStore((s) => s.error);
+  const [busy, setBusy] = useState<PopoverAction | null>(null);
+  const [adopting, setAdopting] = useState(false);
+  const { connecting, error: connectError, connect, cancel } = useSyncConnect((s) => {
+    toast.success(`Connected to Google Drive${s.account ? ` as ${s.account}` : ""}`);
+  });
+
+  useEffect(() => {
+    const onOpen = (e: Event) => show((e as CustomEvent<SyncPopoverRequest | undefined>).detail ?? undefined);
+    window.addEventListener(OPEN_SYNC_POPOVER_EVENT, onOpen);
+    return () => window.removeEventListener(OPEN_SYNC_POPOVER_EVENT, onOpen);
+  }, [show]);
+
+  // Opening the popover counts as having seen the one-time indicator tip.
+  useEffect(() => { if (open) markIndicatorTipShown(); }, [open]);
+
+  const turnOn = useCallback(async () => {
+    close(); // the unlock / A-B-C dialogs take over
+    if (!(await useVaultStore.getState().ensureUnlocked())) return; // merging needs the vault key
+    setBusy("turnOn");
+    const out = await enableSync();
+    setBusy(null);
+    if (out.kind === "different") setAdopting(true);
+    else if (out.kind === "error") toast.error("Couldn't turn on sync", { source: "Vault sync", detail: out.error });
+    else toast.success(`Sync is on. ${describeSyncResult(out.result) ?? "Your vault is up to date."}`);
+  }, [close]);
+
+  const runNow = useCallback(async (a: PopoverAction) => {
+    setBusy(a);
+    try { await runSyncNow(); } finally { setBusy(null); }
+  }, []);
+
+  const onAction = useCallback((a: PopoverAction) => {
+    switch (a) {
+      case "syncNow":
+      case "retry": void runNow(a); break;
+      case "connect":
+      case "reconnect": void connect(); break;
+      case "turnOn": void turnOn(); break;
+      case "recheck": void useSyncStore.getState().refresh(); break;
+      case "unlock": close(); void useVaultStore.getState().ensureUnlocked(); break;
+      case "settings": close(); useAppStore.getState().openSettings("vault", syncSettingsRow(useSyncStore.getState().status)); break;
+    }
+  }, [runNow, connect, turnOn, close]);
+
+  // Palette "Connect Google Drive": start signing in as soon as the popover is up.
+  useEffect(() => {
+    if (!open || !intent) return;
+    clearIntent();
+    if (intent === "connect" && status?.configured && !status.provider && !connecting) void connect();
+  }, [open, intent, status, connecting, connect, clearIntent]);
+
+  const model = status ? popoverModel(status) : loadingModel(statusError);
+  const deviceCount = useDeviceCount(open && model.showDevices);
+
+  return (
+    <>
+      {open && (
+        <SyncPopoverPanel
+          model={model}
+          anchor={anchor}
+          deviceCount={deviceCount}
+          busy={busy}
+          connecting={connecting}
+          connectError={connectError}
+          onAction={onAction}
+          onCancelConnect={cancel}
+          onClose={close}
+        />
+      )}
+      {adopting && (
+        <AdoptRemoteDialog onClose={(done) => {
+          setAdopting(false);
+          if (done) toast.success("Sync is on. This PC now uses the vault from your Google Drive.");
+          void useSyncStore.getState().refresh();
+        }} />
+      )}
+    </>
+  );
+}

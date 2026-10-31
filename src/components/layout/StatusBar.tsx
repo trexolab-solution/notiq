@@ -5,7 +5,9 @@ import { isVaultPath } from "../../lib/vault";
 import { Tooltip } from "../ui/Tooltip";
 import { NotificationBell } from "../ui/NotificationBell";
 import { SyncIndicator } from "./SyncIndicator";
+import { SyncPopoverHost, useSyncPopoverStore } from "./SyncPopover";
 import { useSyncStatus } from "../../lib/vaultSync";
+import { useVaultStore } from "../../store/vaultStore";
 import { subscribeBusyDelayed } from "../../lib/ai/activity";
 import { APP_NAME, APP_VERSION } from "../../config/app";
 
@@ -38,7 +40,11 @@ export const StatusBar = React.memo(function StatusBar({
   const activeTab   = tabs.find((t) => t.id === activeTabId);
   const aiBusy      = useAiBusy();
   const syncStatus  = useSyncStatus();
-  const openSettings = useAppStore((s) => s.openSettings);
+  const vaultExists = useVaultStore((s) => s.exists);
+  const toggleSyncPopover = useSyncPopoverStore((s) => s.toggle);
+  const syncPopoverAtIndicator = useSyncPopoverStore((s) => s.open && !!s.anchor?.closest(".status-bar"));
+  // The indicator shows whenever a vault exists, so make sure that's known even before the vault panel opens.
+  useEffect(() => { void useVaultStore.getState().refresh(); }, []);
 
   const { words, chars } = useMemo(() => {
     if (!activeTab || activeTab.kind !== "note") return { words: 0, chars: 0 };
@@ -95,7 +101,8 @@ export const StatusBar = React.memo(function StatusBar({
             Thinking…
           </span>
         )}
-        <SyncIndicator status={syncStatus} onOpen={() => openSettings("vault", "vault.sync.status")} />
+        <SyncIndicator status={syncStatus} vaultExists={vaultExists} expanded={syncPopoverAtIndicator} onOpen={toggleSyncPopover} />
+        <SyncPopoverHost />
         {activeTab?.kind === "settings" && <span className="status-tag">Settings</span>}
         {activeTab && activeTab.kind !== "settings" && (
           <>
