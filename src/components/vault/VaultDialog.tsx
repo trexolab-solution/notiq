@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { KeyRound, Lock, Copy, Printer } from "lucide-react";
+import { KeyRound, Lock, Copy, Printer, Cloud, ShieldPlus } from "lucide-react";
 import { Dialog, DialogBody, DialogButton, DialogCheckbox, DialogFooter } from "../ui/Dialog";
 import { Input } from "../ui/Input";
 import { PasswordInput } from "../ui/PasswordInput";
@@ -7,6 +7,9 @@ import { Button } from "../ui/Button";
 import { RestoreBackupDialog } from "./RestoreBackupDialog";
 import { RecoveryKitDialog } from "./RecoveryKitDialog"; // 0.7.0 recovery kit
 import { JoinFromDriveDialog } from "./sync/JoinFromDriveDialog";
+import { SyncOnboardingDialog } from "./sync/SyncOnboardingDialog";
+import { useSyncStatus, useSyncStore } from "../../lib/vaultSync";
+import { shouldOfferSyncOnboarding } from "../../lib/syncLifecycle";
 import { initVaultSyncEvents } from "../../lib/vaultSyncEvents";
 import { toast } from "../../lib/toast";
 import { initVaultStateSync, useVaultStore, type VaultDialogMode } from "../../store/vaultStore";
@@ -32,9 +35,16 @@ export function VaultDialog() {
   // vault's global behaviour (idle / close-to-tray auto-lock).
   useVaultAutoLock();
   useVaultSessionLock();
+  // After creating a NEW vault: the optional "Use this vault on your other PCs?" step. It lives here (not in
+  // the setup dialog) so the setup finishes — and whoever waited for the vault continues — first.
+  const [offerSync, setOfferSync] = useState(false);
   // key={mode} remounts on mode switch so passwords never leak between steps.
   return (
-    mode === "unlock" ? <UnlockDialog key={mode} /> : mode ? <VaultDialogInner key={mode} mode={mode} /> : null
+    <>
+      {mode === "unlock" ? <UnlockDialog key={mode} />
+        : mode ? <VaultDialogInner key={mode} mode={mode} onCreated={() => setOfferSync(true)} /> : null}
+      {offerSync && !mode && <SyncOnboardingDialog onClose={() => setOfferSync(false)} />}
+    </>
   );
 }
 
@@ -69,7 +79,7 @@ function UnlockDialog() {
 type SetupMode = Exclude<VaultDialogMode, "unlock" | null>;
 
 /** Setting up a new vault, or resetting the master password with the recovery key. */
-function VaultDialogInner({ mode }: { mode: SetupMode }) {
+function VaultDialogInner({ mode, onCreated }: { mode: SetupMode; onCreated?: () => void }) {
   const [password, setPassword] = useState("");
   const [confirm, setConfirm]   = useState("");
   const [recoveryInput, setRecoveryInput] = useState("");
@@ -81,6 +91,9 @@ function VaultDialogInner({ mode }: { mode: SetupMode }) {
   const [restoring, setRestoring] = useState(false);
   const [joining, setJoining] = useState(false);
   const [showKit, setShowKit] = useState(false); // 0.7.0 recovery kit
+  // Hide "Use my vault from Google Drive" only once we know this build has no Google sign-in.
+  const syncStatus = useSyncStatus();
+  const driveAvailable = syncStatus?.configured !== false;
 
   const validate = (): string | null => {
     if (password.length < MIN_LEN) return `Password must be at least ${MIN_LEN} characters`;
@@ -151,7 +164,9 @@ function VaultDialogInner({ mode }: { mode: SetupMode }) {
             onClick={async () => {
               setShowKit(false);
               setRecoveryKey(null);
+              const sync = await useSyncStore.getState().refresh();
               await succeed();
+              if (shouldOfferSyncOnboarding(sync)) onCreated?.();
             }}
           >
             Done
@@ -183,6 +198,7 @@ function VaultDialogInner({ mode }: { mode: SetupMode }) {
     <Dialog onClose={cancel} zClassName="z-[70]" size="sm" onSubmit={submit} title={title}
             icon={mode === "recover" ? <KeyRound size={16} /> : <Lock size={16} />}>
       <DialogBody>
+        {mode === "setup" && driveAvailable && <SetupChoice onUseDrive={() => setJoining(true)} />}
         <p className="dlg-detail dlg-detail--block mb-4">
           {mode === "setup" && "Choose a master password. It encrypts your locked notes on this device and is never stored or sent anywhere."}
           {mode === "recover" && "Enter the recovery key you saved at setup, then choose a new master password."}
@@ -221,14 +237,9 @@ function VaultDialogInner({ mode }: { mode: SetupMode }) {
       </DialogBody>
       <DialogFooter
         start={mode === "setup" ? (
-          <div className="flex flex-col items-start gap-1">
-            <button type="button" className="dlg-link" onClick={() => setJoining(true)}>
-              Use my vault from Google Drive
-            </button>
-            <button type="button" className="dlg-link" onClick={() => setRestoring(true)}>
-              Restore from backup file
-            </button>
-          </div>
+          <button type="button" className="dlg-link" onClick={() => setRestoring(true)}>
+            Restore from backup file
+          </button>
         ) : undefined}
       >
         <DialogButton cancel onClick={cancel}>Cancel</DialogButton>
@@ -237,5 +248,30 @@ function VaultDialogInner({ mode }: { mode: SetupMode }) {
         </DialogButton>
       </DialogFooter>
     </Dialog>
+  );
+}
+
+/**
+ * Top of the setup screen: "Create a new vault" (this form) next to "Use my vault from Google Drive" as an
+ * equal-weight choice card, so someone setting up a second PC doesn't create a separate vault by mistake.
+ */
+export function SetupChoice({ onUseDrive }: { onUseDrive: () => void }) {
+  const card = "flex-1 min-w-0 flex flex-col items-start gap-1 rounded-md p-2.5 text-left border";
+  return (
+    <div className="flex gap-2 mb-4" role="group" aria-label="How to set up the vault">
+      <div className={`${card} border-[var(--color-primary)] bg-[var(--color-bg-tertiary)]`} aria-current="step">
+        <ShieldPlus size={15} className="text-[var(--color-primary)]" aria-hidden />
+        <span className="text-[12.5px] font-semibold text-[var(--color-text)]">Create a new vault</span>
+        <span className="text-[11px] leading-snug text-[var(--color-text-muted)]">Start fresh on this PC.</span>
+      </div>
+      <button
+        type="button" onClick={onUseDrive} data-testid="setup-use-drive"
+        className={`${card} cursor-pointer border-[var(--color-border)] hover:border-[var(--color-primary)] hover:bg-[var(--color-bg-tertiary)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-primary)]`}
+      >
+        <Cloud size={15} className="text-[var(--color-text-muted)]" aria-hidden />
+        <span className="text-[12.5px] font-semibold text-[var(--color-text)]">Use my vault from Google Drive</span>
+        <span className="text-[11px] leading-snug text-[var(--color-text-muted)]">Already syncing on another PC.</span>
+      </button>
+    </div>
   );
 }
