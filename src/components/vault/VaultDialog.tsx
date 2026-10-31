@@ -17,7 +17,8 @@ import { initVaultStateSync, useVaultStore, type VaultDialogMode } from "../../s
 import { useAppStore } from "../../store";
 import { useVaultAutoLock } from "../../hooks/useVaultAutoLock";
 import { useVaultSessionLock } from "../../hooks/useVaultSessionLock";
-import { copySecret } from "../../lib/secureCopy";
+import { copySecretTimed } from "../../lib/secureCopy";
+import { clipboardClearLabel } from "../../lib/vaultPrefs";
 import { vaultCreate, vaultUnlockWithRecovery, vaultErrorMessage } from "../../lib/vault";
 import { useVaultUnlock } from "./unlock/useVaultUnlock";
 import { VaultUnlockActions, VaultUnlockBody } from "./unlock/VaultUnlockForm";
@@ -133,9 +134,13 @@ function VaultDialogInner({ mode, onCreated }: { mode: SetupMode; onCreated?: ()
 
   const copyKey = async () => {
     if (!recoveryKey) return;
-    // copySecret keeps it out of clipboard history and clears it after 20 s; it shows its own error toast on failure.
-    if (await copySecret(recoveryKey, "Recovery key", { quiet: true })) {
-      toast.info("Recovery key copied — it clears from the clipboard in 20 s. Paste it somewhere safe now.");
+    // copySecretTimed keeps it out of clipboard history and clears it after the user's setting; it shows its own
+    // error toast on failure.
+    const secs = await copySecretTimed(recoveryKey, "Recovery key", { quiet: true });
+    if (secs !== null) {
+      toast.info(secs > 0
+        ? `Recovery key copied — it clears from the clipboard in ${clipboardClearLabel(secs)}. Paste it somewhere safe now.`
+        : "Recovery key copied. Paste it somewhere safe now.");
     }
   };
 

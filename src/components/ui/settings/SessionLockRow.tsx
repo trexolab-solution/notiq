@@ -4,13 +4,19 @@ import { Toggle } from "../Toggle";
 import { Select } from "../Select";
 import {
   AUTOHIDE_OPTIONS, DEFAULT_AUTOHIDE_SECONDS, getAutoHideSeconds, getLockOnSession, setAutoHideSeconds, setLockOnSession,
+  CLIPBOARD_CLEAR_OPTIONS, DEFAULT_CLIPBOARD_CLEAR_SECONDS, clipboardClearLabel, getClipboardClearSeconds, setClipboardClearSeconds,
 } from "../../../lib/vaultPrefs";
 
-/** Lock-on-session-lock toggle and the revealed-secret auto-hide timeout (rows of the "Locking" group). */
+/**
+ * Lock-on-session-lock toggle, the revealed-secret auto-hide timeout and the copied-secret clipboard wipe
+ * (rows of the "Locking" group).
+ */
 export function SessionLockRow() {
   const [lock, setLock] = useState(getLockOnSession);
   const [secs, setSecs] = useState(getAutoHideSeconds);
   const changeSecs = (n: number) => { setSecs(n); setAutoHideSeconds(n); };
+  const [clip, setClip] = useState(getClipboardClearSeconds);
+  const changeClip = (n: number) => { setClip(n); setClipboardClearSeconds(n); };
   return (
     <>
       <SettingRow
@@ -36,6 +42,21 @@ export function SessionLockRow() {
           value={String(secs)}
           onChange={(v) => changeSecs(Number(v))}
           options={AUTOHIDE_OPTIONS.map((n) => ({ value: String(n), label: n === 0 ? "Never" : `${n} seconds` }))}
+        />
+      </SettingRow>
+      <SettingRow
+        id="vault.locking.clipboard-clear"
+        label="Clear copied secrets after"
+        description="Empties the clipboard this long after you copy a password, code or key (in Notiq or from the browser extension), unless you have copied something else since."
+        keywords={["clipboard", "copy", "clear", "wipe", "password", "timeout", "extension"]}
+        modified={clip !== DEFAULT_CLIPBOARD_CLEAR_SECONDS}
+        onReset={() => changeClip(DEFAULT_CLIPBOARD_CLEAR_SECONDS)}
+      >
+        <Select
+          aria-label="Clear copied secrets after"
+          value={String(clip)}
+          onChange={(v) => changeClip(Number(v))}
+          options={CLIPBOARD_CLEAR_OPTIONS.map((n) => ({ value: String(n), label: clipboardClearLabel(n) }))}
         />
       </SettingRow>
     </>

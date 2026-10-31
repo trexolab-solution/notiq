@@ -557,6 +557,87 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
 });
 purgeSteps().catch(() => {}); // service-worker start
 
+// ---------- toolbar popup: this site's logins, copy, open (0.9.0) ----------
+// Only the popup (an extension page, never a content script) may ask. The host is always the active tab's top
+// host from its URL. The app answers `list` with titles and usernames of the logins that match that host (no
+// secrets, nothing for other sites); `copy` is done by the app itself (the value never comes here) and `open`
+// only shows Notiq. A row action must name an account from this tab's latest list for the same host.
+// An app older than 0.9.0 answers { error: "unknown_op" }; the popup then says to update Notiq.
+const POPUP_LIST_TTL = 10 * 60 * 1000;
+const POPUP_MAX_ACCOUNTS = 50;
+const COPY_WHAT = new Set(["username", "password", "code"]);
+const popupLists = new Map(); // tabId -> { host, accounts: Set, at }
+
+function validListed(list) {
+  if (!Array.isArray(list) || list.length > POPUP_MAX_ACCOUNTS) return null;
+  const out = [];
+  for (const a of list) {
+    if (!a || typeof a !== "object" || Array.isArray(a)) return null;
+    if (typeof a.account !== "string" || typeof a.title !== "string" || typeof a.username !== "string") return null;
+    if (!a.account || a.account.length > MAX.account || a.title.length > MAX.choiceTitle || a.username.length > MAX.username) return null;
+    out.push({ account: a.account, title: str(a.title, MAX.choiceTitle), username: str(a.username, MAX.username), totp: a.totp === true });
+  }
+  return out;
+}
+
+async function popupTab() {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!tab || typeof tab.id !== "number" || !tab.url) return { error: "no_tab" };
+  const top = pageInfo(tab.url);
+  return top.error ? { error: top.error } : { tab, host: top.host };
+}
+
+const errorOf = (res) => (res && typeof res.error === "string" ? res.error.slice(0, 40) : "no_reply");
+
+async function popupList() {
+  const t = await popupTab();
+  if (t.error) return { error: t.error };
+  popupLists.delete(t.tab.id);
+  const res = await ask({ op: "list", host: t.host });
+  if (!res || res.error || res.ok !== true) return { error: errorOf(res), host: t.host };
+  const accounts = validListed(res.accounts);
+  if (!accounts) return { error: "no_reply", host: t.host };
+  popupLists.set(t.tab.id, { host: t.host, accounts: new Set(accounts.map((a) => a.account)), at: Date.now() });
+  return { ok: true, host: t.host, accounts };
+}
+
+// The active tab, if `account` is in its latest popup list for the same host.
+async function popupListed(account) {
+  if (typeof account !== "string" || !account || account.length > MAX.account) return { error: "bad_request" };
+  const t = await popupTab();
+  if (t.error) return { error: t.error };
+  const l = popupLists.get(t.tab.id);
+  const fresh = l && l.host === t.host && Date.now() - l.at < POPUP_LIST_TTL && Date.now() >= l.at;
+  return fresh && l.accounts.has(account) ? t : { error: "stale" };
+}
+
+// A row was clicked: the normal toolbar fill (app approval) for that account.
+async function popupFill(msg) {
+  const t = await popupListed(msg.account);
+  if (t.error) return { error: t.error };
+  offers.set(t.tab.id, { host: t.host, accounts: new Set([msg.account]), at: Date.now() });
+  return fillActiveTab(msg.account);
+}
+
+async function popupCopy(msg) {
+  if (!COPY_WHAT.has(msg.what)) return { error: "bad_request" };
+  const t = await popupListed(msg.account);
+  if (t.error) return { error: t.error };
+  const res = await ask({ op: "copy", host: t.host, account: msg.account, what: msg.what });
+  if (!res || res.error || res.ok !== true) return { error: errorOf(res) };
+  const clearAfter = Number.isInteger(res.clearAfter) && res.clearAfter >= 0 && res.clearAfter <= 3600 ? res.clearAfter : 0;
+  return { ok: true, copied: msg.what, clearAfter };
+}
+
+async function popupOpen(msg) {
+  const t = await popupListed(msg.account);
+  if (t.error) return { error: t.error };
+  const res = await ask({ op: "open", host: t.host, account: msg.account });
+  return res && res.ok === true && !res.error ? { ok: true } : { error: errorOf(res) };
+}
+
+const POPUP_HANDLERS = { list: popupList, popupFill, copy: popupCopy, open: popupOpen };
+
 // ---------- theme from the Notiq app ----------
 // {op:"theme"} -> {ok:true, theme} | {ok:true, theme:null}. Never launches the app.
 // The validated theme is cached in chrome.storage.local `theme`; the popup and the
@@ -626,6 +707,10 @@ chrome.runtime.onMessage.addListener((msg, sender, send) => {
 
   // Extension pages (the popup).
   if (typeof sender.url === "string" && !sender.url.startsWith(chrome.runtime.getURL(""))) return false;
+  if (Object.prototype.hasOwnProperty.call(POPUP_HANDLERS, msg.type)) {
+    POPUP_HANDLERS[msg.type](msg).then(send, () => send({ error: "failed" }));
+    return true;
+  }
   if (msg.type === "fill") {
     fillActiveTab(msg.account !== undefined ? msg.account : undefined).then(send, () => send({ error: "failed" }));
     return true;
@@ -660,6 +745,7 @@ refreshTheme(THEME_MIN_AGE).catch(() => {});
 
 chrome.tabs.onRemoved.addListener((tabId) => {
   offers.delete(tabId);
+  popupLists.delete(tabId);
   chrome.storage.session.remove(pendingKey(tabId));
   dropStep(tabId);
 });

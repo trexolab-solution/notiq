@@ -3,6 +3,7 @@ import {
   decideTrusted, defaultLoginName, indexOfAccount, matchesForIntent, pickSaveTarget, planSave, setSaveAsNew,
   type CardMatch, type FillIntent, type LoginMatch, type SavePlan, type SaveRequest,
 } from "../lib/autofill";
+import { copyTargets, type ApprovedCopy } from "../lib/autofillPopup";
 
 /**
  * The autofill prompt window's state machine, kept pure so every transition is unit-tested.
@@ -20,7 +21,12 @@ import {
 
 /** `account`: optional vault-relative path the extension asks for (from an earlier `choose` reply).
  *  `intent: "code"`: a separate 2FA page wants only the TOTP code (only logins with a 2FA secret count). */
-export interface FillReq { id: string; host: string; account?: string; intent?: FillIntent }
+export interface FillReq {
+  id: string; host: string; account?: string; intent?: FillIntent;
+  /** The toolbar popup's copy (0.9.0): approved like a fill, but Notiq copies the value instead of sending it.
+   *  Always names one `account`; `"code"` also sets `intent: "code"`. */
+  copy?: ApprovedCopy;
+}
 export interface CardReq { id: string; host: string }
 export type FillJob = { kind: "fill"; req: FillReq };
 export type SaveJob = { kind: "save"; req: SaveRequest };
@@ -72,7 +78,7 @@ export type Effect =
   /** List the vault's cards, then dispatch `cardsScanned`. */
   | { kind: "scanCards" }
   /** Look up the credentials of `match` (only its code for `intent: "code"`), reply `{ok, …}`, then dispatch `answered`. */
-  | { kind: "release"; id: string; match: LoginMatch; trustHost: string | null; intent?: FillIntent }
+  | { kind: "release"; id: string; match: LoginMatch; trustHost: string | null; intent?: FillIntent; copy?: ApprovedCopy }
   /** Reply with the picked card's fill data, then dispatch `answered`. */
   | { kind: "releaseCard"; id: string; card: CardMatch }
   /** Write the login, reply `{ok, status}`, then dispatch `answered`. */
@@ -88,6 +94,7 @@ const reply = (id: string, payload: unknown): Effect => ({ kind: "reply", id, pa
 const scanFor = (job: Job): Effect => (job.kind === "card" ? { kind: "scanCards" } : { kind: "scan", host: job.req.host });
 const release = (job: FillJob, match: LoginMatch, trustHost: string | null): Effect => ({
   kind: "release", id: job.req.id, match, trustHost, ...(job.req.intent ? { intent: job.req.intent } : {}),
+  ...(job.req.copy ? { copy: job.req.copy } : {}),
 });
 
 /** The id of the request the window is busy with, if any. */
@@ -147,8 +154,11 @@ export function step(state: PromptState, ev: PromptEvent): Step {
         };
       }
       // A code-only fill (separate 2FA page) can only use logins that have a 2FA secret.
-      const matches = matchesForIntent(ev.matches, job.req.intent);
-      if (!matches.length) return end(reply(id, { error: "no_code" }));
+      const usable = matchesForIntent(ev.matches, job.req.intent);
+      if (!usable.length) return end(reply(id, { error: "no_code" }));
+      // A popup copy names one login from its list: only that one counts (never a pick, never another login).
+      const matches = job.req.copy ? copyTargets(usable, job.req.account) : usable;
+      if (!matches.length) return end(reply(id, { error: "stale" }));
       if (state.silent) {
         const d = decideTrusted(matches, job.req.account);
         if (d.kind === "fill") return { state, effects: [release(job, d.match, null)] };

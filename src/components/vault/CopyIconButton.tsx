@@ -16,7 +16,7 @@ interface Props {
 /**
  * Icon-only copy button for vault secrets: tooltip on hover, and the icon turns
  * into a check mark for a moment once the value is on the clipboard (the clipboard
- * is still wiped after 20 s by `copySecret`).
+ * is still wiped after the "Clear copied secrets after" setting by `copySecret`).
  */
 export function CopyIconButton({ value, label }: Props) {
   const [copied, setCopied] = useState(false);
