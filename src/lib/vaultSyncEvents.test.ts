@@ -7,10 +7,11 @@ vi.mock("@tauri-apps/api/event", () => ({
   listen: (name: string, cb: (e: { payload: unknown }) => void) => { handlers.set(name, cb); return Promise.resolve(() => {}); },
 }));
 
-const vaultState = { unlocked: true };
+const vaultState = { unlocked: true, refresh: vi.fn(async () => {}) };
 const refreshVaultTabs = vi.fn(async () => {});
+const unlockVaultTabs = vi.fn(async () => {});
 vi.mock("../store/vaultStore", () => ({ useVaultStore: { getState: () => vaultState } }));
-vi.mock("../store", () => ({ useAppStore: { getState: () => ({ refreshVaultTabs }) } }));
+vi.mock("../store", () => ({ useAppStore: { getState: () => ({ refreshVaultTabs, unlockVaultTabs }) } }));
 
 const win = new EventTarget();
 vi.stubGlobal("window", win);
@@ -28,6 +29,9 @@ beforeEach(() => {
   invoke.mockResolvedValue(null);
   handlers.clear();
   refreshVaultTabs.mockClear();
+  unlockVaultTabs.mockClear();
+  vaultState.refresh.mockReset();
+  vaultState.refresh.mockImplementation(async () => {});
   treeRefreshes = 0;
   vaultState.unlocked = true;
 });
@@ -58,11 +62,36 @@ describe("remote changes", () => {
     expect(refreshVaultTabs).toHaveBeenCalledTimes(1);
   });
 
+  it("re-reads the vault status first, and opens vault tabs when a join/adopt just unlocked the vault", async () => {
+    vaultState.unlocked = false;
+    vaultState.refresh.mockImplementation(async () => { vaultState.unlocked = true; });
+    await applyRemoteChanges();
+    expect(vaultState.refresh).toHaveBeenCalledTimes(1);
+    expect(treeRefreshes).toBe(1);
+    expect(unlockVaultTabs).toHaveBeenCalledTimes(1);
+    expect(refreshVaultTabs).not.toHaveBeenCalled();
+  });
+
   it("only refreshes the tree while the vault is locked", async () => {
     vaultState.unlocked = false;
     await applyRemoteChanges();
     expect(treeRefreshes).toBe(1);
     expect(refreshVaultTabs).not.toHaveBeenCalled();
+  });
+});
+
+describe("vaultMayHaveChanged", () => {
+  const st = (o: Record<string, unknown> = {}) => ({
+    configured: true, provider: "gdrive", account: "a@b.c", enabled: true, state: "idle", lastSyncedMs: 1,
+    lastError: null, pending: false, deviceId: "d", deviceName: "Desk", ...o,
+  }) as import("./vaultSync").SyncStatus;
+  it("is true when connecting, enabling or pausing; false for ordinary status ticks", async () => {
+    const { vaultMayHaveChanged } = await import("./vaultSyncEvents");
+    expect(vaultMayHaveChanged(st(), null)).toBe(true);
+    expect(vaultMayHaveChanged(st(), st({ provider: null }))).toBe(true);
+    expect(vaultMayHaveChanged(st(), st({ enabled: false }))).toBe(true);
+    expect(vaultMayHaveChanged(st({ state: "syncing" }), st())).toBe(false);
+    expect(vaultMayHaveChanged(null, st())).toBe(false);
   });
 });
 

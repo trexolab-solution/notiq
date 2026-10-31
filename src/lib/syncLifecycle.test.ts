@@ -35,8 +35,8 @@ describe("first upload", () => {
   });
 
   it("words the progress and done messages", () => {
-    expect(uploadingMessage(12)).toBe("Uploading your vault… 12 entries");
-    expect(uploadingMessage(1)).toBe("Uploading your vault… 1 entry");
+    expect(uploadingMessage(12)).toBe("Uploading your vault… 12 items");
+    expect(uploadingMessage(1)).toBe("Uploading your vault… 1 item");
     expect(uploadingMessage(null)).toBe("Uploading your vault…");
     expect(FIRST_UPLOAD_DONE).toBe("Your vault is now in Google Drive");
   });

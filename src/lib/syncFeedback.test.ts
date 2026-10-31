@@ -50,7 +50,7 @@ describe("turning sync on", () => {
     handlers.sync_enable = () => { during = messages(); return result; };
     const out = await turnOnSyncWithFeedback();
     expect(out.kind).toBe("enabled");
-    expect(during).toContain("Uploading your vault… 3 entries");
+    expect(during).toContain("Uploading your vault… 3 items");
     expect(messages()).toEqual(["Your vault is now in Google Drive"]); // the working notice is gone
     expect(mem.get(SYNC_BANNER_KEY)).toBe("done");
   });
