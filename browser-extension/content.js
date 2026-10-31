@@ -846,11 +846,17 @@
   }
 
   // ---------- fill (only after a trusted click on our icon) ----------
+  // Sets the value through the native setter (so React & co. notice) and fires the events a
+  // typed value would: keydown / input / keyup (composed, like real ones, so listeners outside a
+  // shadow root hear them too; some masked and React inputs only commit on a key event), then change.
   function setValue(input, value) {
     const d = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(input), "value");
     focusQuietly(input);
+    const key = value ? value[value.length - 1] : "";
+    if (key) input.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true, composed: true }));
     if (d && d.set) d.set.call(input, value); else input.value = value;
-    input.dispatchEvent(new Event("input", { bubbles: true }));
+    input.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
+    if (key) input.dispatchEvent(new KeyboardEvent("keyup", { key, bubbles: true, cancelable: true, composed: true }));
     input.dispatchEvent(new Event("change", { bubbles: true }));
   }
   function fillOtpBoxes(boxes, code) {
