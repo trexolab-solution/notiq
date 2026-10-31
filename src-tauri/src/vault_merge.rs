@@ -4,18 +4,24 @@
 //! the same changes hold the same database whatever order they synced in. No I/O, no clock
 //! reads, no randomness. Rules, per entry (by `id`; one-sided entries are taken as they are):
 //!
-//! - **Live state** (content, ext, path, dir, tags, starred, updated) comes from the version
-//!   with the highest `stamp` (ties: the larger `(updated, path, ext, content, dir, tags,
-//!   starred)`, so the choice is total).
+//! - **Content register** (content, ext, dir, updated) comes from the side with the highest
+//!   `stamp` (ties: the larger `(updated, ext, content, dir)`, so the choice is total).
+//! - **Meta register** (path, tags, starred) comes from the side with the highest
+//!   `meta_stamp` (ties: the larger `(path, tags, starred)`). So a rename on one device and an
+//!   edit on another both survive; a meta-only difference never makes a conflict revision.
 //! - **`trash` / `tomb`** are each the max of both registers by `(over, at)`. Afterwards the
-//!   entry is a tombstone iff `tomb.over >= stamp` and trashed iff `trash.over >= stamp`
-//!   (`Entry::fix_flags`): an edit concurrent with a delete wins (the remover never saw it),
-//!   a delete that saw the edit wins.
+//!   entry is trashed iff `trash.over >= version` (`version = max(stamp, meta_stamp)`), so an
+//!   edit or rename the trasher never saw wins over the trash; and it is a tombstone iff
+//!   `tomb.over >= stamp`: an edit concurrent with a permanent delete wins, a delete that saw
+//!   it wins. A concurrent rename does NOT undo a permanent delete: the tombstone's text is
+//!   wiped, so whether a rename could bring it back would depend on merge order.
 //! - **Delete cut**: everything stamped `<= tomb.over` (revisions, attachments, losing
-//!   versions) was seen by the delete and is dropped, also when a concurrent edit brings the
-//!   entry back. A tombstone therefore carries no content, history or attachments. (Without
-//!   the cut, data a delete had already wiped on one device would come back or not
-//!   depending on merge order.)
+//!   versions; content stamps, the meta register has no history) was seen by the delete and is
+//!   dropped, also when a concurrent edit brings the entry back. A tombstone therefore
+//!   carries no content, history or attachments. (Without the cut, data a delete had already
+//!   wiped on one device would come back or not depending on merge order.)
+//! - **`trashed_at`** travels with the winning trash register (max over the sides holding
+//!   it; tombstones keep it while their trash register applies, for the same reason).
 //! - **History** = union of both histories plus every losing version with content
 //!   (`Revision { stamp, conflict_from: Some(<device of its stamp>) }`), de-duplicated by
 //!   identity (`stamp`, else `updated`; plus ext and content): one copy, normal if any copy
@@ -139,11 +145,14 @@ pub fn path_collisions(db: &Db) -> Vec<PathCollision> {
 
 // ─── entries ─────────────────────────────────────────────────────────────────
 
-type RegKey<'a> = (&'a Hlc, u64, &'a str, &'a str, &'a str, bool, &'a [String], bool);
+/// Total order of the content register.
+fn content_key(e: &Entry) -> (&Hlc, u64, &str, &str, bool) {
+    (&e.stamp, e.updated, &e.ext, &e.content, e.dir)
+}
 
-/// Total order of the live-state register.
-fn reg_key(e: &Entry) -> RegKey<'_> {
-    (&e.stamp, e.updated, &e.path, &e.ext, &e.content, e.dir, &e.tags, e.starred)
+/// Total order of the meta register.
+fn meta_key_of(e: &Entry) -> (&Hlc, &str, &[String], bool) {
+    (&e.meta_stamp, &e.path, &e.tags, e.starred)
 }
 
 fn max_removal(a: &Option<Removal>, b: &Option<Removal>) -> Option<Removal> {
@@ -165,7 +174,8 @@ fn rev_stamp(r: &Revision) -> Hlc {
 }
 
 fn join_entry(a: &Entry, b: &Entry) -> Entry {
-    let win = if reg_key(a) >= reg_key(b) { a } else { b };
+    let win = if content_key(a) >= content_key(b) { a } else { b };
+    let meta = if meta_key_of(a) >= meta_key_of(b) { a } else { b };
     let trash = max_removal(&a.trash, &b.trash);
     let tomb = max_removal(&a.tomb, &b.tomb);
     // The recycle-bin time travels with the trash register that won.
@@ -173,18 +183,19 @@ fn join_entry(a: &Entry, b: &Entry) -> Entry {
     let cut = tomb.as_ref().map(|t| t.over.clone());
     let mut out = Entry {
         id: win.id.clone(),
-        path: win.path.clone(),
+        path: meta.path.clone(),
         ext: win.ext.clone(),
         content: win.content.clone(),
         updated: win.updated,
         deleted: false,
         dir: win.dir,
-        tags: win.tags.clone(),
-        starred: win.starred,
+        tags: meta.tags.clone(),
+        starred: meta.starred,
         trashed_at,
         history: join_history([a, b], win, cut.as_ref()),
         attachments: join_attachments(&a.attachments, &b.attachments, cut.as_ref()),
         stamp: win.stamp.clone(),
+        meta_stamp: meta.meta_stamp.clone(),
         trash,
         tomb,
     };
@@ -320,6 +331,7 @@ fn max_stamp(db: &Db) -> Hlc {
     let mut see = |s: &Hlc| if *s > top { top = s.clone(); };
     for e in db.entries.values() {
         see(&e.stamp);
+        see(&e.meta_stamp);
         for r in [&e.trash, &e.tomb].into_iter().flatten() { see(&r.over); see(&r.at); }
         for a in &e.attachments {
             see(&a.stamp);
@@ -505,31 +517,111 @@ vs
     }
 
     #[test]
-    fn rename_on_one_device_and_edit_on_the_other_keep_one_entry_and_both_versions() {
-        // edit newer: content wins, the renamed (old-content) version is kept as a conflict
+    fn rename_on_one_device_and_edit_on_the_other_both_survive() {
         let base = base_note("v0");
         let id = base.get("n.nqv").unwrap().id.clone();
+        for edit_newer in [true, false] {
+            let (mut a, mut b) = (fork(&base, "A"), fork(&base, "B"));
+            let (ta, tb) = if edit_newer { (BASE + 10, BASE + 20) } else { (BASE + 20, BASE + 10) };
+            at(&mut a, ta);
+            a.rename("n.nqv", "m.nqv").unwrap();
+            at(&mut b, tb);
+            b.put("n.nqv", "md", "v1").unwrap();
+            for m in [merge(&a, &b), merge(&b, &a)] {
+                assert_eq!(m.entries.len(), 1);
+                let e = &m.entries[&id];
+                assert_eq!((e.path.as_str(), e.content.as_str()), ("m.nqv", "v1"), "new path AND new content");
+                assert_eq!(contents(e), vec![("v0", None)], "a meta-only difference is no conflict");
+                assert!(e.is_live() && path_collisions(&m).is_empty());
+            }
+            assert!(merge_into(&mut a.clone(), &b).conflicts.is_empty());
+            assert_laws_pair(&a, &b);
+        }
+    }
+
+    #[test]
+    fn tags_on_one_device_and_an_edit_on_the_other_both_survive() {
+        let base = base_note("v0");
         let (mut a, mut b) = (fork(&base, "A"), fork(&base, "B"));
-        at(&mut a, BASE + 10);
-        a.rename("n.nqv", "m.nqv").unwrap();
-        at(&mut b, BASE + 20);
-        b.put("n.nqv", "md", "v1").unwrap();
-        let m = merge(&a, &b);
-        assert_eq!(m.entries.len(), 1);
-        let e = &m.entries[&id];
-        assert_eq!((e.path.as_str(), e.content.as_str()), ("n.nqv", "v1"));
-        assert!(e.history.iter().any(|r| r.content == "v0"));
-        assert!(path_collisions(&m).is_empty());
-        // rename newer: the path wins, the edit is kept as a conflict revision
-        let (mut a, mut b) = (fork(&base, "A"), fork(&base, "B"));
+        at(&mut a, BASE + 30);
+        a.set_tags("n.nqv", vec!["bank".into()]).unwrap();
+        a.set_starred("n.nqv", true).unwrap();
         at(&mut b, BASE + 10);
         b.put("n.nqv", "md", "v1").unwrap();
-        at(&mut a, BASE + 20);
-        a.rename("n.nqv", "m.nqv").unwrap();
         let m = merge(&b, &a);
-        let e = &m.entries[&id];
-        assert_eq!((e.path.as_str(), e.content.as_str()), ("m.nqv", "v0"));
-        assert_eq!(contents(e), vec![("v1", Some("B")), ("v0", None)]);
+        let e = m.get("n.nqv").unwrap();
+        assert_eq!((e.content.as_str(), e.tags.clone(), e.starred), ("v1", vec!["bank".to_string()], true));
+        assert_laws_pair(&a, &b);
+    }
+
+    #[test]
+    fn concurrent_renames_newer_wins_without_content_loss() {
+        let base = base_note("v0");
+        let (mut a, mut b) = (fork(&base, "A"), fork(&base, "B"));
+        at(&mut a, BASE + 10);
+        a.put("n.nqv", "md", "A's text").unwrap();
+        a.rename("n.nqv", "a.nqv").unwrap();
+        at(&mut b, BASE + 20);
+        b.rename("n.nqv", "b.nqv").unwrap();
+        let m = merge(&a, &b);
+        assert_eq!(m.entries.len(), 1);
+        let e = m.get("b.nqv").expect("the newer rename wins");
+        assert_eq!(e.content, "A's text", "the content register is untouched by B's rename");
+        assert_eq!(contents(e), vec![("v0", None)]);
+        assert_laws_pair(&a, &b);
+    }
+
+    #[test]
+    fn a_rename_the_trasher_did_not_see_beats_the_trash() {
+        let base = base_note("v0");
+        let (mut a, mut b) = (fork(&base, "A"), fork(&base, "B"));
+        at(&mut a, BASE + 50);
+        a.trash("n.nqv").unwrap();
+        at(&mut b, BASE + 10);
+        b.rename("n.nqv", "m.nqv").unwrap();
+        let m = merge(&a, &b);
+        let e = m.get("m.nqv").expect("live under the new name");
+        assert!(e.is_live() && e.content == "v0" && m.list_trash().is_empty());
+        assert_laws_pair(&a, &b);
+        // a trash that saw the rename wins
+        let mut a2 = fork(&base, "A");
+        merge_into(&mut a2, &b);
+        at(&mut a2, BASE + 60);
+        a2.trash("m.nqv").unwrap();
+        assert!(entry(&merge(&b, &a2), "m.nqv").is_trashed());
+        // a permanent delete is about the text: a concurrent rename doesn't undo it
+        let mut a3 = fork(&base, "A");
+        at(&mut a3, BASE + 70);
+        trash_purge(&mut a3, "n.nqv");
+        let m = merge(&a3, &b);
+        let e = m.entries.values().next().unwrap();
+        assert!(e.deleted && e.content.is_empty() && m.get("m.nqv").is_none());
+        assert_eq!(e.path, "m.nqv", "the tombstone keeps the newer meta");
+        assert_laws_pair(&a3, &b);
+        // ... but an edit the deleter didn't see does, together with the rename
+        let mut b2 = b.clone();
+        at(&mut b2, BASE + 20);
+        b2.put("m.nqv", "md", "v1").unwrap();
+        let m = merge(&a3, &b2);
+        assert!(m.get("m.nqv").is_some_and(|e| e.content == "v1"));
+        assert_laws_pair(&a3, &b2);
+    }
+
+    #[test]
+    fn a_v2_payload_without_meta_stamps_merges() {
+        let json = r#"{"v":2,"entries":{"e1":{"id":"e1","path":"n.nqv","ext":"md","content":"old","updated":1800000000000}}}"#;
+        let mut a: Db = serde_json::from_str(json).unwrap();
+        a.normalise();
+        a.device = "A".into();
+        let e = &a.entries["e1"];
+        assert_eq!((e.stamp.clone(), e.meta_stamp.clone()), (Hlc::legacy(1800000000000), Hlc::legacy(1800000000000)));
+        let mut b = fork(&a, "B");
+        at(&mut b, BASE);
+        b.rename("n.nqv", "m.nqv").unwrap();
+        at(&mut a, BASE + 1);
+        a.put("n.nqv", "md", "new").unwrap();
+        let m = merge(&a, &b);
+        assert_eq!((m.entries["e1"].path.as_str(), m.entries["e1"].content.as_str()), ("m.nqv", "new"));
         assert_laws_pair(&a, &b);
     }
 
@@ -569,7 +661,7 @@ vs
         trash_purge(&mut a, "n.nqv");
         let m = merge(&a, &b);
         let e = m.entries.values().next().unwrap();
-        assert!(e.deleted && e.trashed_at.is_none() && m.get("n.nqv").is_none());
+        assert!(e.deleted && !e.is_trashed() && m.get("n.nqv").is_none());
         assert!(e.content.is_empty() && e.history.is_empty() && e.attachments.is_empty(), "a tombstone carries no data");
         let r = merge_into(&mut b.clone(), &a);
         assert_eq!((r.removed, r.added), (1, 0));
@@ -763,7 +855,7 @@ vs
         let stamp = fixed.tick();
         let e = fixed.entries.get_mut(&idb).unwrap();
         e.path = "Bank (B).nqv".into();
-        e.stamp = stamp;
+        e.meta_stamp = stamp;
         assert!(path_collisions(&fixed).is_empty());
         assert!(path_collisions(&merge(&fixed, &b)).is_empty(), "the rename wins over the old copy");
     }
@@ -836,13 +928,13 @@ vs
     fn op() -> impl Strategy<Value = Op> {
         prop_oneof![
             7 => (any::<u8>(), any::<u8>()).prop_map(|(p, k)| Op::Put(p, k)),
-            2 => (any::<u8>(), any::<u8>()).prop_map(|(f, t)| Op::Rename(f, t)),
+            4 => (any::<u8>(), any::<u8>()).prop_map(|(f, t)| Op::Rename(f, t)),
             3 => any::<u8>().prop_map(Op::Trash),
             2 => any::<u8>().prop_map(Op::Restore),
             3 => any::<u8>().prop_map(Op::Purge),
             1 => Just(Op::EmptyTrash),
             2 => (any::<u8>(), any::<u8>()).prop_map(|(p, k)| Op::Tags(p, k)),
-            1 => (any::<u8>(), any::<bool>()).prop_map(|(p, s)| Op::Star(p, s)),
+            2 => (any::<u8>(), any::<bool>()).prop_map(|(p, s)| Op::Star(p, s)),
             2 => any::<u8>().prop_map(Op::AttachAdd),
             2 => (any::<u8>(), any::<u8>()).prop_map(|(p, i)| Op::AttachRemove(p, i)),
             1 => (any::<u8>(), any::<u8>()).prop_map(|(p, i)| Op::HistoryRestore(p, i)),

@@ -152,7 +152,9 @@ pub struct Entry {
     #[serde(default)]
     pub starred: bool,
     /// Unix ms when moved to the recycle bin; `Some` = trashed (hidden from normal views).
-    /// Never set on a tombstone; always agrees with `trash` (see [`Entry::fix_flags`]).
+    /// Always agrees with `trash` (see [`Entry::fix_flags`]). A tombstone keeps it while its
+    /// trash register applies (views ignore it: see `is_trashed`), so the bin time survives
+    /// sync merges in any order.
     #[serde(default)]
     pub trashed_at: Option<u64>,
     /// Earlier contents, newest first, at most [`MAX_HISTORY`]. Never set on folders.
@@ -161,14 +163,20 @@ pub struct Entry {
     /// Removed attachments stay here (data wiped) until they expire; see [`Attachment::is_live`].
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub attachments: Vec<Attachment>,
-    /// Stamp of the last live change: content/ext (when it actually changed), path, tags,
-    /// star, attachment add/remove, restore, creation.
+    /// Content register: stamp of the last change to ext/content (when it actually changed),
+    /// attachment add/remove, history restore, restore from the bin, creation.
     #[serde(default)]
     pub stamp: Hlc,
-    /// Recycle-bin register: trashed while `trash.over >= stamp`.
+    /// Meta register: stamp of the last change to path (rename/move), tags or star, restore
+    /// from the bin, creation. Kept apart from `stamp` so a rename on one device and an edit on
+    /// another both survive a sync. Missing (pre-0.9.0 data) = `stamp`, see [`Db::normalise`].
+    #[serde(default)]
+    pub meta_stamp: Hlc,
+    /// Recycle-bin register: trashed while `trash.over >= version()`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub trash: Option<Removal>,
-    /// Permanent-delete register: a tombstone while `tomb.over >= stamp`.
+    /// Permanent-delete register: a tombstone while `tomb.over >= stamp` (content only: a
+    /// tombstone's text is wiped, so a rename the deleter didn't see can't bring it back).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tomb: Option<Removal>,
 }
@@ -186,7 +194,7 @@ impl Entry {
         Entry {
             id, path: path.into(), ext: String::new(), content: String::new(), updated, deleted: false, dir,
             tags: vec![], starred: false, trashed_at: None, history: vec![], attachments: vec![],
-            stamp: Hlc::default(), trash: None, tomb: None,
+            stamp: Hlc::default(), meta_stamp: Hlc::default(), trash: None, tomb: None,
         }
     }
 
@@ -200,21 +208,28 @@ impl Entry {
         !self.deleted && self.trashed_at.is_some()
     }
 
-    /// Does the permanent-delete register apply to the current version?
+    /// The entry's version: the newer of its content and meta registers. The trash applies
+    /// only to versions its device had seen (`trash.over >= version`).
+    pub fn version(&self) -> &Hlc {
+        std::cmp::max(&self.stamp, &self.meta_stamp)
+    }
+
+    /// Does the permanent-delete register apply to the current content? (Not to the meta
+    /// register: a delete wipes the text, which a later rename alone can't restore.)
     pub fn tomb_applies(&self) -> bool {
         self.tomb.as_ref().is_some_and(|r| r.applies_to(&self.stamp))
     }
 
     /// Does the trash register apply to the current version?
     pub fn trash_applies(&self) -> bool {
-        self.trash.as_ref().is_some_and(|r| r.applies_to(&self.stamp))
+        self.trash.as_ref().is_some_and(|r| r.applies_to(self.version()))
     }
 
     /// Makes `deleted` / `trashed_at` (what views read) agree with the `tomb` / `trash` registers.
     /// A trashed entry keeps its `trashed_at` ms; one that lacks it takes the trash stamp's wall.
     pub fn fix_flags(&mut self) {
         self.deleted = self.tomb_applies();
-        self.trashed_at = if !self.deleted && self.trash_applies() {
+        self.trashed_at = if self.trash_applies() {
             Some(self.trashed_at.unwrap_or_else(|| self.trash.as_ref().map_or(0, |t| t.at.wall)))
         } else {
             None
@@ -230,8 +245,7 @@ impl Entry {
     /// attachments are wiped (they zeroise themselves); the record stays.
     fn entomb(&mut self, at: &Hlc) {
         self.tomb = Some(Removal { over: self.stamp.clone(), at: at.clone() });
-        self.deleted = true;
-        self.trashed_at = None;
+        self.fix_flags();
         self.wipe();
     }
 
@@ -427,9 +441,11 @@ impl Db {
         let existing = self.live_id(rel, false).map(str::to_string);
         let changed = existing.as_ref().is_none_or(|id| { let e = &self.entries[id]; e.ext != ext || e.content != content });
         let stamp = if changed { Some(self.tick()) } else { None };
+        let created = existing.is_none();
         let id = existing.unwrap_or_else(new_id);
         let e = self.entries.entry(id.clone()).or_insert_with(|| Entry::blank(id, rel, false, 0));
         if let Some(s) = stamp {
+            if created { e.meta_stamp = s.clone(); }
             if e.ext != ext || e.content != content {
                 e.push_revision();
                 e.ext = ext.into();
@@ -451,6 +467,7 @@ impl Db {
         let id = new_id();
         let mut e = Entry::blank(id.clone(), rel, true, now_ms());
         e.stamp = self.tick();
+        e.meta_stamp = e.stamp.clone();
         self.entries.insert(id, e);
         Ok(())
     }
@@ -485,7 +502,7 @@ impl Db {
             let np = if e.path == from { to.to_string() } else if let Some(rest) = e.path.strip_prefix(&prefix) { format!("{to}/{rest}") } else { continue };
             e.path = np;
             e.updated = now;
-            e.stamp = stamp.clone();
+            e.meta_stamp = stamp.clone();
         }
         Ok(())
     }
@@ -542,7 +559,7 @@ impl Db {
         for id in ids {
             if let Some(e) = self.entries.get_mut(&id) {
                 e.trashed_at = Some(now);
-                e.trash = Some(Removal { over: e.stamp.clone(), at: at.clone() });
+                e.trash = Some(Removal { over: e.version().clone(), at: at.clone() });
             }
         }
         Ok(())
@@ -574,6 +591,7 @@ impl Db {
             e.path = np;
             e.trashed_at = None;
             e.stamp = stamp.clone(); // `trash` stays as a register; it no longer applies
+            e.meta_stamp = stamp.clone();
         }
         Ok(())
     }
@@ -635,7 +653,7 @@ impl Db {
         let stamp = self.tick();
         let e = self.entries.get_mut(&id).expect("live id");
         e.tags = tags;
-        e.stamp = stamp;
+        e.meta_stamp = stamp;
         Ok(())
     }
 
@@ -645,7 +663,7 @@ impl Db {
         let stamp = self.tick();
         let e = self.entries.get_mut(&id).expect("live id");
         e.starred = starred;
-        e.stamp = stamp;
+        e.meta_stamp = stamp;
         Ok(())
     }
 
@@ -872,14 +890,17 @@ impl Db {
     }
 
     /// After loading: gives unstamped (pre-v3) entries and attachments a legacy stamp from their
-    /// `updated`/`added` time, gives legacy tombstones/trash their registers, makes the flags agree
+    /// `updated`/`added` time (a missing meta stamp = the content stamp), gives legacy
+    /// tombstones/trash their registers, makes the flags agree
     /// with the registers, and raises the clock above every stamp held. Idempotent.
     pub fn normalise(&mut self) {
         let mut top = self.clock.clone();
         for e in self.entries.values_mut() {
             if e.stamp.is_zero() { e.stamp = Hlc::legacy(e.updated); }
+            if e.meta_stamp.is_zero() { e.meta_stamp = e.stamp.clone(); }
+            let v = e.version().clone();
             if e.deleted && e.tomb.is_none() { e.tomb = Some(Removal { over: e.stamp.clone(), at: e.stamp.clone() }); }
-            if e.trashed_at.is_some() && e.trash.is_none() { e.trash = Some(Removal { over: e.stamp.clone(), at: e.stamp.clone() }); }
+            if e.trashed_at.is_some() && e.trash.is_none() { e.trash = Some(Removal { over: v.clone(), at: v }); }
             e.fix_flags();
             if e.deleted { e.wipe(); } // a tombstone never carries data
             for a in e.attachments.iter_mut() {
@@ -889,6 +910,7 @@ impl Db {
                 if let Some(r) = &a.removed { top.observe(r); }
             }
             top.observe(&e.stamp);
+            top.observe(&e.meta_stamp);
             for r in [&e.trash, &e.tomb].into_iter().flatten() { top.observe(&r.over); top.observe(&r.at); }
         }
         self.clock = top;
@@ -1532,52 +1554,58 @@ mod tests {
         db.put("a.nqv", "md", "1").unwrap();
         let mut last = entry(&db, "a.nqv").stamp.clone();
         assert!(!last.is_zero() && last.device == "dev1");
-        let mut bumped = |db: &Db, path: &str, what: &str| {
-            let s = entry(db, path).stamp.clone();
-            assert!(s > last, "{what} must bump the stamp");
+        assert_eq!(entry(&db, "a.nqv").meta_stamp, last, "creation sets both registers");
+        // `meta`: rename/tags/star bump only the meta register, everything else only the content one
+        let mut bumped = |db: &Db, path: &str, what: &str, meta: bool| {
+            let e = entry(db, path);
+            let (s, other) = if meta { (e.meta_stamp.clone(), e.stamp.clone()) } else { (e.stamp.clone(), e.meta_stamp.clone()) };
+            assert!(s > last, "{what} must bump its stamp");
+            assert!(other < s, "{what} must not bump the other register");
             assert_eq!(db.clock, s, "the clock is the last issued stamp");
+            assert_eq!(*e.version(), s);
             last = s;
         };
         db.put("a.nqv", "md", "2").unwrap();
-        bumped(&db, "a.nqv", "content");
+        bumped(&db, "a.nqv", "content", false);
         db.put("a.nqv", "txt", "2").unwrap();
-        bumped(&db, "a.nqv", "ext");
+        bumped(&db, "a.nqv", "ext", false);
         db.set_tags("a.nqv", vec!["t".into()]).unwrap();
-        bumped(&db, "a.nqv", "tags");
+        bumped(&db, "a.nqv", "tags", true);
         db.set_starred("a.nqv", true).unwrap();
-        bumped(&db, "a.nqv", "star");
+        bumped(&db, "a.nqv", "star", true);
         let m = db.attach_add("a.nqv", "f.txt", &b64_encode(b"hi")).unwrap();
-        bumped(&db, "a.nqv", "attachment add");
+        bumped(&db, "a.nqv", "attachment add", false);
         let a = &entry(&db, "a.nqv").attachments[0];
         assert!(a.stamp == entry(&db, "a.nqv").stamp && a.removed.is_none());
         db.attach_remove("a.nqv", &m.id).unwrap();
-        bumped(&db, "a.nqv", "attachment remove");
+        bumped(&db, "a.nqv", "attachment remove", false);
         db.rename("a.nqv", "b.nqv").unwrap();
-        bumped(&db, "b.nqv", "rename");
+        bumped(&db, "b.nqv", "rename", true);
         db.history_restore("b.nqv", 1).unwrap();
-        bumped(&db, "b.nqv", "history restore");
+        bumped(&db, "b.nqv", "history restore", false);
         db.trash("b.nqv").unwrap();
         db.restore("b.nqv").unwrap();
-        bumped(&db, "b.nqv", "restore");
+        let r = entry(&db, "b.nqv");
+        assert!(r.stamp > last && r.meta_stamp == r.stamp && db.clock == r.stamp, "restore sets both registers");
 
         // no-ops: same ext+content, same tags, same star
-        let (s, u) = (entry(&db, "b.nqv").stamp.clone(), entry(&db, "b.nqv").updated);
+        let (s, m, u) = (entry(&db, "b.nqv").stamp.clone(), entry(&db, "b.nqv").meta_stamp.clone(), entry(&db, "b.nqv").updated);
         let e = entry(&db, "b.nqv");
         let (ext, content) = (e.ext.clone(), e.content.clone());
         db.put("b.nqv", &ext, &content).unwrap();
         db.set_tags("b.nqv", vec!["#T".into()]).unwrap();
         db.set_starred("b.nqv", true).unwrap();
-        assert_eq!(entry(&db, "b.nqv").stamp, s, "no-op changes keep the stamp");
+        assert_eq!((&entry(&db, "b.nqv").stamp, &entry(&db, "b.nqv").meta_stamp), (&s, &m), "no-op changes keep the stamps");
         assert!(entry(&db, "b.nqv").updated >= u);
 
         // new entries are stamped: mkdir, empty put, duplicate; a moved folder stamps its children
         db.mkdir("D").unwrap();
         db.put("D/e.nqv", "", "").unwrap();
         let d = db.duplicate("b.nqv").unwrap();
-        for p in ["D", "D/e.nqv", d.as_str()] { assert!(!entry(&db, p).stamp.is_zero(), "{p}"); }
-        let before = entry(&db, "D/e.nqv").stamp.clone();
+        for p in ["D", "D/e.nqv", d.as_str()] { assert!(!entry(&db, p).stamp.is_zero() && !entry(&db, p).meta_stamp.is_zero(), "{p}"); }
+        let before = entry(&db, "D/e.nqv").meta_stamp.clone();
         db.rename("D", "E").unwrap();
-        assert!(entry(&db, "E/e.nqv").stamp > before && entry(&db, "E").stamp == entry(&db, "E/e.nqv").stamp);
+        assert!(entry(&db, "E/e.nqv").meta_stamp > before && entry(&db, "E").meta_stamp == entry(&db, "E/e.nqv").meta_stamp);
         // revisions record the stamp of the version they hold
         let h = &entry(&db, "b.nqv").history;
         assert!(!h.is_empty() && h.iter().all(|r| r.stamp.is_some() && r.conflict_from.is_none()));
@@ -1593,6 +1621,13 @@ mod tests {
         let t = e.trash.clone().unwrap();
         assert!(t.over == s0 && t.at > s0 && e.trash_applies() && e.is_trashed());
         assert_eq!(e.stamp, s0, "trash isn't a live change");
+        // the register covers the entry's version, the newer of its two stamps
+        let mut d2 = Db::new();
+        d2.put("m.nqv", "md", "x").unwrap();
+        d2.set_tags("m.nqv", vec!["t".into()]).unwrap();
+        d2.trash("m.nqv").unwrap();
+        let m = entry(&d2, "m.nqv");
+        assert!(m.meta_stamp > m.stamp && m.trash.as_ref().unwrap().over == m.meta_stamp && m.is_trashed());
         db.restore("a.nqv").unwrap();
         let e = entry(&db, "a.nqv");
         assert!(e.stamp > t.over && !e.trash_applies() && e.is_live());
@@ -1606,7 +1641,7 @@ mod tests {
         assert!(e.is_trashed() && e.trashed_at.is_some());
         e.tomb = Some(Removal { over: e.stamp.clone(), at: e.stamp.clone() });
         e.fix_flags();
-        assert!(e.deleted && e.trashed_at.is_none() && !e.is_trashed() && !e.is_live());
+        assert!(e.deleted && !e.is_trashed() && !e.is_live());
     }
 
     #[test]
@@ -1623,7 +1658,7 @@ mod tests {
         assert_eq!(db.purge_expired(now), 0, "a tombstone is never converted twice");
         let e = entry(&db, "old.nqv");
         let tomb = e.tomb.clone().unwrap();
-        assert!(e.deleted && e.trashed_at.is_none() && e.tomb_applies() && tomb.over == s && tomb.at > s);
+        assert!(e.deleted && !e.is_trashed() && e.tomb_applies() && tomb.over == s && tomb.at > s);
         assert!(e.content.is_empty() && e.history.is_empty() && e.attachments.is_empty());
         assert!(db.list_trash().is_empty() && db.get("old.nqv").is_none() && rels(db.list()) == vec!["live.nqv"]);
         assert_eq!(db.attachments_total(), 0);
@@ -1710,6 +1745,7 @@ mod tests {
         assert_eq!((db.loaded_v, db.v), (2, 3));
         let a = entry(&db, "a.nqv");
         assert_eq!(a.stamp, Hlc::legacy(1800000000000));
+        assert_eq!(a.meta_stamp, a.stamp, "a missing meta stamp starts as the content stamp");
         assert_eq!(a.attachments[0].stamp, Hlc::legacy(1750000000000));
         assert!(a.history[0].stamp.is_none() && a.trash.is_none() && a.tomb.is_none());
         let b = entry(&db, "bin.nqv");
