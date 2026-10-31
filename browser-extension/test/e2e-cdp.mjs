@@ -11,7 +11,7 @@
 // uses CDP Input events — which the page sees as trusted user input — to click and
 // type. Synthetic DOM events are used for the "untrusted" cases.
 import { spawn } from "node:child_process";
-import { mkdtempSync, readdirSync, existsSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, existsSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -1168,7 +1168,179 @@ try {
   await load(EXTRA);
   check("login page with code boxes: still no code-only icon", ((await icons()) || []).length === 5);
 
-  // 28. Identities: address / contact forms, the in-page chooser, the right-click menu (own block scope)
+  // 28. Custom fields filled by name with the login (test-pages/custom-fields.html)
+  const CF = `http://localhost:${PORT}/test-pages/custom-fields.html`;
+  const FIELDS = [
+    { name: "Customer ID", value: "C-1001", secret: false },
+    { name: "Membership No.", value: "M-42", secret: false },
+    { name: "PIN", value: "4321", secret: true },
+    { name: "Branch", value: "North", secret: false },
+    { name: "Account nickname", value: "Daily", secret: false },
+  ];
+  const cfVals = (ids) => P(`(${JSON.stringify(ids)}).reduce((o, id) => (o[id] = document.getElementById(id).value, o), {})`);
+  await resetState();
+  await mockNative({ ...NATIVE, fill: { ...NATIVE.fill, fields: FIELDS } });
+  await load(CF);
+  let cfi = await iconFor("b-pass");
+  check("custom fields: the bank form's password field has an icon", !!cfi);
+  await mouseClick(cfi.x, cfi.y);
+  await waitFor(async () => (await P(`document.getElementById("b-pass").value`)) !== "", 3000);
+  const v28 = await cfVals(["b-cust", "b-member", "b-user", "b-pass", "b-pin", "b-pincode", "b-branch", "b-nick", "b-hidden", "b-gone", "p-member", "ph-cust"]);
+  check("custom fields: Customer ID, Membership No., PIN and nickname filled by name next to the login",
+    v28["b-cust"] === "C-1001" && v28["b-member"] === "M-42" && v28["b-pin"] === "4321" && v28["b-nick"] === "Daily" &&
+    v28["b-user"] === "alice@example.com" && v28["b-pass"] === "Notiq-Filled-1!", JSON.stringify({ ...v28, "b-pass": "<redacted>" }));
+  check("custom fields: 'PIN code' stays empty, a filled field is kept, hidden fields untouched",
+    v28["b-pincode"] === "" && v28["b-branch"] === "Main street" && v28["b-hidden"] === "" && v28["b-gone"] === "", JSON.stringify(v28));
+  check("custom fields: other forms on the page are left alone", v28["p-member"] === "" && v28["ph-cust"] === "");
+  check("custom fields: focus stays on the login's field", (await P(`document.activeElement && document.activeElement.id`)) === "b-pass");
+  // The site calls its password "PIN": the password goes there and the custom PIN never replaces it.
+  await resetCalls();
+  cfi = await iconFor("p-pass");
+  await mouseClick(cfi.x, cfi.y);
+  await waitFor(async () => (await P(`document.getElementById("p-pass").value`)) !== "", 3000);
+  const v28b = await cfVals(["p-user", "p-pass", "p-member"]);
+  check("custom fields: a password field labelled 'PIN' keeps the password; username field keeps the username",
+    v28b["p-pass"] === "Notiq-Filled-1!" && v28b["p-user"] === "alice@example.com" && v28b["p-member"] === "M-42", JSON.stringify({ ...v28b, "p-pass": "<redacted>" }));
+  // An older app sends no fields: the fill is exactly as before.
+  await resetState();
+  await mockNative(NATIVE);
+  await load(CF);
+  cfi = await iconFor("b-pass");
+  await mouseClick(cfi.x, cfi.y);
+  await waitFor(async () => (await P(`document.getElementById("b-pass").value`)) !== "", 3000);
+  const v28c = await cfVals(["b-cust", "b-pin", "b-user"]);
+  check("custom fields: none from the app -> only the login is filled", v28c["b-cust"] === "" && v28c["b-pin"] === "" && v28c["b-user"] === "alice@example.com", JSON.stringify(v28c));
+  // Toolbar path: fillPage with the matcher loaded (the background injects fillkit.js first).
+  await load(CF);
+  await P(readFileSync(join(EXT, "fillkit.js"), "utf8"));
+  const fp28 = await P(`(${FILLPAGE})("localhost", { username: "u@example.com", password: "Tool-Pw-1", code: "", fields: ${JSON.stringify(FIELDS)} }, { top: location.origin, allowed: [location.origin] })`);
+  const v28d = await cfVals(["b-cust", "b-member", "b-pin", "b-pincode", "b-branch", "b-user", "p-member"]);
+  check("custom fields: toolbar fill fills them by name too (same rules)",
+    fp28 === 6 && v28d["b-cust"] === "C-1001" && v28d["b-member"] === "M-42" && v28d["b-pin"] === "4321" && v28d["b-pincode"] === "" &&
+    v28d["b-branch"] === "Main street" && v28d["b-user"] === "u@example.com" && v28d["p-member"] === "", JSON.stringify({ fp28, ...v28d }));
+
+  // 29. Toolbar popup: this site's logins (0.9.0). Background handlers first (the popup opened in a CDP tab
+  // counts as a tab sender, so its own messages are stubbed below, as in check 20).
+  {
+    const ACC = [
+      { account: "Logins/Work.nqv", title: "Work", username: "alice@work.com", totp: true },
+      { account: "Logins/Home.nqv", title: "<img src=x onerror=alert(1)>Home", username: "alice@home.com", totp: false },
+    ];
+    await resetState();
+    await mockNative({ ...NATIVE, list: { ok: true, accounts: ACC }, copy: { ok: true, copied: "password", clearAfter: 30 }, open: { ok: true } });
+    await SW(`(() => {
+      const real = globalThis.__realQuery || chrome.tabs.query.bind(chrome.tabs);
+      globalThis.__realQuery = real;
+      chrome.tabs.query = async (q) => (await real(q)).map((t) => ({ ...t, url: ${JSON.stringify(PAGE)} }));
+      return true;
+    })()`);
+    const l28 = await SW("POPUP_HANDLERS.list()");
+    const c28 = await calls();
+    check("popup list: the app is asked for the active tab's host only (tagged), names come back",
+      l28 && l28.ok && l28.host === "localhost" && l28.accounts.length === 2 && c28.length === 1 && JSON.stringify(bare(c28[0])) === '{"op":"list","host":"localhost"}' && tagged(c28[0]),
+      JSON.stringify({ l28, c28 }));
+    const cp28 = await SW(`POPUP_HANDLERS.copy({ account: "Logins/Work.nqv", what: "password" })`);
+    const c28b = (await calls())[1];
+    check("popup copy: forwards {op:'copy', host, account, what}; reply has no value",
+      cp28 && cp28.ok && cp28.copied === "password" && cp28.clearAfter === 30 && c28b && c28b.op === "copy" && c28b.host === "localhost" && c28b.account === "Logins/Work.nqv" && c28b.what === "password",
+      JSON.stringify({ cp28, c28b }));
+    const st28 = await SW(`POPUP_HANDLERS.copy({ account: "Logins/Forged.nqv", what: "password" })`);
+    check("popup copy of an account that was not listed is refused before the app", st28 && st28.error === "stale" && (await calls()).length === 2, JSON.stringify(st28));
+    const op28 = await SW(`POPUP_HANDLERS.open({ account: "Logins/Home.nqv" })`);
+    check("popup open: forwards {op:'open'} for a listed account", op28 && op28.ok && (await calls())[2].op === "open", JSON.stringify(op28));
+    await mockNative({ ...NATIVE, list: { error: "unknown_op" } });
+    const old28 = await SW("POPUP_HANDLERS.list()");
+    check("popup list on an older Notiq: unknown_op is passed to the popup", old28 && old28.error === "unknown_op", JSON.stringify(old28));
+    await SW(`(chrome.tabs.query = globalThis.__realQuery, true)`);
+
+    // The popup page itself, with chrome.runtime.sendMessage stubbed.
+    const { targetId: pop3Target } = await cdp("Target.createTarget", { url: `chrome-extension://${extId}/popup.html` });
+    const { sessionId: pop3 } = await cdp("Target.attachToTarget", { targetId: pop3Target, flatten: true });
+    await cdp("Runtime.enable", {}, pop3);
+    await sleep(600);
+    const P3 = (e) => evalIn(pop3, e);
+    const stub = (replies) => P3(`(() => {
+      window.__sent = [];
+      const R = ${JSON.stringify(replies)};
+      const fake = (m, cb) => { window.__sent.push(m); setTimeout(() => cb && cb(R[m.type] || { error: "x" }), 30); };
+      try { chrome.runtime.sendMessage = fake; } catch {}
+      if (chrome.runtime.sendMessage !== fake) Object.defineProperty(chrome.runtime, "sendMessage", { value: fake, configurable: true, writable: true });
+      window.close = () => { window.__closed = true; };
+      return true;
+    })()`);
+    await stub({ list: { ok: true, host: "localhost", accounts: ACC }, copy: { ok: true, copied: "password", clearAfter: 30 }, popupFill: { ok: true }, open: { ok: true } });
+    await cdp("Target.activateTarget", { targetId: pop3Target });
+    await P3(`(document.activeElement && document.activeElement.blur && document.activeElement.blur(), setStatus("on", "Notiq unlocked"), loadSite("on"), true)`);
+    const rows3 = () => P3(`({ rows: [...document.querySelectorAll("#accList li")].map((li) => ({ t: li.querySelector(".t").textContent, u: li.querySelector(".u").textContent,
+      labels: [...li.querySelectorAll("button")].map((b) => b.getAttribute("aria-label")), code: li.querySelector('[data-action="code"]').disabled })),
+      imgs: document.querySelectorAll("#accList img").length, title: document.getElementById("siteTitle").textContent,
+      filterShown: !document.getElementById("filter").hidden, focus: document.activeElement && document.activeElement.id, state: document.getElementById("siteState").textContent })`);
+    const r3 = await waitFor(async () => { const s = await rows3(); return s.rows.length === 2 && s; }, 3000) || await rows3();
+    check("popup list: two rows (title + username as text), filter box shown and focused, host in the heading",
+      r3.rows.length === 2 && r3.rows[0].t === "Work" && r3.rows[1].t.startsWith("<img") && r3.imgs === 0 && r3.filterShown && r3.focus === "filter" && r3.title === "Logins for localhost",
+      JSON.stringify(r3));
+    check("popup list: every control has an accessible name; 2FA copy disabled without a code",
+      r3.rows[0].labels.join("|") === "Fill Work (alice@work.com)|Copy username of Work|Copy password of Work|Copy 2FA code of Work|Open Work in Notiq" &&
+      r3.rows[0].code === false && r3.rows[1].code === true, JSON.stringify(r3.rows));
+    await P3(`(() => { const f = document.getElementById("filter"); f.value = "HOME"; f.dispatchEvent(new Event("input")); return true; })()`);
+    const f3 = await rows3();
+    check("popup filter narrows the site's logins (title or username)", f3.rows.length === 1 && f3.rows[0].u === "alice@home.com", JSON.stringify(f3.rows));
+    await P3(`(() => { const f = document.getElementById("filter"); f.value = "zzz"; f.dispatchEvent(new Event("input")); return true; })()`);
+    const z3 = await rows3();
+    check("popup filter with no match says so", z3.rows.length === 0 && /No logins match/.test(z3.state), JSON.stringify(z3));
+    await P3(`(() => { const f = document.getElementById("filter"); f.value = ""; f.dispatchEvent(new Event("input")); f.focus(); return true; })()`);
+    const key = (k) => P3(`(document.activeElement.dispatchEvent(new KeyboardEvent("keydown", { key: ${JSON.stringify(k)}, bubbles: true, cancelable: true })), true)`);
+    const where = () => P3(`(() => { const a = document.activeElement; const li = a.closest && a.closest("li"); return { id: a.id, cls: a.className, action: a.dataset ? a.dataset.action || "" : "", row: li ? [...li.parentNode.children].indexOf(li) : -1 }; })()`);
+    await key("ArrowDown");
+    const k1 = await where();
+    await key("ArrowDown");
+    const k2 = await where();
+    await key("ArrowRight"); await key("ArrowRight");
+    const k3 = await where();
+    await key("ArrowUp");
+    const k4 = await where();
+    await key("ArrowUp");
+    const k5 = await where();
+    check("popup keyboard: ↓ from the filter to the rows, ↓/↑ keep the column, → moves along a row, ↑ from the top row back to the filter",
+      k1.cls === "acc-main" && k1.row === 0 && k2.row === 1 && k3.action === "password" && k3.row === 1 && k4.action === "password" && k4.row === 0 && k5.id === "filter",
+      JSON.stringify([k1, k2, k3, k4, k5]));
+    await key("Enter");
+    const s3 = await waitFor(async () => { const s = await P3("window.__sent"); return s.some((m) => m.type === "popupFill") && s; }, 2000);
+    check("popup: Enter in the filter fills the first login (popupFill with its account)",
+      s3 && s3.find((m) => m.type === "popupFill").account === "Logins/Work.nqv", JSON.stringify(s3));
+    await P3(`(document.querySelector('#accList li [data-action="password"]').click(), true)`);
+    const cm3 = await waitFor(async () => { const t = await P3(`document.getElementById("msg").textContent`); return /copied/.test(t) && t; }, 2000);
+    const sentCopy = (await P3("window.__sent")).find((m) => m.type === "copy");
+    check("popup copy button: asks the app to copy (no value in the popup), says when it clears",
+      sentCopy && sentCopy.what === "password" && sentCopy.account === "Logins/Work.nqv" && cm3 === "Password copied by Notiq. Clears in 30 s.", JSON.stringify({ sentCopy, cm3 }));
+    await P3(`(document.querySelector('#accList li [data-action="open"]').click(), true)`);
+    check("popup open button: sends open and closes the popup", await waitFor(() => P3("window.__closed === true && window.__sent.some((m) => m.type === 'open')"), 2000));
+    // An older Notiq: the list and the actions say to update it.
+    await stub({ list: { error: "unknown_op", host: "localhost" }, copy: { error: "unknown_op" } });
+    await P3(`(loadSite("on"), true)`);
+    const o3 = await waitFor(async () => { const t = await P3(`document.getElementById("siteState").textContent`); return /Update Notiq/.test(t) && t; }, 2000);
+    check("popup on an older Notiq: 'Update Notiq to see your logins…', no rows", o3 && (await rows3()).rows.length === 0, String(o3));
+    // Locked: no list request at all.
+    await stub({ list: { ok: true, accounts: ACC } });
+    await P3(`(loadSite("locked"), true)`);
+    await sleep(150);
+    const lk3 = await P3(`({ sent: window.__sent.length, state: document.getElementById("siteState").textContent, rows: document.querySelectorAll("#accList li").length })`);
+    check("popup with a locked vault asks for nothing and says to unlock", lk3.sent === 0 && lk3.rows === 0 && /Unlock Notiq/.test(lk3.state), JSON.stringify(lk3));
+    if (process.env.NOTIQ_POPUP_SHOT) {
+      await stub({ list: { ok: true, host: "accounts.example.com", accounts: [ACC[0], { ...ACC[1], title: "Home" }, { account: "x", title: "Shared family login with a long name", username: "family@example.com", totp: true }] } });
+      await P3(`(setStatus("on", "Notiq unlocked"), loadSite("on"), true)`);
+      await cdp("Page.enable", {}, pop3);
+      await cdp("Emulation.setDeviceMetricsOverride", { width: 320, height: 760, deviceScaleFactor: 2, mobile: false }, pop3);
+      await sleep(300);
+      const h = await P3(`Math.ceil(document.documentElement.getBoundingClientRect().height)`);
+      const { data } = await cdp("Page.captureScreenshot", { format: "png", clip: { x: 0, y: 0, width: 320, height: h, scale: 1 } }, pop3);
+      writeFileSync(process.env.NOTIQ_POPUP_SHOT, Buffer.from(data, "base64"));
+    }
+    await cdp("Target.closeTarget", { targetId: pop3Target });
+    await cdp("Target.activateTarget", { targetId });
+  }
+
+  // 30. Identities: address / contact forms, the in-page chooser, the right-click menu (own block scope)
   {
     const IDP = `http://localhost:${PORT}/test-pages/identity.html`;
     const IDENT = { ok: true, title: "Home", name: "Asha K Rao", email: "asha@example.com", phone: "+91 98765 43210",

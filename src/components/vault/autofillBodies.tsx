@@ -1,7 +1,10 @@
 import { Eye, EyeOff } from "lucide-react";
 import { DialogCheckbox } from "../ui/DialogParts";
 import { Input } from "../ui/Input";
-import { cardTitle, LOGINS_FOLDER, type CardMatch, type LoginMatch, type SavePlan, type SaveRequest } from "../../lib/autofill";
+import { Select } from "../ui/Select";
+import {
+  cardTitle, hasSaveChoice, LOGINS_FOLDER, saveCandidateLabel, type CardMatch, type LoginMatch, type SavePlan, type SaveRequest,
+} from "../../lib/autofill";
 import { cardBrand, cardExpired, maskCardNumber } from "../../lib/cardEntry";
 import { identityTitle, type IdentityMatch } from "../../lib/autofill";
 import { identitySummary } from "../../lib/identityEntry";
@@ -89,11 +92,24 @@ export interface SaveFieldsProps {
   /** Enter in the name field. */
   onEnter: () => void;
   autoFocusName?: boolean;
+  /** Several logins share this username on the site: the user picked candidate `index` to update. */
+  onTarget?: (index: number) => void;
+  /** "Update an existing login instead" (back from Save as new). */
+  onSaveAsNew?: (on: boolean) => void;
+  disabled?: boolean;
 }
 
-/** What will be written: site, username, masked password (with reveal) and, for a new entry, its name. */
-export function SaveFields({ req, plan, name, onName, nameError, reveal, onReveal, onEnter, autoFocusName = true }: SaveFieldsProps) {
+/**
+ * What will be written: site, username, masked password (with reveal) and, for a new entry, its name.
+ * When several saved logins have this username on the site, an "Update" picker chooses which one
+ * (the most recently used is pre-selected); the footer's "Save as new" switches to a new entry.
+ */
+export function SaveFields({
+  req, plan, name, onName, nameError, reveal, onReveal, onEnter, autoFocusName = true, onTarget, onSaveAsNew, disabled,
+}: SaveFieldsProps) {
   const update = plan.kind === "update";
+  const choice = hasSaveChoice(plan) ? plan.candidates ?? [] : [];
+  const targetIdx = plan.target ? choice.indexOf(plan.target) : -1;
   return (
     <>
       <dl className="af-fields">
@@ -101,6 +117,21 @@ export function SaveFields({ req, plan, name, onName, nameError, reveal, onRevea
         <dd className="truncate" title={req.host}>{req.host}</dd>
         <dt>Username</dt>
         <dd className="truncate">{req.username || <span className="af-muted">(none)</span>}</dd>
+        {update && choice.length > 0 && (
+          <>
+            <dt id="af-save-target-label">Update</dt>
+            <dd>
+              <Select
+                aria-label="Login to update"
+                value={String(Math.max(0, targetIdx))}
+                onChange={(v) => onTarget?.(Number(v))}
+                options={choice.map((m, i) => ({ value: String(i), label: saveCandidateLabel(m, choice) }))}
+                disabled={disabled}
+                triggerStyle={{ width: "100%", minWidth: 0, padding: "4px 10px", fontSize: 12 }}
+              />
+            </dd>
+          </>
+        )}
         <dt>Password</dt>
         <dd className="flex items-center gap-1 min-w-0">
           <span className="truncate font-mono">{reveal ? req.password : "•".repeat(Math.min(req.password.length, 16))}</span>
@@ -127,6 +158,14 @@ export function SaveFields({ req, plan, name, onName, nameError, reveal, onRevea
       {update && (
         <p className="af-note">
           Updates the password of &ldquo;{plan.target?.entry.title || plan.target?.entry.url}&rdquo;. Other fields stay as they are.
+        </p>
+      )}
+      {!update && hasSaveChoice(plan) && onSaveAsNew && (
+        <p className="af-note">
+          Saves a new login next to the {plan.candidates?.length} you already have for this username.{" "}
+          <button type="button" className="af-link-btn" disabled={disabled} onClick={() => onSaveAsNew(false)}>
+            Update an existing login instead
+          </button>
         </p>
       )}
     </>

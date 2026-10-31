@@ -4,7 +4,8 @@
 //! One cycle ([`sync_once`]):
 //! 1. list the store (`vault.meta`, `devices/*`, `blobs/*`);
 //! 2. `vault.meta`: upload ours if missing/pending, adopt a newer verified one (password changed
-//!    elsewhere), ignore (and repair) an older one;
+//!    elsewhere), ignore (and repair) a rolled-back one; between two concurrent password changes
+//!    the later one wins (see [`sync_meta`]);
 //! 3. download snapshots whose provider revision changed, open + authenticate them, reject
 //!    generations lower than already seen (rollback protection);
 //! 4. download the attachment blobs they reference that this device lacks;
@@ -201,12 +202,45 @@ fn warn(out: &mut Vec<String>, msg: String) {
 async fn upload_meta<L: LocalVault>(ctx: &Ctx<'_>, local: &L, st: &mut SyncState, generation: u64) -> Result<(), SyncError> {
     let meta = local.meta()?;
     let obj = ctx.provider.put(META_NAME, &seal::seal_meta(&ctx.keys, &meta, generation)).await?;
-    st.meta_generation = generation;
-    st.meta_pending = false;
+    st.meta_agreed(generation);
     st.meta_revision = Some(obj.revision);
     Ok(())
 }
 
+/// Which of two different, verified metas wins (`true` = the remote one).
+///
+/// * `derived`: the remote meta is newer than everything this device agreed on and this device
+///   changed nothing since, so it was made after ours (sequential): it wins, whatever the clocks say.
+/// * Otherwise the two are concurrent changes (both made since the last generation both sides
+///   knew, e.g. one PC was offline): the one whose password change / recovery reset happened LATER
+///   wins, by `(changed_at_ms, changed_by)`.
+///   Clock skew: the stamps are the changing devices' wall clocks, so a PC whose clock runs ahead
+///   wins a near-simultaneous race even if its change was really a little earlier. That only
+///   decides between two changes that were genuinely concurrent; sequential changes are ordered
+///   by generation, and a device's own stamps never go backwards (`VaultMeta::stamp_change`).
+/// * A meta without a stamp (written before this rule) falls back to the old rule: the higher
+///   generation wins and a tie goes to the store.
+fn remote_meta_wins(remote: &VaultMeta, remote_gen: u64, mine: &VaultMeta, st: &SyncState, derived: bool) -> bool {
+    if derived {
+        return true;
+    }
+    match (remote.change_stamp(), mine.change_stamp()) {
+        (Some(r), Some(l)) => r > l,
+        _ => remote_gen >= st.meta_generation,
+    }
+}
+
+/// `vault.meta`, once per cycle. The adopt rule:
+///
+/// 1. Rollback protection: a remote meta whose generation is below the one this device last
+///    agreed on with the store (`SyncState::meta_base`) is never adopted; ours is put back.
+/// 2. Same content: nothing to do (the generations are brought in line).
+/// 3. Different content: [`remote_meta_wins`] — newer-and-sequential wins, else the later change.
+///    * Remote wins: it is adopted; the local `vault.json` it replaces is kept as the previous meta
+///      (so the replaced password gives `PASSWORD_CHANGED_ELSEWHERE`) and a pending local change is
+///      dropped (it never overwrites the winner).
+///    * Local wins: ours is uploaded one generation above the remote one, so every other device
+///      adopts it as a newer meta.
 async fn sync_meta<L: LocalVault>(ctx: &Ctx<'_>, local: &L, st: &mut SyncState, obj: Option<&RemoteObject>, out: &mut Outcome) -> Result<(), SyncError> {
     let Some(o) = obj else {
         return upload_meta(ctx, local, st, st.meta_generation.max(1)).await;
@@ -234,43 +268,45 @@ async fn sync_meta<L: LocalVault>(ctx: &Ctx<'_>, local: &L, st: &mut SyncState, 
         return Ok(());
     }
     let g = rm.generation;
-    if g > st.meta_generation {
-        if rm.meta != local.meta()? {
-            local.adopt_meta(&rm.meta)?;
-            out.meta_adopted = true;
-        }
-        if st.meta_pending {
-            warn(&mut out.warnings, "The master password was also changed on another device; the newer change was kept.".into());
-        }
-        st.meta_generation = g;
-        st.meta_pending = false;
-        st.meta_revision = Some(o.revision.clone());
-    } else if g < st.meta_generation {
-        if !st.meta_pending {
+    let pending = st.meta_pending;
+    let base = st.meta_base();
+    if g < base {
+        if !pending {
             warn(&mut out.warnings, "An older copy of the synced vault key file was found and replaced.".into());
         }
-        upload_meta(ctx, local, st, st.meta_generation).await?;
-    } else {
-        // Same generation: the synced copy wins a tie with different content (two concurrent
-        // changes, or a device whose wrap is out of date must never revert a change made elsewhere).
-        if rm.meta != local.meta()? {
-            local.adopt_meta(&rm.meta)?;
-            out.meta_adopted = true;
-            if st.meta_pending {
-                warn(&mut out.warnings, "The master password was also changed on another device at the same time; that change was kept.".into());
-            }
-        }
-        st.meta_pending = false;
+        return upload_meta(ctx, local, st, st.meta_generation).await;
+    }
+    let mine = local.meta()?;
+    if rm.meta == mine {
+        st.meta_agreed(g);
         st.meta_revision = Some(o.revision.clone());
+        return Ok(());
+    }
+    let derived = !pending && g > st.meta_generation;
+    // A store that moved past what we agreed on while we also changed something: a real race.
+    let concurrent = g > base || !pending;
+    if remote_meta_wins(&rm.meta, g, &mine, st, derived) {
+        local.adopt_meta(&rm.meta)?;
+        out.meta_adopted = true;
+        if pending {
+            warn(&mut out.warnings, "The master password was also changed on another device, later than here; that change was kept. Use the newer password.".into());
+        }
+        st.meta_agreed(g);
+        st.meta_revision = Some(o.revision.clone());
+    } else {
+        if concurrent {
+            warn(&mut out.warnings, "The master password was also changed on another device; the later change, made on this device, was kept.".into());
+        }
+        upload_meta(ctx, local, st, (g + 1).max(st.meta_generation)).await?;
     }
     Ok(())
 }
 
 /// Prepares `st` to (re-)enable sync for local vault `vault_hex` against the store's meta.
 /// A different remote vault is refused; another vault's old state is reset. Generations are
-/// left as they are, so the cycle that follows adopts a remote meta with a higher generation (or a
-/// different one at the same generation) and uploads only a genuine local change (one that raised
-/// this device's generation above the remote one while connected).
+/// left as they are, so the cycle that follows adopts a remote meta with a higher generation, and
+/// a password change made here since the last sync (pending, also while paused) competes with a
+/// concurrent remote one by "the later change wins" (see [`sync_meta`]).
 pub fn prepare_enable(st: &mut SyncState, vault_hex: &str, remote: Option<&RemoteMeta>) -> Result<(), SyncError> {
     if let Some(rm) = remote {
         if rm.meta.vault_id != vault_hex {

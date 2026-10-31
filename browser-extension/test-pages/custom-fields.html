@@ -1,0 +1,91 @@
+<!doctype html>
+<!--
+  Custom fields filled by name (0.9.0). Save a login for this site in Notiq with these custom fields:
+    Customer ID      C-1001          (plain)
+    Membership No.   M-42            (plain)
+    PIN              4321            (secret)
+    Branch           North           (plain)
+    Account nickname Daily           (plain)
+  then click the Notiq icon in a form. Expected results are written under each form.
+    cd browser-extension/test-pages && python -m http.server 8000
+    http://localhost:8000/custom-fields.html
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Notiq test page: custom fields</title>
+<style>
+  :root { color-scheme: light dark; --fg: #1f2328; --bg: #f6f7f9; --card: #fff; --line: #d0d7de; --accent: #6366f1; }
+  @media (prefers-color-scheme: dark) { :root { --fg: #e6edf3; --bg: #0d1117; --card: #161b22; --line: #30363d; } }
+  body { margin: 0; padding: 24px 16px 60px; font: 15px/1.45 system-ui, sans-serif; color: var(--fg); background: var(--bg); }
+  main { max-width: 980px; margin: 0 auto; }
+  h1 { font-size: 22px; margin: 0 0 16px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; }
+  form { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 18px; }
+  h2 { font-size: 16px; margin: 0 0 4px; }
+  .hint { font-size: 13px; opacity: .7; margin: 0 0 14px; }
+  .expect { font-size: 12px; opacity: .75; margin: 12px 0 0; }
+  label { display: block; font-size: 13px; margin: 10px 0 4px; }
+  input { box-sizing: border-box; width: 100%; padding: 9px 10px; font: inherit; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: inherit; }
+  button { margin-top: 14px; width: 100%; padding: 10px; border: 0; border-radius: 8px; background: var(--accent); color: #fff; font: inherit; font-weight: 600; cursor: pointer; }
+  .gone { display: none; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Notiq Autofill: custom fields</h1>
+  <div class="grid">
+    <form id="bank" onsubmit="return false">
+      <h2>1. Bank login</h2>
+      <p class="hint">Customer ID, membership number and PIN next to the username and password.</p>
+      <label for="b-cust">Customer Id:</label>
+      <input id="b-cust" name="customerId">
+      <label for="b-member">Membership number</label>
+      <input id="b-member" name="membership_no">
+      <label for="b-user">Username</label>
+      <input id="b-user" name="username" autocomplete="username">
+      <label for="b-pass">Password</label>
+      <input id="b-pass" name="password" type="password" autocomplete="current-password">
+      <label for="b-pin">PIN</label>
+      <input id="b-pin" name="pin" type="password" inputmode="numeric">
+      <label for="b-pincode">PIN code (postal)</label>
+      <input id="b-pincode" name="pincode">
+      <label for="b-branch">Branch</label>
+      <input id="b-branch" name="branch" value="Main street">
+      <input id="b-nick" aria-label="Account nickname" placeholder="Nickname">
+      <input id="b-hidden" type="hidden" name="customer_id" value="">
+      <label class="gone" for="b-gone">Customer ID</label>
+      <input id="b-gone" class="gone" name="customer_id2">
+      <button type="submit">Sign in</button>
+      <p class="expect">Expect: Customer Id = C-1001, Membership number = M-42, PIN = 4321, nickname = Daily;
+        PIN code empty, Branch keeps "Main street" (already filled), hidden fields untouched.</p>
+    </form>
+
+    <form id="pinonly" onsubmit="return false">
+      <h2>2. The password field is called "PIN"</h2>
+      <p class="hint">The login's password goes here; the custom "PIN" never overwrites it.</p>
+      <label for="p-user">Customer ID</label>
+      <input id="p-user" name="userid" autocomplete="username">
+      <label for="p-pass">PIN</label>
+      <input id="p-pass" name="pin" type="password">
+      <label for="p-member">Membership No.</label>
+      <input id="p-member" name="memberNo">
+      <button type="submit">Log in</button>
+      <p class="expect">Expect: Customer ID = the username, PIN = the password, Membership No. = M-42.</p>
+    </form>
+
+    <form id="placeholders" onsubmit="return false">
+      <h2>3. Placeholders only</h2>
+      <p class="hint">No labels: names come from placeholders and ids.</p>
+      <input id="ph-user" name="email" type="email" placeholder="Email" autocomplete="username">
+      <input id="ph-pass" type="password" placeholder="Password">
+      <input id="ph-cust" placeholder="Enter your customer ID">
+      <input id="customer-pin">
+      <button type="submit">Continue</button>
+      <p class="expect">Expect: customer ID = C-1001; the field with id "customer-pin" stays empty ("Customer PIN" is not "PIN").</p>
+    </form>
+  </div>
+</main>
+</body>
+</html>

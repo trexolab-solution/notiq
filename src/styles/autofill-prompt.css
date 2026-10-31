@@ -92,3 +92,11 @@ html.is-autofill-prompt #root { height: 100%; margin: 0; overflow: hidden; backg
 
 
 .af-window .dlg-callout { margin: 0; }
+
+/* Inline text button inside a note ("Update an existing login instead"). */
+.af-link-btn {
+  padding: 0; border: none; background: none; font: inherit;
+  color: var(--color-primary); text-decoration: underline; text-underline-offset: 2px; cursor: pointer;
+}
+.af-link-btn:disabled { opacity: 0.5; cursor: default; }
+.af-link-btn:focus-visible { outline: 2px solid color-mix(in srgb, var(--color-primary) 70%, transparent); outline-offset: 1px; border-radius: 2px; }

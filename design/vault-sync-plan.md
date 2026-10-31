@@ -109,6 +109,8 @@ blobs/<hash>               attachment payloads, content-addressed, uploaded once
 - Before the first sync and before applying a large remote change, write a local `.nqbackup` safety copy (keep 5).
 - Password change re-wraps the same key → new `vault.meta` (higher generation); other devices pick it up and show
   "Your master password was changed on another device" when the old one is entered.
+  Two concurrent changes (e.g. one PC offline): the later change wins by its `changed_at_ms` / `changed_by` stamp
+  (0.9.0 decision 1); an older `vault.meta` that is not a concurrent change is still rejected (see `engine::sync_meta`).
 - Windows Hello / PC sign-in stays per device and is never synced. The recovery key is the same on all devices.
 
 ## User experience

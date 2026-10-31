@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Cloud, CloudUpload, ShieldPlus } from "lucide-react";
 import { Dialog, DialogBody, DialogButton, DialogFooter } from "../../ui/Dialog";
-import { NO_DRIVE_VAULT_TEXT, lastChangedText, uploadQuestion } from "../../../lib/syncSetup";
+import { NO_DRIVE_VAULT_TEXT, REUPLOAD_TITLE, lastChangedText, reuploadQuestion, uploadQuestion } from "../../../lib/syncSetup";
 import { listenForSetupRequests, useSyncSetupStore } from "../../../lib/syncSetupFlow";
 import { ConnectWaiting } from "./ConnectWaiting";
 import { DriveVaultFields } from "./DriveVaultCard";
@@ -75,13 +75,28 @@ export function SyncSetupHost() {
 
     case "upload":
       return (
-        <Dialog onClose={cancel} zClassName={Z} size="sm" title={uploadQuestion(view.items)} icon={<CloudUpload size={16} />}>
+        <Dialog onClose={s.declineUpload} zClassName={Z} size="sm" title={uploadQuestion(view.items)} icon={<CloudUpload size={16} />}>
           <DialogBody
             message={`Your vault is encrypted on this PC, then uploaded to ${account ?? "your Google Drive"}.`}
             detail="After that it stays in sync on every PC where you open it."
           />
           <DialogFooter>
-            <DialogButton cancel onClick={cancel}>Not now</DialogButton>
+            <DialogButton cancel onClick={s.declineUpload}>Not now</DialogButton>
+            <DialogButton variant="primary" onClick={() => void s.confirmUpload()}>Upload</DialogButton>
+          </DialogFooter>
+        </Dialog>
+      );
+
+    case "reupload":
+      // Resume found an empty Drive: ask, never upload silently. Cancel keeps sync paused.
+      return (
+        <Dialog onClose={s.declineUpload} zClassName={Z} size="sm" title={REUPLOAD_TITLE} icon={<CloudUpload size={16} />}>
+          <DialogBody
+            message={reuploadQuestion(view.items)}
+            detail={`It's encrypted on this PC, then uploaded to ${account ?? "your Google Drive"}. Your other PCs sync with it again after that.`}
+          />
+          <DialogFooter>
+            <DialogButton cancel onClick={s.declineUpload}>Cancel</DialogButton>
             <DialogButton variant="primary" onClick={() => void s.confirmUpload()}>Upload</DialogButton>
           </DialogFooter>
         </Dialog>

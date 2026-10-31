@@ -1,8 +1,9 @@
 import type { Lookalike } from "../lib/lookalike";
 import {
-  decideTrusted, defaultLoginName, indexOfAccount, indexOfIdentity, matchesForIntent, planSave,
+  decideTrusted, defaultLoginName, indexOfAccount, indexOfIdentity, matchesForIntent, pickSaveTarget, planSave, setSaveAsNew,
   type CardMatch, type FillIntent, type IdentityMatch, type LoginMatch, type SavePlan, type SaveRequest,
 } from "../lib/autofill";
+import { copyTargets, type ApprovedCopy } from "../lib/autofillPopup";
 
 /**
  * The autofill prompt window's state machine, kept pure so every transition is unit-tested.
@@ -24,7 +25,12 @@ import {
 
 /** `account`: optional vault-relative path the extension asks for (from an earlier `choose` reply).
  *  `intent: "code"`: a separate 2FA page wants only the TOTP code (only logins with a 2FA secret count). */
-export interface FillReq { id: string; host: string; account?: string; intent?: FillIntent }
+export interface FillReq {
+  id: string; host: string; account?: string; intent?: FillIntent;
+  /** The toolbar popup's copy (0.9.0): approved like a fill, but Notiq copies the value instead of sending it.
+   *  Always names one `account`; `"code"` also sets `intent: "code"`. */
+  copy?: ApprovedCopy;
+}
 export interface CardReq { id: string; host: string }
 /** `account`: the identity the user chose in the browser (pre-selected; the user still confirms). */
 export interface IdentityReq { id: string; host: string; account?: string }
@@ -61,6 +67,10 @@ export type PromptEvent =
   | { type: "pick"; index: number }
   | { type: "trust"; on: boolean }
   | { type: "name"; value: string }
+  /** Save prompt with several logins for this username: update candidate `index` … */
+  | { type: "saveTarget"; index: number }
+  /** … or save as a new login instead (`on: false` goes back to updating). */
+  | { type: "saveAsNew"; on: boolean }
   | { type: "reveal" }
   | { type: "allow" }
   | { type: "confirmSave"; nameOk: boolean }
@@ -80,7 +90,7 @@ export type Effect =
   /** List the vault's identities, then dispatch `identitiesScanned`. */
   | { kind: "scanIdentities" }
   /** Look up the credentials of `match` (only its code for `intent: "code"`), reply `{ok, …}`, then dispatch `answered`. */
-  | { kind: "release"; id: string; match: LoginMatch; trustHost: string | null; intent?: FillIntent }
+  | { kind: "release"; id: string; match: LoginMatch; trustHost: string | null; intent?: FillIntent; copy?: ApprovedCopy }
   /** Reply with the picked card's fill data, then dispatch `answered`. */
   | { kind: "releaseCard"; id: string; card: CardMatch }
   /** Reply with the picked identity's fill data, then dispatch `answered`. */
@@ -99,6 +109,7 @@ const scanFor = (job: Job): Effect =>
   job.kind === "card" ? { kind: "scanCards" } : job.kind === "identity" ? { kind: "scanIdentities" } : { kind: "scan", host: job.req.host };
 const release = (job: FillJob, match: LoginMatch, trustHost: string | null): Effect => ({
   kind: "release", id: job.req.id, match, trustHost, ...(job.req.intent ? { intent: job.req.intent } : {}),
+  ...(job.req.copy ? { copy: job.req.copy } : {}),
 });
 
 /** The id of the request the window is busy with, if any. */
@@ -166,8 +177,11 @@ export function step(state: PromptState, ev: PromptEvent): Step {
         };
       }
       // A code-only fill (separate 2FA page) can only use logins that have a 2FA secret.
-      const matches = matchesForIntent(ev.matches, job.req.intent);
-      if (!matches.length) return end(reply(id, { error: "no_code" }));
+      const usable = matchesForIntent(ev.matches, job.req.intent);
+      if (!usable.length) return end(reply(id, { error: "no_code" }));
+      // A popup copy names one login from its list: only that one counts (never a pick, never another login).
+      const matches = job.req.copy ? copyTargets(usable, job.req.account) : usable;
+      if (!matches.length) return end(reply(id, { error: "stale" }));
       if (state.silent) {
         const d = decideTrusted(matches, job.req.account);
         if (d.kind === "fill") return { state, effects: [release(job, d.match, null)] };
@@ -199,6 +213,10 @@ export function step(state: PromptState, ev: PromptEvent): Step {
       return state.stage === "request" ? same({ ...state, trust: ev.on }) : same(state);
     case "name":
       return state.stage === "save" ? same({ ...state, name: ev.value }) : same(state);
+    case "saveTarget":
+      return state.stage === "save" && !state.busy ? same({ ...state, plan: pickSaveTarget(state.plan, ev.index) }) : same(state);
+    case "saveAsNew":
+      return state.stage === "save" && !state.busy ? same({ ...state, plan: setSaveAsNew(state.plan, ev.on) }) : same(state);
     case "reveal":
       return state.stage === "save" ? same({ ...state, reveal: !state.reveal }) : same(state);
 

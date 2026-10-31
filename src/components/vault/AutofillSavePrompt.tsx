@@ -8,7 +8,10 @@ import { useVaultStore } from "../../store/vaultStore";
 import { vaultErrorMessage } from "../../lib/vault";
 import { toast } from "../../lib/toast";
 import { nameError } from "../../lib/vaultTree";
-import { defaultLoginName, findLogins, isFallbackRequest, planSave, saveLogin, type SavePlan, type SaveRequest } from "../../lib/autofill";
+import {
+  defaultLoginName, findLogins, hasSaveChoice, isFallbackRequest, pickSaveTarget, planSave, saveLogin, setSaveAsNew,
+  type SavePlan, type SaveRequest,
+} from "../../lib/autofill";
 
 const reply = (id: string, payload: unknown) => invoke("autofill_reply", { id, payload });
 
@@ -97,11 +100,15 @@ export function AutofillSavePrompt() {
         message={<>Your browser captured a login on <strong>{req.host}</strong>.</>}
         detail="Only save it if you just signed in there."
       >
-        <SaveFields req={req} plan={plan} name={name} onName={setName} nameError={nameErr}
-                    reveal={reveal} onReveal={() => setReveal((v) => !v)} onEnter={() => void confirm()} />
+        <SaveFields req={req} plan={plan} name={name} onName={setName} nameError={nameErr} disabled={busy}
+                    reveal={reveal} onReveal={() => setReveal((v) => !v)} onEnter={() => void confirm()}
+                    onTarget={(i) => setPlan(pickSaveTarget(plan, i))} onSaveAsNew={(on) => setPlan(setSaveAsNew(plan, on))} />
       </DialogBody>
       <DialogFooter>
         <DialogButton cancel onClick={() => void deny()}>Not now</DialogButton>
+        {update && hasSaveChoice(plan) && (
+          <DialogButton disabled={busy} onClick={() => setPlan(setSaveAsNew(plan, true))}>Save as new</DialogButton>
+        )}
         <DialogButton variant="primary" disabled={!!nameErr} loading={busy} loadingText={update ? "Updating…" : "Saving…"}
                       onClick={() => void confirm()}>{update ? "Update" : "Save"}</DialogButton>
       </DialogFooter>

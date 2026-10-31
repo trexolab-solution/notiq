@@ -57,7 +57,7 @@ export function surfaceIndicator(s: SyncStatus | null, vaultExists: boolean, now
     kind: "off",
     label: "Sync off",
     tooltip: s.provider
-      ? "Vault sync is off on this PC. Click to turn it on."
+      ? "Vault sync is paused on this PC. Click to resume."
       : "Vault sync is off. Click to keep this vault on your other PCs.",
   };
 }
@@ -74,7 +74,7 @@ export function titlebarIndicator(s: SyncStatus | null, now = Date.now()): Surfa
     kind: "off",
     label: "Sync off",
     tooltip: s.provider
-      ? "Vault sync: off on this PC. Click to turn it on."
+      ? "Vault sync: paused on this PC. Click to resume."
       : "Vault sync: off. Click to use your vault on all your PCs.",
   };
 }
@@ -134,7 +134,7 @@ export const ACTION_LABELS: Record<PopoverAction, string> = {
   retry: "Retry",
   reconnect: "Reconnect",
   connect: "Connect Google Drive",
-  turnOn: "Turn on sync",
+  turnOn: "Resume sync",
   unlock: "Unlock",
   settings: "Sync settings",
   recheck: "Retry",
@@ -173,10 +173,13 @@ export function popoverModel(s: SyncStatus, now = Date.now()): PopoverModel {
     return { ...base, message: SYNC_PITCH, actions: ["connect"] };
   }
   if (!s.enabled || s.state === "off") {
-    // Paused here, or turned off by Notiq with a reason (e.g. a different local vault): say why.
+    // Connected but not syncing = paused on this PC ("Sync is paused on this PC · [Resume sync]"), also after
+    // cancelling the upload question or "Keep this PC separate". Turned off by Notiq with a reason (e.g. a
+    // different local vault): say why.
+    const paused = { ...base, badge: { label: "Paused", tone: "muted" as const }, actions: ["turnOn", "settings"] as PopoverAction[] };
     return s.lastError
-      ? { ...base, message: s.lastError, messageTone: "danger", actions: ["turnOn", "settings"] }
-      : { ...base, message: "Sync is off on this PC. Turn it on to use this vault on your other PCs.", actions: ["turnOn", "settings"] };
+      ? { ...paused, message: s.lastError, messageTone: "danger" }
+      : { ...paused, message: "Sync is paused on this PC." };
   }
 
   const on: PopoverModel = {

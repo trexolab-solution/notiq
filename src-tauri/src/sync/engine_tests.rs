@@ -485,6 +485,242 @@ fn a_password_change_on_one_device_is_adopted_by_the_other() {
     assert_eq!(b.v.meta().unwrap(), newer);
 }
 
+// ─── 0.9.0: two password changes at nearly the same time → the later change wins ─────────────
+
+/// 10:00 on some day (Unix ms); the examples are minutes after it.
+const T10: u64 = 1_793_000_000_000;
+const MIN: u64 = 60_000;
+const AAM: &str = "Aam12345";
+const KELA: &str = "Kela4567";
+
+impl Device {
+    /// What `vault_change_password` does: re-wrap, stamp (this device, `at_ms`), forget the previous
+    /// meta, and note the change for sync (also while paused for this vault).
+    fn change_password(&mut self, password: &str, at_ms: u64) -> VaultMeta {
+        let mut m = vc::rewrap_password(&self.v.meta().unwrap(), &self.v.key, password).unwrap();
+        m.stamp_change(at_ms, Some(self.id));
+        *self.v.meta.lock().unwrap() = m.clone();
+        *self.v.prev.lock().unwrap() = None;
+        let ours = self.st.vault_id.as_deref() == Some(seal::vault_id_hex(&self.v.vault_id).as_str());
+        self.st.note_local_meta_change(ours);
+        m
+    }
+
+    /// The unlock screen: the current meta plus the one a synced change replaced.
+    fn unlock(&self, password: &str) -> Result<(), VaultError> {
+        let prev = self.v.prev.lock().unwrap().clone();
+        vc::unlock_with_password_or_previous(&self.v.meta().unwrap(), prev.as_ref(), password).map(|_| ())
+    }
+}
+
+/// Laptop + Office, both synced on the original password.
+fn laptop_and_office(p: &InMemoryProvider) -> (Device, Device) {
+    let mut laptop = Device::create(A, "Laptop");
+    ok(laptop.sync(p));
+    let mut office = join(p, B, "Office", PW).unwrap();
+    ok(office.sync(p));
+    (laptop, office)
+}
+
+fn assert_later_change_everywhere(p: &InMemoryProvider, winner: &Device, loser: &Device, new_pw: &str, old_pw: &str, winner_meta: &VaultMeta) {
+    assert_eq!(&winner.v.meta().unwrap(), winner_meta);
+    assert_eq!(&loser.v.meta().unwrap(), winner_meta, "the later change is everywhere");
+    let rm = block_on(fetch_meta(p)).unwrap().unwrap();
+    assert_eq!(&rm.meta, winner_meta, "and in the store");
+    assert!(!winner.st.meta_pending && !loser.st.meta_pending);
+    assert_eq!(winner.unlock(new_pw), Ok(()));
+    assert_eq!(loser.unlock(new_pw), Ok(()));
+    assert_eq!(loser.unlock(old_pw), Err(VaultError::PasswordChangedElsewhere), "the losing PC's own password");
+    assert_eq!(loser.unlock(PW), Err(VaultError::WrongPassword));
+    assert!(matches!(join(p, C, "C", old_pw), Err(SyncError::WrongPassword)));
+    assert!(join(p, C, "C", new_pw).is_ok());
+}
+
+#[test]
+fn later_password_change_wins_when_the_earlier_one_synced_first() {
+    // Laptop sets "Aam…" at 10:00 and syncs; the offline Office sets "Kela…" at 10:02.
+    let p = InMemoryProvider::new();
+    let (mut laptop, mut office) = laptop_and_office(&p);
+    laptop.change_password(AAM, T10);
+    ok(laptop.sync(&p));
+    let kela = office.change_password(KELA, T10 + 2 * MIN);
+    let o = ok(office.sync(&p));
+    assert!(!o.meta_adopted, "Office's later change is kept");
+    assert!(o.warnings.iter().any(|w| w.contains("later change, made on this device")), "{:?}", o.warnings);
+    let o = ok(laptop.sync(&p));
+    assert!(o.meta_adopted);
+    assert_later_change_everywhere(&p, &office, &laptop, KELA, AAM, &kela);
+    // Nothing moves on further cycles.
+    assert!(!ok(office.sync(&p)).meta_adopted && !ok(laptop.sync(&p)).meta_adopted);
+    assert_eq!(laptop.unlock(AAM), Err(VaultError::PasswordChangedElsewhere));
+}
+
+#[test]
+fn later_password_change_wins_when_it_synced_first() {
+    // Same changes; this time the offline Office comes back first, then the Laptop.
+    let p = InMemoryProvider::new();
+    let (mut laptop, mut office) = laptop_and_office(&p);
+    laptop.change_password(AAM, T10);
+    let kela = office.change_password(KELA, T10 + 2 * MIN);
+    let o = ok(office.sync(&p));
+    assert!(!o.meta_adopted && o.warnings.is_empty(), "nothing concurrent in the store yet: {:?}", o.warnings);
+    let stored = p.raw(META_NAME).unwrap();
+    let o = ok(laptop.sync(&p));
+    assert!(o.meta_adopted);
+    assert!(o.warnings.iter().any(|w| w.contains("later than here")), "{:?}", o.warnings);
+    assert_eq!(p.raw(META_NAME).unwrap(), stored, "the losing Laptop's pending change never overwrites the winner");
+    ok(office.sync(&p));
+    assert_later_change_everywhere(&p, &office, &laptop, KELA, AAM, &kela);
+}
+
+#[test]
+fn the_later_change_wins_whoever_uploads_last() {
+    // Reversed clocks: the Laptop's change is the later one; both sync orders.
+    for laptop_first in [true, false] {
+        let p = InMemoryProvider::new();
+        let (mut laptop, mut office) = laptop_and_office(&p);
+        let aam = laptop.change_password(AAM, T10 + 2 * MIN);
+        office.change_password(KELA, T10);
+        if laptop_first {
+            ok(laptop.sync(&p));
+            assert!(ok(office.sync(&p)).meta_adopted);
+        } else {
+            ok(office.sync(&p));
+            assert!(!ok(laptop.sync(&p)).meta_adopted);
+            assert!(ok(office.sync(&p)).meta_adopted);
+        }
+        ok(laptop.sync(&p));
+        assert_later_change_everywhere(&p, &laptop, &office, AAM, KELA, &aam);
+    }
+}
+
+#[test]
+fn several_offline_changes_still_lose_to_a_later_one_and_rollback_is_still_rejected() {
+    let p = InMemoryProvider::new();
+    let (mut laptop, mut office) = laptop_and_office(&p);
+    // Office changes twice while offline (its generation is now two above the store)...
+    office.change_password("first offline pw", T10);
+    office.change_password(KELA, T10 + MIN);
+    // ...the Laptop changes once, later, and syncs first.
+    let aam = laptop.change_password(AAM, T10 + 5 * MIN);
+    ok(laptop.sync(&p));
+    let o = ok(office.sync(&p));
+    assert!(o.meta_adopted, "a higher local generation doesn't beat a later change");
+    assert_later_change_everywhere(&p, &laptop, &office, AAM, KELA, &aam);
+    // A rolled-back store (an older vault.meta) is still never adopted.
+    // (The first repair adds a version, so the second device is served two versions back.)
+    for (back, d) in [(1, &mut office), (2, &mut laptop)] {
+        p.serve_stale(META_NAME, back);
+        d.st.forget_revisions();
+        let o = ok(d.sync(&p));
+        assert!(!o.meta_adopted && o.warnings.iter().any(|w| w.contains("older copy")), "{:?}", o.warnings);
+        assert_eq!(d.v.meta().unwrap(), aam);
+    }
+    p.serve_stale(META_NAME, 0);
+    assert_eq!(block_on(fetch_meta(&p)).unwrap().unwrap().meta, aam, "and it was repaired");
+}
+
+#[test]
+fn a_rolled_back_store_never_beats_a_pending_change_even_with_a_later_stamp() {
+    // Laptop: change one (10:05), change two (10:06), both synced to the Office. The store is then
+    // rolled back to change one: below what the Office agreed on, so it is replaced, never treated
+    // as a concurrent change.
+    let p = InMemoryProvider::new();
+    let (mut laptop, mut office) = laptop_and_office(&p);
+    laptop.change_password("laptop change one", T10 + 5 * MIN);
+    ok(laptop.sync(&p));
+    ok(office.sync(&p));
+    let two = laptop.change_password(AAM, T10 + 6 * MIN);
+    ok(laptop.sync(&p));
+    ok(office.sync(&p));
+    assert_eq!(office.v.meta().unwrap(), two);
+    p.serve_stale(META_NAME, 1); // change one again
+    office.st.forget_revisions();
+    let o = ok(office.sync(&p));
+    assert!(!o.meta_adopted);
+    assert_eq!(office.v.meta().unwrap(), two);
+}
+
+#[test]
+fn a_sequential_change_wins_even_with_an_earlier_clock() {
+    // Office adopted the Laptop's change, then changes again with a clock that runs behind: that is
+    // not a race (it was made after seeing the Laptop's), so it wins, and its stamp moves forward.
+    let p = InMemoryProvider::new();
+    let (mut laptop, mut office) = laptop_and_office(&p);
+    laptop.change_password(AAM, T10 + 10 * MIN);
+    ok(laptop.sync(&p));
+    assert!(ok(office.sync(&p)).meta_adopted);
+    let kela = office.change_password(KELA, T10); // clock 10 minutes behind
+    assert!(kela.changed_at_ms.unwrap() > T10 + 10 * MIN);
+    ok(office.sync(&p));
+    assert!(ok(laptop.sync(&p)).meta_adopted);
+    assert_later_change_everywhere(&p, &office, &laptop, KELA, AAM, &kela);
+}
+
+#[test]
+fn a_password_change_made_while_paused_competes_by_time_on_resume() {
+    for paused_is_later in [true, false] {
+        let p = InMemoryProvider::new();
+        let (mut laptop, mut office) = laptop_and_office(&p);
+        office.st.enabled = false; // "Pause"
+        let (office_at, laptop_at) = if paused_is_later { (T10 + 2 * MIN, T10) } else { (T10, T10 + 2 * MIN) };
+        let kela = office.change_password(KELA, office_at);
+        assert!(office.st.meta_pending, "a change made while paused for this vault waits for upload");
+        let aam = laptop.change_password(AAM, laptop_at);
+        ok(laptop.sync(&p));
+        // "Resume sync" (what sync_enable does).
+        let rm = block_on(fetch_meta(&p)).unwrap().unwrap();
+        prepare_enable(&mut office.st, &seal::vault_id_hex(&office.v.vault_id), Some(&rm)).unwrap();
+        ok(office.sync(&p));
+        ok(laptop.sync(&p));
+        if paused_is_later {
+            assert_later_change_everywhere(&p, &office, &laptop, KELA, AAM, &kela);
+        } else {
+            assert_later_change_everywhere(&p, &laptop, &office, AAM, KELA, &aam);
+        }
+    }
+}
+
+#[test]
+fn a_change_for_another_vault_while_paused_is_not_queued() {
+    let mut st = SyncState { vault_id: Some("aa".into()), meta_generation: 4, ..Default::default() };
+    assert!(!st.note_local_meta_change(false));
+    assert!(!st.meta_pending && st.meta_generation == 4);
+    assert!(st.note_local_meta_change(true));
+    assert_eq!((st.meta_pending, st.meta_generation, st.meta_base()), (true, 5, 4));
+    assert!(st.note_local_meta_change(true));
+    assert_eq!((st.meta_generation, st.meta_base()), (6, 4), "the base stays where the store was");
+    // State written before 0.9.0's rule (no base recorded) falls back to one below.
+    let legacy = SyncState { meta_generation: 3, meta_pending: true, ..Default::default() };
+    assert_eq!(legacy.meta_base(), 2);
+    // An old vault-sync.json without the new field still loads.
+    let old: SyncState = serde_json::from_str(r#"{"enabled":true,"metaGeneration":2,"metaPending":true}"#).unwrap();
+    assert_eq!((old.meta_synced_generation, old.meta_base()), (None, 1));
+}
+
+#[test]
+fn metas_without_a_change_stamp_keep_the_old_rule() {
+    // Both sides unstamped (pre-0.9.0 metas): a tie goes to the store, a higher generation wins.
+    let p = InMemoryProvider::new();
+    let (mut laptop, mut office) = laptop_and_office(&p);
+    let old = laptop.v.meta().unwrap();
+    let a = vc::rewrap_password(&old, &laptop.v.key, AAM).unwrap();
+    *laptop.v.meta.lock().unwrap() = a.clone();
+    laptop.st.note_local_meta_change(true);
+    ok(laptop.sync(&p));
+    let b = vc::rewrap_password(&old, &office.v.key, KELA).unwrap();
+    *office.v.meta.lock().unwrap() = b;
+    office.st.note_local_meta_change(true);
+    assert!(ok(office.sync(&p)).meta_adopted, "tie → the store's copy");
+    assert_eq!(office.v.meta().unwrap(), a);
+    assert_eq!(office.unlock(AAM), Ok(()));
+    // A stamped change against an unstamped store copy at the same base: the change is uploaded.
+    let c = office.change_password(KELA, T10);
+    ok(office.sync(&p));
+    assert!(ok(laptop.sync(&p)).meta_adopted);
+    assert_eq!(laptop.v.meta().unwrap(), c);
+}
+
 /// Machine 2 with its own vault (`sync_adopt_remote`), import and backup-only.
 fn machine2() -> (Db, VaultMeta, VaultKey) {
     let (meta, key, _) = vc::create_vault("local pc password", FAST).unwrap();

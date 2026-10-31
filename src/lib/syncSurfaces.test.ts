@@ -6,7 +6,7 @@ vi.mock("@tauri-apps/api/event", () => ({ listen: () => Promise.resolve(() => {}
 const {
   badgeTooltip, deviceCountLabel, isCacheFresh, loadingModel, markIndicatorTipShown, popoverModel, readIndicatorTip,
   shouldShowIndicatorTip, surfaceIndicator, syncCommandAvailability, syncSettingsRow, INDICATOR_TIP_KEY, SYNC_PITCH,
-  isDriveFull, titlebarIndicator, deviceDisplayName, requestSyncSetup,
+  isDriveFull, titlebarIndicator, deviceDisplayName, requestSyncSetup, ACTION_LABELS,
 } = await import("./syncSurfaces");
 const { SYNC_START_SETUP_EVENT } = await import("./syncSetup");
 type SyncStatus = import("./vaultSync").SyncStatus;
@@ -30,7 +30,7 @@ describe("surfaceIndicator", () => {
     const a = surfaceIndicator(disconnected(), true, NOW)!;
     expect(a).toMatchObject({ kind: "off", label: "Sync off" });
     expect(a.tooltip).toContain("other PCs");
-    expect(surfaceIndicator(off(), true, NOW)!.tooltip).toContain("turn it on");
+    expect(surfaceIndicator(off(), true, NOW)!.tooltip).toContain("paused on this PC. Click to resume");
   });
 
   it("follows the live state while sync is on", () => {
@@ -80,9 +80,11 @@ describe("popoverModel", () => {
     expect(m.message).toContain("isn't available");
   });
 
-  it("connected but off: Turn on sync first, account shown", () => {
+  it("connected but off = paused: 'Sync is paused on this PC' + Resume sync first, account shown", () => {
     const m = popoverModel(off(), NOW);
     expect(m.actions).toEqual(["turnOn", "settings"]);
+    expect(ACTION_LABELS.turnOn).toBe("Resume sync");
+    expect(m).toMatchObject({ badge: { label: "Paused", tone: "muted" }, message: "Sync is paused on this PC." });
     expect(m).toMatchObject({ account: "me@gmail.com", avatar: "M", location: "Google Drive · This PC: Desk", lastSynced: null });
   });
 
@@ -214,7 +216,7 @@ describe("titlebarIndicator", () => {
     expect(titlebarIndicator(disconnected({ configured: false }), NOW)).toBeNull();
     expect(titlebarIndicator(disconnected(), NOW)).toMatchObject({ kind: "off", label: "Sync off" });
     expect(titlebarIndicator(disconnected(), NOW)!.tooltip).toContain("all your PCs");
-    expect(titlebarIndicator(off(), NOW)!.tooltip).toContain("turn it on");
+    expect(titlebarIndicator(off(), NOW)!.tooltip).toContain("paused on this PC. Click to resume");
     // Connected in a build without a client id still shows (settings matter).
     expect(titlebarIndicator(status({ configured: false }), NOW)!.kind).toBe("synced");
   });
