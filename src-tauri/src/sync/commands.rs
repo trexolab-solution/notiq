@@ -358,6 +358,7 @@ fn finish(app: &AppHandle, st: SyncState, res: Result<Outcome, SyncError>, meta_
         if st.last_synced_ms.is_some() {
             sh.last_synced_ms = st.last_synced_ms;
         }
+        sh.meta_synced_generation = st.meta_synced_generation;
         if sh.meta_generation == meta_gen0 && sh.meta_pending == meta_pending0 {
             sh.meta_generation = st.meta_generation;
             sh.meta_pending = st.meta_pending;
@@ -502,19 +503,22 @@ pub(crate) fn on_unlocked(app: &AppHandle) {
 pub(crate) fn on_local_meta_changed(app: &AppHandle) {
     vault::clear_prev_meta(app);
     let Some(mgr) = app.try_state::<SyncManager>() else { return };
-    {
+    let vault_hex = app.state::<VaultState>().key_copy().map(|(_, id)| seal::vault_id_hex(&id));
+    let enabled = {
         let mut st = mgr.st();
-        // Only a change made while sync is on is uploaded (above the synced generation). With sync
-        // off, re-enabling later adopts the synced vault.meta: an out-of-date device never reverts
-        // a password change made elsewhere.
-        if !st.enabled {
+        // Sync on, or paused for this same vault: the change is uploaded on the next cycle, and
+        // against a concurrent change made elsewhere the later change wins (engine::sync_meta).
+        // Another vault's sync state (or none) has nothing to do with this change.
+        let ours = vault_hex.is_some() && st.vault_id == vault_hex;
+        if !st.note_local_meta_change(ours) {
             return;
         }
-        st.meta_generation += 1;
-        st.meta_pending = true;
-    }
+        st.enabled
+    };
     mgr.save();
-    mgr.kick(AFTER_UNLOCK);
+    if enabled {
+        mgr.kick(AFTER_UNLOCK);
+    }
 }
 
 /// Best-effort final push (≤ 10 s) before the vault locks.
@@ -625,7 +629,8 @@ pub async fn sync_enable(app: AppHandle) -> Result<SyncResult, String> {
     let Some((_, vault_id)) = vault_state.key_copy() else { return Err(engine::ERR_LOCKED.into()) };
     let hex = seal::vault_id_hex(&vault_id);
     let remote = engine::fetch_meta(&*drive).await.map_err(|e| e.message())?;
-    // The meta with the higher generation wins in the cycle below; a tie goes to the synced copy.
+    // vault.meta: a newer synced one is adopted in the cycle below; a password change made here
+    // while paused competes with a concurrent one by "the later change wins" (engine::sync_meta).
     engine::prepare_enable(&mut mgr.st(), &hex, remote.as_ref()).map_err(|e| e.message())?;
     mgr.save();
     let r = run_cycle(&app, Mode::Full, true).await?;

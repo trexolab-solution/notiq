@@ -291,6 +291,13 @@ pub(crate) fn adopt_meta(app: &AppHandle, meta: &VaultMeta) -> Result<(), String
     save_meta(app, meta)
 }
 
+/// A password change / recovery reset made on this device now (0.9.0 sync: between two concurrent
+/// changes on different devices, the later one wins).
+fn stamped_change(state: &VaultState, mut meta: VaultMeta) -> VaultMeta {
+    meta.stamp_change(vdb::now_ms(), state.device_id().as_deref());
+    meta
+}
+
 /// Forgets `vault.prev.json` (the password was changed here, or another vault was installed).
 pub(crate) fn clear_prev_meta(app: &AppHandle) {
     if let Ok(p) = prev_meta_path(app) { let _ = fs::remove_file(p); }
@@ -414,6 +421,7 @@ pub async fn vault_unlock_with_recovery(
         Ok((key, new_meta))
     })
     .await?;
+    let new_meta = stamped_change(&state, new_meta);
     save_meta(&app, &new_meta)?;
     state.set(key, new_meta.vault_id_bytes().map_err(|e| e.to_string())?);
     notify_state(&app, true, window.label());
@@ -439,6 +447,7 @@ pub async fn vault_change_password(
         Ok((key, new_meta))
     })
     .await?;
+    let new_meta = stamped_change(&state, new_meta);
     save_meta(&app, &new_meta)?;
     state.set(key, new_meta.vault_id_bytes().map_err(|e| e.to_string())?);
     crate::sync::commands::on_local_meta_changed(&app);

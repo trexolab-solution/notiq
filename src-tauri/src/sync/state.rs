@@ -56,6 +56,11 @@ pub struct SyncState {
     pub meta_generation: u64,
     /// The local `vault.json` changed (password change) and must be uploaded.
     pub meta_pending: bool,
+    /// The `vault.meta` generation this device and the store last agreed on (uploaded, adopted or
+    /// found identical). A pending local change sits above it; a remote meta below it is a
+    /// rollback, one at or above it is a concurrent change. `None` (state from before 0.9.0's
+    /// "later change wins"): taken as `meta_generation - 1` while a change is pending.
+    pub meta_synced_generation: Option<u64>,
     /// A safety backup was taken before this device's first sync.
     pub first_sync_done: bool,
     /// Names / last-seen of devices, from their snapshots.
@@ -95,7 +100,40 @@ impl SyncState {
         self.devices.clear();
         self.meta_generation = meta_generation;
         self.meta_pending = false;
+        self.meta_synced_generation = None;
         self.forget_revisions();
+    }
+
+    /// The store and this device agree on `vault.meta` at `generation`.
+    pub fn meta_agreed(&mut self, generation: u64) {
+        self.meta_generation = generation;
+        self.meta_synced_generation = Some(generation);
+        self.meta_pending = false;
+    }
+
+    /// The generation this device last agreed on with the store (see `meta_synced_generation`).
+    pub fn meta_base(&self) -> u64 {
+        if !self.meta_pending {
+            return self.meta_generation;
+        }
+        self.meta_synced_generation.unwrap_or(self.meta_generation.saturating_sub(1)).min(self.meta_generation)
+    }
+
+    /// The master password was changed (or reset) on this device. `ours`: sync was set up for this
+    /// very vault (on, or paused). The change is uploaded on the next cycle above the synced
+    /// generation; against a concurrent change made elsewhere the later change wins (see
+    /// `engine::sync_meta`). Returns false when the change has nothing to do with sync.
+    pub fn note_local_meta_change(&mut self, ours: bool) -> bool {
+        if !self.enabled && !ours {
+            return false;
+        }
+        if !self.meta_pending {
+            self.meta_synced_generation = Some(self.meta_generation);
+        }
+        // Every change bumps the generation, so a cycle running meanwhile can tell (`finish`).
+        self.meta_generation += 1;
+        self.meta_pending = true;
+        true
     }
 }
 

@@ -121,6 +121,15 @@ pub struct VaultMeta {
     pub pw_wrap: String,
     /// hex — nonce || ciphertext of the vault key under the recovery key.
     pub rec_wrap: String,
+    /// 0.9.0 sync: when the password was last changed or reset (the changing device's clock, Unix
+    /// ms). Absent in metas written before 0.9.0 and in a vault that was never re-wrapped; never
+    /// serialised when absent, so such a `vault.json` stays byte-for-byte what it was. Inside
+    /// `vault.meta` it is covered by the envelope (SHA-256 of the JSON), so it can't be forged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub changed_at_ms: Option<u64>,
+    /// 0.9.0 sync: the sync device id of the device that made that change (tie-break).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub changed_by: Option<String>,
 }
 
 impl VaultMeta {
@@ -132,6 +141,21 @@ impl VaultMeta {
 
     pub fn to_json(&self) -> String {
         serde_json::to_string_pretty(self).expect("meta serialises")
+    }
+
+    /// Records a password change / recovery reset made now on `device` (0.9.0 sync: between two
+    /// concurrent changes the later one wins). The stamp never goes backwards from the change this
+    /// meta replaces, so a device whose clock was set back still orders its own changes, and a
+    /// change made after adopting another device's change is always later than it.
+    pub fn stamp_change(&mut self, now_ms: u64, device: Option<&str>) {
+        let floor = self.changed_at_ms.map_or(0, |t| t.saturating_add(1));
+        self.changed_at_ms = Some(now_ms.max(floor));
+        self.changed_by = device.map(str::to_string);
+    }
+
+    /// `(changed_at_ms, changed_by)` when the meta carries a change stamp.
+    pub fn change_stamp(&self) -> Option<(u64, &str)> {
+        self.changed_at_ms.map(|t| (t, self.changed_by.as_deref().unwrap_or("")))
     }
 
     pub fn from_json(s: &str) -> Result<Self> {
@@ -170,6 +194,8 @@ pub fn create_vault(password: &str, kdf: KdfParams) -> Result<(VaultMeta, VaultK
         salt: hex_encode(&salt),
         pw_wrap: hex_encode(&wrap(&kek, &aad(AAD_WRAP_PW, &vault_id), &key)?),
         rec_wrap: hex_encode(&wrap(&recovery, &aad(AAD_WRAP_REC, &vault_id), &key)?),
+        changed_at_ms: None,
+        changed_by: None,
     };
     Ok((meta, key, format_recovery_key(&recovery)))
 }
@@ -710,6 +736,26 @@ mod tests {
         // A previous meta of ANOTHER vault never produces the hint.
         let (other, _, _) = create_vault(PW, FAST).unwrap();
         assert_eq!(unlock_with_password_or_previous(&newer, Some(&other), PW).unwrap_err(), VaultError::WrongPassword);
+    }
+
+    #[test]
+    fn change_stamp_is_optional_monotonic_and_old_json_stays_identical() {
+        let (meta, key, _) = create_vault(PW, FAST).unwrap();
+        let json = meta.to_json();
+        assert!(!json.contains("changed_at_ms") && !json.contains("changed_by"), "no new keys until a change");
+        assert_eq!(VaultMeta::from_json(&json).unwrap().to_json(), json, "an old vault.json round-trips unchanged");
+        assert_eq!(meta.change_stamp(), None);
+        let mut m = rewrap_password(&meta, &key, "the new password").unwrap();
+        m.stamp_change(1_000, Some("dev-a"));
+        assert_eq!(m.change_stamp(), Some((1_000, "dev-a")));
+        let back = VaultMeta::from_json(&m.to_json()).unwrap();
+        assert_eq!(back, m);
+        // A clock set back never orders a later change before the one it replaces.
+        m.stamp_change(500, Some("dev-b"));
+        assert_eq!(m.change_stamp(), Some((1_001, "dev-b")));
+        // An unknown device keeps an empty tie-break.
+        m.stamp_change(5_000, None);
+        assert_eq!(m.change_stamp(), Some((5_000, "")));
     }
 
     #[test]
