@@ -11,8 +11,11 @@ const ids = (s: SyncStatus | null, exists = true, unlocked = true) =>
   buildSyncCommands(s, { exists, unlocked }, h()).map((c) => c.id);
 
 describe("palette sync commands", () => {
-  it("none without a vault", () => {
-    expect(ids(status(), false, false)).toEqual([]);
+  it("without a vault: Connect Google Drive (new users) and, once connected, Sync settings", () => {
+    const disc = status({ provider: null, account: null, enabled: false, state: "off" });
+    expect(ids(disc, false, false)).toEqual(["vault:sync-connect"]);
+    expect(ids(status(), false, false)).toEqual(["vault:sync-settings"]);
+    expect(ids({ ...disc, configured: false }, false, false)).toEqual([]);
   });
 
   it("sync on and unlocked: Sync now + Sync settings", () => {

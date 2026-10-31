@@ -14,9 +14,9 @@ import { getActiveEditor } from "../lib/activeEditor";
 import { aiContinue, aiSummarize, aiFixGrammar, aiGenerateTitle } from "../lib/ai/actions";
 import { SECTION_LABELS, SECTION_ORDER, type SectionId } from "../lib/settingsIndex";
 import { buildSyncCommands } from "../lib/syncCommands";
-import { syncSettingsRow } from "../lib/syncSurfaces";
+import { startSyncSetup, syncSettingsRow } from "../lib/syncSurfaces";
 import { useSyncStore } from "../lib/vaultSync";
-import { openSyncPopover, runSyncNow } from "../components/layout/SyncPopover";
+import { runSyncNow } from "../components/layout/SyncPopover";
 
 interface UseCommandsDeps {
   tabs: Tab[];
@@ -86,8 +86,8 @@ export function useCommands(deps: UseCommandsDeps): () => Command[] {
       ...buildSyncCommands(useSyncStore.getState().status, useVaultStore.getState(), {
         syncNow: () => { void runSyncNow(); },
         openSettings: () => openSettings("vault", syncSettingsRow(useSyncStore.getState().status)),
-        // The popover shows the "waiting for Google" state and its Cancel.
-        connect: () => openSyncPopover({ action: "connect" }),
+        // The set-up decision flow (sign-in, then create / open / upload) takes over.
+        connect: startSyncSetup,
       }),
       { id: "act:settings", label: "Open Settings", group: "Actions", icon: <SettingsIcon size={14} />, trailing: "Ctrl+,", run: onOpenSettings },
     );

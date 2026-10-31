@@ -10,6 +10,7 @@ import { TitlebarMenuBar } from "./TitlebarMenuBar";
 import { TitlebarModePicker } from "./TitlebarModePicker";
 import { WindowControls } from "./WindowControls";
 import { UpdateButton } from "./UpdateButton";
+import { SyncTitlebarButton } from "./SyncTitlebarButton";
 import { Tooltip } from "../ui/Tooltip";
 
 import logoUrl from "../../assets/logo.png";
@@ -98,6 +99,7 @@ export function AppTitlebar({
 
       <div className="header-right">
         <UpdateButton />
+        <SyncTitlebarButton />
         <Tooltip
           content={
             !aiOnboarded

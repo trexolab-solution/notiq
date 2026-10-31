@@ -12,6 +12,7 @@ vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: vi.fn(async () => {}) }))
 
 const { SyncPopoverHost, SyncPopoverPanel, useSyncPopoverStore, openSyncPopover, resetDeviceCache } = await import("./SyncPopover");
 const { SyncIndicator } = await import("./SyncIndicator");
+const { SyncTitlebarButtonFor } = await import("./SyncTitlebarButton");
 const { useSyncStore } = await import("../../lib/vaultSync");
 const { useVaultStore } = await import("../../store/vaultStore");
 const { useAppStore } = await import("../../store");
@@ -78,11 +79,11 @@ describe("SyncPopoverPanel", () => {
     await render(<Panel anchor={anchor} onClose={() => {}} />);
     const d = pop()!;
     expect(d.getAttribute("aria-labelledby")).toBe("sync-pop-title");
-    expect(q("#sync-pop-title")!.textContent).toBe("Vault sync");
+    expect(q("#sync-pop-title")!.textContent).toBe("Vault Sync");
     expect(d.contains(document.activeElement)).toBe(true);
     expect(d.textContent).toContain("me@gmail.com");
     expect(d.textContent).toContain("Google Drive · This PC: Desk");
-    expect(d.textContent).toContain("2 devices");
+    expect(d.textContent).toContain("2 PCs");
     expect(d.textContent).toContain("Last synced 1 minute ago");
   });
 
@@ -156,7 +157,7 @@ describe("SyncPopoverHost", () => {
     await flush();
     expect(pop()).not.toBeNull();
     expect(invoke).toHaveBeenCalledWith("sync_devices", undefined);
-    expect(pop()!.textContent).toContain("3 devices");
+    expect(pop()!.textContent).toContain("3 PCs");
   });
 
   it("outside click closes", async () => {
@@ -176,10 +177,11 @@ describe("SyncPopoverHost", () => {
   });
 
   it("Retry on a problem calls sync_now; Reconnect calls sync_connect", async () => {
-    useSyncStore.setState({ status: status({ state: "error", lastError: "Drive is full" }) });
+    useSyncStore.setState({ status: status({ state: "error", lastError: "Something broke" }) });
     await render(<App />);
     await act(async () => openSyncPopover());
-    expect(pop()!.textContent).toContain("Drive is full");
+    expect(pop()!.textContent).toContain("Something broke");
+    expect(pop()!.textContent).not.toContain("Last synced");
     await click(q('[data-action="retry"]')!);
     await flush();
     expect(invoke).toHaveBeenCalledWith("sync_now", undefined);
@@ -190,36 +192,68 @@ describe("SyncPopoverHost", () => {
     expect(invoke).toHaveBeenCalledWith("sync_connect", undefined);
   });
 
-  it("not connected: Connect Google Drive calls sync_connect", async () => {
+  const setupEvents = () => {
+    const seen: Event[] = [];
+    const on = (e: Event) => seen.push(e);
+    window.addEventListener("notiq:sync-start-setup", on);
+    return { seen, stop: () => window.removeEventListener("notiq:sync-start-setup", on) };
+  };
+
+  it("not connected: Connect Google Drive hands over to the set-up flow (no direct sign-in)", async () => {
     useSyncStore.setState({ status: status({ provider: null, account: null, enabled: false, state: "off" }) });
     await render(<App />);
     expect(trigger().textContent).toBe("Sync off");
     await act(async () => openSyncPopover());
-    expect(pop()!.textContent).toContain("Keep this vault on your other PCs");
+    expect(pop()!.textContent).toContain("Use this vault on your other PCs. It's encrypted before it leaves this computer.");
+    const ev = setupEvents();
     await click(q('[data-action="connect"]')!);
     await flush();
-    expect(invoke).toHaveBeenCalledWith("sync_connect", undefined);
+    ev.stop();
+    expect(ev.seen).toHaveLength(1);
+    expect(invoke).not.toHaveBeenCalledWith("sync_connect", undefined);
+    expect(pop()).toBeNull();
   });
 
-  it("palette intent starts connecting as soon as it opens", async () => {
+  it("palette intent hands over to the set-up flow as soon as it opens", async () => {
     useSyncStore.setState({ status: status({ provider: null, account: null, enabled: false, state: "off" }) });
     await render(<App />);
+    const ev = setupEvents();
     await act(async () => openSyncPopover({ action: "connect" }));
     await flush();
-    expect(invoke).toHaveBeenCalledWith("sync_connect", undefined);
+    ev.stop();
+    expect(ev.seen).toHaveLength(1);
+    expect(invoke).not.toHaveBeenCalledWith("sync_connect", undefined);
   });
 
-  it("Turn on sync unlocks first, then runs the shared enable flow", async () => {
-    const ensureUnlocked = vi.fn(async () => true);
-    useVaultStore.setState({ ensureUnlocked });
+  it("connected but off: Turn On Sync hands over to the set-up flow (no direct sync_enable)", async () => {
     useSyncStore.setState({ status: status({ enabled: false, state: "off" }) });
     await render(<App />);
     await act(async () => openSyncPopover());
+    const ev = setupEvents();
     await click(q('[data-action="turnOn"]')!);
     await flush();
-    expect(ensureUnlocked).toHaveBeenCalled();
-    expect(invoke).toHaveBeenCalledWith("sync_enable", undefined);
+    ev.stop();
+    expect(ev.seen).toHaveLength(1);
+    expect(invoke).not.toHaveBeenCalledWith("sync_enable", undefined);
     expect(pop()).toBeNull();
+  });
+
+  it("Drive full: Open Drive Storage opens Google's storage page", async () => {
+    const { openUrl } = await import("@tauri-apps/plugin-opener");
+    useSyncStore.setState({ status: status({ state: "error", lastError: "Your Google Drive storage is full." }) });
+    await render(<App />);
+    await act(async () => openSyncPopover());
+    expect(pop()!.textContent).toContain("Google Drive is full");
+    await click(q('[data-action="openStorage"]')!);
+    expect(openUrl).toHaveBeenCalledWith("https://one.google.com/storage");
+  });
+
+  it("offline: the reason and no action besides the settings link", async () => {
+    useSyncStore.setState({ status: status({ state: "offline" }) });
+    await render(<App />);
+    await act(async () => openSyncPopover());
+    expect(pop()!.textContent).toContain("Will sync when you're back online");
+    expect(Array.from(pop()!.querySelectorAll("[data-action]")).map((b) => b.getAttribute("data-action"))).toEqual(["settings"]);
   });
 
   it("Sync settings opens the Settings sync row", async () => {
@@ -244,27 +278,81 @@ describe("SyncPopoverHost", () => {
   });
 });
 
-describe("one-time indicator tip", () => {
+describe("title bar cloud button", () => {
+  function Bar() {
+    const toggle = useSyncPopoverStore((s) => s.toggle);
+    const expanded = useSyncPopoverStore((s) => s.open && !!s.anchor?.classList.contains("titlebar-sync"));
+    return (
+      <header>
+        <SyncTitlebarButtonFor status={useSyncStore((s) => s.status)} expanded={expanded} onOpen={toggle} />
+        <SyncPopoverHost />
+      </header>
+    );
+  }
+  const btn = () => q<HTMLButtonElement>('[data-tour="sync-button"]');
+
+  it("shows the state, opens the same popover anchored to it, and toggles", async () => {
+    await render(<Bar />);
+    expect(btn()!.dataset.syncState).toBe("synced");
+    expect(btn()!.getAttribute("aria-label")).toContain("Vault sync: Synced");
+    btn()!.focus();
+    await click(btn()!);
+    expect(pop()).not.toBeNull();
+    expect(useSyncPopoverStore.getState().anchor).toBe(btn());
+    expect(btn()!.getAttribute("aria-expanded")).toBe("true");
+    await press("Escape");
+    expect(pop()).toBeNull();
+    expect(document.activeElement).toBe(btn());
+  });
+
+  it("is the default anchor for openSyncPopover()", async () => {
+    await render(<Bar />);
+    await act(async () => openSyncPopover());
+    expect(useSyncPopoverStore.getState().anchor).toBe(btn());
+  });
+
+  it("is visible without a vault and not connected (off); hidden in a build that can't sync", async () => {
+    useSyncStore.setState({ status: status({ provider: null, account: null, enabled: false, state: "off" }) });
+    await render(<Bar />);
+    expect(btn()!.dataset.syncState).toBe("off");
+    await act(async () => { useSyncStore.setState({ status: status({ provider: null, account: null, enabled: false, state: "off", configured: false }) }); });
+    expect(btn()).toBeNull();
+  });
+
+  it("problem states show a dot", async () => {
+    useSyncStore.setState({ status: status({ state: "authNeeded" }) });
+    await render(<Bar />);
+    expect(btn()!.dataset.syncState).toBe("problem");
+    expect(q(".titlebar-sync__dot")).not.toBeNull();
+  });
+});
+
+describe("one-time indicator tip (on the title bar button)", () => {
+  const Btn = () => <SyncTitlebarButtonFor status={status()} expanded={false} onOpen={() => {}} />;
+
   it("shows while pending, marks it shown, and goes away on Got it", async () => {
     localStorage.setItem(INDICATOR_TIP_KEY, "pending");
-    await render(<SyncIndicator status={status()} vaultExists onOpen={() => {}} />);
+    await render(<Btn />);
     expect(q(".sync-tip")).not.toBeNull();
+    expect(q(".sync-tip--below")).not.toBeNull();
     expect(localStorage.getItem(INDICATOR_TIP_KEY)).toBe("shown");
     await click(q(".sync-tip__btn")!);
     expect(q(".sync-tip")).toBeNull();
   });
 
-  it("stays hidden unless pending", async () => {
+  it("stays hidden unless pending; the status bar indicator never shows it", async () => {
+    localStorage.setItem(INDICATOR_TIP_KEY, "pending");
     await render(<SyncIndicator status={status()} vaultExists onOpen={() => {}} />);
     expect(q(".sync-tip")).toBeNull();
     localStorage.setItem(INDICATOR_TIP_KEY, "shown");
+    await render(<Btn />);
     await act(async () => { window.dispatchEvent(new Event("notiq:sync-indicator-tip")); });
     expect(q(".sync-tip")).toBeNull();
   });
 
   it("opening the popover dismisses it", async () => {
     localStorage.setItem(INDICATOR_TIP_KEY, "pending");
-    await render(<SyncIndicator status={status()} vaultExists onOpen={() => {}} />);
+    await render(<Btn />);
     expect(q(".sync-tip")).not.toBeNull();
     await act(async () => { useSyncPopoverStore.setState({ open: true }); });
     expect(q(".sync-tip")).toBeNull();
