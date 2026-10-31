@@ -390,6 +390,60 @@ mod term {
             .remove(&id);
         Ok(())
     }
+
+    #[cfg(all(test, windows))]
+    mod tests {
+        use super::*;
+        use std::io::{Read, Write};
+        use std::time::{Duration, Instant};
+
+        /// Same PTY calls the terminal commands make (open, spawn, writer, reader,
+        /// resize), against a real ConPTY — guards portable-pty upgrades.
+        #[test]
+        fn conpty_spawns_echoes_and_resizes() {
+            let pair = native_pty_system()
+                .openpty(PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 })
+                .expect("openpty");
+            let mut cmd = CommandBuilder::new("cmd.exe");
+            cmd.args(["/Q", "/K"]);
+            let mut child = pair.slave.spawn_command(cmd).expect("spawn");
+            drop(pair.slave);
+
+            let master = SendMaster(pair.master);
+            let mut reader = master.0.try_clone_reader().expect("reader");
+            let mut writer = master.0.take_writer().expect("writer");
+            master.0.resize(PtySize { rows: 30, cols: 100, pixel_width: 0, pixel_height: 0 }).expect("resize");
+
+            let (tx, rx) = mpsc::channel::<Vec<u8>>();
+            std::thread::spawn(move || {
+                let mut buf = [0u8; 1024];
+                while let Ok(n) = reader.read(&mut buf) {
+                    if n == 0 || tx.send(buf[..n].to_vec()).is_err() { break; }
+                }
+            });
+
+            // %OS% only expands in the shell's output, never in the echoed input.
+            writer.write_all(b"echo notiq-%OS%-ok\r\n").expect("write");
+            let deadline = Instant::now() + Duration::from_secs(15);
+            let mut out = Vec::new();
+            let mut answered_dsr = false;
+            while Instant::now() < deadline {
+                if let Ok(chunk) = rx.recv_timeout(Duration::from_millis(200)) {
+                    out.extend(chunk);
+                    // ConPTY asks for the cursor position (ESC[6n) and waits for the
+                    // reply before running the shell; xterm.js answers it in the app.
+                    if !answered_dsr && String::from_utf8_lossy(&out).contains("\x1b[6n") {
+                        writer.write_all(b"\x1b[1;1R").expect("answer DSR");
+                        answered_dsr = true;
+                    }
+                    if String::from_utf8_lossy(&out).contains("notiq-Windows_NT-ok") { break; }
+                }
+            }
+            let _ = child.kill();
+            let text = String::from_utf8_lossy(&out);
+            assert!(text.contains("notiq-Windows_NT-ok"), "no output from the shell: {text:?}");
+        }
+    }
 }
 
 // ─── PDF export (desktop-only) ────────────────────────────────────────────────

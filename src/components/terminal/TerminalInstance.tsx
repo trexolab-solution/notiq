@@ -110,23 +110,17 @@ export const TerminalInstance = forwardRef<InstanceHandle, Props>(
       termRef.current     = term;
       fitAddonRef.current = fitAddon;
 
-      // ── Spawn PTY for this session ─────────────────────────────────────
-      invoke<string>("terminal_create", {
-        id: sessionId, cols: term.cols, rows: term.rows,
-      }).then((name) => { if (name) onShellName(sessionId, name); })
-        .catch(console.error);
-
       // ── Stream PTY output (filtered by session ID) ─────────────────────
       let cancelled = false;
       let unlistenData: (() => void) | undefined;
       let unlistenExit: (() => void) | undefined;
 
-      listen<{ id: number; data: string }>("terminal-data", (ev) => {
+      const dataReady = listen<{ id: number; data: string }>("terminal-data", (ev) => {
         if (ev.payload.id === sessionId) termRef.current?.write(ev.payload.data);
       }).then((fn) => { if (cancelled) fn(); else unlistenData = fn; });
 
       // ── Shell exit notification ────────────────────────────────────────
-      listen<{ id: number }>("terminal-exit", (ev) => {
+      const exitReady = listen<{ id: number }>("terminal-exit", (ev) => {
         if (ev.payload.id !== sessionId) return;
         shellExitedRef.current = true;
         termRef.current?.writeln(
@@ -134,6 +128,18 @@ export const TerminalInstance = forwardRef<InstanceHandle, Props>(
         );
         onExit(sessionId);
       }).then((fn) => { if (cancelled) fn(); else unlistenExit = fn; });
+
+      // ── Spawn PTY for this session, once output is being listened to ───
+      // ConPTY opens by asking for the cursor position (ESC[6n) and holds the
+      // shell until xterm answers; if that first output were emitted before the
+      // listener existed, the terminal would stay blank forever.
+      void Promise.all([dataReady, exitReady]).then(() => {
+        if (cancelled) return;
+        invoke<string>("terminal_create", {
+          id: sessionId, cols: term.cols, rows: term.rows,
+        }).then((name) => { if (name) onShellName(sessionId, name); })
+          .catch(console.error);
+      });
 
       // ── Input → PTY (auto-restart on any key after exit) ──────────────
       term.onData((data) => {
