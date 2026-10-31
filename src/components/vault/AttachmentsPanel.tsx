@@ -15,7 +15,10 @@ import {
   bytesToBase64, isVaultPath, vaultAttachAdd, vaultAttachExport, vaultAttachList, vaultAttachRemove, vaultErrorMessage,
   VAULT_ATTACH_MAX_PER_NOTE, VAULT_ATTACH_MAX_TOTAL, type VaultAttachment,
 } from "../../lib/vault";
+import { ATTACHMENT_LIMITS_TEXT } from "../../lib/vaultSync";
 import type { Tab } from "../../types";
+
+export const ATTACHMENTS_SYNC_NOTE = `${ATTACHMENT_LIMITS_TEXT} With Vault Sync on, attachments sync to your other devices too.`;
 
 const EXPORT_WARNED_KEY = "notiq.vault.attachExportWarned";
 const wasWarned = () => { try { return localStorage.getItem(EXPORT_WARNED_KEY) === "1"; } catch { return false; } };
@@ -163,6 +166,7 @@ export function AttachmentsPanel({ tab }: { tab: Tab }) {
           {vaultUsed !== null && ` · ${formatBytes(vaultUsed)} of ${formatBytes(VAULT_ATTACH_MAX_TOTAL)} used in the vault`}
         </span>
       </div>
+      <p className="text-[11px] text-[var(--color-text-muted)]">{ATTACHMENTS_SYNC_NOTE}</p>
 
       {removing && (
         <ConfirmDialog
