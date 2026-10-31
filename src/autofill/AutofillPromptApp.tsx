@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useWindowContextMenu } from "../hooks/useWindowContextMenu";
 import type { FormEvent, ReactNode, RefObject } from "react";
 import { flushSync } from "react-dom";
 import { invoke } from "@tauri-apps/api/core";
@@ -51,6 +52,8 @@ async function promptVaultRoot(): Promise<string> {
 const nextTask = () => new Promise<void>((r) => setTimeout(r, 0));
 
 export default function AutofillPromptApp() {
+  // No clipboard permission in this window: just keep the webview's menu out.
+  useWindowContextMenu({ textMenu: false });
   const [state, setState] = useState<PromptState>(IDLE);
   const stateRef = useRef<PromptState>(IDLE);
   const queue = useRef<Job[]>([]);

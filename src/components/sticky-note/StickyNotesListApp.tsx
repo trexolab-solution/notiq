@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
+import { useWindowContextMenu } from "../../hooks/useWindowContextMenu";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
 import { Plus, Trash2, X, Search, FileText, StickyNote, Check, ExternalLink } from "lucide-react";
@@ -67,14 +68,14 @@ export default function StickyNotesListApp() {
     return () => clearTimeout(timer);
   }, [deleteId]);
 
-  // Disable native context menu + mark as sticky note window + apply initial theme
+  // Text menu on the search box, no native menu anywhere else
+  const ctxMenu = useWindowContextMenu();
+
+  // Mark as sticky note window + apply initial theme
   useEffect(() => {
     document.documentElement.classList.add("is-sticky-note");
     const savedTheme = localStorage.getItem("pref:theme") || "dark";
     applyTheme(savedTheme as Parameters<typeof applyTheme>[0]);
-    const block = (e: MouseEvent) => e.preventDefault();
-    document.addEventListener("contextmenu", block);
-    return () => document.removeEventListener("contextmenu", block);
   }, []);
 
   // Live theme sync
@@ -266,6 +267,7 @@ export default function StickyNotesListApp() {
           <span>{search ? `${sorted.length} of ${total} notes` : `${total} note${total !== 1 ? "s" : ""}`}</span>
         </div>
       )}
+      {ctxMenu}
     </div>
   );
 }

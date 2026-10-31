@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useWindowContextMenu } from "../hooks/useWindowContextMenu";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -27,6 +28,7 @@ const showMain = (action: "open" | "unlock", rel?: string) =>
  * copying and never rendered.
  */
 export default function QuickSearchApp() {
+  const ctxMenu = useWindowContextMenu();
   const [phase, setPhase] = useState<Phase>("loading");
   const [items, setItems] = useState<QuickResult[]>([]);
   const [query, setQuery] = useState("");
@@ -269,6 +271,7 @@ export default function QuickSearchApp() {
           <span className="ml-auto"><kbd>Esc</kbd> close</span>
         )}
       </div>
+      {ctxMenu}
     </div>
   );
 }

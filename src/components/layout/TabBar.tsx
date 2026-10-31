@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { X, Plus, HardDrive, PenTool, ChevronLeft, ChevronRight, Pin, PinOff, Pencil, Lock, Settings as SettingsIcon } from "lucide-react";
+import { X, Plus, HardDrive, PenTool, ChevronLeft, ChevronRight, Pin, PinOff, Settings as SettingsIcon } from "lucide-react";
 import {
   DndContext,
   closestCenter,
@@ -16,9 +16,12 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { useAppStore } from "../../store";
+import { useVaultStore } from "../../store/vaultStore";
 import { Input } from "../ui/Input";
 import { Tooltip } from "../ui/Tooltip";
-import { ContextMenu, type ContextMenuItem } from "../ui/ContextMenu";
+import { ContextMenu } from "../ui/ContextMenu";
+import { buildTabMenu } from "../../lib/contextMenu/items";
+import { isTextFieldTarget } from "../../lib/contextMenu/target";
 import type { Tab } from "../../types";
 import { ConfirmDialog } from "../ui/ConfirmDialog";
 import { toast } from "../../lib/toast";
@@ -171,6 +174,7 @@ export const TabBar = React.memo(function TabBar({ onCloseTab }: TabBarProps) {
   const togglePinTab   = useAppStore((s) => s.togglePinTab);
   const lockTabToVault = useAppStore((s) => s.lockTabToVault);
   const lockVault       = useAppStore((s) => s.lockVault);
+  const vaultUnlocked   = useVaultStore((s) => s.unlocked);
   // Original unencrypted file left behind after locking — ask before deleting.
   const [plainLeftover, setPlainLeftover] = useState<{ path: string; title: string } | null>(null);
 
@@ -184,6 +188,7 @@ export const TabBar = React.memo(function TabBar({ onCloseTab }: TabBarProps) {
   const [ctxMenu, setCtxMenu] = useState<TabContextMenuState | null>(null);
 
   const handleContextMenu = useCallback((e: React.MouseEvent, tab: Tab) => {
+    if (isTextFieldTarget(e.target)) return; // rename box: text menu instead
     e.preventDefault();
     e.stopPropagation();
     const isVault = isVaultPath(tab.filePath);
@@ -335,53 +340,24 @@ export const TabBar = React.memo(function TabBar({ onCloseTab }: TabBarProps) {
           x={ctxMenu.x}
           y={ctxMenu.y}
           onClose={() => setCtxMenu(null)}
-          items={[
+          items={buildTabMenu(
+            { ...ctxMenu, vaultUnlocked },
             {
-              type: "item",
-              label: ctxMenu.isPinned ? "Unpin Tab" : "Pin Tab",
-              icon: ctxMenu.isPinned ? <PinOff size={13} /> : <Pin size={13} />,
-              onClick: () => togglePinTab(ctxMenu.tabId),
-            },
-            ...(ctxMenu.canRename ? [{
-              type: "item" as const,
-              label: "Rename",
-              icon: <Pencil size={13} />,
-              onClick: () => startEdit(ctxMenu.tabId, ctxMenu.title),
-            }] : []),
-            { type: "separator" },
-            ...(ctxMenu.canLock ? [{
-              type: "item" as const,
-              label: "Lock with Vault",
-              icon: <Lock size={13} />,
-              onClick: async () => {
+              togglePin: () => togglePinTab(ctxMenu.tabId),
+              rename: () => startEdit(ctxMenu.tabId, ctxMenu.title),
+              lockToVault: async () => {
                 const res = await lockTabToVault(ctxMenu.tabId);
                 if (res.ok && res.plainPath) {
                   setPlainLeftover({ path: res.plainPath, title: ctxMenu.title });
                 }
               },
-            }] : []),
-            ...(ctxMenu.isVault ? [{
-              type: "item" as const,
-              label: "Lock Vault Now",
-              icon: <Lock size={13} />,
-              onClick: () => { void lockVault(); },
-            }] : []),
-            ...(ctxMenu.canLock || ctxMenu.isVault ? [{ type: "separator" as const }] : []),
-            {
-              type: "item",
-              label: "Close Tab",
-              icon: <X size={13} />,
-              shortcut: "Ctrl+W",
-              danger: true,
-              disabled: ctxMenu.isPinned,
-              onClick: () => {
-                if (!ctxMenu.isPinned) {
-                  const fakeEvent = { stopPropagation: () => {} } as React.MouseEvent;
-                  handleClose(ctxMenu.tabId, fakeEvent);
-                }
+              lockVault: () => { void lockVault(); },
+              close: () => {
+                const fakeEvent = { stopPropagation: () => {} } as React.MouseEvent;
+                handleClose(ctxMenu.tabId, fakeEvent);
               },
             },
-          ] satisfies ContextMenuItem[]}
+          )}
         />
       )}
 

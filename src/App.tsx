@@ -166,11 +166,9 @@ export default function App() {
   });
 
   const { ctxMenu, closeCtxMenu } = useGlobalContextMenu({
-    requestClose,
     handleOpenMultiple,
     handleOpenFolder,
     handleNewWhiteboard,
-    onShowGraph: () => setActiveView("graph"),
   });
 
   return (
