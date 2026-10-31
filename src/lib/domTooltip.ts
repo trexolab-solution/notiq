@@ -1,76 +1,88 @@
 // Vanilla-DOM tooltip helper for non-React UI (Monaco content widgets, etc.).
-// Reuses the same `.app-tooltip` styling as the React <Tooltip> so they look
-// identical. Attach with `attachTooltip(el, "Label")`; returns a disposer.
+// Reuses the same `.app-tooltip` styling, timing (warm-up / cool-down) and
+// placement as the React <Tooltip>, so they look and behave identically.
+// Attach with `attachTooltip(el, "Label")`; returns a disposer.
 //
-// A single shared tooltip element is portaled to <body>; only one shows at a
-// time. Mirrors the React component's hover delay + fast-follow + edge clamping.
+// A single shared tooltip element is portaled to <body>; the shared runtime
+// guarantees only one tooltip (React or DOM) shows at a time.
 
-const SHOW_DELAY = 550;          // ms before a tooltip appears
-const FAST_FOLLOW_WINDOW = 400;  // ms — re-entering this fast skips the delay
-const MARGIN = 8;                // viewport edge clamp
+import { placeTooltip } from "./popoverPosition";
+import { isMouseDown, tooltipRuntime } from "./tooltipLogic";
 
 let tipEl: HTMLDivElement | null = null;
 let labelEl: HTMLSpanElement | null = null;
 let showTimer: ReturnType<typeof setTimeout> | null = null;
-let lastHideTime = 0;
-let isMouseDown = false;
-
-if (typeof document !== "undefined") {
-  document.addEventListener("mousedown", () => { isMouseDown = true; }, { capture: true, passive: true });
-  document.addEventListener("mouseup",   () => { isMouseDown = false; }, { capture: true, passive: true });
-}
+let owner: HTMLElement | null = null;
 
 function ensureEl(): { tip: HTMLDivElement; label: HTMLSpanElement } {
   if (tipEl && labelEl) return { tip: tipEl, label: labelEl };
   const tip = document.createElement("div");
   tip.className = "app-tooltip";
+  tip.setAttribute("role", "tooltip");
+  tip.id = "app-dom-tooltip";
   tip.style.position = "fixed";
   tip.style.pointerEvents = "none";
   tip.style.display = "none";
+  const row = document.createElement("div");
+  row.className = "app-tooltip-row";
   const label = document.createElement("span");
   label.className = "app-tooltip-label";
-  tip.appendChild(label);
+  row.appendChild(label);
+  tip.appendChild(row);
   document.body.appendChild(tip);
   tipEl = tip;
   labelEl = label;
   return { tip, label };
 }
 
+const onGlobalKey = (e: KeyboardEvent) => { if (e.key === "Escape") hide(); };
+
+function listen(on: boolean) {
+  const m = on ? "addEventListener" : "removeEventListener";
+  document[m]("keydown", onGlobalKey as EventListener, true);
+  document[m]("pointerdown", hide, true);
+  window[m]("scroll", hide, true);
+  window[m]("resize", hide);
+  window[m]("blur", hide);
+}
+
 function hide() {
   if (showTimer) { clearTimeout(showTimer); showTimer = null; }
   if (tipEl && tipEl.style.display !== "none") {
     tipEl.style.display = "none";
-    lastHideTime = Date.now();
+    owner?.removeAttribute("aria-describedby");
+    owner = null;
+    listen(false);
+    tooltipRuntime.hidden(hide);
   }
 }
 
 function show(target: HTMLElement, text: string) {
-  if (isMouseDown) return;
+  if (isMouseDown()) return;
   // Don't fight the Monaco find widget (matches React Tooltip behaviour).
   if (document.querySelector(".monaco-editor .find-widget.visible")) return;
 
   const { tip, label } = ensureEl();
+  const wasOpen = tip.style.display !== "none";
   label.textContent = text;
+  tip.style.visibility = "hidden";
+  tip.style.display = "block";
+  tip.style.left = "0px";
+  tip.style.top = "0px";
 
-  const r = target.getBoundingClientRect();
-  const above = r.bottom + 52 > window.innerHeight;
-  tip.classList.toggle("app-tooltip--above", above);
-  tip.style.display = "inline-flex";
-  // Measure to clamp horizontally and place vertically.
-  let x = r.left + r.width / 2;
-  const y = above ? r.top - 10 : r.bottom + 8;
-  tip.style.left = `${x}px`;
-  tip.style.top = `${y}px`;
-  tip.style.transform = above ? "translate(-50%, -100%)" : "translateX(-50%)";
+  const size = tip.getBoundingClientRect();
+  const pos = placeTooltip(target.getBoundingClientRect(), { width: size.width, height: size.height },
+    { width: window.innerWidth, height: window.innerHeight });
+  tip.className = `app-tooltip app-tooltip--${pos.placement}`;
+  tip.style.left = `${pos.left}px`;
+  tip.style.top = `${pos.top}px`;
+  tip.style.visibility = "";
 
-  // Edge-clamp after it has dimensions.
-  const tr = tip.getBoundingClientRect();
-  if (tr.right > window.innerWidth - MARGIN) {
-    x -= tr.right - window.innerWidth + MARGIN;
-  } else if (tr.left < MARGIN) {
-    x += MARGIN - tr.left;
-  }
-  tip.style.left = `${x}px`;
+  owner?.removeAttribute("aria-describedby");
+  owner = target;
+  target.setAttribute("aria-describedby", tip.id);
+  if (!wasOpen) listen(true);
+  tooltipRuntime.shown(hide);
 }
 
 /**
@@ -79,14 +91,16 @@ function show(target: HTMLElement, text: string) {
  */
 export function attachTooltip(el: HTMLElement, text: string): () => void {
   const onEnter = () => {
-    if (isMouseDown) return;
+    if (isMouseDown()) return;
     if (showTimer) clearTimeout(showTimer);
-    const elapsed = Date.now() - lastHideTime;
-    const delay = elapsed < FAST_FOLLOW_WINDOW ? 0 : SHOW_DELAY;
-    showTimer = setTimeout(() => {
-      if ((el as HTMLButtonElement).disabled) return;
+    const run = () => {
+      showTimer = null;
+      if ((el as HTMLButtonElement).disabled || !el.isConnected) return;
       show(el, text);
-    }, delay);
+    };
+    const delay = tooltipRuntime.delayFor();
+    if (delay === 0) run();
+    else showTimer = setTimeout(run, delay);
   };
   const onLeave = () => hide();
   const onDown = () => hide();
@@ -99,6 +113,6 @@ export function attachTooltip(el: HTMLElement, text: string): () => void {
     el.removeEventListener("mouseenter", onEnter);
     el.removeEventListener("mouseleave", onLeave);
     el.removeEventListener("mousedown", onDown);
-    hide();
+    if (owner === el || !owner) hide();
   };
 }
