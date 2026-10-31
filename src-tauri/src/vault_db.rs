@@ -244,11 +244,16 @@ impl Entry {
     }
 
     /// Saves the current (ext, content) as the newest revision before it is replaced.
-    /// Folders and empty content are not recorded; a repeat of the newest revision is skipped.
+    /// Folders and empty content are not recorded; a repeat of the newest revision is not
+    /// stored twice, it just takes the newer stamp as normal history (so a sync delete that only saw the older
+    /// copy can't drop this version; see `vault_merge`).
     fn push_revision(&mut self) {
         if self.dir || self.content.is_empty() { return; }
-        if self.history.first().is_some_and(|r| r.ext == self.ext && r.content == self.content) { return; }
         let stamp = (!self.stamp.is_zero()).then(|| self.stamp.clone());
+        if let Some(r) = self.history.first_mut().filter(|r| r.ext == self.ext && r.content == self.content) {
+            if stamp > r.stamp { r.stamp = stamp; r.updated = self.updated; r.conflict_from = None; }
+            return;
+        }
         self.history.insert(0, Revision { updated: self.updated, ext: self.ext.clone(), content: self.content.clone(), stamp, conflict_from: None });
         cap_history(&mut self.history);
     }
