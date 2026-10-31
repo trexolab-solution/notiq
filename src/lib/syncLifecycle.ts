@@ -1,6 +1,6 @@
 /**
  * Vault Sync lifecycle feedback + onboarding gates (0.9.0) — the pure decisions behind:
- *  • first upload ("Uploading your vault… N entries" → "Your vault is now in Google Drive"),
+ *  • first upload ("Uploading your vault… N items" → "Your vault is now in Google Drive"),
  *  • the single "Google needs you to sign in again" notification,
  *  • "New device: <name> joined your vault" (once per device),
  *  • the post-create "Use this vault on your other PCs?" step, the one-time vault-panel banner and the
@@ -42,10 +42,10 @@ export const isFirstUpload = (remote: RemoteVaultInfo | null | undefined): boole
 export const countEntries = (items: { dir: boolean }[] | null | undefined): number | null =>
   items ? items.filter((i) => !i.dir).length : null;
 
-/** "Uploading your vault… 12 entries" (no count when the list couldn't be read). */
+/** "Uploading your vault… 12 items" (no count when the list couldn't be read). */
 export function uploadingMessage(entries: number | null): string {
   if (entries == null) return "Uploading your vault…";
-  return `Uploading your vault… ${entries} ${entries === 1 ? "entry" : "entries"}`;
+  return `Uploading your vault… ${entries} ${entries === 1 ? "item" : "items"}`;
 }
 
 export const FIRST_UPLOAD_DONE = "Your vault is now in Google Drive";
