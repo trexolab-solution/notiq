@@ -21,7 +21,7 @@ test("store drops key, keeps service worker", () => {
 test("firefox transform", () => {
   const m = transformFirefox(manifest);
   assert.equal("key" in m, false);
-  assert.deepEqual(m.background, { scripts: ["shared.js", "background.js"] });
+  assert.deepEqual(m.background, { scripts: ["shared.js", "identity.js", "background.js"] });
   assert.equal(m.browser_specific_settings.gecko.id, FIREFOX_ID);
   assert.equal(m.browser_specific_settings.gecko.strict_min_version, "121.0");
   assert.deepEqual(m.permissions, manifest.permissions);
@@ -50,11 +50,16 @@ test("validate rejects a build without shared.js", () => {
   files.delete("shared.js");
   assert.throws(() => validateBuild(manifest, files, manifest.version), /shared\.js/);
 });
-test("content scripts load shared.js and fillkit.js before content.js", () => {
-  assert.deepEqual(manifest.content_scripts[0].js, ["shared.js", "fillkit.js", "content.js"]);
+test("content scripts load shared.js, fillkit.js and identity.js before content.js", () => {
+  assert.deepEqual(manifest.content_scripts[0].js, ["shared.js", "fillkit.js", "identity.js", "content.js"]);
 });
-test("no new permissions in 0.4.0", () => {
-  assert.deepEqual([...manifest.permissions].sort(), ["activeTab", "nativeMessaging", "scripting", "storage"]);
+test("validate rejects a build without identity.js (the background loads it)", () => {
+  const files = fileMap(manifest);
+  files.delete("identity.js");
+  assert.throws(() => validateBuild(manifest, files, manifest.version), /identity\.js/);
+});
+test("permissions: only contextMenus added since 0.4.0 (the right-click menu)", () => {
+  assert.deepEqual([...manifest.permissions].sort(), ["activeTab", "contextMenus", "nativeMessaging", "scripting", "storage"]);
   assert.equal("host_permissions" in manifest, false);
   assert.equal("web_accessible_resources" in manifest, false);
 });

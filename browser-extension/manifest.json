@@ -8,7 +8,8 @@
     "nativeMessaging",
     "activeTab",
     "scripting",
-    "storage"
+    "storage",
+    "contextMenus"
   ],
   "action": {
     "default_title": "Fill with Notiq",
@@ -27,6 +28,7 @@
       "js": [
         "shared.js",
         "fillkit.js",
+        "identity.js",
         "content.js"
       ],
       "run_at": "document_idle",
