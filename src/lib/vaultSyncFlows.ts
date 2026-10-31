@@ -4,8 +4,8 @@
  */
 import {
   ERR_NO_REMOTE_VAULT, ERR_REMOTE_VAULT_DIFFERENT, ERR_WRONG_PASSWORD, isSyncError, syncAdoptRemote, syncEnable,
-  syncErrorMessage, syncJoin, syncRemoteInfo, useSyncStore,
-  type AdoptResult, type SyncResult, type SyncStatus,
+  syncErrorMessage, syncJoin, useSyncStore,
+  type AdoptResult, type SyncResult,
 } from "./vaultSync";
 
 // ── Turn on ──────────────────────────────────────────────────────────────────
@@ -98,21 +98,7 @@ export function describeAdoptResult(r: AdoptResult, mode: "import" | "backupOnly
 export const HELLO_RESET_NOTE =
   "PC sign-in (Windows Hello) was turned off on this PC. Turn it on again in Settings → Vault → Quick unlock.";
 
-// ── New device: join the vault from Drive ────────────────────────────────────
-
-export type JoinStep = "notConfigured" | "connect" | "noRemote" | "password";
-
-/** Where the "Use my vault from Google Drive" flow starts (and continues after connecting). */
-export async function joinStep(status: SyncStatus | null): Promise<{ step: JoinStep; error?: string }> {
-  if (!status?.configured) return { step: "notConfigured" };
-  if (!status.provider) return { step: "connect" };
-  try {
-    const info = await syncRemoteInfo();
-    return { step: info.exists ? "password" : "noRemote" };
-  } catch (e) {
-    return { step: "connect", error: syncErrorMessage(e) };
-  }
-}
+// ── New device: join the vault from Drive (the steps before it: ./syncSetup decideAfterSignIn) ──
 
 export type JoinOutcome =
   | { kind: "joined" }

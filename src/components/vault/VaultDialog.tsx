@@ -6,9 +6,10 @@ import { PasswordInput } from "../ui/PasswordInput";
 import { Button } from "../ui/Button";
 import { RestoreBackupDialog } from "./RestoreBackupDialog";
 import { RecoveryKitDialog } from "./RecoveryKitDialog"; // 0.7.0 recovery kit
-import { JoinFromDriveDialog } from "./sync/JoinFromDriveDialog";
+import { SyncSetupHost } from "./sync/SyncSetupHost";
 import { SyncOnboardingDialog } from "./sync/SyncOnboardingDialog";
 import { useSyncStatus, useSyncStore } from "../../lib/vaultSync";
+import { isCreatingForSync, startSyncSetup } from "../../lib/syncSetupFlow";
 import { shouldOfferSyncOnboarding } from "../../lib/syncLifecycle";
 import { initVaultSyncEvents } from "../../lib/vaultSyncEvents";
 import { toast } from "../../lib/toast";
@@ -44,6 +45,8 @@ export function VaultDialog() {
       {mode === "unlock" ? <UnlockDialog key={mode} />
         : mode ? <VaultDialogInner key={mode} mode={mode} onCreated={() => setOfferSync(true)} /> : null}
       {offerSync && !mode && <SyncOnboardingDialog onClose={() => setOfferSync(false)} />}
+      {/* Vault Sync setup steps (connect → Drive check → open / create / upload / two vaults). */}
+      <SyncSetupHost />
     </>
   );
 }
@@ -89,11 +92,13 @@ function VaultDialogInner({ mode, onCreated }: { mode: SetupMode; onCreated?: ()
   const [recoveryKey, setRecoveryKey] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [restoring, setRestoring] = useState(false);
-  const [joining, setJoining] = useState(false);
   const [showKit, setShowKit] = useState(false); // 0.7.0 recovery kit
   // Hide "Use my vault from Google Drive" only once we know this build has no Google sign-in.
   const syncStatus = useSyncStatus();
-  const driveAvailable = syncStatus?.configured !== false;
+  // Opened by the sync flow's "Create a new vault" (Drive is known to be empty): no Drive card, and sync turns on
+  // by itself afterwards instead of asking "Use this vault on your other PCs?".
+  const [forSync] = useState(isCreatingForSync);
+  const driveAvailable = syncStatus?.configured !== false && !forSync;
 
   const validate = (): string | null => {
     if (password.length < MIN_LEN) return `Password must be at least ${MIN_LEN} characters`;
@@ -165,8 +170,9 @@ function VaultDialogInner({ mode, onCreated }: { mode: SetupMode; onCreated?: ()
               setShowKit(false);
               setRecoveryKey(null);
               const sync = await useSyncStore.getState().refresh();
+              const syncFlowContinues = isCreatingForSync(); // read before succeed() hands control back to the flow
               await succeed();
-              if (shouldOfferSyncOnboarding(sync)) onCreated?.();
+              if (!syncFlowContinues && shouldOfferSyncOnboarding(sync)) onCreated?.();
             }}
           >
             Done
@@ -190,15 +196,11 @@ function VaultDialogInner({ mode, onCreated }: { mode: SetupMode; onCreated?: ()
     );
   }
 
-  if (joining) {
-    return <JoinFromDriveDialog onBack={() => setJoining(false)} onJoined={succeed} />;
-  }
-
   return (
     <Dialog onClose={cancel} zClassName="z-[70]" size="sm" onSubmit={submit} title={title}
             icon={mode === "recover" ? <KeyRound size={16} /> : <Lock size={16} />}>
       <DialogBody>
-        {mode === "setup" && driveAvailable && <SetupChoice onUseDrive={() => setJoining(true)} />}
+        {mode === "setup" && driveAvailable && <SetupChoice onUseDrive={openDriveFromSetup} />}
         <p className="dlg-detail dlg-detail--block mb-4">
           {mode === "setup" && "Choose a master password. It encrypts your locked notes on this device and is never stored or sent anywhere."}
           {mode === "recover" && "Enter the recovery key you saved at setup, then choose a new master password."}
@@ -249,6 +251,15 @@ function VaultDialogInner({ mode, onCreated }: { mode: SetupMode; onCreated?: ()
       </DialogFooter>
     </Dialog>
   );
+}
+
+/**
+ * "Use my vault from Google Drive" on the setup screen: hand over to the one sync setup flow. Whoever waited for
+ * the vault (e.g. opening a locked note) continues when that flow ends.
+ */
+function openDriveFromSetup() {
+  useVaultStore.getState().setDialog(null);
+  void startSyncSetup({ fromSetup: true });
 }
 
 /**

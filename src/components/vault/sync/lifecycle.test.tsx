@@ -46,39 +46,19 @@ function button(tree: ReactNode, label: string): ReactElement<Props> {
   return found[0];
 }
 
-const handlers = () => ({ onConnect: vi.fn(), onNotNow: vi.fn(), onCancelConnect: vi.fn() });
-
 beforeEach(() => mem.clear());
 
 describe("post-create step: Use this vault on your other PCs?", () => {
-  it("offers Connect Google Drive and Not now", () => {
-    const h = handlers();
-    const tree = SyncOnboardingContent({ phase: "ask", connected: false, error: null, ...h });
-    button(tree, "Connect Google Drive").props.onClick!();
-    expect(h.onConnect).toHaveBeenCalledTimes(1);
+  it("offers Turn on sync with Google Drive (primary) and Not now", () => {
+    const onTurnOn = vi.fn();
+    const onNotNow = vi.fn();
+    const tree = SyncOnboardingContent({ onTurnOn, onNotNow });
+    button(tree, "Turn on sync with Google Drive").props.onClick!();
+    expect(onTurnOn).toHaveBeenCalledTimes(1);
     button(tree, "Not now").props.onClick!();
-    expect(h.onNotNow).toHaveBeenCalledTimes(1);
-  });
-
-  it("says Turn on sync when Google is already connected", () => {
-    const tree = SyncOnboardingContent({ phase: "ask", connected: true, error: null, ...handlers() });
-    expect(() => button(tree, "Turn on sync")).not.toThrow();
-  });
-
-  it("shows Waiting for Google with Cancel while connecting", () => {
-    const h = handlers();
-    const html = renderToStaticMarkup(<SyncOnboardingContent phase="connecting" connected={false} error={null} {...h} />);
-    expect(html).toContain("Waiting for Google sign-in in your browser…");
-    expect(html).toMatch(/<button[^>]*>Cancel<\/button>/);
-    const tree = SyncOnboardingContent({ phase: "connecting", connected: false, error: null, ...h });
-    expect(button(tree, "Connect Google Drive").props.disabled).toBe(true);
-  });
-
-  it("shows upload progress while turning sync on, and errors", () => {
-    expect(renderToStaticMarkup(<SyncOnboardingContent phase="enabling" connected error={null} {...handlers()} />))
-      .toContain("Uploading your vault…");
-    expect(renderToStaticMarkup(<SyncOnboardingContent phase="ask" connected={false} error="You're offline" {...handlers()} />))
-      .toContain('role="alert"');
+    expect(onNotNow).toHaveBeenCalledTimes(1);
+    const html = renderToStaticMarkup(<SyncOnboardingContent onTurnOn={() => {}} onNotNow={() => {}} />);
+    expect(html).toContain("encrypted before it leaves this PC");
   });
 
   it("Not now hands the indicator tip to the status bar and closes", () => {
