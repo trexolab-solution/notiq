@@ -53,6 +53,13 @@ export const TOUR_STEPS: TourStep[] = [
     placement: "right",
   },
   {
+    // Only present once a vault exists (filtered out otherwise).
+    selector: '[data-tour="sync-indicator"]',
+    title: "Vault sync",
+    body: "Your vault's sync status lives here. Click it to connect Google Drive, sync now, or see which PCs share this vault.",
+    placement: "top",
+  },
+  {
     title: "You're all set 🎉",
     body: "Tip: press Ctrl+Shift+P anytime for the command palette. You can replay this tour from Settings → General.",
     placement: "center",
