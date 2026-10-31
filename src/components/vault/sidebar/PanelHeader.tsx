@@ -14,7 +14,7 @@ export function PanelHeader({ unlocked, actions }: { unlocked: boolean; actions?
       {unlocked
         ? <LockOpen size={14} className="shrink-0 text-[var(--color-primary)]" aria-hidden />
         : <Lock size={14} className="shrink-0 text-[var(--color-text-muted)]" aria-hidden />}
-      <h2 className="ml-1.5 shrink-0 whitespace-nowrap text-xs font-semibold text-[var(--color-text)]" title="Secure Vault">Vault</h2>
+      <h2 className="ml-1.5 min-w-0 truncate whitespace-nowrap text-xs font-semibold text-[var(--color-text)]" title="Secure Vault">Vault</h2>
       <SyncBadge />
       <span className="min-w-0 flex-1" />
       {unlocked && (
