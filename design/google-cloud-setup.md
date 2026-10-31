@@ -49,8 +49,8 @@ PKCE se aati hai. Phir bhi secret repo mein commit mat karna:
   - **Variables** tab: `NOTIQ_GOOGLE_CLIENT_ID` = client ID (ye public hai)
   - **Secrets** tab: `NOTIQ_GOOGLE_CLIENT_SECRET` = client secret
 - Local dev ke liye apne PC par yahi do environment variables set karo, phir `tauri dev` chalao.
-- Release workflow (`.github/workflows/release.yml`) abhi ye do values build ko nahi deta. Ye wiring 0.9.0 ke
-  baaki kaam (P3/P4) mein add hogi.
+- Release workflow (`.github/workflows/release.yml`) ye do values `tauri-action` build step ko build-time env ke roop mein deta hai
+  (`NOTIQ_GOOGLE_CLIENT_ID` Variable se, `NOTIQ_GOOGLE_CLIENT_SECRET` Secret se). `ci.yml` / `rust.yml` mein sirf test/lint hai, wahan zarurat nahi.
 
 ## 5. GitHub Pages site ka owner hone ka proof (Search Console)
 1. https://search.google.com/search-console → **Add property** → **URL prefix** → `https://trexolab-solution.github.io/notiq/`.
