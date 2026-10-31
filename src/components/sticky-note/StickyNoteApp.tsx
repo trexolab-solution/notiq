@@ -1,10 +1,8 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
-import { readText, writeText } from "@tauri-apps/plugin-clipboard-manager";
 import Editor, { type OnMount } from "@monaco-editor/react";
 import * as monaco from "monaco-editor";
-import { Clipboard, Copy, Scissors, RotateCcw, RotateCw, SquareMousePointer } from "lucide-react";
 import { applyTheme } from "../../lib/themes";
 import { STATIC_EDITOR_OPTIONS } from "../../lib/monacoOptions"
 import { useStickyNotesStore } from "../../store/stickyNoteStore";
@@ -13,7 +11,10 @@ import { ensureInlineProvider } from "../../lib/ai/inlineCompletions";
 import { attachAiLoader } from "../../lib/ai/inlineLoader";
 import { aiActivity } from "../../lib/ai/activity";
 import { StickyNoteHeader } from "./StickyNoteHeader";
-import { ContextMenu, type ContextMenuItem } from "../ui/ContextMenu";
+import { ContextMenu } from "../ui/ContextMenu";
+import { buildEditItems } from "../../lib/contextMenu/items";
+import { monacoEditActions, monacoEditState } from "../../lib/contextMenu/monacoActions";
+import { useWindowContextMenu } from "../../hooks/useWindowContextMenu";
 
 const DARK_THEMES = new Set([
   "dark", "one-dark", "nord", "dracula", "catppuccin", "tokyo-night", "rose-pine",
@@ -194,74 +195,10 @@ export default function StickyNoteApp() {
     };
   }, []);
 
-  // ── Context menu actions ─────────────────────────────────────────────
-  const handleCut = useCallback(async () => {
-    const ed = editorRef.current;
-    if (!ed) return;
-    const selection = ed.getSelection();
-    const model = ed.getModel();
-    if (selection && model && !selection.isEmpty()) {
-      await writeText(model.getValueInRange(selection));
-      ed.executeEdits("ctx-cut", [{ range: selection, text: "", forceMoveMarkers: true }]);
-    }
-    ed.focus();
-  }, []);
-
-  const handleCopy = useCallback(async () => {
-    const ed = editorRef.current;
-    if (!ed) return;
-    const selection = ed.getSelection();
-    const model = ed.getModel();
-    if (selection && model && !selection.isEmpty()) {
-      await writeText(model.getValueInRange(selection));
-    }
-    ed.focus();
-  }, []);
-
-  const handlePaste = useCallback(async () => {
-    const ed = editorRef.current;
-    if (!ed) return;
-    const text = await readText().catch(() => "");
-    ed.focus();
-    if (text) ed.trigger("ctx-paste", "type", { text });
-  }, []);
-
-  const handleUndo = useCallback(() => {
-    const ed = editorRef.current;
-    if (!ed) return;
-    ed.trigger("ctx-menu", "undo", null);
-    ed.focus();
-  }, []);
-
-  const handleRedo = useCallback(() => {
-    const ed = editorRef.current;
-    if (!ed) return;
-    ed.trigger("ctx-menu", "redo", null);
-    ed.focus();
-  }, []);
-
-  const handleSelectAll = useCallback(() => {
-    const ed = editorRef.current;
-    if (!ed) return;
-    const model = ed.getModel();
-    if (model) ed.setSelection(model.getFullModelRange());
-    ed.focus();
-  }, []);
-
-  const hasSelection = editorRef.current?.getSelection()
-    ? !editorRef.current.getSelection()!.isEmpty()
-    : false;
-
-  const ctxMenuItems: ContextMenuItem[] = [
-    { type: "item", label: "Cut",        icon: <Scissors size={13} />,           shortcut: "Ctrl+X", disabled: !hasSelection, onClick: handleCut },
-    { type: "item", label: "Copy",       icon: <Copy size={13} />,               shortcut: "Ctrl+C", disabled: !hasSelection, onClick: handleCopy },
-    { type: "item", label: "Paste",      icon: <Clipboard size={13} />,          shortcut: "Ctrl+V", onClick: handlePaste },
-    { type: "separator" },
-    { type: "item", label: "Undo",       icon: <RotateCcw size={13} />,          shortcut: "Ctrl+Z", onClick: handleUndo },
-    { type: "item", label: "Redo",       icon: <RotateCw size={13} />,           shortcut: "Ctrl+Y", onClick: handleRedo },
-    { type: "separator" },
-    { type: "item", label: "Select All", icon: <SquareMousePointer size={13} />, shortcut: "Ctrl+A", onClick: handleSelectAll },
-  ];
+  // ── Context menu: the shared edit items for this note's editor ───────
+  const ctxMenuItems = ctxMenu && editorRef.current
+    ? buildEditItems(monacoEditState(editorRef.current), monacoEditActions(editorRef.current))
+    : [];
 
   const isDark = DARK_THEMES.has(themeId);
   // When a custom bg color is set, pick Monaco theme by its brightness;
@@ -275,6 +212,8 @@ export default function StickyNoteApp() {
     transition: "opacity 150ms ease",
     ...(bgColor ? { background: bgColor } : {}),
   };
+
+  const windowMenu = useWindowContextMenu();
 
   return (
     <div className="sticky-note-shell" style={shellStyle}>
@@ -316,6 +255,7 @@ export default function StickyNoteApp() {
           onClose={() => { setCtxMenu(null); editorRef.current?.focus(); }}
         />
       )}
+      {windowMenu}
     </div>
   );
 }

@@ -78,7 +78,7 @@ export function AppOverlays({
   return (
     <>
       {ctxMenu && (
-        <ContextMenu x={ctxMenu.x} y={ctxMenu.y} items={ctxMenu.items} onClose={closeCtxMenu} />
+        <ContextMenu x={ctxMenu.x} y={ctxMenu.y} items={ctxMenu.items} keepFocus={ctxMenu.keepFocus} onClose={closeCtxMenu} />
       )}
 
       {showAIOnboarding && (

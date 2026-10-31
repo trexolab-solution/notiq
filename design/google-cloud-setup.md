@@ -23,9 +23,9 @@ to wahi cheez dhoondhna.
   - App name: `Notiq`
   - User support email: aapka email. Ye users ko Google login screen par dikhega.
   - Logo: optional. Logo daaloge to Google brand verification maangega, isliye pehle bina logo ke rakh sakte ho.
-  - Application home page: aapka GitHub Pages URL (jaise `https://<username>.github.io/notiq/`)
-  - Privacy policy: `…/privacy.html`. Ye page sync feature ke saath update hoga.
-  - Authorized domains: `<username>.github.io`. Ye step 5 ke baad hi accept hoga.
+  - Application home page: `https://trexolab-solution.github.io/notiq/`
+  - Privacy policy: `https://trexolab-solution.github.io/notiq/privacy.html`. Ye page sync feature ke saath update hoga.
+  - Authorized domains: `trexolab-solution.github.io`. Ye step 5 ke baad hi accept hoga.
   - Developer contact email: aapka email.
 - **Audience:** User type **External**. Phir **Publish app → In production**.
   "Testing" mode mat chhodna. Usme sirf 100 test users chalte hain, aur login har 7 din mein expire ho jaata hai.
@@ -42,22 +42,30 @@ to wahi cheez dhoondhna.
 - Name: `Notiq Desktop`
 - Create karne par **Client ID** aur **Client secret** milenge.
 
-Desktop apps mein Google client secret ko asli secret nahi maanta, kyunki security PKCE se aati hai. Phir bhi:
-- **Client ID** code mein public rahegi. Ye normal hai.
-- **Client secret** GitHub repo mein commit mat karna. Use GitHub → Settings → Secrets and variables → Actions mein
-  `NOTIQ_GOOGLE_CLIENT_SECRET` naam se daalo. Release build use wahan se lega. Local dev ke liye apne PC par
-  environment variable set karna.
+Notiq dono values build ke time environment se leta hai (`src-tauri/src/sync/gdrive.rs`). Inke bina bana build
+Google sign-in nahi kar sakta. Desktop apps mein Google client secret ko asli secret nahi maanta, kyunki security
+PKCE se aati hai. Phir bhi secret repo mein commit mat karna:
+- GitHub → repo `trexolab-solution/notiq` → Settings → Secrets and variables → Actions:
+  - **Variables** tab: `NOTIQ_GOOGLE_CLIENT_ID` = client ID (ye public hai)
+  - **Secrets** tab: `NOTIQ_GOOGLE_CLIENT_SECRET` = client secret
+- Local dev ke liye apne PC par yahi do environment variables set karo, phir `tauri dev` chalao.
+- Release workflow (`.github/workflows/release.yml`) abhi ye do values build ko nahi deta. Ye wiring 0.9.0 ke
+  baaki kaam (P3/P4) mein add hogi.
 
 ## 5. GitHub Pages site ka owner hone ka proof (Search Console)
-1. https://search.google.com/search-console → **Add property** → **URL prefix** → apna GitHub Pages URL.
+1. https://search.google.com/search-console → **Add property** → **URL prefix** → `https://trexolab-solution.github.io/notiq/`.
 2. Verification method **HTML file** → file download karo → repo ke `docs/` folder mein daal kar push karo.
    GitHub Pages wahi folder publish karta hai.
 3. Page live hone par **Verify**.
-4. Ab step 3 ke "Authorized domains" mein `<username>.github.io` accept ho jaana chahiye.
+4. Ab step 3 ke "Authorized domains" mein `trexolab-solution.github.io` accept ho jaana chahiye.
+
+> **Agar Google ise accept na kare:** ho sakta hai Google `/notiq/` wale path ko poore domain ka proof na maane, aur
+> root `https://trexolab-solution.github.io/` ka proof maange. Tab GitHub par organization `trexolab-solution` mein
+> `trexolab-solution.github.io` naam ka ek chhota repo banao, Pages on karo, aur wahi HTML file uske root mein daal kar
+> root URL ki property verify karo.
 
 ## 6. Mujhe kya bhejna hai
 - Client ID (public hai, chat mein bhej sakte ho)
-- GitHub Pages URL
 - Confirm karo ki secret GitHub Actions secret mein daal diya hai. **Secret chat mein mat bhejna.**
 
 Tab tak development test credentials par chalega. Aapki client ID aate hi wahi laga denge.

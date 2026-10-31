@@ -5,6 +5,7 @@ import {
 } from "@dnd-kit/core";
 import { ChevronRight, Star } from "lucide-react";
 import { canMoveTo, parentRel, type FlatRow, type TreeNode } from "../../../lib/vaultTree";
+import { isTextFieldTarget } from "../../../lib/contextMenu/target";
 import { EntryIcon } from "./EntryIcon";
 import { INDENT, VaultRow, rowDomId, type DragData, type DropData } from "./VaultRow";
 
@@ -193,7 +194,10 @@ export function VaultTree(p: Props) {
         role="tree"
         aria-label="Vault entries"
         onKeyDown={onKeyDown}
-        onContextMenu={(e) => { e.preventDefault(); p.onMenu(null, null, e.clientX, e.clientY); }}
+        onContextMenu={(e) => {
+          if (isTextFieldTarget(e.target)) return; // inline name box: text menu instead
+          e.preventDefault(); e.stopPropagation(); p.onMenu(null, null, e.clientX, e.clientY);
+        }}
         onFocus={(e) => {
           // Tabbing into the tree with nothing selected lands on the first row.
           if (e.target === e.currentTarget && !selVisible && visible[0]) selectAndFocus(visible[0].key);
