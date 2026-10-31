@@ -40,7 +40,7 @@ describe("conflict notification", () => {
     ]);
     const hist = N.getState().history;
     expect(hist).toHaveLength(1);
-    expect(hist[0].message).toBe("2 notes were edited on two devices; the newer version was kept and the other is in each note's history.");
+    expect(hist[0].message).toBe("2 notes were edited on two PCs. The newer versions are kept, the others are in their history.");
     expect(hist[0].detail).toContain("Laptop");
     expect(hist[0].source).toBe("Vault sync");
   });

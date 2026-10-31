@@ -4,7 +4,7 @@ import { conflictNotice, followSyncStatus, onSyncChanged, onSyncConflicts, useSy
 import { createAuthNeededTracker } from "./syncLifecycle";
 import { checkNewDevices, clearAuthNeeded, notifyAuthNeeded } from "./syncFeedback";
 
-/** Shows the single "edited on two devices" notification for one sync. */
+/** Shows the single "edited on two PCs" notification for one sync. */
 export function notifyConflicts(conflicts: SyncConflict[]): void {
   const n = conflictNotice(conflicts);
   if (!n) return;

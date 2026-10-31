@@ -204,11 +204,12 @@ export const entryName = (path: string) => (path.split(/[\\/]/).pop() ?? path).r
 export function conflictNotice(conflicts: SyncConflict[]): { title: string; message: string; detail: string } | null {
   const n = conflicts.length;
   if (!n) return null;
-  const devices = [...new Set(conflicts.map((c) => c.fromDevice).filter(Boolean))];
+  // fromDevice is a name or "" when unknown (never an id): unknown ones are simply not listed.
+  const devices = [...new Set(conflicts.map((c) => c.fromDevice.trim()).filter(Boolean))];
   const message = n === 1
-    ? "1 note was edited on two devices; the newer version was kept and the other is in the note's history."
-    : `${n} notes were edited on two devices; the newer version was kept and the other is in each note's history.`;
-  const from = devices.length ? `Other device${devices.length === 1 ? "" : "s"}: ${devices.join(", ")}.` : "";
+    ? "1 note was edited on two PCs. The newer version is kept, the other is in its history."
+    : `${n} notes were edited on two PCs. The newer versions are kept, the others are in their history.`;
+  const from = devices.length ? `Other PC${devices.length === 1 ? "" : "s"}: ${devices.join(", ")}.` : "";
   const names = conflicts.slice(0, 10).map((c) => entryName(c.path));
   const more = n > names.length ? ` and ${n - names.length} more` : "";
   const detail = [from, `Notes: ${names.join(", ")}${more}.`].filter(Boolean).join("\n");

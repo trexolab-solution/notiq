@@ -19,6 +19,7 @@ import {
 } from "../../../lib/vaultSync";
 import { turnOnSyncWithFeedback } from "../../../lib/syncFeedback";
 import { SYNC_INDEX } from "./syncIndex";
+import { deviceDisplayName } from "../../../lib/syncSurfaces";
 
 /** Search words for a row: its index keywords plus the index description (row descriptions are live text). */
 const k = (id: string): string[] => {
@@ -260,7 +261,7 @@ function DeviceNameRow({ status }: { status: SyncStatus }) {
   );
 }
 
-function DevicesBlock({ status }: { status: SyncStatus }) {
+export function DevicesBlock({ status }: { status: SyncStatus }) {
   const now = useNow();
   const [devices, setDevices] = useState<SyncDevice[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -276,7 +277,7 @@ function DevicesBlock({ status }: { status: SyncStatus }) {
     setRemoving(null);
     try {
       await syncRemoveDevice(d.id);
-      toast.info(`Removed ${d.name}`);
+      toast.info(`Removed ${deviceDisplayName(d)}`);
     } catch (e) {
       toast.error(syncErrorMessage(e));
     } finally {
@@ -299,16 +300,19 @@ function DevicesBlock({ status }: { status: SyncStatus }) {
             {devices.map((d) => (
               <li key={d.id} className="flex items-center gap-2 px-2.5 py-1.5">
                 <div className="flex-1 min-w-0">
-                  <div className="text-sm truncate" title={d.name}>
-                    {d.name}{d.thisDevice && <span className="text-[var(--color-text-muted)]"> (this device)</span>}
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <span className={`text-sm truncate${d.name.trim() ? "" : " italic text-[var(--color-text-muted)]"}`} title={deviceDisplayName(d)}>
+                      {deviceDisplayName(d)}
+                    </span>
+                    {d.thisDevice && <span className="sync-device__badge">This PC</span>}
                   </div>
                   <div className="text-[11px] text-[var(--color-text-muted)]">
-                    {d.thisDevice ? "This PC" : `Last seen ${relativeTime(d.lastSeenMs, now)}`}
+                    {d.thisDevice ? "This computer" : `Last seen ${relativeTime(d.lastSeenMs, now)}`}
                   </div>
                 </div>
                 {!d.thisDevice && (
                   <Tooltip content="Remove this device">
-                    <Button size="sm" variant="danger" aria-label={`Remove ${d.name}`} icon={<Trash2 size={13} />}
+                    <Button size="sm" variant="danger" aria-label={`Remove ${deviceDisplayName(d)}`} icon={<Trash2 size={13} />}
                             onClick={() => setRemoving(d)} />
                   </Tooltip>
                 )}
@@ -319,7 +323,7 @@ function DevicesBlock({ status }: { status: SyncStatus }) {
       </div>
       {removing && (
         <ConfirmDialog
-          title={`Remove ${removing.name}?`}
+          title={`Remove ${deviceDisplayName(removing)}?`}
           message="Its synced copy is deleted from your Google Drive. Use this for a PC you no longer use; if that PC syncs again, it shows up here again."
           confirmLabel="Remove"
           danger
