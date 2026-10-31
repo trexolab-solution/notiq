@@ -4,6 +4,8 @@ import { useAppStore } from "../../store";
 import { isVaultPath } from "../../lib/vault";
 import { Tooltip } from "../ui/Tooltip";
 import { NotificationBell } from "../ui/NotificationBell";
+import { SyncIndicator } from "./SyncIndicator";
+import { useSyncStatus } from "../../lib/vaultSync";
 import { subscribeBusyDelayed } from "../../lib/ai/activity";
 import { APP_NAME, APP_VERSION } from "../../config/app";
 
@@ -35,6 +37,8 @@ export const StatusBar = React.memo(function StatusBar({
   const themeId     = useAppStore((s) => s.themeId);
   const activeTab   = tabs.find((t) => t.id === activeTabId);
   const aiBusy      = useAiBusy();
+  const syncStatus  = useSyncStatus();
+  const openSettings = useAppStore((s) => s.openSettings);
 
   const { words, chars } = useMemo(() => {
     if (!activeTab || activeTab.kind !== "note") return { words: 0, chars: 0 };
@@ -91,6 +95,7 @@ export const StatusBar = React.memo(function StatusBar({
             Thinking…
           </span>
         )}
+        <SyncIndicator status={syncStatus} onOpen={() => openSettings("vault", "vault.sync.status")} />
         {activeTab?.kind === "settings" && <span className="status-tag">Settings</span>}
         {activeTab && activeTab.kind !== "settings" && (
           <>

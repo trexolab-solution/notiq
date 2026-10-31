@@ -6,6 +6,8 @@ import { PasswordInput } from "../ui/PasswordInput";
 import { Button } from "../ui/Button";
 import { RestoreBackupDialog } from "./RestoreBackupDialog";
 import { RecoveryKitDialog } from "./RecoveryKitDialog"; // 0.7.0 recovery kit
+import { JoinFromDriveDialog } from "./sync/JoinFromDriveDialog";
+import { initVaultSyncEvents } from "../../lib/vaultSyncEvents";
 import { toast } from "../../lib/toast";
 import { initVaultStateSync, useVaultStore, type VaultDialogMode } from "../../store/vaultStore";
 import { useAppStore } from "../../store";
@@ -24,6 +26,8 @@ export function VaultDialog() {
   useEffect(() => { void useVaultStore.getState().refresh(); }, []);
   // Follow an unlock done in the autofill prompt window (and its saved logins).
   useEffect(() => initVaultStateSync("main"), []);
+  // Vault Sync: live status, the one conflict notification, refreshing after remote changes.
+  useEffect(() => initVaultSyncEvents(), []);
   // This component is mounted once for the whole app, so it also hosts the
   // vault's global behaviour (idle / close-to-tray auto-lock).
   useVaultAutoLock();
@@ -75,6 +79,7 @@ function VaultDialogInner({ mode }: { mode: SetupMode }) {
   const [recoveryKey, setRecoveryKey] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [restoring, setRestoring] = useState(false);
+  const [joining, setJoining] = useState(false);
   const [showKit, setShowKit] = useState(false); // 0.7.0 recovery kit
 
   const validate = (): string | null => {
@@ -170,6 +175,10 @@ function VaultDialogInner({ mode }: { mode: SetupMode }) {
     );
   }
 
+  if (joining) {
+    return <JoinFromDriveDialog onBack={() => setJoining(false)} onJoined={succeed} />;
+  }
+
   return (
     <Dialog onClose={cancel} zClassName="z-[70]" size="sm" onSubmit={submit} title={title}
             icon={mode === "recover" ? <KeyRound size={16} /> : <Lock size={16} />}>
@@ -212,13 +221,14 @@ function VaultDialogInner({ mode }: { mode: SetupMode }) {
       </DialogBody>
       <DialogFooter
         start={mode === "setup" ? (
-          <button
-            type="button"
-            className="dlg-link"
-            onClick={() => setRestoring(true)}
-          >
-            Restore from backup file
-          </button>
+          <div className="flex flex-col items-start gap-1">
+            <button type="button" className="dlg-link" onClick={() => setJoining(true)}>
+              Use my vault from Google Drive
+            </button>
+            <button type="button" className="dlg-link" onClick={() => setRestoring(true)}>
+              Restore from backup file
+            </button>
+          </div>
         ) : undefined}
       >
         <DialogButton cancel onClick={cancel}>Cancel</DialogButton>

@@ -929,6 +929,32 @@
   color: var(--color-primary);
 }
 
+/* Vault Sync indicator (SyncIndicator.tsx): a flat status-bar button like the terminal toggle. */
+.status-sync {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 20px;
+  padding: 0 6px;
+  border: none;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: 11px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.1s, color 0.1s;
+}
+.status-sync:hover { background: color-mix(in srgb, var(--color-text) 8%, transparent); color: var(--color-text); }
+.status-sync:focus-visible { outline: 1px solid var(--color-primary); outline-offset: -1px; }
+.status-sync--synced  svg { color: var(--color-success); }
+.status-sync--offline { color: var(--color-warning); }
+.status-sync--problem { color: var(--color-danger); }
+.status-sync--syncing svg { animation: status-ai-spin 1.2s linear infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .status-sync--syncing svg { animation: none; }
+}
+
 /* ══════════════════════════════════════════════════════════════════════════════
    RESPONSIVE TITLEBAR — progressively collapse on narrow windows so the
    menu bar, mode picker, tools and window controls never overlap.
