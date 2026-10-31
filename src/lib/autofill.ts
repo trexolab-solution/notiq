@@ -203,6 +203,32 @@ export async function credentialsFor(m: LoginMatch) {
   return { username: m.entry.username, password: m.entry.password, title: m.entry.title, ...(code ? { code } : {}) };
 }
 
+// ─── Custom fields filled by name (0.9.0) ─────────────────────────────────────
+
+/** One custom field as the extension receives it with a login fill. */
+export interface CustomFillField { name: string; value: string; secret: boolean }
+
+/** Longest custom-field value sent to the extension (longer ones, e.g. pasted notes, are not filled). */
+export const MAX_CUSTOM_FILL_VALUE = 1024;
+
+/**
+ * The login's custom fields for the extension to fill by name ("Customer ID", "PIN" …): only fields with
+ * a name and a value, at most 20, values up to 1 KB, control characters other than tab / newline excluded.
+ * Sent only with a normal (password) fill of this very login, which is host-matched like its password;
+ * the extension fills secret ones only on that site's own pages. Never part of a code-only fill.
+ */
+export function customFillFields(e: Pick<LoginEntry, "custom">): CustomFillField[] {
+  const out: CustomFillField[] = [];
+  for (const f of e.custom ?? []) {
+    const name = f.label.replace(/[\u0000-\u001f\u007f]+/g, " ").trim();
+    if (!name || !f.value || f.value.length > MAX_CUSTOM_FILL_VALUE) continue;
+    if (/[\u0000-\u0008\u000b-\u001f\u007f]/.test(f.value)) continue;
+    out.push({ name: name.slice(0, 60), value: f.value, secret: f.secret === true });
+    if (out.length >= 20) break;
+  }
+  return out;
+}
+
 // ─── Code-only fills (a separate 2FA page) ───────────────────────────────────
 
 /** What the extension asked for: `"code"` = only the TOTP code of the matching login (Rust validated it). */
@@ -221,7 +247,10 @@ export function matchesForIntent(matches: LoginMatch[], intent?: FillIntent): Lo
  * title so the user can tell which login it was) and never the password.
  */
 export async function fillReply(m: LoginMatch, intent?: FillIntent) {
-  if (intent !== "code") return { ok: true, ...(await credentialsFor(m)) };
+  if (intent !== "code") {
+    const fields = customFillFields(m.entry);
+    return { ok: true, ...(await credentialsFor(m)), ...(fields.length ? { fields } : {}) };
+  }
   const code = hasTotp(m) ? await totpCode(m.entry.totp) : null;
   return code ? { ok: true, username: m.entry.username, title: m.entry.title, code } : { error: "no_code" };
 }

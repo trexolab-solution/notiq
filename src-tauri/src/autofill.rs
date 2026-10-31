@@ -16,6 +16,8 @@
 //! * `{op:"launch"}` → `{ok:true}` once the app answers (starts it if needed) or `{error:"app_not_running"}`
 //! * `{op:"fill", host, account?}` → `{ok:true, username, password, title, code?}` | `{choose:[{account,title,username}]}`
 //!   | `{error}`. `account` is a vault entry's relative path from an earlier `choose`.
+//!   Since 0.9.0 the reply may also carry `fields:[{name,value,secret}]`, that login's custom fields, which the
+//!   extension fills by name (secret ones only on the login's own site); older extensions ignore it.
 //!   With `intent:"code"` (a separate 2FA page) only logins with a TOTP secret count and the reply is
 //!   `{ok:true, username, title, code}` (never the password) or `{error:"no_code"}`.
 //! * `{op:"save", host, url, username, password, title}` → `{ok:true, status}` | `{error}`
