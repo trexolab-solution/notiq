@@ -325,6 +325,34 @@ describe("title bar cloud button", () => {
     expect(btn()!.dataset.syncState).toBe("problem");
     expect(q(".titlebar-sync__dot")).not.toBeNull();
   });
+
+  it("while syncing: aria-busy, the busy text as its name, the arrows spin; idle has neither", async () => {
+    useSyncStore.setState({ status: status({ state: "syncing" }) });
+    await render(<Bar />);
+    expect(btn()!.getAttribute("aria-busy")).toBe("true");
+    expect(btn()!.getAttribute("aria-label")).toBe("Vault sync: syncing with Google Drive…");
+    expect(btn()!.querySelector("svg.nq-spin")).not.toBeNull();
+    await act(async () => { useSyncStore.setState({ status: status({ state: "idle", pending: true }) }); });
+    // "Waiting to sync" is not work in progress: no busy flag, no spinning.
+    expect(btn()!.hasAttribute("aria-busy")).toBe(false);
+    expect(btn()!.querySelector("svg.nq-spin")).toBeNull();
+  });
+});
+
+describe("popover action busy state", () => {
+  it("Sync now shows a spinning icon + 'Syncing…', is disabled and aria-busy while it runs", async () => {
+    const a = document.createElement("button");
+    document.body.appendChild(a);
+    await render(
+      <SyncPopoverPanel model={popoverModel(status())} anchor={a} deviceCount={2} busy="syncNow"
+                        connecting={false} connectError={null} onAction={() => {}} onCancelConnect={() => {}} onClose={() => {}} />,
+    );
+    const b = q<HTMLButtonElement>('[data-action="syncNow"]')!;
+    expect(b.textContent).toBe("Syncing…");
+    expect(b.disabled).toBe(true);
+    expect(b.getAttribute("aria-busy")).toBe("true");
+    expect(b.querySelector("svg.nq-spin")).not.toBeNull();
+  });
 });
 
 describe("one-time indicator tip (on the title bar button)", () => {
