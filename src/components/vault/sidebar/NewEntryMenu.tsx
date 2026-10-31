@@ -4,6 +4,7 @@ import { NEW_ENTRY_OPTIONS, type NewEntryKind } from "../../../lib/vaultCreate";
 import { useClickOutside } from "../../../hooks/useClickOutside";
 import { useEscapeKey } from "../../../hooks/useEscapeKey";
 import { EntryIcon } from "./EntryIcon";
+import { Tooltip } from "../../ui/Tooltip";
 
 /** Header "+" dropdown: every entry type. Creates in the selected folder. */
 export function NewEntryMenu({ targetLabel, onPick }: { targetLabel: string; onPick: (k: NewEntryKind) => void }) {
@@ -35,18 +36,19 @@ export function NewEntryMenu({ targetLabel, onPick }: { targetLabel: string; onP
 
   return (
     <div className="relative" ref={wrap}>
-      <button
-        ref={trigger}
-        type="button"
-        className="vt-icon-btn"
-        title="New secret…"
-        aria-label="New secret"
-        aria-haspopup="menu"
-        aria-expanded={open}
-        onClick={() => setOpen((v) => !v)}
-      >
-        <Plus size={15} />
-      </button>
+      <Tooltip content="New secret…" disabled={open}>
+        <button
+          ref={trigger}
+          type="button"
+          className="vt-icon-btn"
+          aria-label="New secret"
+          aria-haspopup="menu"
+          aria-expanded={open}
+          onClick={() => setOpen((v) => !v)}
+        >
+          <Plus size={15} />
+        </button>
+      </Tooltip>
       {open && (
         <div
           ref={menu}

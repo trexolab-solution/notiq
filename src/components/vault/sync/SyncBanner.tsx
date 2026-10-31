@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Cloud, X } from "lucide-react";
+import { Tooltip } from "../../ui/Tooltip";
 import { useVaultStore } from "../../../store/vaultStore";
 import { useSyncStatus } from "../../../lib/vaultSync";
 import { isSyncBannerDone, markSyncBannerDone, openSyncPopover, shouldShowSyncBanner } from "../../../lib/syncLifecycle";
@@ -20,13 +21,15 @@ export function SyncBannerView({ onOpen, onDismiss }: { onOpen: () => void; onDi
       <div className="flex items-start gap-2">
         <Cloud size={13} className="shrink-0 mt-px text-[var(--color-primary)]" aria-hidden />
         <span className="flex-1"><b>New:</b> sync your vault across PCs through your own Google Drive.</span>
-        <button
-          type="button" aria-label="Dismiss" title="Dismiss"
-          className="shrink-0 cursor-pointer text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
-          onClick={onDismiss}
-        >
-          <X size={12} />
-        </button>
+        <Tooltip content="Dismiss">
+          <button
+            type="button" aria-label="Dismiss"
+            className="shrink-0 cursor-pointer text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
+            onClick={onDismiss}
+          >
+            <X size={12} />
+          </button>
+        </Tooltip>
       </div>
       <button
         type="button"

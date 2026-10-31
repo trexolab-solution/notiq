@@ -70,13 +70,14 @@ export function AppTitlebar({
           <img src={logoUrl} alt="Notiq" draggable={false} className="app-brand-logo" />
           <span className="app-brand-name">Notiq</span>
           {import.meta.env.DEV && (
+            <Tooltip content="Development build" description="Separate data from the installed app">
             <span
-              title="Development build: separate data from the installed app"
               style={{ marginLeft: 6, padding: "1px 6px", borderRadius: 4, fontSize: 10, fontWeight: 700, letterSpacing: "0.06em",
                        background: "color-mix(in srgb, var(--color-warning, #d97706) 22%, transparent)", color: "var(--color-warning, #d97706)" }}
             >
               DEV
             </span>
+            </Tooltip>
           )}
         </div>
 
@@ -141,17 +142,19 @@ export function AppTitlebar({
             <List size={15} strokeWidth={1.7} />
           </button>
         </Tooltip>
-        <button
-          className="titlebar-tool-btn titlebar-more"
-          aria-label="More"
-          aria-haspopup="menu"
-          onClick={(e) => {
-            const r = e.currentTarget.getBoundingClientRect();
-            setMore({ x: r.right - 180, y: r.bottom + 4 });
-          }}
-        >
-          <MoreHorizontal size={15} strokeWidth={1.7} />
-        </button>
+        <Tooltip content="More actions" disabled={!!more}>
+          <button
+            className="titlebar-tool-btn titlebar-more"
+            aria-label="More"
+            aria-haspopup="menu"
+            onClick={(e) => {
+              const r = e.currentTarget.getBoundingClientRect();
+              setMore({ x: r.right - 180, y: r.bottom + 4 });
+            }}
+          >
+            <MoreHorizontal size={15} strokeWidth={1.7} />
+          </button>
+        </Tooltip>
       </div>
 
       {more && <ContextMenu x={more.x} y={more.y} items={moreItems} onClose={() => setMore(null)} />}
