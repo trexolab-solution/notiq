@@ -23,6 +23,8 @@ export interface CtxMenuState {
   x: number;
   y: number;
   items: ContextMenuItem[];
+  /** Text-field menus leave focus in the field (see ContextMenu.keepFocus). */
+  keepFocus?: boolean;
 }
 
 /**
@@ -55,7 +57,7 @@ export function useGlobalContextMenu(opts: Options) {
       e.preventDefault();
 
       const items = buildFor(area, t, e, ref.current);
-      setCtxMenu(items.length ? { x: e.clientX, y: e.clientY, items } : null);
+      setCtxMenu(items.length ? { x: e.clientX, y: e.clientY, items, keepFocus: area === "text-field" } : null);
     };
 
     window.addEventListener("contextmenu", onCtx);

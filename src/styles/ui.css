@@ -19,7 +19,7 @@
   border: none; background: transparent; width: 100%; text-align: left;
   transition: background 0.08s; white-space: nowrap;
 }
-.context-menu-item:hover, .context-menu-item:focus-visible {
+.context-menu-item:hover, .context-menu-item.is-active {
   background: color-mix(in srgb, var(--color-primary) 10%, var(--color-bg-tertiary));
   color: var(--color-text);
 }

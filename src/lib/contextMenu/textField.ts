@@ -23,18 +23,23 @@ export function buildTextFieldMenu(field: Field, opts: TextFieldMenuOptions = {}
   const hasSelection = start !== null && end !== null && start !== end;
   const readOnly = field.readOnly || field.disabled;
 
+  // Act on the selection as it was at right-click time: the field's live selection
+  // can collapse while the menu is open (seen with the tab rename box).
+  const range = () => {
+    const len = field.value.length;
+    return [Math.min(start ?? len, len), Math.min(end ?? len, len)] as const;
+  };
+
   // Write through the native setter so React's onChange fires and state updates.
   const replaceSelection = (text: string) => {
-    const s = field.selectionStart ?? field.value.length;
-    const e = field.selectionEnd ?? field.value.length;
+    const [s, e] = range();
     const proto = field instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
     Object.getOwnPropertyDescriptor(proto, "value")?.set?.call(field, field.value.slice(0, s) + text + field.value.slice(e));
     field.dispatchEvent(new Event("input", { bubbles: true }));
     field.focus();
     try { field.setSelectionRange(s + text.length, s + text.length); } catch { /* number inputs */ }
   };
-  const selected = () =>
-    field.selectionStart === null ? "" : field.value.slice(field.selectionStart, field.selectionEnd ?? undefined);
+  const selected = () => field.value.slice(...range());
 
   return buildEditItems(
     { hasSelection, readOnly, secret: field.type === "password", isEmpty: field.value.length === 0 },

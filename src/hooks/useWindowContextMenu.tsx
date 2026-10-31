@@ -32,5 +32,5 @@ export function useWindowContextMenu({ textMenu = true }: Options = {}) {
     return () => window.removeEventListener("contextmenu", onCtx);
   }, [textMenu]);
 
-  return menu && <ContextMenu x={menu.x} y={menu.y} items={menu.items} onClose={() => setMenu(null)} />;
+  return menu && <ContextMenu x={menu.x} y={menu.y} items={menu.items} keepFocus onClose={() => setMenu(null)} />;
 }

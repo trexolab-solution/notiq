@@ -17,6 +17,12 @@ interface ContextMenuProps {
   y: number;
   items: ContextMenuItem[];
   onClose: () => void;
+  /**
+   * Leave keyboard focus where it is (a text field the menu acts on) instead of
+   * moving it into the menu — moving it would blur the field, and blur-to-commit
+   * inputs like the tab rename box would close under the menu.
+   */
+  keepFocus?: boolean;
 }
 
 /**
@@ -24,7 +30,7 @@ interface ContextMenuProps {
  * the anchor, is keyboard navigable (arrows, Home/End, Enter, Escape), and closes
  * on an outside click, another right-click, scroll, resize or window blur.
  */
-export function ContextMenu({ x, y, items, onClose }: ContextMenuProps) {
+export function ContextMenu({ x, y, items, onClose, keepFocus = false }: ContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState({ left: x, top: y });
   const [focusIdx, setFocusIdx] = useState(-1);
@@ -44,7 +50,7 @@ export function ContextMenu({ x, y, items, onClose }: ContextMenuProps) {
   useClickOutside(menuRef, () => onClose());
 
   useEffect(() => {
-    menuRef.current?.focus({ preventScroll: true });
+    if (!keepFocus) menuRef.current?.focus({ preventScroll: true });
     const close = () => onCloseRef.current();
     // Scrolling anything but the menu itself would leave it floating off its target.
     const onScroll = (e: Event) => {
@@ -58,6 +64,15 @@ export function ContextMenu({ x, y, items, onClose }: ContextMenuProps) {
       window.removeEventListener("resize", close);
       window.removeEventListener("scroll", onScroll, true);
     };
+  }, [keepFocus]);
+
+  // Capture-phase so menu keys never reach the editor / field / dialog underneath,
+  // whether or not the menu holds focus.
+  const onKeyDownRef = useRef<(e: KeyboardEvent) => void>(() => {});
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => onKeyDownRef.current(e);
+    window.addEventListener("keydown", h, true);
+    return () => window.removeEventListener("keydown", h, true);
   }, []);
 
   const enabled = items.map((it) => it.type === "item" && !it.disabled);
@@ -71,12 +86,17 @@ export function ContextMenu({ x, y, items, onClose }: ContextMenuProps) {
   const moveFocus = (idx: number) => {
     if (idx < 0) return;
     setFocusIdx(idx);
-    itemRefs.current[idx]?.focus();
+    if (!keepFocus) itemRefs.current[idx]?.focus({ preventScroll: true });
   };
 
-  const onKeyDown = (e: React.KeyboardEvent) => {
-    // Handled here (the menu has focus) so an Escape doesn't also close a dialog behind it.
-    e.stopPropagation();
+  onKeyDownRef.current = (e: KeyboardEvent) => {
+    const nav = ["Escape", "Tab", "ArrowDown", "ArrowUp", "Home", "End", "Enter", " "];
+    if (["Shift", "Control", "Alt", "Meta"].includes(e.key)) return;
+    if (!nav.includes(e.key)) {
+      if (keepFocus) onClose(); // typing goes on in the field
+      return;
+    }
+    e.stopPropagation(); // an Escape must not also close a dialog behind the menu
     switch (e.key) {
       case "Escape": e.preventDefault(); onClose(); return;
       case "Tab":    e.preventDefault(); onClose(); return;
@@ -100,7 +120,8 @@ export function ContextMenu({ x, y, items, onClose }: ContextMenuProps) {
       style={{ left: pos.left, top: pos.top }}
       tabIndex={-1}
       role="menu"
-      onKeyDown={onKeyDown}
+      // Clicking an item must not pull focus out of the field it acts on.
+      onMouseDown={(e) => e.preventDefault()}
       onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); }}
     >
       {items.map((item, i) => {
@@ -116,7 +137,7 @@ export function ContextMenu({ x, y, items, onClose }: ContextMenuProps) {
             key={key}
             type="button"
             ref={(el) => { itemRefs.current[i] = el; }}
-            className={`context-menu-item${item.danger ? " danger" : ""}`}
+            className={`context-menu-item${item.danger ? " danger" : ""}${i === focusIdx ? " is-active" : ""}`}
             role="menuitem"
             aria-disabled={item.disabled || undefined}
             disabled={item.disabled}
