@@ -248,13 +248,42 @@ async fn sync_meta<L: LocalVault>(ctx: &Ctx<'_>, local: &L, st: &mut SyncState, 
             warn(&mut out.warnings, "An older copy of the synced vault key file was found and replaced.".into());
         }
         upload_meta(ctx, local, st, st.meta_generation).await?;
-    } else if st.meta_pending && rm.meta != local.meta()? {
-        // Same generation, different content: two concurrent changes; this device's wins the tie.
-        upload_meta(ctx, local, st, g + 1).await?;
     } else {
+        // Same generation: the synced copy wins a tie with different content (two concurrent
+        // changes, or a device whose wrap is out of date must never revert a change made elsewhere).
+        if rm.meta != local.meta()? {
+            local.adopt_meta(&rm.meta)?;
+            out.meta_adopted = true;
+            if st.meta_pending {
+                warn(&mut out.warnings, "The master password was also changed on another device at the same time; that change was kept.".into());
+            }
+        }
         st.meta_pending = false;
         st.meta_revision = Some(o.revision.clone());
     }
+    Ok(())
+}
+
+/// Prepares `st` to (re-)enable sync for local vault `vault_hex` against the store's meta.
+/// A different remote vault is refused; another vault's old state is reset. Generations are
+/// left as they are, so the cycle that follows adopts a remote meta with a higher generation (or a
+/// different one at the same generation) and uploads only a genuine local change (one that raised
+/// this device's generation above the remote one while connected).
+pub fn prepare_enable(st: &mut SyncState, vault_hex: &str, remote: Option<&RemoteMeta>) -> Result<(), SyncError> {
+    if let Some(rm) = remote {
+        if rm.meta.vault_id != vault_hex {
+            return Err(SyncError::RemoteVaultDifferent);
+        }
+    }
+    if st.vault_id.as_deref() != Some(vault_hex) {
+        let own = st.own_generation;
+        st.reset_for_vault(vault_hex, if remote.is_some() { 0 } else { 1 });
+        st.own_generation = own;
+    }
+    st.meta_generation = st.meta_generation.max(if remote.is_some() { 0 } else { 1 });
+    st.enabled = true;
+    st.pending = true;
+    st.forget_revisions();
     Ok(())
 }
 
@@ -612,6 +641,46 @@ pub fn verify_meta(rm: &RemoteMeta, key: &VaultKey) -> Result<[u8; VAULT_ID_LEN]
     let id = rm.vault_id().ok_or_else(|| SyncError::Local("The synced vault key file is invalid.".into()))?;
     rm.verify(&SyncKeys::derive(key, &id)).map_err(|e| SyncError::Local(format!("The synced vault key file couldn't be verified ({e}).")))?;
     Ok(id)
+}
+
+/// What a join / adopt builds in memory before anything local is written.
+pub struct Prepared {
+    pub db: Db,
+    /// Fresh state for the synced vault (generations / revisions seen while downloading).
+    pub state: SyncState,
+    pub counts: ImportCounts,
+    pub warnings: Vec<String>,
+}
+
+/// Join / adopt, network part: verifies `rm` with `key`, downloads and merges every snapshot and
+/// blob, and (adopt "import") adds `import_from`'s entries. Pure with respect to the local vault:
+/// on any error nothing has been written, so the caller leaves the device exactly as it was.
+pub async fn prepare_switch(
+    p: &dyn StorageProvider,
+    rm: &RemoteMeta,
+    key: &VaultKey,
+    device_id: &str,
+    device_name: &str,
+    now_ms: u64,
+    import_from: Option<&Db>,
+) -> Result<Prepared, SyncError> {
+    let vault_id = verify_meta(rm, key)?;
+    let ctx = Ctx::new(p, key, &vault_id, device_id, device_name, now_ms);
+    let mut state = SyncState::default();
+    state.reset_for_vault(&seal::vault_id_hex(&vault_id), rm.generation);
+    let mut warnings = vec![];
+    let mut db = download_vault(&ctx, &mut state, &mut warnings).await?;
+    let counts = import_from.map(|l| import_local(&mut db, l)).unwrap_or_default();
+    if counts.attachments_skipped > 0 {
+        warnings.push(format!(
+            "{} attachment(s) from this PC weren't imported because the vault's attachment limits would be exceeded; they are in the backup file.",
+            counts.attachments_skipped
+        ));
+    }
+    state.enabled = true;
+    state.first_sync_done = true;
+    state.pending = true;
+    Ok(Prepared { db, state, counts, warnings })
 }
 
 /// Downloads every device snapshot (and their blobs) and merges them into one database whose

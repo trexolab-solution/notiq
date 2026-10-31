@@ -500,13 +500,17 @@ pub(crate) fn on_local_meta_changed(app: &AppHandle) {
     let Some(mgr) = app.try_state::<SyncManager>() else { return };
     {
         let mut st = mgr.st();
+        // Only a change made while sync is on is uploaded (above the synced generation). With sync
+        // off, re-enabling later adopts the synced vault.meta: an out-of-date device never reverts
+        // a password change made elsewhere.
+        if !st.enabled {
+            return;
+        }
         st.meta_generation += 1;
         st.meta_pending = true;
     }
     mgr.save();
-    if mgr.st().enabled {
-        mgr.kick(AFTER_UNLOCK);
-    }
+    mgr.kick(AFTER_UNLOCK);
 }
 
 /// Best-effort final push (≤ 10 s) before the vault locks.
@@ -615,34 +619,10 @@ pub async fn sync_enable(app: AppHandle) -> Result<SyncResult, String> {
     let drive = mgr.connected_drive(&app)?;
     let vault_state = app.state::<VaultState>();
     let Some((_, vault_id)) = vault_state.key_copy() else { return Err(engine::ERR_LOCKED.into()) };
-    let local_meta = vault::require_meta(&app)?;
     let hex = seal::vault_id_hex(&vault_id);
     let remote = engine::fetch_meta(&*drive).await.map_err(|e| e.message())?;
-    {
-        let mut st = mgr.st();
-        match &remote {
-            Some(rm) if rm.meta.vault_id != hex => return Err(engine::ERR_REMOTE_DIFFERENT.into()),
-            Some(rm) => {
-                if st.vault_id.as_deref() != Some(hex.as_str()) || st.meta_generation < rm.generation {
-                    let own = st.own_generation;
-                    st.reset_for_vault(&hex, rm.generation);
-                    st.own_generation = own;
-                }
-                // This device's password wrap differs from the synced one: this device's wins.
-                st.meta_pending = st.meta_pending || rm.meta != local_meta;
-            }
-            None => {
-                if st.vault_id.as_deref() != Some(hex.as_str()) {
-                    let own = st.own_generation;
-                    st.reset_for_vault(&hex, 1);
-                    st.own_generation = own;
-                }
-            }
-        }
-        st.enabled = true;
-        st.pending = true;
-        st.forget_revisions();
-    }
+    // The meta with the higher generation wins in the cycle below; a tie goes to the synced copy.
+    engine::prepare_enable(&mut mgr.st(), &hex, remote.as_ref()).map_err(|e| e.message())?;
     mgr.save();
     let r = run_cycle(&app, Mode::Full, true).await?;
     Ok(r.unwrap_or_default())
@@ -669,7 +649,12 @@ pub async fn sync_join(app: AppHandle, window: tauri::Window, password: String) 
     let m = rm.meta.clone();
     let password = Zeroizing::new(password);
     let key = vault::guarded(&vault_state, move || vc::unlock_with_password(&m, &password)).await.map_err(map_wrong_password)?;
-    let vault_id = engine::verify_meta(&rm, &key).map_err(|e| e.message())?;
+    let device_id = vault_state.device_id().ok_or("The sync device id isn't set yet")?;
+    // Everything is downloaded and verified in memory first: on failure nothing local changes.
+    let prep = engine::prepare_switch(&*drive, &rm, &key, &device_id, &mgr.device_name(), vdb::now_ms(), None)
+        .await
+        .map_err(|e| e.message())?;
+    let vault_id = rm.vault_id().ok_or("The synced vault key file is invalid.")?;
 
     let root = match vault_state.root() {
         Some(r) => r,
@@ -685,26 +670,37 @@ pub async fn sync_join(app: AppHandle, window: tauri::Window, password: String) 
         let aside = root.join(format!("{}.before-join-{}", vdb::DB_FILE, vdb::now_ms()));
         std::fs::rename(&stray, &aside).map_err(|e| e.to_string())?;
     }
+    let mut db = prep.db;
+    vault_state.lock_all();
+    vdb::save_db(&root, &mut db, &key, &vault_id)?; // the database first, then the key file
+    drop(db);
     vault::save_meta(&app, &rm.meta)?;
     vault::clear_prev_meta(&app);
     crate::hello::invalidate(&app);
-    {
-        let mut st = mgr.st();
-        st.reset_for_vault(&seal::vault_id_hex(&vault_id), rm.generation);
-        st.enabled = true;
-        st.first_sync_done = true; // nothing local to protect
-        st.pending = true;
-    }
-    mgr.save();
-    vault_state.lock_all();
+    install_switched_state(&mgr, prep.state, prep.warnings);
     vault_state.install_key(key, vault_id);
     vault::notify_state(&app, true, window.label());
-    // The vault is set up and unlocked; if the download fails it is retried by the scheduler.
-    if run_cycle(&app, Mode::Full, true).await.is_err() {
-        mgr.kick(DEBOUNCE);
-    }
+    // Uploads this device's snapshot; a failure only leaves it pending.
+    let _ = run_cycle(&app, Mode::Full, true).await;
     let _ = app.emit(CHANGED_EVENT, serde_json::json!({}));
+    notify_status(&app);
     Ok(())
+}
+
+/// After join / adopt: this device's sync state for the newly installed vault.
+fn install_switched_state(mgr: &SyncManager, fresh: SyncState, warnings: Vec<String>) {
+    {
+        let mut st = mgr.st();
+        let own = st.own_generation.max(fresh.own_generation);
+        let (provider, account, name) = (st.provider.take(), st.account.take(), st.device_name.take());
+        *st = fresh;
+        st.own_generation = own;
+        st.provider = provider;
+        st.account = account;
+        st.device_name = name;
+        st.last_error = (!warnings.is_empty()).then(|| warnings.join(" "));
+    }
+    mgr.save();
 }
 
 /// Machine 2 that already has its own vault: back it up, then switch to the synced vault,
@@ -763,22 +759,16 @@ pub async fn sync_adopt_remote(
     }
 
     let device_id = vault_state.device_id().ok_or("The sync device id isn't set yet")?;
-    let mut st2 = SyncState::default();
-    let mut warnings = vec![];
-    let mut db = {
-        let ctx = Ctx::new(&*drive as &dyn StorageProvider, &remote_key, &remote_id, &device_id, &mgr.device_name(), vdb::now_ms());
-        engine::download_vault(&ctx, &mut st2, &mut warnings).await.map_err(|e| e.message())?
-    };
-    let counts = if import { engine::import_local(&mut db, &local_db) } else { engine::ImportCounts::default() };
+    // Download, verify and merge in memory first: on failure this PC's vault stays as it was
+    // (usable with its own password) and sync stays off; only the backup file remains.
+    let prep = engine::prepare_switch(&*drive, &rm, &remote_key, &device_id, &mgr.device_name(), vdb::now_ms(), import.then_some(&local_db))
+        .await
+        .map_err(|e| e.message())?;
     drop(local_db);
-    if counts.attachments_skipped > 0 {
-        warnings.push(format!(
-            "{} attachment(s) from this PC weren't imported because the vault's attachment limits would be exceeded; they are in the backup file.",
-            counts.attachments_skipped
-        ));
-    }
+    let counts = prep.counts.clone();
 
     // Switch this device to the synced vault.
+    let mut db = prep.db;
     vault_state.lock_all();
     vault::notify_state(&app, false, window.label());
     vdb::save_db(&root, &mut db, &remote_key, &remote_id)?;
@@ -786,29 +776,18 @@ pub async fn sync_adopt_remote(
     vault::save_meta(&app, &rm.meta)?;
     vault::clear_prev_meta(&app);
     crate::hello::invalidate(&app); // per-device Hello was for the old key
-    {
-        let mut st = mgr.st();
-        st.reset_for_vault(&seal::vault_id_hex(&remote_id), rm.generation);
-        st.seen = st2.seen;
-        st.devices = st2.devices;
-        st.revisions = st2.revisions;
-        st.own_generation = st.own_generation.max(st2.own_generation);
-        st.enabled = true;
-        st.first_sync_done = true;
-        st.pending = true;
-        st.last_error = (!warnings.is_empty()).then(|| warnings.join(" "));
-    }
-    mgr.save();
+    let warnings = prep.warnings;
+    install_switched_state(&mgr, prep.state, warnings.clone());
     vault_state.install_key(remote_key, remote_id);
     vault::notify_state(&app, true, window.label());
-    if run_cycle(&app, Mode::Full, true).await.is_err() {
-        mgr.kick(DEBOUNCE);
-    } else if !warnings.is_empty() {
+    let _ = run_cycle(&app, Mode::Full, true).await;
+    if !warnings.is_empty() {
         let mut st = mgr.st();
-        st.last_error = Some(match st.last_error.take() {
-            Some(e) => format!("{} {e}", warnings.join(" ")),
-            None => warnings.join(" "),
-        });
+        let mut msg = warnings.join(" ");
+        if let Some(e) = st.last_error.take().filter(|e| *e != msg) {
+            msg = format!("{msg} {e}");
+        }
+        st.last_error = Some(msg);
     }
     mgr.save();
     let _ = app.emit(CHANGED_EVENT, serde_json::json!({}));

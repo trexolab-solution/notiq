@@ -137,8 +137,9 @@ impl Device {
 fn join(p: &dyn StorageProvider, id: &'static str, name: &str, password: &str) -> Result<Device, SyncError> {
     let rm = block_on(fetch_meta(p))?.ok_or(SyncError::NoRemoteVault)?;
     let key = vc::unlock_with_password(&rm.meta, password).map_err(|_| SyncError::WrongPassword)?;
-    verify_meta(&rm, &key)?;
-    let mut d = Device::with(id, name, rm.meta.clone(), key, Db::new(), rm.generation);
+    let prep = block_on(prepare_switch(p, &rm, &key, id, name, crate::vault_db::now_ms(), None))?;
+    let mut d = Device::with(id, name, rm.meta.clone(), key, prep.db, rm.generation);
+    d.st = prep.state;
     d.sync(p)?;
     Ok(d)
 }
@@ -513,17 +514,10 @@ fn adopt(p: &InMemoryProvider, local: &Db, local_meta: &VaultMeta, local_key: &V
     let backup = state::write_local_vault_backup(&dir, local_meta.to_json().as_bytes(), &local.seal(local_key, &local_meta.vault_id_bytes().unwrap()).unwrap(), 1).unwrap();
     let rm = block_on(fetch_meta(p)).unwrap().unwrap();
     let key = vc::unlock_with_password(&rm.meta, PW).unwrap();
-    let id = verify_meta(&rm, &key).unwrap();
-    let mut st = SyncState::default();
-    st.reset_for_vault(&seal::vault_id_hex(&id), rm.generation);
-    let ctx = Ctx::new(p, &key, &id, B, "PC", 1);
-    let mut warnings = vec![];
-    let mut db = block_on(download_vault(&ctx, &mut st, &mut warnings)).unwrap();
-    let counts = if import { import_local(&mut db, local) } else { ImportCounts::default() };
-    let mut d = Device::with(B, "PC", rm.meta.clone(), key, db, rm.generation);
-    d.st.seen = st.seen;
-    d.st.pending = true;
-    d.st.first_sync_done = true;
+    let prep = block_on(prepare_switch(p, &rm, &key, B, "PC", 1, import.then_some(local))).unwrap();
+    let counts = prep.counts.clone();
+    let mut d = Device::with(B, "PC", rm.meta.clone(), key, prep.db, rm.generation);
+    d.st = prep.state;
     ok(d.sync(p));
     (d, counts, backup)
 }
@@ -666,4 +660,126 @@ fn syncing_never_deletes_the_remote_vault() {
     a.st.enabled = false;
     assert!(p.raw(META_NAME).is_some() && p.raw(&seal::device_object(A)).is_some());
     assert_eq!(p.calls().delete, 0);
+}
+
+#[test]
+fn re_enabling_adopts_a_password_change_made_elsewhere_and_never_reverts_it() {
+    let p = InMemoryProvider::new();
+    let mut a = Device::create(A, "A");
+    ok(a.sync(&p));
+    let mut b = join(&p, B, "B", PW).unwrap();
+    b.st.enabled = false; // B turns sync off
+    // A changes the password while B is off.
+    let old = a.v.meta().unwrap();
+    let newer = vc::rewrap_password(&old, &a.v.key, "brand new password").unwrap();
+    *a.v.meta.lock().unwrap() = newer.clone();
+    a.st.meta_generation += 1;
+    a.st.meta_pending = true;
+    ok(a.sync(&p));
+    let remote_before = p.raw(META_NAME).unwrap();
+    // B turns sync on again (what sync_enable does).
+    let rm = block_on(fetch_meta(&p)).unwrap().unwrap();
+    let hex = seal::vault_id_hex(&b.v.vault_id);
+    prepare_enable(&mut b.st, &hex, Some(&rm)).unwrap();
+    let o = ok(b.sync(&p));
+    assert!(o.meta_adopted);
+    assert_eq!(b.v.meta().unwrap(), newer);
+    assert_eq!(p.raw(META_NAME).unwrap(), remote_before, "the synced vault.meta is unchanged");
+    let prev = b.v.prev.lock().unwrap().clone();
+    assert_eq!(vc::unlock_with_password_or_previous(&newer, prev.as_ref(), PW).unwrap_err(), VaultError::PasswordChangedElsewhere);
+    // A tie (same generation, different wrap, e.g. concurrent changes): the synced copy wins.
+    let mine = vc::rewrap_password(&newer, &b.v.key, "b's own password").unwrap();
+    *b.v.meta.lock().unwrap() = mine;
+    b.st.meta_pending = true;
+    b.st.forget_revisions();
+    let o = ok(b.sync(&p));
+    assert!(o.meta_adopted);
+    assert_eq!(b.v.meta().unwrap(), newer);
+    assert_eq!(p.raw(META_NAME).unwrap(), remote_before, "a tie never overwrites the synced copy");
+    // A genuine change made while connected (generation above the synced one) is uploaded.
+    let mine = vc::rewrap_password(&newer, &b.v.key, "b's own password").unwrap();
+    *b.v.meta.lock().unwrap() = mine.clone();
+    b.st.meta_generation += 1;
+    b.st.meta_pending = true;
+    ok(b.sync(&p));
+    ok(a.sync(&p));
+    assert_eq!(a.v.meta().unwrap(), mine);
+    // Re-enabling against a different remote vault is refused.
+    let (m2, _, _) = vc::create_vault(PW, FAST).unwrap();
+    assert_eq!(prepare_enable(&mut b.st, &m2.vault_id, Some(&rm)), Err(SyncError::RemoteVaultDifferent));
+}
+
+#[test]
+fn join_and_adopt_change_nothing_when_the_download_fails() {
+    let p = InMemoryProvider::new();
+    let mut a = remote_with_a(&p);
+    a.edit(|db| { db.attach_add("same.nqv", "f.txt", &b64_encode(b"blob")).unwrap(); });
+    ok(a.sync(&p));
+    let rm = block_on(fetch_meta(&p)).unwrap().unwrap();
+    let key = vc::unlock_with_password(&rm.meta, PW).unwrap();
+    let (local, _, _) = machine2();
+    let before = local.entries.clone();
+    for fault in [ProviderError::Offline, ProviderError::Auth, ProviderError::RateLimited { retry_after_s: 3 }] {
+        match &fault {
+            ProviderError::Offline => p.set_offline(true),
+            ProviderError::Auth => p.set_auth_expired(true),
+            _ => p.set_rate_limited(Some(3)),
+        }
+        for import in [None, Some(&local)] {
+            let r = block_on(prepare_switch(&p, &rm, &key, B, "PC", 1, import));
+            assert_eq!(r.err().map(|e| e.message()), Some(SyncError::Provider(fault.clone()).message()));
+        }
+        p.clear_faults();
+    }
+    // The listing works, then every snapshot download fails (connection lost mid-download).
+    let mid = FailGets { inner: &p, err: ProviderError::Offline };
+    for import in [None, Some(&local)] {
+        assert_eq!(block_on(prepare_switch(&mid, &rm, &key, B, "PC", 1, import)).err(), Some(SyncError::Provider(ProviderError::Offline)));
+    }
+    assert_eq!(local.entries, before, "this PC's vault is untouched");
+    // A missing blob doesn't block a join: it is fetched on a later sync.
+    let blob = {
+        let db = a.v.db.lock().unwrap();
+        let id = db.get("same.nqv").unwrap().attachments[0].id.clone();
+        SyncKeys::derive(&a.v.key, &a.v.vault_id).blob_name(&id)
+    };
+    p.clear_faults();
+    let saved = p.raw(&blob).unwrap();
+    block_on(p.delete(&blob)).unwrap();
+    let prep = block_on(prepare_switch(&p, &rm, &key, B, "PC", 1, None)).unwrap();
+    assert!(prep.warnings.iter().any(|w| w.contains("attachments")));
+    assert_eq!(prep.db.get("same.nqv").unwrap().content, "identical");
+    block_on(p.put(&blob, &saved)).unwrap();
+    // Tampered meta is refused before anything is downloaded.
+    let (m2, k2, _) = vc::create_vault(PW, FAST).unwrap();
+    let _ = m2;
+    assert!(block_on(prepare_switch(&p, &rm, &k2, B, "PC", 1, None)).is_err());
+}
+
+/// Lists normally but fails every download (a connection lost after the listing).
+struct FailGets<'a> {
+    inner: &'a InMemoryProvider,
+    err: ProviderError,
+}
+
+#[async_trait::async_trait]
+impl StorageProvider for FailGets<'_> {
+    fn id(&self) -> &'static str {
+        "fail-gets"
+    }
+    fn capabilities(&self) -> super::provider::Capabilities {
+        self.inner.capabilities()
+    }
+    async fn list(&self, prefix: &str) -> Result<Vec<super::provider::RemoteObject>, ProviderError> {
+        self.inner.list(prefix).await
+    }
+    async fn get(&self, _name: &str) -> Result<Vec<u8>, ProviderError> {
+        Err(self.err.clone())
+    }
+    async fn put(&self, name: &str, data: &[u8]) -> Result<super::provider::RemoteObject, ProviderError> {
+        self.inner.put(name, data).await
+    }
+    async fn delete(&self, name: &str) -> Result<(), ProviderError> {
+        self.inner.delete(name).await
+    }
 }
