@@ -1,9 +1,9 @@
-import { CreditCard, FileText, Folder, FolderOpen, KeyRound, KeySquare, ListChecks, Server, Wifi } from "lucide-react";
+import { CreditCard, FileText, Folder, FolderOpen, IdCard, KeyRound, KeySquare, ListChecks, Server, Wifi } from "lucide-react";
 import type { EntryKind } from "../../../lib/vaultTree";
 
 const LABEL: Record<EntryKind, string> = {
   folder: "Folder", note: "Secure note", login: "Login", ssh: "SSH / server", secret: "API key / secret",
-  card: "Payment card", wifi: "Wi-Fi network", codes: "Recovery codes",
+  card: "Payment card", wifi: "Wi-Fi network", codes: "Recovery codes", identity: "Identity",
 };
 export const kindLabel = (k: EntryKind) => LABEL[k];
 
@@ -19,6 +19,7 @@ export function EntryIcon({ kind, open = false, size = 14 }: { kind: EntryKind; 
     case "card":   return <CreditCard {...p} />;
     case "wifi":   return <Wifi {...p} />;
     case "codes":  return <ListChecks {...p} />;
+    case "identity": return <IdCard {...p} />;
     default:       return <FileText {...p} />;
   }
 }
