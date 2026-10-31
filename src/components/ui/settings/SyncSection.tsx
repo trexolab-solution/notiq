@@ -1,10 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
-import { Cloud, ExternalLink, LogOut, RefreshCw, Trash2 } from "lucide-react";
+import { Cloud, ExternalLink, LogOut, Pause, Play, RefreshCw, Trash2 } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { SettingRow } from "../SettingRow";
 import { SettingsBlock } from "../SettingsGroup";
 import { Button } from "../Button";
-import { Toggle } from "../Toggle";
 import { Input } from "../Input";
 import { Tooltip } from "../Tooltip";
 import { ConfirmDialog } from "../ConfirmDialog";
@@ -42,9 +41,18 @@ function useNow(): number {
   return now;
 }
 
+/** The pause control's status line: "Sync is on" / "Sync is paused on this PC" (next to [Pause] / [Resume sync]). */
+export const SYNC_ON_LINE = "Sync is on";
+export const SYNC_PAUSED_LINE = "Sync is paused on this PC";
+export function pauseLine(s: Pick<SyncStatus, "enabled">): string {
+  return s.enabled
+    ? `${SYNC_ON_LINE} · Changes upload a few seconds after you make them, while the vault is unlocked.`
+    : `${SYNC_PAUSED_LINE} · Your vault stays in your Google Drive. Nothing syncs here until you resume.`;
+}
+
 /** Text of the "Sync status" row. */
 export function statusLine(s: SyncStatus, now: number): string {
-  if (!s.enabled) return "Sync is off on this PC.";
+  if (!s.enabled) return s.lastError ?? (s.lastSyncedMs ? `Not syncing. Last synced ${relativeTime(s.lastSyncedMs, now)}.` : "Not syncing.");
   switch (s.state) {
     case "syncing": return "Syncing…";
     case "locked": return "Paused while the vault is locked. It syncs again when you unlock.";
@@ -84,18 +92,22 @@ export function SyncSection() {
   const connecting = reconnecting || setupConnecting;
   const cancel = () => { if (reconnecting) cancelReconnect(); else useSyncSetupStore.getState().cancel(); };
 
-  const [busy, setBusy] = useState<null | "enable" | "now" | "name">(null);
+  const [busy, setBusy] = useState<null | "pause" | "resume" | "now">(null);
   const [confirmDisconnect, setConfirmDisconnect] = useState(false);
 
   const connected = !!status?.provider;
   const configured = !!status?.configured;
   const problem = status?.state === "authNeeded" || status?.state === "error";
 
-  // Resuming runs the same flow as connecting (unlock if needed, then merge / upload / two vaults).
-  const resume = () => { void startSyncSetup(); };
+  // Resuming runs the same flow as connecting (unlock if needed, then merge / re-upload question / two vaults).
+  // The button shows "Resuming…" while Drive is checked and merged; a question dialog ends the busy state.
+  const resume = async () => {
+    setBusy("resume");
+    try { await startSyncSetup(); } finally { setBusy(null); }
+  };
 
   const pause = async () => {
-    setBusy("enable");
+    setBusy("pause");
     try {
       await syncDisable();
       toast.info("Sync is paused on this PC. Your vault stays in your Google Drive.");
@@ -169,12 +181,17 @@ export function SyncSection() {
       </SettingRow>
 
       {connected && exists && (
-        <SettingRow id="vault.sync.enabled" label="Pause sync on this PC" keywords={k("vault.sync.enabled")}
-                    description={status.enabled
-                      ? "Sync is on. Changes upload a few seconds after you make them, while the vault is unlocked."
-                      : "Sync is off on this PC. Turn this off to sync again."}>
-          <Toggle aria-label="Pause sync on this PC" value={!status.enabled} disabled={busy === "enable"}
-                  onChange={(paused) => void (paused ? pause() : resume())} />
+        <SettingRow id="vault.sync.enabled" label="Sync on this PC" keywords={k("vault.sync.enabled")}
+                    description={pauseLine(status)}>
+          {status.enabled ? (
+            <Button className="settings-btn" size="sm" icon={<Pause size={12} />}
+                    loading={busy === "pause"} loadingText="Pausing…" disabled={busy != null}
+                    onClick={() => void pause()}>Pause</Button>
+          ) : (
+            <Button className="settings-btn-primary" variant="primary" size="sm" icon={<Play size={12} />}
+                    loading={busy === "resume"} loadingText="Resuming…" disabled={busy != null}
+                    onClick={() => void resume()}>Resume sync</Button>
+          )}
         </SettingRow>
       )}
       {connected && !exists && (
