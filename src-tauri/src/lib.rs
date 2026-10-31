@@ -16,6 +16,8 @@ mod session_lock;
 mod hello; // 0.7.0 hello
 // 0.7.0 quick search
 mod quick_search;
+// 0.9.0 vault sync: storage providers (P2)
+mod sync;
 #[cfg(desktop)]
 use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem},
