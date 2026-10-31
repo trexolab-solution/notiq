@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
-  decideAfterSignIn, itemsText, lastChangedText, mergedMessage, sourceDeviceName, twoVaultsDoneMessage, uploadQuestion,
-  vaultReadyMessage, type LocalVaultFacts,
+  decideAfterSignIn, itemsText, lastChangedText, mergedMessage, reuploadQuestion, sourceDeviceName, twoVaultsDoneMessage,
+  uploadQuestion, vaultReadyMessage, wasSyncedBefore, type LocalVaultFacts,
 } from "./syncSetup";
 import type { SyncDevice } from "./vaultSync";
 
@@ -37,6 +37,26 @@ describe("the decision after sign-in (design/vault-sync-ux-flow.md)", () => {
 
   it("row 6: local vault with items + a different Drive vault → the two-vaults dialog", () => {
     expect(decideAfterSignIn(local(12), driveOther)).toEqual({ kind: "twoVaults", items: 12 });
+  });
+
+  it("row 7: resuming on a PC that synced before + empty Drive → ask to upload again (never silently)", () => {
+    const resume = { wasSynced: true };
+    expect(decideAfterSignIn(local(42), driveEmpty, resume)).toEqual({ kind: "reupload", items: 42 });
+    expect(decideAfterSignIn(local(null), driveEmpty, resume)).toEqual({ kind: "reupload", items: null });
+    // The other rows don't change on a resume.
+    expect(decideAfterSignIn(local(42), driveSame, resume)).toEqual({ kind: "merge" });
+    expect(decideAfterSignIn(local(42), driveOther, resume)).toEqual({ kind: "twoVaults", items: 42 });
+    expect(decideAfterSignIn(local(null, false), driveEmpty, resume)).toEqual({ kind: "unlock" });
+    expect(decideAfterSignIn(none, driveEmpty, resume)).toEqual({ kind: "create" });
+    // Never synced before (first connect, or the upload question was cancelled): the normal upload question.
+    expect(decideAfterSignIn(local(42), driveEmpty, { wasSynced: false })).toEqual({ kind: "upload", items: 42 });
+  });
+
+  it("a resume = sync not on here, but this PC synced before", () => {
+    expect(wasSyncedBefore({ enabled: false, lastSyncedMs: 123 })).toBe(true);
+    expect(wasSyncedBefore({ enabled: false, lastSyncedMs: null })).toBe(false);
+    expect(wasSyncedBefore({ enabled: true, lastSyncedMs: 123 })).toBe(false);
+    expect(wasSyncedBefore(null)).toBe(false);
   });
 
   it("an unreadable item count is treated as 'has items' (never replaces a vault by guess)", () => {
@@ -82,6 +102,10 @@ describe("copy", () => {
     expect(itemsText(1)).toBe("1 item");
     expect(uploadQuestion(12)).toBe("Upload this vault (12 items) to Google Drive?");
     expect(uploadQuestion(null)).toBe("Upload this vault to Google Drive?");
+    expect(reuploadQuestion(42)).toBe(
+      "Your vault wasn't found in Google Drive (it may have been deleted). Upload this PC's vault (42 items) again?");
+    expect(reuploadQuestion(null)).toBe(
+      "Your vault wasn't found in Google Drive (it may have been deleted). Upload this PC's vault again?");
     expect(vaultReadyMessage("LAPTOP")).toBe("Vault ready · synced with LAPTOP");
     expect(vaultReadyMessage(null)).toBe("Vault ready · synced with Google Drive");
     expect(mergedMessage({ added: 1, updated: 2, removed: 0, conflicts: [] })).toBe("Synced · 3 changes");

@@ -15,8 +15,8 @@ import { HELLO_RESET_NOTE, enableSync, runAdopt, runJoin } from "./vaultSyncFlow
 import { turnOnSyncWithFeedback } from "./syncFeedback";
 import { countEntries } from "./syncLifecycle";
 import {
-  SYNC_START_SETUP_EVENT, decideAfterSignIn, mergedMessage, sourceDeviceName, twoVaultsDoneMessage, vaultReadyMessage,
-  type LocalVaultFacts,
+  KEPT_SEPARATE_TOAST, PAUSED_TOAST, SYNC_START_SETUP_EVENT, decideAfterSignIn, mergedMessage, sourceDeviceName,
+  twoVaultsDoneMessage, vaultReadyMessage, wasSyncedBefore, type LocalVaultFacts,
 } from "./syncSetup";
 import { useVaultStore } from "../store/vaultStore";
 
@@ -99,6 +99,8 @@ export type SetupView =
   | { step: "openDrive"; replaceLocal: boolean }
   | { step: "create" }
   | { step: "upload"; items: number | null }
+  /** Resume found no vault in Drive: "Upload this PC's vault (N items) again?" (row 7). */
+  | { step: "reupload"; items: number | null }
   | { step: "twoVaults"; items: number | null }
   | { step: "error"; message: string };
 
@@ -121,12 +123,16 @@ interface SetupState {
   opts: StartOptions;
   /** "Create your vault" was chosen: sync turns on as soon as the vault exists (no post-create question). */
   pendingCreate: boolean;
+  /** This run is a resume on a PC that synced before (`wasSyncedBefore` of the status when it started). */
+  wasSynced: boolean;
   start: (opts?: StartOptions) => Promise<void>;
   cancel: () => void;
   retry: () => Promise<void>;
   submitDrivePassword: (password: string) => Promise<void>;
   createVault: () => Promise<void>;
   confirmUpload: () => Promise<void>;
+  /** "Not now" / "Cancel" on an upload question: nothing is uploaded, sync stays paused on this PC. */
+  declineUpload: () => void;
   chooseTwoVaults: (choice: "import" | "backupOnly" | "cancel", remotePassword: string) => Promise<void>;
   clearError: () => void;
 }
@@ -177,7 +183,7 @@ export const useSyncSetupStore = create<SetupState>((set, get) => {
     }
     const local = await readLocalVault();
     if (!live(mine)) return;
-    const next = decideAfterSignIn(local, remote);
+    const next = decideAfterSignIn(local, remote, { wasSynced: get().wasSynced });
     switch (next.kind) {
       case "unlock": {
         if (unlockedOnce) return fail("The vault is locked. Unlock it, then try again.");
@@ -203,6 +209,10 @@ export const useSyncSetupStore = create<SetupState>((set, get) => {
         if (get().opts.autoUpload) return upload(mine);
         set({ view: { step: "upload", items: next.items } });
         return;
+      case "reupload":
+        // Never silently: the Drive vault may have been deleted on purpose.
+        set({ view: { step: "reupload", items: next.items } });
+        return;
       case "create":
         set({ view: { step: "create" } });
         return;
@@ -225,13 +235,15 @@ export const useSyncSetupStore = create<SetupState>((set, get) => {
     devices: null,
     opts: {},
     pendingCreate: false,
+    wasSynced: false,
 
     async start(opts = {}) {
       const mine = ++run;
-      set({ view: { step: "checking" }, busy: false, error: null, devices: null, opts, pendingCreate: false });
+      set({ view: { step: "checking" }, busy: false, error: null, devices: null, opts, pendingCreate: false, wasSynced: false });
       const status = await useSyncStore.getState().refresh();
       if (!live(mine)) return;
       if (!status) return fail(useSyncStore.getState().error ?? "Couldn't check sync");
+      set({ wasSynced: wasSyncedBefore(status) });
       if (!status.configured && !status.provider) { set({ view: { step: "notConfigured" } }); return; }
       if (!status.provider) {
         set({ view: { step: "connecting" } });
@@ -287,14 +299,23 @@ export const useSyncSetupStore = create<SetupState>((set, get) => {
     },
 
     async confirmUpload() {
-      if (get().view.step !== "upload") return;
+      const step = get().view.step;
+      if (step !== "upload" && step !== "reupload") return;
       await upload(run);
+    },
+
+    declineUpload() {
+      const step = get().view.step;
+      if (step !== "upload" && step !== "reupload") return;
+      run++;
+      toast.info(PAUSED_TOAST, { source: SOURCE });
+      end(true);
     },
 
     async chooseTwoVaults(choice, remotePassword) {
       if (get().view.step !== "twoVaults" || get().busy) return;
       if (choice === "cancel") {
-        toast.info("Sync is off on this PC. It keeps its own vault.", { source: SOURCE });
+        toast.info(KEPT_SEPARATE_TOAST, { source: SOURCE });
         return end(true);
       }
       const mine = run;

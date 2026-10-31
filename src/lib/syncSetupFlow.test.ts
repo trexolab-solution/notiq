@@ -15,6 +15,8 @@ const be = {
   localItems: 0,
   remote: { exists: false, sameVault: null as boolean | null },
   remoteItems: 0,
+  /** This PC synced before (sync_status reports a last-synced time while paused). */
+  syncedBefore: false,
   /** sync_connect waits for this to be called. */
   connectGate: null as null | ((ok: boolean) => void),
 };
@@ -23,7 +25,7 @@ const calls = (cmd: string) => invoke.mock.calls.filter((c) => c[0] === cmd);
 
 const status = () => ({
   configured: true, provider: be.provider, account: be.provider ? "me@gmail.com" : null, enabled: be.enabled,
-  state: be.enabled ? "idle" : "off", lastSyncedMs: be.enabled ? NOW : null, lastError: null, pending: false,
+  state: be.enabled ? "idle" : "off", lastSyncedMs: be.enabled || be.syncedBefore ? NOW : null, lastError: null, pending: false,
   deviceId: "me", deviceName: "DESK",
 });
 const items = (n: number) => Array.from({ length: n }, (_, i) => ({ path: `e${i}.nqv`, dir: false }));
@@ -141,7 +143,7 @@ beforeEach(() => {
   S.getState().cancel();
   Object.assign(be, {
     provider: null, enabled: false, localExists: false, unlocked: false, localItems: 0,
-    remote: { exists: false, sameVault: null }, remoteItems: 0, connectGate: null,
+    remote: { exists: false, sameVault: null }, remoteItems: 0, connectGate: null, syncedBefore: false,
   });
   invoke.mockReset();
   invoke.mockImplementation(backend);
@@ -286,12 +288,14 @@ describe("acceptance 5: vault with items + a different Drive vault → two-vault
     expect(toasts()).toContain("Vault ready · using the Google Drive vault");
   });
 
-  it("Keep this PC separate changes nothing and leaves sync off", async () => {
+  it("Keep this PC separate changes nothing and leaves sync paused", async () => {
     await setup();
     await S.getState().chooseTwoVaults("cancel", "");
     expect(calls("sync_adopt_remote")).toHaveLength(0);
     expect(view().step).toBe("idle");
     expect(be.enabled).toBe(false);
+    expect(toasts()).toContain("Sync is paused on this PC. It keeps its own vault.");
+    expect(useSyncStore.getState().status).toMatchObject({ provider: "gdrive", enabled: false }); // = paused
   });
 });
 
@@ -303,6 +307,51 @@ describe("the other rows", () => {
     await S.getState().confirmUpload();
     expectSyncedUi();
     expect(toasts()).toContain("Your vault is now in Google Drive");
+  });
+
+  it("row 4: Not now uploads nothing and leaves sync paused on this PC", async () => {
+    Object.assign(be, { provider: "gdrive", localExists: true, unlocked: true, localItems: 12 });
+    await F.startSyncSetup();
+    expect(view()).toEqual({ step: "upload", items: 12 });
+    S.getState().declineUpload();
+    expect(view().step).toBe("idle");
+    expect(calls("sync_enable")).toHaveLength(0);
+    expect(toasts()).toContain("Sync is paused on this PC. Resume it any time in Settings → Sync.");
+    expect(useSyncStore.getState().status).toMatchObject({ provider: "gdrive", enabled: false });
+  });
+
+  it("row 7: Resume sync finds Drive empty → asks to upload again with the count; Cancel stays paused", async () => {
+    Object.assign(be, { provider: "gdrive", localExists: true, unlocked: true, localItems: 42, syncedBefore: true });
+    await F.startSyncSetup(); // Settings "Resume sync" / popover "Resume sync"
+    expect(view()).toEqual({ step: "reupload", items: 42 });
+    expect(calls("sync_enable")).toHaveLength(0); // nothing uploaded before the answer
+    S.getState().declineUpload();
+    expect(view().step).toBe("idle");
+    expect(calls("sync_enable")).toHaveLength(0);
+    expect(be.enabled).toBe(false);
+    expect(useSyncStore.getState().status?.enabled).toBe(false);
+  });
+
+  it("row 7: Upload uploads this PC's vault again and turns sync on", async () => {
+    Object.assign(be, { provider: "gdrive", localExists: true, unlocked: true, localItems: 42, syncedBefore: true });
+    await F.startSyncSetup();
+    expect(view().step).toBe("reupload");
+    await S.getState().confirmUpload();
+    expect(calls("sync_enable")).toHaveLength(1);
+    expectSyncedUi();
+  });
+
+  it("row 7 is never skipped, not even by autoUpload", async () => {
+    Object.assign(be, { provider: "gdrive", localExists: true, unlocked: true, localItems: 3, syncedBefore: true });
+    await F.startSyncSetup({ autoUpload: true });
+    expect(view()).toEqual({ step: "reupload", items: 3 });
+    expect(calls("sync_enable")).toHaveLength(0);
+  });
+
+  it("resuming with the vault still in Drive just merges", async () => {
+    Object.assign(be, { provider: "gdrive", localExists: true, unlocked: true, localItems: 5, syncedBefore: true, remote: { exists: true, sameVault: true } });
+    await F.startSyncSetup();
+    expectSyncedUi();
   });
 
   it("row 4 from the post-create step (autoUpload): no confirm", async () => {
