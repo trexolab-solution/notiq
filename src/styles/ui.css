@@ -265,3 +265,25 @@
   color: var(--color-text);
   border-radius: 2px;
 }
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   LOADING STATES (components/ui/Loading.tsx): spinner, self-spinning icons,
+   inline "spinner + label". Reduced motion: a slow pulse instead of rotation.
+══════════════════════════════════════════════════════════════════════════════ */
+@keyframes nq-spin { to { transform: rotate(360deg); } }
+@keyframes nq-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+.nq-spin { animation: nq-spin 0.9s linear infinite; transform-origin: center; }
+.nq-pulse { animation: nq-pulse 1.8s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .nq-spin { animation: nq-pulse 1.8s ease-in-out infinite; }
+}
+.nq-inline-loading {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  color: var(--color-text-muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+.nq-inline-loading__row { display: inline-flex; align-items: center; gap: 6px; }
+.nq-inline-loading__hint { padding-left: 19px; font-size: 11px; opacity: 0.85; }

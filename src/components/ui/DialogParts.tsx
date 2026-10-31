@@ -2,6 +2,7 @@ import React from "react";
 import type { ReactNode } from "react";
 import { CircleCheck, CircleQuestionMark, Info, OctagonAlert, ShieldCheck, TriangleAlert, X } from "lucide-react";
 import { useDialogContext } from "./dialogContext";
+import { Spinner, mergeRefs, useLoadingWidth } from "./Loading";
 
 // ── Icon ────────────────────────────────────────────────────────────────────
 
@@ -163,6 +164,10 @@ export interface DialogButtonProps extends React.ButtonHTMLAttributes<HTMLButton
   icon?: ReactNode;
   /** Marks the dialog's cancel action (gets initial focus in danger dialogs). */
   cancel?: boolean;
+  /** Busy: spinner replaces `icon`, label becomes `loadingText`, disabled + aria-busy, width kept (./Loading.tsx). */
+  loading?: boolean;
+  /** Progressive label while loading ("Opening…"). Defaults to the normal label. */
+  loadingText?: ReactNode;
 }
 
 /**
@@ -170,20 +175,26 @@ export interface DialogButtonProps extends React.ButtonHTMLAttributes<HTMLButton
  * unless the dialog is dangerous); `cancel` marks the safe choice.
  */
 export const DialogButton = React.forwardRef<HTMLButtonElement, DialogButtonProps>(function DialogButton(
-  { variant = "secondary", icon, cancel, className = "", type = "button", children, ...props }, ref,
+  { variant = "secondary", icon, cancel, loading, loadingText, className = "", type = "button", disabled, style, children, ...props }, ref,
 ) {
   const isDefault = variant === "primary" || variant === "danger";
+  const width = useLoadingWidth<HTMLButtonElement>(loading, style);
+  const setRef = React.useMemo(() => mergeRefs(ref, width.ref), [ref, width.ref]);
+  const lead = loading ? <Spinner size={13} /> : icon;
   return (
     <button
-      ref={ref}
+      ref={setRef}
       type={type}
       className={`dlg-btn dlg-btn--${variant} ${className}`}
       data-dialog-default={isDefault ? "" : undefined}
       data-dialog-cancel={cancel ? "" : undefined}
+      disabled={disabled || loading}
+      aria-busy={loading || undefined}
+      style={width.style}
       {...props}
     >
-      {icon && <span className="dlg-btn-icon" aria-hidden>{icon}</span>}
-      {children}
+      {lead && <span className="dlg-btn-icon" aria-hidden>{lead}</span>}
+      {loading && loadingText != null ? loadingText : children}
     </button>
   );
 });
