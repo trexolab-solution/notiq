@@ -22,7 +22,8 @@
   "use strict";
 
   const NS = globalThis.NotiqShared; // shared.js, loaded just before this file
-  if (!NS) return;
+  const FK = globalThis.NotiqFill;   // fillkit.js, likewise
+  if (!NS || !FK) return;
 
   const isLocalHost = (h) => h === "localhost" || h === "127.0.0.1";
   const pageHost = () => String(location.hostname || "").toLowerCase();
@@ -291,6 +292,7 @@
 .nq-ititle { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
 .nq-isub { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 2px; font-size: 11.5px; color: var(--nq-muted); font-weight: 400; }
 .nq-mstatus { padding: 8px 9px 4px; color: var(--nq-success); font-weight: 600; }
+.nq-mnote { display: block; margin-top: 3px; font-size: 11.5px; font-weight: 400; color: var(--nq-muted); }
 .nq-pw { display: block; margin: 4px 9px 6px; padding: 6px 8px; border-radius: 6px; background: var(--nq-bg2);
   font: 12.5px/1.35 ui-monospace, Consolas, monospace; word-break: break-all; user-select: all; }
 .nq-mrow { display: flex; gap: 6px; padding: 4px 2px 2px; }
@@ -659,31 +661,20 @@
   }
 
   // ---------- strong password generator (local only) ----------
-  // No look-alikes (I l 1 O o 0). Uniform choice per character by rejection
-  // sampling; a password missing a class is thrown away and drawn again, which
-  // keeps the result uniform over all valid passwords (no shuffle needed).
-  const GEN_SETS = ["ABCDEFGHJKLMNPQRSTUVWXYZ", "abcdefghijkmnpqrstuvwxyz", "23456789", "!#$%&*+-=?@^_"];
-  const GEN_ALL = GEN_SETS.join("");
-  const GEN_LEN = 20;
-  function randomIndex(n) {
-    const limit = Math.floor(0x100000000 / n) * n;
-    const buf = new Uint32Array(1);
-    for (;;) {
-      crypto.getRandomValues(buf);
-      if (buf[0] < limit) return buf[0] % n;
-    }
-  }
-  function generatePassword() {
-    for (;;) {
-      let out = "";
-      for (let i = 0; i < GEN_LEN; i++) out += GEN_ALL[randomIndex(GEN_ALL.length)];
-      if (GEN_SETS.every((set) => Array.from(out).some((c) => set.includes(c)))) return out;
-    }
-  }
-
+  // NotiqFill.generateFor (fillkit.js): 20 characters from upper/lower/digits/symbols
+  // without look-alikes, unless the site's maxlength / minlength / passwordrules /
+  // simple pattern say otherwise (then the longest allowed up to 20, never under 12
+  // unless the site's maximum is lower, only allowed characters, every required class).
+  // Constraints that can't be met fall back to the default and say so.
+  const constraintsOf = (fields) => FK.mergeConstraints(fields.map((f) => ({
+    maxLength: f.maxLength, minLength: f.minLength, rules: attr(f, "passwordrules"), pattern: attr(f, "pattern"),
+  })));
   function openNewPasswordMenu(field, info) {
     openMenu(field, "Notiq password options", (node) => {
-      node.appendChild(menuItem("Generate strong password", `${GEN_LEN} characters, filled into this form`, () => generateInto(field)));
+      const plan = FK.planPassword(constraintsOf(info.targets));
+      const len = plan.impossible ? FK.DEFAULT_LEN : plan.length;
+      const sub = plan.limited && !plan.impossible ? `${len} characters (this site's limit), filled into this form` : `${len} characters, filled into this form`;
+      node.appendChild(menuItem("Generate strong password", sub, () => generateInto(field)));
       if (info.current) {
         const cur = info.current;
         node.appendChild(menuItem("Fill saved login", "Asks Notiq for approval", () => { closeMenu(false); doFill(cur, field); }));
@@ -694,8 +685,27 @@
     const info = newPasswordInfo(field);
     const targets = info ? info.targets.filter((i) => i.isConnected && usable(i)) : [];
     if (!targets.length || !menu) { closeMenu(true); setState(field, "error", TEXT.no_fields); return; }
-    let pw = generatePassword();
+    let gen = FK.generateFor(constraintsOf(targets));
+    let pw = gen.password;
     for (const t of targets) setValue(t, pw);
+    // What the page kept must be exactly what we generated (a script may cut it to its own limit):
+    // retry once at the length it kept, else clear the fields rather than leave a password nobody knows.
+    const kept = targets.map((t) => t.value);
+    if (kept.some((v) => v !== pw)) {
+      const short = kept.find((v) => v !== pw) || "";
+      if (short.length > 0 && short.length < pw.length) {
+        gen = FK.generateFor({ ...constraintsOf(targets), maxLength: short.length });
+        pw = gen.password;
+        for (const t of targets) setValue(t, pw);
+      }
+      if (targets.some((t) => t.value !== pw)) {
+        for (const t of targets) setValue(t, "");
+        pw = null;
+        closeMenu(true);
+        setState(field, "error", "This site changed the generated password. Type one yourself.");
+        return;
+      }
+    }
     setState(field, "done", "");
     // The password stays in this closure / the fields only: nothing is sent
     // until the user submits the form and the normal save offer runs.
@@ -703,6 +713,11 @@
     node.textContent = "";
     const status = el("div", "nq-mstatus", targets.length > 1 ? `Strong password filled in ${targets.length} fields` : "Strong password filled");
     status.setAttribute("role", "status");
+    if (gen.fallback) {
+      status.appendChild(el("span", "nq-mnote", "This site's password rules couldn't be met, so Notiq's default was used. Check it is accepted."));
+    } else if (gen.limited) {
+      status.appendChild(el("span", "nq-mnote", `${pw.length} characters, to fit this site's rules`));
+    }
     const box = el("span", "nq-pw");
     const row = el("div", "nq-mrow");
     const show = menuItem("Show", null, () => {

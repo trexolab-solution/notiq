@@ -86,6 +86,7 @@
       "../browser-extension/popup.html": "browser-extension/popup.html",
       "../browser-extension/popup.js": "browser-extension/popup.js",
       "../browser-extension/shared.js": "browser-extension/shared.js",
+      "../browser-extension/fillkit.js": "browser-extension/fillkit.js",
       "../browser-extension/icon48.png": "browser-extension/icon48.png",
       "../browser-extension/icon128.png": "browser-extension/icon128.png"
     },
