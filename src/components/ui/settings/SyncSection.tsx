@@ -53,9 +53,24 @@ export function statusLine(s: SyncStatus, now: number): string {
   }
 }
 
+/** Shown until the sync status is known: "Checking sync…", or why it failed with a Retry button. */
+export function SyncStatusFallback({ error, onRetry }: { error: string | null; onRetry: () => void }) {
+  return (
+    <SettingRow id="vault.sync.account" label="Google Drive account" keywords={k("vault.sync.account")}
+                description={error ? `Couldn't check sync: ${error}` : "Checking sync…"} danger={!!error}>
+      {error ? (
+        <Button className="settings-btn" size="sm" icon={<RefreshCw size={12} />} onClick={onRetry}>Retry</Button>
+      ) : (
+        <Loader2 size={14} className="animate-spin text-[var(--color-text-muted)]" aria-hidden />
+      )}
+    </SettingRow>
+  );
+}
+
 /** Settings → Vault → Sync: renders the rows of that group (put it inside a SettingsGroup). */
 export function SyncSection() {
   const status = useSyncStatus();
+  const statusError = useSyncStore((s) => s.error);
   const exists = useVaultStore((s) => s.exists);
   const now = useNow();
   const { connecting, error: connectError, connect, cancel } = useSyncConnect((s) => {
@@ -118,14 +133,7 @@ export function SyncSection() {
     }
   };
 
-  if (!status) {
-    return (
-      <SettingRow id="vault.sync.account" label="Google Drive account" keywords={k("vault.sync.account")}
-                  description="Checking sync…">
-        <Loader2 size={14} className="animate-spin text-[var(--color-text-muted)]" aria-hidden />
-      </SettingRow>
-    );
-  }
+  if (!status) return <SyncStatusFallback error={statusError} onRetry={() => void useSyncStore.getState().refresh()} />;
 
   const accountText = !configured
     ? "Sync isn't available in this build of Notiq (no Google sign-in is set up)."

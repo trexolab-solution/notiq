@@ -120,25 +120,29 @@ export const onSyncChanged = (cb: () => void): Promise<UnlistenFn> =>
 // ── Status store ──────────────────────────────────────────────────────────────
 
 interface SyncStore {
-  /** null until the first `sync_status` answered (or when the command isn't available). */
+  /** null until the first `sync_status` answered (stays null while the command fails). */
   status: SyncStatus | null;
+  /** Why the last `sync_status` failed (friendly text), or null. */
+  error: string | null;
   refresh: () => Promise<SyncStatus | null>;
   setStatus: (s: SyncStatus) => void;
 }
 
 export const useSyncStore = create<SyncStore>((set) => ({
   status: null,
+  error: null,
   async refresh() {
     try {
       const s = await syncStatus();
-      set({ status: s });
+      set({ status: s, error: null });
       return s;
     } catch (e) {
       console.warn("vault sync: status unavailable", e);
+      set({ error: syncErrorMessage(e) || "Couldn't read the sync status" });
       return null;
     }
   },
-  setStatus(s) { set({ status: s }); },
+  setStatus(s) { set({ status: s, error: null }); },
 }));
 
 /** Follows `vault-sync://status` into the store. Returns the unsubscribe. */

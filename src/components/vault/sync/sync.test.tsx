@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn(async () => null) }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: () => Promise.resolve(() => {}) }));
+vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: vi.fn(async () => {}) }));
 
 // The dialog module imports the app store, which reads localStorage at load time (node has none).
 const mem = new Map<string, string>();
@@ -17,6 +18,7 @@ const { AdoptChoiceList, ADOPT_CHOICES } = await import("./AdoptRemoteDialog");
 const { SyncIndicator, SyncIndicatorButton } = await import("../../layout/SyncIndicator");
 const { DEFAULT_ADOPT_CHOICE } = await import("../../../lib/vaultSyncFlows");
 const { syncIndicator } = await import("../../../lib/vaultSync");
+const { SyncStatusFallback } = await import("../../ui/settings/SyncSection");
 type SyncStatus = import("../../../lib/vaultSync").SyncStatus;
 
 const noop = () => {};
@@ -71,5 +73,20 @@ describe("status bar sync indicator", () => {
   it("is a real button", () => {
     const html = renderToStaticMarkup(<SyncIndicatorButton ind={syncIndicator(status())!} onOpen={noop} />);
     expect(html).toMatch(/^<button type="button"/);
+  });
+});
+
+describe("Settings sync row before the status is known", () => {
+  it("shows Checking… while loading", () => {
+    const html = renderToStaticMarkup(<SyncStatusFallback error={null} onRetry={noop} />);
+    expect(html).toContain("Checking sync…");
+    expect(html).not.toContain("Retry");
+  });
+
+  it("shows the error and a Retry button when sync_status failed", () => {
+    const html = renderToStaticMarkup(<SyncStatusFallback error="You're offline" onRetry={noop} />);
+    expect(html).toContain("Couldn&#x27;t check sync: You&#x27;re offline");
+    expect(html).toMatch(/<button[^>]*>.*Retry<\/button>/);
+    expect(html).not.toContain("Checking sync…");
   });
 });

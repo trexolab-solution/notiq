@@ -26,7 +26,7 @@ beforeEach(() => {
   invoke.mockResolvedValue(undefined);
   handlers.clear();
   unlisten.mockReset();
-  useSyncStore.setState({ status: null });
+  useSyncStore.setState({ status: null, error: null });
 });
 
 describe("command wrappers", () => {
@@ -103,11 +103,17 @@ describe("status store", () => {
     expect(unlisten).toHaveBeenCalled();
   });
 
-  it("keeps null when the command is unavailable", async () => {
+  it("keeps null and records the error when the command fails, then recovers on retry", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    invoke.mockRejectedValueOnce("unknown command");
+    invoke.mockRejectedValueOnce("SYNC_OFFLINE");
     await expect(useSyncStore.getState().refresh()).resolves.toBeNull();
     expect(useSyncStore.getState().status).toBeNull();
+    expect(useSyncStore.getState().error).toMatch(/offline/i);
+    expect(syncIndicator(useSyncStore.getState().status)).toBeNull(); // status bar stays hidden
+    invoke.mockResolvedValueOnce(status());
+    await useSyncStore.getState().refresh();
+    expect(useSyncStore.getState().error).toBeNull();
+    expect(useSyncStore.getState().status?.state).toBe("idle");
     warn.mockRestore();
   });
 
