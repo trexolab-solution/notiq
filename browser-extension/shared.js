@@ -456,11 +456,50 @@
     return ao[ao.length - 1] === top.origin;
   }
 
+  // ---------- app <-> extension handshake ----------
+  // PROTOCOL is this extension's message protocol; the app has its own (autofill.rs `PROTOCOL`).
+  // Compatible when appProtocol >= MIN_APP_PROTOCOL and PROTOCOL >= the app's `minProtocol`.
+  // An app whose ping reply has no `protocol` is protocol 1 (and accepts every extension).
+  //   1: the original messages.  2: ping -> { ok, appVersion, locked, protocol, minProtocol }; every request
+  //      carries { ext: <extension version>, protocol }; the app may answer { error: "extension_outdated" }.
+  const PROTOCOL = 2;
+  const MIN_APP_PROTOCOL = 1;
+  // First Notiq release that speaks each protocol (for "Update Notiq" messages).
+  const APP_VERSION_FOR_PROTOCOL = Object.freeze({ 1: "0.7.0", 2: "0.9.0" });
+  const posInt = (v) => (Number.isInteger(v) && v > 0 && v < 1e6 ? v : null);
+  const shortVer = (v) => (typeof v === "string" && /^[0-9A-Za-z.+-]{1,32}$/.test(v) ? v : "");
+
+  // What a ping reply means for the user:
+  //   { state: "on" | "locked" | "off" | "update_app" | "update_ext", text, detail, appVersion }.
+  function appStatus(res, extVersion) {
+    const ext = shortVer(extVersion);
+    if (!res || typeof res !== "object" || Array.isArray(res)) return { state: "off", text: "Notiq not running", detail: "", appVersion: "" };
+    const appVersion = shortVer(res.appVersion);
+    const appName = appVersion ? `Notiq ${appVersion}` : "This version of Notiq";
+    const extName = ext ? `v${ext}` : "this version";
+    const updateExt = { state: "update_ext", text: "Update the extension", appVersion,
+      detail: `${appName} needs a newer Notiq Autofill extension (you have ${extName}). Update it from your browser's extension store or the Notiq release page.` };
+    if (res.error === "extension_outdated") return updateExt;
+    if (res.ok !== true) return { state: "off", text: "Notiq not running", detail: "", appVersion: "" };
+    const appProtocol = posInt(res.protocol) || 1;
+    const appMin = posInt(res.minProtocol) || 1;
+    if (appMin > PROTOCOL) return updateExt;
+    if (appProtocol < MIN_APP_PROTOCOL) {
+      const need = APP_VERSION_FOR_PROTOCOL[MIN_APP_PROTOCOL] || "a newer version";
+      return { state: "update_app", text: "Update Notiq", appVersion,
+        detail: `This extension (${extName}) needs Notiq ${need} or newer${appVersion ? `; you have ${appVersion}` : ""}. Update Notiq from its Settings or the release page.` };
+    }
+    if (res.locked === true) return { state: "locked", text: "Notiq is locked", appVersion,
+      detail: "Your vault is locked. Unlock it in Notiq to fill or save logins." };
+    return { state: "on", text: "Notiq running", detail: appVersion ? `Notiq ${appVersion}` : "", appVersion };
+  }
+
   const api = Object.freeze({
     COLOR_KEYS, CSS_VARS, DEFAULT_THEMES, validateTheme, resolveTheme, applyTheme, themeReplyAction, sameTheme,
     shouldSuggest, suggestPosition, rectsOverlap,
     cardFieldKind, validCardReply, cardFieldValue, pickOption,
     normalizeHost, publicSuffix, registrableDomain, sameSite, secureOrigin, fillTargetOk,
+    PROTOCOL, MIN_APP_PROTOCOL, APP_VERSION_FOR_PROTOCOL, appStatus,
   });
   try {
     Object.defineProperty(g, "NotiqShared", { value: api, writable: false, configurable: false, enumerable: false });

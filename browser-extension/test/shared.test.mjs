@@ -228,3 +228,57 @@ test("fillTargetOk: top frame must be the tab's origin; subframes same-site all 
   assert.equal(NS.fillTargetOk({ origin: "http://127.0.0.1:8000", top: false, ancestors: ["http://localhost:8000"], fields: true }, 1, "http://localhost:8000"), false);
 });
 
+// ---------- app <-> extension handshake ----------
+test("appStatus: running, locked, not running", () => {
+  const ping = { ok: true, appVersion: "0.9.0", locked: false, protocol: NS.PROTOCOL, minProtocol: 1 };
+  assert.equal(NS.appStatus(ping, "0.5.0").state, "on");
+  assert.equal(NS.appStatus({ ...ping, locked: true }, "0.5.0").state, "locked");
+  assert.equal(NS.appStatus({ ...ping, locked: true }, "0.5.0").text, "Notiq is locked");
+  for (const r of [null, undefined, "x", [], { error: "app_not_running" }, { error: "no_host" }, { ok: false }]) {
+    assert.equal(NS.appStatus(r, "0.5.0").state, "off", JSON.stringify(r));
+  }
+});
+
+test("appStatus: an older app (ping {ok:true}, protocol 1) is compatible", () => {
+  assert.ok(NS.MIN_APP_PROTOCOL <= 1);
+  assert.equal(NS.appStatus({ ok: true }, "0.5.0").state, "on");
+});
+
+test("appStatus: the compatibility rule in both directions", () => {
+  const base = { ok: true, appVersion: "9.0.0", locked: false };
+  // The app needs a newer extension.
+  const ext = NS.appStatus({ ...base, protocol: NS.PROTOCOL + 1, minProtocol: NS.PROTOCOL + 1 }, "0.5.0");
+  assert.equal(ext.state, "update_ext");
+  assert.equal(ext.text, "Update the extension");
+  assert.match(ext.detail, /Notiq 9\.0\.0 needs a newer Notiq Autofill extension \(you have v0\.5\.0\)/);
+  assert.equal(NS.appStatus({ error: "extension_outdated", appVersion: "9.0.0" }, "0.5.0").state, "update_ext");
+  // A newer app that still accepts this protocol is fine.
+  assert.equal(NS.appStatus({ ...base, protocol: NS.PROTOCOL + 5, minProtocol: NS.PROTOCOL }, "0.5.0").state, "on");
+  // (An app below MIN_APP_PROTOCOL: see the next test.)
+  assert.equal(NS.appStatus({ ...base, protocol: "2" }, "0.5.0").state, "on", "a malformed protocol counts as 1");
+  // Garbage versions are not echoed into the UI.
+  assert.equal(NS.appStatus({ ...base, appVersion: "<img src=x>" }, "<b>").detail, "");
+});
+
+test("appStatus: Update Notiq when the app is older than MIN_APP_PROTOCOL", () => {
+  // Re-load shared.js with a higher MIN_APP_PROTOCOL to exercise the branch the shipped value (1) never hits.
+  const patched = src.replace(/const MIN_APP_PROTOCOL = \d+;/, "const MIN_APP_PROTOCOL = 2;");
+  assert.notEqual(patched, src);
+  const c = vm.createContext({ URL });
+  vm.runInContext(patched, c);
+  const s = c.NotiqShared.appStatus({ ok: true, appVersion: "0.8.3" }, "0.5.0");
+  assert.equal(s.state, "update_app");
+  assert.equal(s.text, "Update Notiq");
+  assert.match(s.detail, /needs Notiq 0\.9\.0 or newer; you have 0\.8\.3/);
+  assert.equal(c.NotiqShared.appStatus({ ok: true, protocol: 2 }, "0.5.0").state, "on");
+});
+
+test("protocol constants agree with the app's autofill.rs", () => {
+  const rs = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "..", "src-tauri", "src", "autofill.rs"), "utf8");
+  const appProtocol = Number(/pub const PROTOCOL: u64 = (\d+);/.exec(rs)[1]);
+  const appMin = Number(/pub const MIN_EXTENSION_PROTOCOL: u64 = (\d+);/.exec(rs)[1]);
+  assert.ok(appProtocol >= NS.MIN_APP_PROTOCOL, "this app is new enough for this extension");
+  assert.ok(NS.PROTOCOL >= appMin, "this extension is new enough for this app");
+  assert.equal(NS.PROTOCOL, appProtocol, "bump both sides together");
+  assert.ok(NS.APP_VERSION_FOR_PROTOCOL[NS.PROTOCOL], "the first app version for the current protocol is known");
+});

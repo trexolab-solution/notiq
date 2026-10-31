@@ -39,6 +39,12 @@
     box-shadow: 0 0 0 3px color-mix(in srgb, var(--nq-muted) 18%, transparent); }
   .status[data-state="on"] .dot { background: var(--nq-success); box-shadow: 0 0 0 3px color-mix(in srgb, var(--nq-success) 20%, transparent); }
   .status[data-state="off"] .dot { background: var(--nq-danger); box-shadow: 0 0 0 3px color-mix(in srgb, var(--nq-danger) 20%, transparent); }
+  .status[data-state="locked"] .dot, .status[data-state="update_app"] .dot, .status[data-state="update_ext"] .dot {
+    background: var(--nq-primary); box-shadow: 0 0 0 3px color-mix(in srgb, var(--nq-primary) 22%, transparent); }
+  .status[data-state="update_app"], .status[data-state="update_ext"] { color: var(--nq-text); font-weight: 600; }
+  #notice { margin: 0 0 12px; padding: 8px 10px; border-radius: 8px; font-size: 12.5px; line-height: 1.4; color: var(--nq-text);
+    background: color-mix(in srgb, var(--nq-primary) 12%, transparent); border: 1px solid color-mix(in srgb, var(--nq-primary) 35%, transparent); }
+  #notice[hidden] { display: none; }
 
   /* primary action */
   #fill { display: flex; align-items: center; gap: 8px; width: 100%; padding: 10px 12px; border: 0; border-radius: 10px;
@@ -125,6 +131,7 @@
   </div>
 </header>
 <main>
+  <p id="notice" role="note" hidden></p>
   <button id="fill" type="button" aria-describedby="help">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="7.5" cy="15.5" r="4.5"/><path d="M10.7 12.3 20 3"/><path d="M16.5 6.5l3 3"/><path d="M14 9l2 2"/></svg>
     <span class="label">Fill login for this site</span>

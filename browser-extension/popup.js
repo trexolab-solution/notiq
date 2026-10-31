@@ -11,6 +11,7 @@ const TEXT = {
   not_https: "Autofill only works on secure (https) pages.",
   no_fields: "Couldn't find a login form on this page.",
   stale: "That list of logins expired. Try again.",
+  extension_outdated: "This version of Notiq needs a newer Notiq Autofill extension. Update the extension, then try again.",
 };
 const chooser = document.getElementById("choose");
 
@@ -28,18 +29,25 @@ function setStatus(state, text, title) {
   statusText.textContent = text;
   status.title = title || "";
 }
+let extVersion = "";
+try {
+  const v = chrome.runtime.getManifest().version;
+  if (typeof v === "string") { extVersion = v; document.getElementById("version").textContent = `Notiq Autofill v${v}`; }
+} catch { /* no manifest (test stub) */ }
+// Locked vault / version mismatch: a short status plus, when the user has to do something, a notice
+// above the Fill button (text only). The background also drops any held multi-step password here
+// when Notiq is locked or closed.
+const notice = document.getElementById("notice");
+function showNotice(text) { notice.textContent = text || ""; notice.hidden = !text; }
 try {
   chrome.runtime.sendMessage({ type: "ping" }, (res) => {
     if (chrome.runtime.lastError || !res) { setStatus("off", "Notiq not running"); return; }
-    if (res.ok) setStatus("on", "Notiq running");
-    else if (res.error === "no_host") setStatus("off", "Notiq not running", TEXT.no_host);
-    else setStatus("off", "Notiq not running", TEXT.app_not_running);
+    const s = NS ? NS.appStatus(res, extVersion) : { state: res.ok ? "on" : "off", text: res.ok ? "Notiq running" : "Notiq not running", detail: "" };
+    if (s.state === "off") setStatus("off", s.text, res.error === "no_host" ? TEXT.no_host : TEXT.app_not_running);
+    else setStatus(s.state, s.text, s.detail);
+    if (s.state === "locked" || s.state === "update_app" || s.state === "update_ext") showNotice(s.detail);
   });
 } catch { setStatus("off", "Notiq not running"); }
-try {
-  const v = chrome.runtime.getManifest().version;
-  if (typeof v === "string") document.getElementById("version").textContent = `Notiq Autofill v${v}`;
-} catch { /* no manifest (test stub) */ }
 // The real shortcut (the user may have changed or removed it in the browser's shortcut settings).
 const shortcut = document.getElementById("shortcut");
 try {

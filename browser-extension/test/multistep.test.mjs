@@ -14,6 +14,7 @@ const SHARED = readFileSync(join(dir, "shared.js"), "utf8");
 const BACKGROUND = readFileSync(join(dir, "background.js"), "utf8");
 const EXT_ID = "notiq-test-id";
 const CRED = { ok: true, username: "alice@example.com", password: "Step-Secret-1!", title: "Example" };
+const PING = { ok: true, appVersion: "0.9.0", locked: false, protocol: 2, minProtocol: 1 };
 
 function event() {
   const fns = [];
@@ -36,12 +37,12 @@ function area() {
 }
 
 // A fresh service worker. `reply(msg)` answers native messages.
-function boot(reply = (m) => (m.op === "fill" ? CRED : { error: "app_not_running" })) {
+function boot(reply = (m) => (m.op === "fill" ? CRED : m.op === "ping" ? PING : { error: "app_not_running" })) {
   const native = [];
   const onMessage = event(), onRemoved = event(), onUpdated = event();
   const chrome = {
     runtime: {
-      id: EXT_ID, lastError: undefined, onMessage,
+      id: EXT_ID, lastError: undefined, onMessage, getManifest: () => ({ version: "0.0.0-test" }),
       getURL: (p) => `chrome-extension://${EXT_ID}/${p}`,
       sendNativeMessage: (_host, msg, cb) => { native.push(msg); queueMicrotask(() => cb(reply(msg))); },
     },
@@ -57,7 +58,7 @@ function boot(reply = (m) => (m.op === "fill" ? CRED : { error: "app_not_running
   vm.runInContext(BACKGROUND, ctx);
   const sw = {
     ctx, chrome, native,
-    vaultCalls: () => native.filter((m) => m.op !== "theme"),
+    vaultCalls: () => native.filter((m) => m.op !== "theme" && m.op !== "ping"),
     advance: (ms) => { ctx.__now += ms; },
     // A content-script message from the top frame (frameId 0) of `tabId` at `url`.
     send(type, extra = {}, { tabId = 7, url = "https://accounts.example.com/signin", frameId = 0, tabUrl = url, active = true } = {}) {
@@ -175,7 +176,7 @@ test("navigating the tab to another site clears it; same-site navigation keeps i
 
 test("a locked vault, a new fill or a cancel drop the held password", async () => {
   let locked = false;
-  const sw = boot((m) => (locked ? { error: "locked" } : m.op === "fill" ? CRED : { error: "app_not_running" }));
+  const sw = boot((m) => (locked ? { error: "locked" } : m.op === "fill" ? CRED : m.op === "ping" ? PING : { error: "app_not_running" }));
   await sw.send("fill", { step: true });
   await sw.send("fill", { step: true }, { tabId: 9, url: "https://other.org/login" });
   assert.deepEqual(sw.steps().sort(), ["step:7", "step:9"]);
@@ -229,6 +230,70 @@ test("toolbar fill on a username-only tab: username now, password held for the n
       assert.deepEqual(sw.steps(), ["step:7"]);
       assert.equal((await sw.send("stepFill")).password, "Step-Secret-1!");
     }
+  }
+});
+
+// ---------- vault lock state (ping) ----------
+test("stepFill asks Notiq first: a locked vault or a closed app drops every held password", async () => {
+  for (const pingReply of [{ ...PING, locked: true }, { error: "app_not_running" }, { error: "no_reply" }]) {
+    let ping = PING;
+    const sw = boot((m) => (m.op === "fill" ? CRED : m.op === "ping" ? ping : { error: "x" }));
+    await sw.send("fill", { step: true });
+    await sw.send("fill", { step: true }, { tabId: 9, url: "https://other.org/login" });
+    assert.deepEqual(sw.steps().sort(), ["step:7", "step:9"]);
+    ping = pingReply;
+    assert.deepEqual(await sw.send("stepFill"), { none: true }, JSON.stringify(pingReply));
+    assert.deepEqual(sw.steps(), [], "no held password survives a lock");
+    ping = PING;
+    assert.deepEqual(await sw.send("stepFill"), { none: true }, "and unlocking again does not bring it back");
+  }
+});
+
+test("stepFill pings before every hand-out; an older app (ping without lock state) still works", async () => {
+  const sw = boot((m) => (m.op === "fill" ? CRED : m.op === "ping" ? { ok: true } : { error: "x" }));
+  await sw.send("fill", { step: true });
+  assert.equal((await sw.send("stepFill")).password, "Step-Secret-1!");
+  assert.equal(sw.native.filter((m) => m.op === "ping").length, 1);
+});
+
+test("opening the popup (ping) drops held passwords when Notiq is locked or closed, keeps them otherwise", async () => {
+  let ping = PING;
+  const sw = boot((m) => (m.op === "fill" ? CRED : m.op === "ping" ? ping : { error: "x" }));
+  const popup = () => new Promise((resolve) => {
+    const sender = { id: EXT_ID, url: `chrome-extension://${EXT_ID}/popup.html` };
+    sw.chrome.runtime.onMessage.fire({ type: "ping" }, sender, (r) => resolve(JSON.parse(JSON.stringify(r))));
+  });
+  await sw.send("fill", { step: true });
+  assert.equal((await popup()).locked, false);
+  assert.deepEqual(sw.steps(), ["step:7"]);
+  ping = { ...PING, locked: true };
+  assert.equal((await popup()).locked, true);
+  assert.deepEqual(sw.steps(), []);
+  ping = PING;
+  await sw.send("fill", { step: true });
+  ping = { error: "app_not_running" };
+  await popup();
+  assert.deepEqual(sw.steps(), []);
+});
+
+test("any reply saying locked: true drops held passwords", async () => {
+  let fillReply = CRED;
+  const sw = boot((m) => (m.op === "fill" ? fillReply : m.op === "ping" ? PING : { error: "x" }));
+  await sw.send("fill", { step: true });
+  fillReply = { error: "denied", locked: true };
+  await sw.send("fill", {}, { tabId: 9, url: "https://other.org/login" });
+  await new Promise((r) => setTimeout(r, 0));
+  assert.deepEqual(sw.steps(), []);
+});
+
+test("every native request names the extension version and protocol", async () => {
+  const sw = boot();
+  await sw.send("fill", { step: true });
+  await sw.send("stepFill");
+  assert.ok(sw.native.length >= 2);
+  for (const m of sw.native) {
+    assert.equal(m.protocol, sw.ctx.NotiqShared.PROTOCOL);
+    assert.equal(m.ext, "0.0.0-test");
   }
 });
 

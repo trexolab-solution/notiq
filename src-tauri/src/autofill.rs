@@ -10,7 +10,8 @@
 //! (or a short, per-site trust window the user opted into in that dialog).
 //!
 //! Protocol (extension → host → app, one JSON object per message):
-//! * `{op:"ping"}` → `{ok:true}` (never starts the app)
+//! * `{op:"ping"}` → `{ok:true, appVersion, locked, protocol, minProtocol}` (never starts the app). `locked` is the
+//!   vault's lock state; the extension drops any held multi-step password when it is `true`.
 //! * `{op:"theme"}` → `{ok:true, theme:{id,mode,bg,...}|null}` from `autofill-theme.json` (never starts the app, no token)
 //! * `{op:"launch"}` → `{ok:true}` once the app answers (starts it if needed) or `{error:"app_not_running"}`
 //! * `{op:"fill", host, account?}` → `{ok:true, username, password, title, code?}` | `{choose:[{account,title,username}]}`
@@ -18,6 +19,11 @@
 //! * `{op:"save", host, url, username, password, title}` → `{ok:true, status}` | `{error}`
 //! * `{op:"fill_card", host, origin}` → `{ok:true, title, name, number, exp_month, exp_year, csc}` | `{error}`.
 //!   Always asks the user (no trust window) and is never handled by the main-window fallback.
+//!
+//! Every request from protocol-2 extensions also carries `ext` (the extension's version) and `protocol`
+//! (its [`PROTOCOL`] number; missing = 1). Compatibility: the app serves extensions with
+//! `protocol >= MIN_EXTENSION_PROTOCOL` (others get `{error:"extension_outdated", appVersion, minProtocol}`), and
+//! the extension needs `app protocol >= its MIN_APP_PROTOCOL` (`browser-extension/shared.js`), read from `ping`.
 
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read, Write};
@@ -35,6 +41,13 @@ use crate::native_host_reg::LastRequest;
 use crate::vault::atomic_write;
 
 pub const HOST_NAME: &str = crate::profile::PROD_IDENTIFIER;
+/// Version of the extension ⇄ app message protocol. Keep equal to `PROTOCOL` in `browser-extension/shared.js`
+/// (a test checks it). 1: the original messages. 2: `ping` reports `appVersion`/`locked`/`protocol`/`minProtocol`,
+/// requests carry `ext`/`protocol`, and an outdated extension is told so.
+pub const PROTOCOL: u64 = 2;
+/// Oldest extension protocol this app still serves (an extension that sends no `protocol` is protocol 1).
+/// Raise it only when a change would make older extensions misbehave; they are then asked to update.
+pub const MIN_EXTENSION_PROTOCOL: u64 = 1;
 /// Chromium extension IDs allowed to talk to the native host (the manifest's `allowed_origins` and the host's own
 /// origin check). Empty slots are skipped; fill them in once the store listings exist.
 pub const EXTENSION_IDS: &[&str] = &[
@@ -360,15 +373,60 @@ pub fn validate_fill_card(req: &Value) -> Result<String, &'static str> {
     Ok(host.to_string())
 }
 
+/// The protocol a request speaks: its `protocol` field, or 1 when it has none (extensions before protocol 2).
+/// Anything but a positive integer is a bad request.
+pub fn request_protocol(req: &Value) -> Result<u64, &'static str> {
+    match req.get("protocol") {
+        None | Some(Value::Null) => Ok(1),
+        Some(v) => v.as_u64().filter(|&p| p > 0).ok_or("bad_request"),
+    }
+}
+
+/// Is an extension speaking `protocol` served by this app?
+pub fn extension_supported(protocol: u64) -> bool {
+    protocol >= MIN_EXTENSION_PROTOCOL
+}
+
+/// `ping` answer: always sent (even to an outdated extension), so the extension can tell the user what to update.
+pub fn ping_reply(app_version: &str, locked: bool) -> Value {
+    json!({
+        "ok": true,
+        "appVersion": app_version,
+        "locked": locked,
+        "protocol": PROTOCOL,
+        "minProtocol": MIN_EXTENSION_PROTOCOL,
+    })
+}
+
+/// The protocol gate for every op except `ping` / `hello`: `None` = go on, `Some(reply)` = answer with this.
+pub fn protocol_gate(req: &Value, app_version: &str) -> Option<Value> {
+    match request_protocol(req) {
+        Err(e) => Some(json!({ "error": e })),
+        Ok(p) if !extension_supported(p) => Some(json!({
+            "error": "extension_outdated",
+            "appVersion": app_version,
+            "minProtocol": MIN_EXTENSION_PROTOCOL,
+        })),
+        Ok(_) => None,
+    }
+}
+
 /// Forwards a request to the UI and waits for its answer.
 fn handle(app: &AppHandle, req: Value) -> Value {
     let op = req.get("op").and_then(|v| v.as_str()).unwrap_or("");
+    let app_version = app.package_info().version.to_string();
+    if op != "ping" && op != "hello" {
+        if let Some(reply) = protocol_gate(&req, &app_version) {
+            return reply;
+        }
+    }
     // Card requests are only ever answered by the prompt window (see `await_ui`).
     let fallback = op != "fill_card";
     let (event, payload, host) = match op {
         "ping" => {
             touch_extension();
-            return json!({ "ok": true });
+            let locked = !app.state::<crate::vault::VaultState>().is_unlocked();
+            return ping_reply(&app_version, locked);
         }
         // Liveness check used by the native host itself (not counted as the extension being seen).
         "hello" => return json!({ "ok": true }),
@@ -1145,6 +1203,63 @@ mod tests {
         assert_eq!(validate_fill_card(&json!({ "op": "fill_card", "host": "example.com" })), Err("bad_request"));
         assert_eq!(validate_fill_card(&json!({ "op": "fill_card", "origin": "https://example.com" })), Err("bad_request"));
         assert_eq!(validate_fill_card(&json!({ "op": "fill_card", "host": 5, "origin": "https://x" })), Err("bad_request"));
+    }
+
+    #[test]
+    fn protocol_versions() {
+        // Missing / null = an extension from before protocol 2.
+        assert_eq!(request_protocol(&json!({ "op": "fill" })), Ok(1));
+        assert_eq!(request_protocol(&json!({ "op": "fill", "protocol": null })), Ok(1));
+        assert_eq!(request_protocol(&json!({ "op": "fill", "protocol": 2 })), Ok(2));
+        for bad in [json!(0), json!(-1), json!(1.5), json!("2"), json!([2]), json!({})] {
+            assert_eq!(request_protocol(&json!({ "op": "fill", "protocol": bad })), Err("bad_request"), "{bad}");
+        }
+        // The current extension and every older one down to the minimum are served; protocol 0 never is.
+        assert!((1..=PROTOCOL).contains(&MIN_EXTENSION_PROTOCOL));
+        assert!(extension_supported(PROTOCOL) && extension_supported(PROTOCOL + 1));
+        assert!(extension_supported(MIN_EXTENSION_PROTOCOL));
+        assert!(!extension_supported(MIN_EXTENSION_PROTOCOL - 1));
+        // Extensions that predate the field still work while MIN_EXTENSION_PROTOCOL is 1.
+        if MIN_EXTENSION_PROTOCOL == 1 {
+            assert_eq!(protocol_gate(&json!({ "op": "fill", "host": "example.com" }), "0.9.0"), None);
+        }
+        assert_eq!(protocol_gate(&json!({ "op": "fill", "protocol": PROTOCOL, "ext": "0.5.0" }), "0.9.0"), None);
+        assert_eq!(protocol_gate(&json!({ "op": "save", "protocol": "x" }), "0.9.0"), Some(json!({ "error": "bad_request" })));
+    }
+
+    #[test]
+    fn outdated_extension_reply() {
+        // Exercised with the real minimum when it is above 1; the reply shape is checked either way.
+        let below = MIN_EXTENSION_PROTOCOL - 1;
+        if below > 0 {
+            let r = protocol_gate(&json!({ "op": "fill", "protocol": below }), "9.9.9").unwrap();
+            assert_eq!(r, json!({ "error": "extension_outdated", "appVersion": "9.9.9", "minProtocol": MIN_EXTENSION_PROTOCOL }));
+        }
+        assert_eq!(outcome_of(&json!({ "error": "extension_outdated" })), "extension_outdated");
+    }
+
+    #[test]
+    fn ping_reports_version_lock_state_and_protocol() {
+        let r = ping_reply("0.9.0", true);
+        assert_eq!(
+            r,
+            json!({ "ok": true, "appVersion": "0.9.0", "locked": true, "protocol": PROTOCOL, "minProtocol": MIN_EXTENSION_PROTOCOL })
+        );
+        assert_eq!(ping_reply("0.9.0", false)["locked"], false);
+        assert_eq!(outcome_of(&r), "ok");
+    }
+
+    #[test]
+    fn protocol_matches_the_extension() {
+        let shared = include_str!("../../browser-extension/shared.js");
+        let num = |name: &str| -> u64 {
+            let key = format!("const {name} = ");
+            let at = shared.find(&key).expect(name) + key.len();
+            shared[at..].chars().take_while(|c| c.is_ascii_digit()).collect::<String>().parse().expect(name)
+        };
+        assert_eq!(num("PROTOCOL"), PROTOCOL, "bump both sides together");
+        assert!(PROTOCOL >= num("MIN_APP_PROTOCOL"), "this app is too old for the bundled extension");
+        assert!(num("PROTOCOL") >= MIN_EXTENSION_PROTOCOL, "the bundled extension is too old for this app");
     }
 
     #[test]

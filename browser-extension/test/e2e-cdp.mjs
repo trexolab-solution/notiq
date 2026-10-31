@@ -90,7 +90,12 @@ async function mockNative(replies) {
 }
 // Vault traffic only: the content-free {op:"theme"} refresh is checked separately (allCalls).
 const allCalls = () => SW("globalThis.__calls || []");
-const calls = async () => (await allCalls()).filter((c) => c.op !== "theme");
+// Every request carries the extension's version and protocol (handshake); `bare` strips them for contract checks.
+const bare = (c) => { const { ext, protocol, ...rest } = c; return rest; };
+const tagged = (c) => typeof c.ext === "string" && c.ext.length > 0 && c.protocol === 2;
+// Vault requests only (theme and the lock-state ping are not).
+const calls = async () => (await allCalls()).filter((c) => c.op !== "theme" && c.op !== "ping");
+const pings = async () => (await allCalls()).filter((c) => c.op === "ping");
 const resetCalls = () => SW("(globalThis.__calls = [], true)");
 const session = () => SW("chrome.storage.session.get(null)");
 const local = () => SW("chrome.storage.local.get(null)");
@@ -314,7 +319,7 @@ try {
   check("native save message matches the contract",
     c2.length === 1 && c2[0].op === "save" && c2[0].host === "localhost" && c2[0].url === `http://localhost:${PORT}/test-pages/login.html` &&
     c2[0].username === "bob@example.com" && c2[0].password === "Typed-Secret-2!" && c2[0].title === "Notiq test page: login forms" &&
-    Object.keys(c2[0]).sort().join() === "host,op,password,title,url,username", JSON.stringify(c2.map((c) => ({ ...c, password: "<redacted>" }))));
+    tagged(c2[0]) && Object.keys(bare(c2[0])).sort().join() === "host,op,password,title,url,username", JSON.stringify(c2.map((c) => ({ ...c, password: "<redacted>" }))));
   check("pending capture deleted after save", (await pendingEntries()).length === 0);
 
   // 6. Error path: locked vault keeps the capture and offers Try again
@@ -528,7 +533,7 @@ try {
   await waitFor(async () => (await calls()).length === 1, 3000);
   const c16 = await calls();
   check("update uses the same native save contract (no extra keys)",
-    c16.length === 1 && c16[0].op === "save" && c16[0].password === "New-Pw-22" && Object.keys(c16[0]).sort().join() === "host,op,password,title,url,username");
+    c16.length === 1 && c16[0].op === "save" && c16[0].password === "New-Pw-22" && tagged(c16[0]) && Object.keys(bare(c16[0])).sort().join() === "host,op,password,title,url,username");
 
   // 17. Split one-time-code boxes
   await resetState();
@@ -836,7 +841,7 @@ try {
   await cdp("Runtime.enable", {}, pop2);
   const stored = await waitFor(async () => (await local()).theme, 3000);
   const tc = await themeCalls();
-  check("opening the popup refreshes the theme ({op:'theme'} only, no host)", tc.length === 1 && JSON.stringify(tc[0]) === '{"op":"theme"}', JSON.stringify(tc));
+  check("opening the popup refreshes the theme ({op:'theme'} only, no host)", tc.length === 1 && JSON.stringify(bare(tc[0])) === '{"op":"theme"}' && tagged(tc[0]), JSON.stringify(tc));
   check("validated theme cached in storage.local", stored && stored.id === "nord" && stored.bg === "#2e3440", JSON.stringify(stored));
   const popVars = await waitFor(async () => { const v = await evalIn(pop2, `getComputedStyle(document.documentElement).getPropertyValue("--nq-bg").trim()`); return v === "#2e3440" && v; }, 2000);
   check("popup styles itself from the theme", popVars === "#2e3440");
@@ -904,7 +909,7 @@ try {
   await clickId("s-user");
   await sleep(800);
   const tc2 = await themeCalls();
-  check("stale theme: first nudge refreshes once, the next page does not", tc2.length === 1 && JSON.stringify(tc2[0]) === '{"op":"theme"}', JSON.stringify(tc2));
+  check("stale theme: first nudge refreshes once, the next page does not", tc2.length === 1 && JSON.stringify(bare(tc2[0])) === '{"op":"theme"}' && tagged(tc2[0]), JSON.stringify(tc2));
   check("theme arrived through the nudge", (await local()).theme?.id === "nord");
 
   // ===================== multi-step sign-in =====================
@@ -935,6 +940,7 @@ try {
   await clickId("m-next");
   const spa = await waitFor(async () => { const v = await stepVals(); return v && v.p === "Notiq-Filled-1!" && v; }, 3000);
   check("SPA step: password filled without asking Notiq again", spa && (await calls()).length === 1, JSON.stringify(spa && { ...spa, p: "<redacted>" }));
+  check("SPA step: the lock state was checked (ping) before the hand-out", (await pings()).length >= 1);
   check("SPA step: held password gone after use, form not submitted", (await stepEntries()).length === 0 && spa && !spa.done);
   check("SPA step: the icon shows 'Filled'", !!(await waitFor(async () => (await icons()).some((i) => i.cls.includes("done") && i.tip === "Filled"), 1500)));
 

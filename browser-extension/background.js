@@ -11,17 +11,31 @@ const OFFER_TTL = 2 * 60 * 1000;
 
 // The one same-site rule (Public Suffix List based), from shared.js.
 const sameSite = (host, top) => NotiqShared.sameSite(host, top);
+let EXT_VERSION = "";
+try { EXT_VERSION = String(chrome.runtime.getManifest().version || "").slice(0, 32); } catch { /* test stub */ }
 
+// Every request names this extension's version and protocol (see NotiqShared.PROTOCOL); older apps ignore both.
 function ask(msg) {
   return new Promise((resolve) => {
-    chrome.runtime.sendNativeMessage(HOST, msg, (res) => {
+    chrome.runtime.sendNativeMessage(HOST, { ...msg, ext: EXT_VERSION, protocol: NotiqShared.PROTOCOL }, (res) => {
       if (chrome.runtime.lastError) resolve({ error: "no_host", detail: chrome.runtime.lastError.message });
       else {
-        if (res && res.error === "locked") dropAllSteps().catch(() => {}); // vault locked: no held password survives that
+        // Vault locked: no held password survives that.
+        if (res && (res.error === "locked" || res.locked === true)) dropAllSteps().catch(() => {});
         resolve(res || { error: "no_reply" });
       }
     });
   });
+}
+
+// Asks the app (never starts it) whether the vault is open. Anything but a clear "running, not locked"
+// (app closed, no host, an error) counts as locked: a closed app has a locked vault. An older app whose
+// ping says nothing about the lock counts as unlocked (its "locked" error replies still drop held passwords).
+async function appUnlocked() {
+  const res = await ask({ op: "ping" });
+  const ok = !!res && res.ok === true && res.locked !== true;
+  if (!ok) await dropAllSteps().catch(() => {});
+  return ok;
 }
 
 // Toolbar fill, phase 1: runs in EVERY frame of the tab and carries no secret. Each frame reports only its
@@ -425,7 +439,9 @@ async function onNever(_msg, sender) {
 // the tab, the approved top host's site and the account, for STEP_TTL. It is handed
 // out once, to a content script of that tab whose top page is still on that site, and
 // dropped on use, expiry, tab close, navigation to another site, a new fill in the
-// tab, or a "locked" reply from Notiq. Nothing is ever submitted for the user.
+// tab, a "locked" reply from Notiq, or a ping that finds the vault locked or Notiq
+// closed (checked before every hand-out and whenever the popup opens). Nothing is
+// ever submitted for the user.
 const STEP_TTL = 2 * 60 * 1000;
 const stepKey = (tabId) => `step:${tabId}`;
 
@@ -451,20 +467,32 @@ async function purgeSteps() {
 }
 
 // A content script saw an empty login password field appear. Only the tab that holds
-// a password gets it, only while its top page is on the approved site, and only once.
+// a password gets it, only while its top page is on the approved site, only while Notiq
+// says the vault is still unlocked (asked every time; a lock drops every held password),
+// and only once.
+const stepsInFlight = new Set();
 async function onStepFill(_msg, sender) {
   const tabId = sender.tab.id;
-  const key = stepKey(tabId);
-  const p = (await chrome.storage.session.get(key))[key];
-  if (!p) return { none: true };
-  const info = topInfo(sender);
-  if (info.error || !sameSite(info.host, p.host) || !stepFresh(p, Date.now()) || typeof p.password !== "string") {
+  if (stepsInFlight.has(tabId)) return { none: true };
+  stepsInFlight.add(tabId);
+  try {
+    const key = stepKey(tabId);
+    const p = (await chrome.storage.session.get(key))[key];
+    if (!p) return { none: true };
+    const info = topInfo(sender);
+    if (info.error || !sameSite(info.host, p.host) || !stepFresh(p, Date.now()) || typeof p.password !== "string") {
+      await dropStep(tabId);
+      return { none: true };
+    }
+    if (sender.tab.active === false) return { none: true };
+    if (!(await appUnlocked())) return { none: true }; // appUnlocked dropped it
+    const again = (await chrome.storage.session.get(key))[key]; // still the same hold (no new fill / drop meanwhile)?
+    if (!again || again.at !== p.at || again.password !== p.password) return { none: true };
     await dropStep(tabId);
-    return { none: true };
+    return { ok: true, host: info.host, username: typeof p.username === "string" ? p.username : "", password: p.password };
+  } finally {
+    stepsInFlight.delete(tabId);
   }
-  if (sender.tab.active === false) return { none: true };
-  await dropStep(tabId);
-  return { ok: true, host: info.host, username: typeof p.username === "string" ? p.username : "", password: p.password };
 }
 // The username fill did not happen after all (field gone, nothing filled).
 async function onStepCancel(_msg, sender) {
@@ -558,7 +586,14 @@ chrome.runtime.onMessage.addListener((msg, sender, send) => {
     fillActiveTab(msg.account !== undefined ? msg.account : undefined).then(send, () => send({ error: "failed" }));
     return true;
   }
-  if (msg.type === "ping") { ask({ op: "ping" }).then(send); return true; }
+  if (msg.type === "ping") {
+    // The popup opened: also the moment to drop any held password if the vault is locked (or Notiq closed).
+    ask({ op: "ping" }).then(async (res) => {
+      if (!(res && res.ok === true && res.locked !== true)) await dropAllSteps().catch(() => {});
+      send(res);
+    });
+    return true;
+  }
   if (msg.type === "theme") {
     refreshTheme(0).then((theme) => send({ ok: true, theme }), () => send({ ok: true, theme: null }));
     return true;
