@@ -7,6 +7,7 @@
  * preferences reset doesn't bring it back.
  */
 import { relativeTime, syncIndicator, type SyncDevice, type SyncIndicatorKind, type SyncStatus } from "./vaultSync";
+import { SYNC_START_SETUP_EVENT } from "./syncSetup";
 
 /** Window event that opens the sync popover (CustomEvent; `detail` is optional, see `SyncPopoverRequest`). */
 export const OPEN_SYNC_POPOVER_EVENT = "notiq:open-sync-popover";
@@ -20,14 +21,12 @@ export interface SyncPopoverRequest {
 }
 
 /**
- * Window event (CustomEvent, no detail) that starts the sync set-up decision flow (sign in to Google, then
- * create / open / upload / pick a vault). The title bar button's popover (off state) and the palette's
- * "Vault: Connect Google Drive" dispatch it; the new-user flow (sync-ux-newuser) handles it.
+ * Asks for the sync set-up decision flow (sign in, then create / open / upload / two vaults) by dispatching
+ * `notiq:sync-start-setup` (CustomEvent, no detail; `SYNC_START_SETUP_EVENT` from ./syncSetup), which
+ * `SyncSetupHost` handles. Used by the popover's off states and the palette, so the surfaces don't import the
+ * flow itself. Safe without a window or listener (nothing happens).
  */
-export const SYNC_START_SETUP_EVENT = "notiq:sync-start-setup";
-
-/** Dispatches `notiq:sync-start-setup`. Safe without a window or listener (nothing happens). */
-export function startSyncSetup(): void {
+export function requestSyncSetup(): void {
   try { window.dispatchEvent(new CustomEvent(SYNC_START_SETUP_EVENT)); }
   catch { /* no window (tests / SSR): nothing to start */ }
 }
@@ -102,7 +101,7 @@ export function badgeTooltip(s: SyncStatus | null, vaultExists: boolean): string
 // ── Popover view model ──────────────────────────────────────────────────────────
 
 /**
- * `connect` / `turnOn` start the set-up decision flow (`startSyncSetup`); `settings` renders as a link;
+ * `connect` / `turnOn` start the set-up decision flow (`requestSyncSetup`); `settings` renders as a link;
  * `openStorage` opens Google's storage page (Drive full).
  */
 export type PopoverAction = "syncNow" | "retry" | "reconnect" | "connect" | "turnOn" | "unlock" | "settings" | "recheck" | "openStorage";

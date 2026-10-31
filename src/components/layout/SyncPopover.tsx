@@ -12,7 +12,7 @@ import { useVaultStore } from "../../store/vaultStore";
 import { describeSyncResult, syncDevices, syncErrorMessage, syncNow, useSyncStatus, useSyncStore } from "../../lib/vaultSync";
 import {
   ACTION_LABELS, DRIVE_STORAGE_URL, OPEN_SYNC_POPOVER_EVENT, SYNC_BUTTON_SELECTOR, deviceCountLabel, isCacheFresh,
-  markIndicatorTipShown, loadingModel, popoverModel, startSyncSetup, syncSettingsRow,
+  markIndicatorTipShown, loadingModel, popoverModel, requestSyncSetup, syncSettingsRow,
   type BadgeTone, type PopoverAction, type PopoverModel, type SyncPopoverRequest,
 } from "../../lib/syncSurfaces";
 import { useSyncConnect, WAITING_FOR_GOOGLE } from "../vault/sync/useSyncConnect";
@@ -294,7 +294,7 @@ export function SyncPopoverHost() {
       case "syncNow":
       case "retry": void runNow(a); break;
       case "connect":
-      case "turnOn": close(); startSyncSetup(); break; // the decision flow takes over
+      case "turnOn": close(); requestSyncSetup(); break; // the decision flow takes over
       case "reconnect": void connect(); break;
       case "recheck": void useSyncStore.getState().refresh(); break;
       case "unlock": close(); void useVaultStore.getState().ensureUnlocked(); break;
@@ -307,7 +307,7 @@ export function SyncPopoverHost() {
   useEffect(() => {
     if (!open || !intent) return;
     clearIntent();
-    if (intent === "connect" && status?.configured && !status.provider) { close(); startSyncSetup(); }
+    if (intent === "connect" && status?.configured && !status.provider) { close(); requestSyncSetup(); }
   }, [open, intent, status, close, clearIntent]);
 
   const model = status ? popoverModel(status) : loadingModel(statusError);

@@ -14,7 +14,7 @@ import { getActiveEditor } from "../lib/activeEditor";
 import { aiContinue, aiSummarize, aiFixGrammar, aiGenerateTitle } from "../lib/ai/actions";
 import { SECTION_LABELS, SECTION_ORDER, type SectionId } from "../lib/settingsIndex";
 import { buildSyncCommands } from "../lib/syncCommands";
-import { startSyncSetup, syncSettingsRow } from "../lib/syncSurfaces";
+import { requestSyncSetup, syncSettingsRow } from "../lib/syncSurfaces";
 import { useSyncStore } from "../lib/vaultSync";
 import { runSyncNow } from "../components/layout/SyncPopover";
 
@@ -87,7 +87,7 @@ export function useCommands(deps: UseCommandsDeps): () => Command[] {
         syncNow: () => { void runSyncNow(); },
         openSettings: () => openSettings("vault", syncSettingsRow(useSyncStore.getState().status)),
         // The set-up decision flow (sign-in, then create / open / upload) takes over.
-        connect: startSyncSetup,
+        connect: requestSyncSetup,
       }),
       { id: "act:settings", label: "Open Settings", group: "Actions", icon: <SettingsIcon size={14} />, trailing: "Ctrl+,", run: onOpenSettings },
     );

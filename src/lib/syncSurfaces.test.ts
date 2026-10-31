@@ -6,8 +6,9 @@ vi.mock("@tauri-apps/api/event", () => ({ listen: () => Promise.resolve(() => {}
 const {
   badgeTooltip, deviceCountLabel, isCacheFresh, loadingModel, markIndicatorTipShown, popoverModel, readIndicatorTip,
   shouldShowIndicatorTip, surfaceIndicator, syncCommandAvailability, syncSettingsRow, INDICATOR_TIP_KEY, SYNC_PITCH,
-  isDriveFull, titlebarIndicator, deviceDisplayName, startSyncSetup, SYNC_START_SETUP_EVENT,
+  isDriveFull, titlebarIndicator, deviceDisplayName, requestSyncSetup,
 } = await import("./syncSurfaces");
+const { SYNC_START_SETUP_EVENT } = await import("./syncSetup");
 type SyncStatus = import("./vaultSync").SyncStatus;
 
 const NOW = 1_800_000_000_000;
@@ -238,17 +239,17 @@ describe("device names and the set-up hand-off", () => {
     expect(deviceDisplayName({ name: "   " })).toBe("Unnamed device");
   });
 
-  it("startSyncSetup dispatches notiq:sync-start-setup (no detail) and is safe without listeners", () => {
+  it("requestSyncSetup dispatches notiq:sync-start-setup (no detail) and is safe without listeners", () => {
     expect(SYNC_START_SETUP_EVENT).toBe("notiq:sync-start-setup");
     const target = new EventTarget();
     const seen: Event[] = [];
     target.addEventListener(SYNC_START_SETUP_EVENT, (e) => seen.push(e));
     vi.stubGlobal("window", target);
-    startSyncSetup();
+    requestSyncSetup();
     expect(seen).toHaveLength(1);
     expect((seen[0] as CustomEvent).detail).toBeNull();
     vi.stubGlobal("window", undefined);
-    expect(() => startSyncSetup()).not.toThrow();
+    expect(() => requestSyncSetup()).not.toThrow();
     vi.unstubAllGlobals();
   });
 });
