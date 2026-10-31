@@ -1168,6 +1168,164 @@ try {
   await load(EXTRA);
   check("login page with code boxes: still no code-only icon", ((await icons()) || []).length === 5);
 
+  // 28. Identities: address / contact forms, the in-page chooser, the right-click menu (own block scope)
+  {
+    const IDP = `http://localhost:${PORT}/test-pages/identity.html`;
+    const IDENT = { ok: true, title: "Home", name: "Asha K Rao", email: "asha@example.com", phone: "+91 98765 43210",
+      address1: "Flat 4B, Lake View Apts", address2: "MG Road, Indiranagar", city: "Bengaluru", state: "Karnataka", postal: "560038", country: "India" };
+    const IDLIST = { ok: true, identities: [{ account: "Identities/Home.nqv", title: "Home" }, { account: "Identities/Office.nqv", title: "Office" }] };
+    const idVals = (ids) => P(`(${JSON.stringify(ids)}).reduce((o, id) => (o[id] = document.getElementById(id).value, o), {})`);
+    async function rightClick(id) {
+      const r = await P(`(() => { const e = document.getElementById(${JSON.stringify(id)}); e.scrollIntoView({block:"center"}); const r = e.getBoundingClientRect(); return { x: r.x + 20, y: r.y + r.height / 2 }; })()`);
+      await cdp("Input.dispatchMouseEvent", { type: "mouseMoved", x: r.x, y: r.y }, page);
+      await cdp("Input.dispatchMouseEvent", { type: "mousePressed", x: r.x, y: r.y, button: "right", clickCount: 1 }, page);
+      await cdp("Input.dispatchMouseEvent", { type: "mouseReleased", x: r.x, y: r.y, button: "right", clickCount: 1 }, page);
+      await key("Escape", "Escape", 27); // close the browser's own menu, if one opened
+      await sleep(200);
+    }
+    // A click on one of our menu items, as chrome.contextMenus.onClicked delivers it (frame 0 of the test tab).
+    // tab.url isn't visible to the worker in this harness (no activeTab grant): the click's pageUrl stands in.
+    const menuClick = async (menuItemId, extra = {}) => SW(`chrome.tabs.query({ active: true }).then((tabs) => {
+      const tab = tabs.find((t) => (t.url || "").includes("/test-pages/identity.html")) || tabs[0];
+      return onMenuClick({ menuItemId: ${JSON.stringify(menuItemId)}, frameId: 0, editable: true, pageUrl: ${JSON.stringify(await P("location.href"))}, ...${JSON.stringify(extra)} }, tab).then(() => true);
+    })`);
+
+    await resetState();
+    await mockNative({ ...NATIVE, fill_identity: IDENT, identities: IDLIST });
+    await load(IDP);
+    const ic28 = (await icons()) || [];
+    // India form 6 (not the landmark / hidden / offscreen fields), token form 10, text-box form 5, login form 2,
+    // newsletter 0.
+    check("identity page: icons on the address forms' text fields, the login form keeps login icons only", ic28.length === 23, String(ic28.length));
+    check("identity page: nothing sent to Notiq on load", (await calls()).length === 0);
+    check("identity page: no icon on the landmark, the newsletter box or the hidden fields",
+      !(await iconFor("in-landmark")) && !(await iconFor("n-email")) && !(await iconFor("f-alt")));
+    let ii = await iconFor("in-name");
+    check("identity page: the full-name field has a 'Fill identity with Notiq' icon", !!ii);
+    await mouseClick(ii.x, ii.y);
+    const m28 = await waitFor(() => menuInfo(), 3000);
+    check("identity icon: lists the identity titles, then 'Choose in Notiq…'",
+      m28 && m28.items.map((i) => i.label).join("|") === "Home|Office|Choose in Notiq…", JSON.stringify(m28 && m28.items));
+    const c28a = (await calls()).map(bare);
+    check("identity icon: only the titles were asked for (no values yet)", c28a.length === 1 && c28a[0].op === "identities", JSON.stringify(c28a));
+    await mouseClick(m28.items[1].x, m28.items[1].y);
+    await waitFor(async () => (await P(`document.getElementById("in-city").value`)) !== "", 3000);
+    const c28b = (await calls()).map(bare);
+    const fi = c28b.find((c) => c.op === "fill_identity");
+    check("identity fill: fill_identity with the page host, its origin and the picked account",
+      fi && fi.host === "localhost" && fi.origin === `http://localhost:${PORT}` && fi.account === "Identities/Office.nqv" && Object.keys(fi).length === 4,
+      JSON.stringify(c28b));
+    const v28 = await idVals(["in-country", "in-name", "in-mobile", "in-pin", "in-line1", "in-line2", "in-landmark", "in-city", "in-state", "in-hidden", "in-trap", "in-offscreen-ok"]);
+    check("Indian form: name, 10-digit mobile, PIN, both lines, city, state and country filled",
+      v28["in-name"] === "Asha K Rao" && v28["in-mobile"] === "9876543210" && v28["in-pin"] === "560038" &&
+      v28["in-line1"] === "Flat 4B, Lake View Apts" && v28["in-line2"] === "MG Road, Indiranagar" && v28["in-city"] === "Bengaluru" &&
+      v28["in-state"] === "KA" && v28["in-country"] === "IN", JSON.stringify(v28));
+    check("Indian form: landmark, hidden, display:none and unrelated fields untouched",
+      v28["in-landmark"] === "" && v28["in-hidden"] === "" && v28["in-trap"] === "" && v28["in-offscreen-ok"] === "", JSON.stringify(v28));
+    check("Indian form: other forms on the page untouched", (await P(`document.getElementById("t-city").value + document.getElementById("f-name").value + document.getElementById("n-email").value`)) === "");
+    check("Indian form: the page saw the country change", (await P("window.__countryChanges")) >= 1);
+    const t28 = await waitFor(async () => (await icons()).find((i) => i.tip === "Filled"), 1500);
+    check("identity fill: the icon says 'Filled'", !!t28);
+
+    // Vault locked: no titles, so the icon goes straight to Notiq (which unlocks and asks); tagged fields.
+    await resetCalls();
+    await mockNative({ ...NATIVE, fill_identity: IDENT, identities: { error: "locked" } });
+    ii = await iconFor("t-city");
+    await mouseClick(ii.x, ii.y);
+    await waitFor(async () => (await P(`document.getElementById("t-city").value`)) !== "", 3000);
+    const c28c = (await calls()).map(bare);
+    check("locked vault: titles refused, then one fill_identity without an account",
+      c28c.length === 2 && c28c[0].op === "identities" && c28c[1].op === "fill_identity" && !("account" in c28c[1]), JSON.stringify(c28c));
+    const v28t = await idVals(["t-email", "t-first", "t-last", "t-addr1", "t-addr2", "t-city", "t-zip", "t-state", "t-country", "t-phone"]);
+    check("token form: given / family split, the country code for autocomplete=country, every field",
+      v28t["t-email"] === "asha@example.com" && v28t["t-first"] === "Asha K" && v28t["t-last"] === "Rao" && v28t["t-addr1"] === "Flat 4B, Lake View Apts" &&
+      v28t["t-addr2"] === "MG Road, Indiranagar" && v28t["t-city"] === "Bengaluru" && v28t["t-zip"] === "560038" && v28t["t-state"] === "Karnataka" &&
+      v28t["t-country"] === "IN" && v28t["t-phone"] === "+91 98765 43210", JSON.stringify(v28t));
+
+    // A text box for the address next to a locality field holds line 1 only.
+    await mockNative({ ...NATIVE, fill_identity: IDENT, identities: IDLIST });
+    ii = await iconFor("f-name");
+    await mouseClick(ii.x, ii.y);
+    const m28c = await waitFor(() => menuInfo(), 3000);
+    await mouseClick(m28c.items[0].x, m28c.items[0].y);
+    await waitFor(async () => (await P(`document.getElementById("f-address").value`)) !== "", 3000);
+    const v28f = await idVals(["f-name", "f-phone", "f-pin", "f-locality", "f-address", "f-alt"]);
+    check("text-box form: address box = line 1, locality = line 2, alternate phone untouched",
+      v28f["f-address"] === "Flat 4B, Lake View Apts" && v28f["f-locality"] === "MG Road, Indiranagar" && v28f["f-phone"] === "9876543210" &&
+      v28f["f-pin"] === "560038" && v28f["f-alt"] === "", JSON.stringify(v28f));
+
+    // An older Notiq doesn't know the op.
+    await resetState();
+    await mockNative({ ...NATIVE, fill_identity: { error: "unknown_op" }, identities: { error: "unknown_op" } });
+    await load(IDP);
+    ii = await iconFor("in-city");
+    await mouseClick(ii.x, ii.y);
+    const e28 = await waitFor(async () => (await icons()).find((i) => i.cls.includes("error")), 3000);
+    check("older Notiq: 'Update Notiq to use this.' and nothing filled", e28 && e28.tip === "Update Notiq to use this." && (await P(`document.getElementById("in-city").value`)) === "",
+      JSON.stringify(e28));
+
+    // Right-click menu.
+    await resetState();
+    await mockNative({ ...NATIVE, fill_identity: IDENT, identities: IDLIST });
+    await load(IDP);
+    await SW("(identityAt = 0, true)"); // the titles were just asked for above: drop the 15-second throttle
+    check("menu: the contextMenus API is available to the background", await SW("!!MENUS && typeof onMenuClick === 'function'"));
+    await rightClick("in-city");
+    const stored = await waitFor(async () => { const s = await session(); return s.identityMenu && s.identityMenu.length === 2 ? s.identityMenu : null; }, 3000);
+    check("menu: opening it on a field loads the identity titles (titles only) into session memory",
+      !!stored && JSON.stringify(stored) === JSON.stringify(IDLIST.identities), JSON.stringify(await session()));
+    check("menu: only the titles were asked for", (await calls()).map(bare).every((c) => c.op === "identities"));
+    await rightClick("in-city");
+    check("menu: re-opening within 15 s doesn't ask again", (await calls()).filter((c) => c.op === "identities").length === 1);
+    await resetCalls();
+    await menuClick("nq-identity:1");
+    await waitFor(async () => (await P(`document.getElementById("in-city").value`)) !== "", 3000);
+    const c28m = (await calls()).map(bare);
+    check("menu 'Fill identity > Office': one fill_identity for that account, form filled",
+      c28m.length === 1 && c28m[0].op === "fill_identity" && c28m[0].account === "Identities/Office.nqv" &&
+      (await P(`document.getElementById("in-pin").value`)) === "560038", JSON.stringify(c28m));
+    // Fill login on a field without any icon (the newsletter box): a temporary icon shows progress.
+    await resetCalls();
+    await rightClick("n-email");
+    await menuClick("nq-login");
+    const tmp = await waitFor(async () => iconFor("n-email"), 2000);
+    check("menu 'Fill login' on an undetected field: a temporary progress icon", !!tmp);
+    await waitFor(async () => (await P(`document.getElementById("n-email").value`)) !== "", 3000);
+    const c28l = (await calls()).map(bare);
+    check("menu 'Fill login': the normal login fill for the page host, into the clicked field",
+      c28l.some((c) => c.op === "fill" && c.host === "localhost") && (await P(`document.getElementById("n-email").value`)) === "alice@example.com", JSON.stringify(c28l));
+    const gone = await waitFor(async () => !(await iconFor("n-email")), 9000);
+    check("menu 'Fill login': the temporary icon goes away afterwards", gone);
+    // Generate password into the clicked field only, locally.
+    await resetCalls();
+    await rightClick("l-pass");
+    await menuClick("nq-generate");
+    const gp = await waitFor(async () => P(`document.getElementById("l-pass").value`), 2000);
+    check("menu 'Generate password': a 20-character password in that field, nothing sent to Notiq",
+      typeof gp === "string" && gp.length === 20 && (await calls()).length === 0, JSON.stringify({ len: gp && gp.length }));
+    const gm = await menuInfo();
+    check("menu 'Generate password': the usual confirmation menu", gm && /Strong password filled/.test(gm.text), JSON.stringify(gm && gm.text));
+    await key("Escape", "Escape", 27);
+    // "Choose identity…" opens the in-page chooser on the clicked field.
+    await rightClick("f-name");
+    await menuClick("nq-identity-choose");
+    const mc = await waitFor(() => menuInfo(), 3000);
+    check("menu 'Choose identity…': the in-page chooser on the clicked field", mc && mc.items.map((i) => i.label).join("|") === "Home|Office|Choose in Notiq…",
+      JSON.stringify(mc && mc.items));
+    await key("Escape", "Escape", 27);
+    // Locking drops the titles from the menu.
+    await mockNative({ ...NATIVE, fill_identity: { error: "locked" }, identities: { error: "locked" } });
+    await resetCalls();
+    await menuClick("nq-identity:0");
+    const dropped = await waitFor(async () => { const s = await session(); return Array.isArray(s.identityMenu) && s.identityMenu.length === 0; }, 3000);
+    check("menu: a 'locked' answer drops the identity titles", dropped, JSON.stringify(await session()));
+    // A menu click for a frame on another site is ignored.
+    await resetCalls();
+    await menuClick("nq-login", { frameId: 3, frameUrl: "https://evil.example/" });
+    await sleep(600);
+    check("menu: a click from another site's frame is ignored", (await calls()).length === 0);
+  }
+
   exitCode = results.every((r) => r.ok) ? 0 : 1;
 } catch (e) {
   console.error("ERROR", e && e.stack || e);

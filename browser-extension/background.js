@@ -2,6 +2,8 @@
 // shared.js (validateTheme etc.): importScripts in the Chromium service worker; the
 // Firefox build lists it in background.scripts before this file instead.
 if (typeof importScripts === "function" && !globalThis.NotiqShared) importScripts("shared.js");
+// identity.js (identity reply validation): loaded the same way (Firefox: listed in background.scripts).
+if (typeof importScripts === "function" && !globalThis.NotiqIdentity) importScripts("identity.js");
 const HOST = "com.trexolab.notiq";
 const PENDING_TTL = 90 * 1000;
 const MAX = { host: 253, url: 2048, title: 80, username: 512, password: 1024, message: 8192, neverSave: 500,
@@ -21,7 +23,7 @@ function ask(msg) {
       if (chrome.runtime.lastError) resolve({ error: "no_host", detail: chrome.runtime.lastError.message });
       else {
         // Vault locked: no held password survives that.
-        if (res && (res.error === "locked" || res.locked === true)) dropAllSteps().catch(() => {});
+        if (res && (res.error === "locked" || res.locked === true)) { dropAllSteps().catch(() => {}); dropIdentityMenu(); }
         resolve(res || { error: "no_reply" });
       }
     });
@@ -634,3 +636,184 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   chrome.storage.session.remove(pendingKey(tabId));
   dropStep(tabId);
 });
+
+// ---------- identities: in-page identity icon and the right-click menu ----------
+// fill_identity follows the card rules: host and origin come from the top page's URL (https, or http on
+// localhost), the sender is the top frame or a same-site subframe, and the identity goes back only to that
+// frame. Notiq always asks the user to pick the identity and names the site that gets it; `account` only
+// pre-selects one. `identities` (titles only, no field values) is answered only while the vault is unlocked and
+// never starts Notiq; the titles live in session memory just for the right-click menu and are dropped when
+// Notiq reports the vault locked or can't be reached.
+const NI = globalThis.NotiqIdentity;
+const accountArgOk = (a) => a === undefined ||
+  (typeof a === "string" && a.length > 0 && a.length <= 512 && !/[\u0000-\u001f\u007f]/.test(a));
+
+async function fillIdentityForSender(sender, msg) {
+  const info = topInfo(sender);
+  if (info.error) return { error: info.error };
+  if (sender.tab.active === false) return { error: "denied" };
+  const account = msg && msg.account !== undefined ? msg.account : undefined;
+  if (!accountArgOk(account)) return { error: "bad_request" };
+  const tabId = sender.tab.id;
+  if (fillsInFlight.has(tabId)) return { error: "busy" };
+  fillsInFlight.add(tabId);
+  try {
+    const req = { op: "fill_identity", host: info.host, origin: info.origin };
+    if (account) req.account = account;
+    const res = await ask(req);
+    if (!res || res.error) return { error: res ? String(res.error).slice(0, 40) : "no_reply" };
+    const identity = NI ? NI.validIdentityReply(res) : null;
+    return identity ? { ok: true, host: info.host, identity } : { error: "no_reply" };
+  } finally {
+    fillsInFlight.delete(tabId);
+  }
+}
+
+// The menu: Notiq > Fill login · Fill 2FA code · Fill identity > (titles…, Choose identity…) · Generate password.
+// Chromium's contextMenus and Firefox's menus share this API.
+const MENUS = (globalThis.chrome && (chrome.menus || chrome.contextMenus)) || null;
+const MENU = Object.freeze({
+  root: "nq-root", login: "nq-login", code: "nq-code", identity: "nq-identity", choose: "nq-identity-choose",
+  sep: "nq-identity-sep", generate: "nq-generate",
+});
+const MENU_IDENTITY = "nq-identity:"; // + index into the stored list
+const IDENTITY_MENU_KEY = "identityMenu"; // chrome.storage.session: [{ account, title }] shown in the menu
+const IDENTITY_MIN_AGE = 15 * 1000;
+let identityAt = 0, identityInFlight = null, identityShown = 0;
+
+const menuCall = (fn) => new Promise((resolve) => {
+  try { fn(() => { void chrome.runtime.lastError; resolve(); }); } catch { resolve(); }
+});
+const menuAdd = (props) => menuCall((cb) => MENUS.create({ contexts: ["editable"], ...props }, cb));
+const menuRemove = (id) => menuCall((cb) => MENUS.remove(id, cb));
+// Menu titles treat "&" as an access-key marker.
+const menuTitle = (s) => s.replace(/&/g, "&&");
+
+async function storedIdentities() {
+  const got = (await chrome.storage.session.get(IDENTITY_MENU_KEY))[IDENTITY_MENU_KEY];
+  return (NI && Array.isArray(got) && NI.validIdentityList({ ok: true, identities: got })) || [];
+}
+
+// Puts `list` under "Fill identity", then a separator and "Choose identity…" (always there: it opens the
+// in-page chooser, which can also ask Notiq to unlock).
+let menuQueue = Promise.resolve();
+function setIdentityMenu(list) {
+  const run = async () => {
+    const before = await storedIdentities();
+    await chrome.storage.session.set({ [IDENTITY_MENU_KEY]: list });
+    identityShown = list.length;
+    if (!MENUS) return;
+    for (let k = 0; k < before.length; k++) await menuRemove(`${MENU_IDENTITY}${k}`);
+    await menuRemove(MENU.sep);
+    await menuRemove(MENU.choose);
+    for (let k = 0; k < list.length; k++) {
+      await menuAdd({ id: `${MENU_IDENTITY}${k}`, parentId: MENU.identity, title: menuTitle(list[k].title) });
+    }
+    if (list.length) await menuAdd({ id: MENU.sep, parentId: MENU.identity, type: "separator" });
+    await menuAdd({ id: MENU.choose, parentId: MENU.identity, title: "Choose identity…" });
+  };
+  menuQueue = menuQueue.then(run, run);
+  return menuQueue;
+}
+function dropIdentityMenu() {
+  if (identityShown) setIdentityMenu([]).catch(() => {});
+}
+
+async function buildMenus() {
+  if (!MENUS) return;
+  await menuCall((cb) => MENUS.removeAll(cb));
+  await menuAdd({ id: MENU.root, title: "Notiq" });
+  await menuAdd({ id: MENU.login, parentId: MENU.root, title: "Fill login" });
+  await menuAdd({ id: MENU.code, parentId: MENU.root, title: "Fill 2FA code" });
+  await menuAdd({ id: MENU.identity, parentId: MENU.root, title: "Fill identity" });
+  await menuAdd({ id: MENU.generate, parentId: MENU.root, title: "Generate password" });
+  await chrome.storage.session.remove(IDENTITY_MENU_KEY); // removeAll dropped the old title items too
+  await setIdentityMenu([]);
+}
+
+// Asks Notiq for the identity titles (at most every 15 s unless `minAge` is 0) and updates the menu.
+// Resolves to { list } or { error }.
+function refreshIdentities(minAge = IDENTITY_MIN_AGE) {
+  if (identityInFlight) return identityInFlight;
+  const now = Date.now();
+  if (minAge && now - identityAt < minAge && now >= identityAt) return storedIdentities().then((list) => ({ list }));
+  identityAt = now;
+  identityInFlight = (async () => {
+    try {
+      const res = await ask({ op: "identities" });
+      const list = NI ? NI.validIdentityList(res) : null;
+      await setIdentityMenu(list || []);
+      if (list) return { list };
+      return { error: res && typeof res.error === "string" ? res.error.slice(0, 40) : "no_reply" };
+    } finally {
+      identityInFlight = null;
+    }
+  })();
+  return identityInFlight;
+}
+
+// The in-page identity chooser (after a trusted click on an identity field's icon).
+async function listIdentitiesForSender(sender) {
+  const info = topInfo(sender);
+  if (info.error) return { error: info.error };
+  const r = await refreshIdentities(0);
+  return r.list ? { ok: true, identities: r.list } : { error: r.error };
+}
+
+// A menu item was clicked: tell the content script of the clicked frame (only), which acts on the field the
+// menu was opened on with the same paths as its icon. Frames on another site have no content script running
+// (it quits at once), and the frame is re-checked against the tab's URL here.
+async function onMenuClick(info, tab) {
+  const id = info && typeof info.menuItemId === "string" ? info.menuItemId : "";
+  if (!id.startsWith("nq-") || !tab || typeof tab.id !== "number" || tab.id < 0) return;
+  // The tab's URL, or the page URL the click reports (always there; activeTab may not have granted tab.url yet).
+  const top = pageInfo(tab.url || info.pageUrl || "");
+  if (top.error) return;
+  const frameId = Number.isInteger(info.frameId) && info.frameId >= 0 ? info.frameId : 0;
+  if (frameId !== 0) {
+    const frame = pageInfo(info.frameUrl || "");
+    if (frame.error || !sameSite(frame.host, top.host)) return;
+  }
+  let msg = null;
+  if (id === MENU.login) msg = { action: "login" };
+  else if (id === MENU.code) msg = { action: "code" };
+  else if (id === MENU.generate) msg = { action: "generate" };
+  else if (id === MENU.choose || id === MENU.identity) msg = { action: "chooseIdentity" };
+  else if (id.startsWith(MENU_IDENTITY)) {
+    const k = Number(id.slice(MENU_IDENTITY.length));
+    const pick = Number.isInteger(k) ? (await storedIdentities())[k] : null;
+    msg = pick ? { action: "identity", account: pick.account } : { action: "chooseIdentity" };
+  }
+  if (!msg) return;
+  try {
+    await chrome.tabs.sendMessage(tab.id, { type: "menuFill", ...msg }, { frameId });
+  } catch { /* no content script in that frame */ }
+}
+
+const IDENTITY_HANDLERS = {
+  fillIdentity: (m, s) => fillIdentityForSender(s, m),
+  identities: (_m, s) => listIdentitiesForSender(s),
+  // A content script saw the context menu open on an editable field (Chromium has no menus.onShown).
+  menuOpening: () => refreshIdentities().then(() => ({ ok: true }), () => ({ ok: true })),
+};
+chrome.runtime.onMessage.addListener((msg, sender, send) => {
+  if (!sender || sender.id !== chrome.runtime.id || !sender.tab) return false;
+  if (!msg || typeof msg !== "object" || typeof msg.type !== "string" || messageTooBig(msg)) return false;
+  if (!Object.prototype.hasOwnProperty.call(IDENTITY_HANDLERS, msg.type)) return false;
+  if (typeof sender.tab.id !== "number" || sender.tab.id < 0 || typeof sender.url !== "string" || typeof sender.frameId !== "number") return false;
+  if (sender.frameId !== 0 && !frameAllowed(sender)) return false;
+  IDENTITY_HANDLERS[msg.type](msg, sender).then(send, () => send({ error: "failed" }));
+  return true;
+});
+
+if (MENUS) {
+  MENUS.onClicked.addListener((info, tab) => { onMenuClick(info, tab).catch(() => {}); });
+  // Firefox: load the titles while the menu opens, then redraw it.
+  if (MENUS.onShown) {
+    MENUS.onShown.addListener((info) => {
+      if (!info || !Array.isArray(info.contexts) || !info.contexts.includes("editable")) return;
+      refreshIdentities().then(() => { try { MENUS.refresh(); } catch { /* closed meanwhile */ } }).catch(() => {});
+    });
+  }
+  buildMenus().catch(() => {});
+}
