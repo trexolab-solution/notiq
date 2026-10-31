@@ -30,26 +30,9 @@
   const pageSecure = () => secureUrl(location.protocol, pageHost());
   if (!pageSecure()) return;
 
-  // Conservative "same site": the top host's last two labels, or last three when
-  // it looks like example.co.uk. A bare public suffix or an IP only matches itself.
-  const SLD = new Set(["co", "com", "org", "net", "gov", "ac", "edu"]);
-  const isIp = (h) => /^[\d.]+$/.test(h) || h.includes(":");
-  function siteOf(host) {
-    const l = host.split(".");
-    if (l.length >= 3 && l[l.length - 1].length === 2 && SLD.has(l[l.length - 2])) return l.slice(-3).join(".");
-    return l.slice(-2).join(".");
-  }
-  function sameSite(host, top) {
-    host = String(host || "").toLowerCase();
-    top = String(top || "").toLowerCase();
-    if (!host || !top) return false;
-    if (host === top) return true;
-    if (isIp(top) || isIp(host)) return false;
-    const site = siteOf(top);
-    const l = site.split(".");
-    if (l.length < 2 || (l.length === 2 && l[1].length === 2 && SLD.has(l[0]))) return false;
-    return host === site || host.endsWith(`.${site}`);
-  }
+  // "Same site" = the top host's registrable domain per the Public Suffix List (shared.js).
+  // IPs and localhost only match themselves; github.io-style tenants never match each other.
+  const sameSite = NS.sameSite;
 
   const IS_TOP = window.top === window;
   let TOP_HOST = pageHost();

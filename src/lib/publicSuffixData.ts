@@ -19,6 +19,8 @@
  *      rules (github.io, vercel.app, …), into EXTRA.
  *   4. Copy `*.` rules into WILDCARD (without the `*.`) and `!` rules into EXCEPTION.
  *   5. Run `npx vitest run src/lib/publicSuffix.test.ts`.
+ *   6. Run `node browser-extension/build.mjs --psl` (the browser extension carries a copy of this table in
+ *      browser-extension/shared.js; its build and tests fail while that copy is stale).
  */
 
 export const SECOND_LEVEL: Record<string, string> = {

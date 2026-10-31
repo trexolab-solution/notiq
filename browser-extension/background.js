@@ -9,67 +9,69 @@ const MAX = { host: 253, url: 2048, title: 80, username: 512, password: 1024, me
 const SETTINGS_DEFAULTS = { offerSave: true, showIcon: true, suggestOnFocus: false, neverSave: [] };
 const OFFER_TTL = 2 * 60 * 1000;
 
-// Conservative "same site" test for login iframes: the frame's host must equal
-// or be a subdomain of the top page's site (its last two labels, or last three
-// for example.co.uk-style hosts). Bare public suffixes and IPs only match exactly.
-const SLD = new Set(["co", "com", "org", "net", "gov", "ac", "edu"]);
-const isIp = (h) => /^[\d.]+$/.test(h) || h.includes(":");
-function siteOf(host) {
-  const l = host.split(".");
-  if (l.length >= 3 && l[l.length - 1].length === 2 && SLD.has(l[l.length - 2])) return l.slice(-3).join(".");
-  return l.slice(-2).join(".");
-}
-function sameSite(host, top) {
-  host = String(host || "").toLowerCase();
-  top = String(top || "").toLowerCase();
-  if (!host || !top) return false;
-  if (host === top) return true;
-  if (isIp(top) || isIp(host)) return false;
-  const site = siteOf(top);
-  const l = site.split(".");
-  if (l.length < 2 || (l.length === 2 && l[1].length === 2 && SLD.has(l[0]))) return false;
-  return host === site || host.endsWith(`.${site}`);
-}
+// The one same-site rule (Public Suffix List based), from shared.js.
+const sameSite = (host, top) => NotiqShared.sameSite(host, top);
+let EXT_VERSION = "";
+try { EXT_VERSION = String(chrome.runtime.getManifest().version || "").slice(0, 32); } catch { /* test stub */ }
 
+// Every request names this extension's version and protocol (see NotiqShared.PROTOCOL); older apps ignore both.
 function ask(msg) {
   return new Promise((resolve) => {
-    chrome.runtime.sendNativeMessage(HOST, msg, (res) => {
+    chrome.runtime.sendNativeMessage(HOST, { ...msg, ext: EXT_VERSION, protocol: NotiqShared.PROTOCOL }, (res) => {
       if (chrome.runtime.lastError) resolve({ error: "no_host", detail: chrome.runtime.lastError.message });
       else {
-        if (res && res.error === "locked") dropAllSteps().catch(() => {}); // vault locked: no held password survives that
+        // Vault locked: no held password survives that.
+        if (res && (res.error === "locked" || res.locked === true)) dropAllSteps().catch(() => {});
         resolve(res || { error: "no_reply" });
       }
     });
   });
 }
 
-// Runs inside the page (every frame). `host` is the TOP page's host: a frame is
-// filled only when it is that host, or a same-site subframe whose ancestors are
-// all same-site too, so credentials are never typed into another site's iframe.
-function fillPage(host, cred) {
-  const here = location.hostname.toLowerCase();
-  if (here !== host) {
-    const SLD = ["co", "com", "org", "net", "gov", "ac", "edu"];
-    const isIp = (h) => /^[\d.]+$/.test(h) || h.includes(":");
-    const sameSite = (h, top) => {
-      if (!h || !top) return false;
-      if (h === top) return true;
-      if (isIp(h) || isIp(top)) return false;
-      const l = top.split(".");
-      const site = (l.length >= 3 && l[l.length - 1].length === 2 && SLD.includes(l[l.length - 2]) ? l.slice(-3) : l.slice(-2));
-      if (site.length < 2 || (site.length === 2 && site[1].length === 2 && SLD.includes(site[0]))) return false;
-      const s = site.join(".");
-      return h === s || h.endsWith(`.${s}`);
-    };
-    if (window.top === window || !sameSite(here, host)) return 0;
-    if (!(location.protocol === "https:" || (location.protocol === "http:" && (here === "localhost" || here === "127.0.0.1")))) return 0;
-    const ao = location.ancestorOrigins;
-    if (!ao || !ao.length) return 0;
-    for (let i = 0; i < ao.length; i++) {
-      let h;
-      try { h = new URL(ao[i]).hostname.toLowerCase(); } catch { return 0; }
-      if (!sameSite(h, host) || (i === ao.length - 1 && h !== host)) return 0;
-    }
+// Asks the app (never starts it) whether the vault is open. Anything but a clear "running, not locked"
+// (app closed, no host, an error) counts as locked: a closed app has a locked vault. An older app whose
+// ping says nothing about the lock counts as unlocked (its "locked" error replies still drop held passwords).
+async function appUnlocked() {
+  const res = await ask({ op: "ping" });
+  const ok = !!res && res.ok === true && res.locked !== true;
+  if (!ok) await dropAllSteps().catch(() => {});
+  return ok;
+}
+
+// Toolbar fill, phase 1: runs in EVERY frame of the tab and carries no secret. Each frame reports only its
+// own origin, its ancestors' origins and whether it shows fillable / password inputs; the background decides
+// (NotiqShared.fillTargetOk, Public Suffix List rule) which frames may receive the login. Self-contained:
+// executeScript serializes it, so it may not use anything outside its body.
+function probeFrame() {
+  const visible = (el) => {
+    const r = el.getBoundingClientRect();
+    const cs = getComputedStyle(el);
+    return r.width > 0 && r.height > 0 && cs.visibility !== "hidden" && cs.display !== "none" && !el.disabled && !el.readOnly;
+  };
+  const kinds = ["text", "email", "tel", "password", "number", ""];
+  const inputs = [...document.querySelectorAll("input")].filter((i) => kinds.includes(i.type) && visible(i));
+  let ancestors = null;
+  try { if (location.ancestorOrigins) ancestors = [...location.ancestorOrigins]; } catch { ancestors = null; }
+  return {
+    origin: location.origin, top: window.top === window, ancestors,
+    fields: inputs.length > 0, password: inputs.some((i) => i.type === "password"),
+  };
+}
+
+// Toolbar fill, phase 2: injected ONLY into the frames phase 1 approved (by documentId, else frameId).
+// `host` is the TOP page's host and `scope` = { top: top origin, allowed: [origins checked same-site in
+// phase 1] }. The frame re-checks that it is still that document's origin (it may have navigated since the
+// probe), so credentials are never typed into another site's frame. Self-contained (serialized, no closures).
+function fillPage(host, cred, scope) {
+  if (!scope || typeof scope.top !== "string" || !Array.isArray(scope.allowed)) return 0;
+  if (window.top === window) {
+    if (location.origin !== scope.top || location.hostname.toLowerCase() !== host) return 0;
+  } else {
+    if (!scope.allowed.includes(location.origin)) return 0;
+    let ao = null;
+    try { ao = location.ancestorOrigins; } catch { ao = null; }
+    if (!ao || !ao.length || ao[ao.length - 1] !== scope.top) return 0;
+    for (let i = 0; i < ao.length; i++) if (!scope.allowed.includes(ao[i])) return 0;
   }
   const visible = (el) => {
     const r = el.getBoundingClientRect();
@@ -207,25 +209,44 @@ async function askFill(tabId, host, account) {
 async function fillActiveTab(account) {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab || !tab.url) return { error: "no_tab" };
-  let u;
-  try { u = new URL(tab.url); } catch { return { error: "bad_url" }; }
-  const local = u.hostname === "localhost" || u.hostname === "127.0.0.1";
-  if (u.protocol !== "https:" && !(local && u.protocol === "http:")) return { error: "not_https" };
-  const host = u.hostname.toLowerCase();
+  const top = pageInfo(tab.url);
+  if (top.error) return { error: top.error };
+  const host = top.host;
   await dropStep(tab.id); // a new fill in this tab replaces any held password
   const got = await askFill(tab.id, host, account);
   if (got.error) return { error: got.error };
   if (got.choose) return { choose: got.choose, host };
   const res = got.cred;
-  // Username-first page (no password field in any frame): fill the username now and
-  // hold the password for the next step of this sign-in.
-  const step = typeof res.username === "string" && !!res.username && !(await tabHasPassword(tab.id));
-  const out = await chrome.scripting.executeScript({
-    target: { tabId: tab.id, allFrames: true },
-    func: fillPage,
-    args: [host, { username: res.username, password: step ? "" : res.password, code: res.code }],
-  });
-  const frames = out.filter((r) => r.result > 0).map((r) => r.frameId);
+  // Phase 1: which frames may get it (secret-free probe in every frame).
+  let probes;
+  try {
+    probes = await chrome.scripting.executeScript({ target: { tabId: tab.id, allFrames: true }, func: probeFrame });
+  } catch {
+    return { error: "no_fields" };
+  }
+  const targets = (Array.isArray(probes) ? probes : []).filter((r) => r && NotiqShared.fillTargetOk(r.result, r.frameId, top.origin));
+  if (!targets.length) return { error: "no_fields" };
+  // Username-first page (no password field in any eligible frame): fill the username now and hold the
+  // password for the next step of this sign-in.
+  const step = typeof res.username === "string" && !!res.username && !targets.some((r) => r.result.password === true);
+  const allowed = [...new Set(targets.flatMap((r) => [r.result.origin, ...(r.frameId === 0 ? [] : r.result.ancestors)]))];
+  // Phase 2: the login goes only to those frames. documentIds pin the exact documents that were probed
+  // (Chromium); Firefox has no documentId, so frameIds there (fillPage re-checks the origin either way).
+  const byDoc = targets.every((r) => typeof r.documentId === "string" && r.documentId);
+  const target = byDoc
+    ? { tabId: tab.id, documentIds: targets.map((r) => r.documentId) }
+    : { tabId: tab.id, frameIds: targets.map((r) => r.frameId) };
+  let out;
+  try {
+    out = await chrome.scripting.executeScript({
+      target,
+      func: fillPage,
+      args: [host, { username: res.username, password: step ? "" : res.password, code: res.code }, { top: top.origin, allowed }],
+    });
+  } catch {
+    return { error: "no_fields" };
+  }
+  const frames = (Array.isArray(out) ? out : []).filter((r) => r && r.result > 0).map((r) => r.frameId);
   if (frames.length && step) await armStep(tab.id, host, account, res);
   if (frames.length) notifyFilled(tab.id, host, step ? { ...res, password: "" } : res, frames);
   return frames.length ? { ok: true, host, title: str(res.title, 200) } : { error: "no_fields" };
@@ -418,7 +439,9 @@ async function onNever(_msg, sender) {
 // the tab, the approved top host's site and the account, for STEP_TTL. It is handed
 // out once, to a content script of that tab whose top page is still on that site, and
 // dropped on use, expiry, tab close, navigation to another site, a new fill in the
-// tab, or a "locked" reply from Notiq. Nothing is ever submitted for the user.
+// tab, a "locked" reply from Notiq, or a ping that finds the vault locked or Notiq
+// closed (checked before every hand-out and whenever the popup opens). Nothing is
+// ever submitted for the user.
 const STEP_TTL = 2 * 60 * 1000;
 const stepKey = (tabId) => `step:${tabId}`;
 
@@ -443,39 +466,33 @@ async function purgeSteps() {
   if (stale.length) await chrome.storage.session.remove(stale);
 }
 
-// Toolbar path: is a password field showing in any frame of the tab? (Then it is
-// not a username-first page.) Each frame answers only true/false.
-async function tabHasPassword(tabId) {
-  try {
-    const out = await chrome.scripting.executeScript({
-      target: { tabId, allFrames: true },
-      func: () => [...document.querySelectorAll("input[type=password]")].some((i) => {
-        const r = i.getBoundingClientRect();
-        const cs = getComputedStyle(i);
-        return r.width > 0 && r.height > 0 && cs.visibility !== "hidden" && cs.display !== "none";
-      }),
-    });
-    return out.some((r) => r.result === true);
-  } catch {
-    return true; // can't tell: behave as a normal one-step fill
-  }
-}
-
 // A content script saw an empty login password field appear. Only the tab that holds
-// a password gets it, only while its top page is on the approved site, and only once.
+// a password gets it, only while its top page is on the approved site, only while Notiq
+// says the vault is still unlocked (asked every time; a lock drops every held password),
+// and only once.
+const stepsInFlight = new Set();
 async function onStepFill(_msg, sender) {
   const tabId = sender.tab.id;
-  const key = stepKey(tabId);
-  const p = (await chrome.storage.session.get(key))[key];
-  if (!p) return { none: true };
-  const info = topInfo(sender);
-  if (info.error || !sameSite(info.host, p.host) || !stepFresh(p, Date.now()) || typeof p.password !== "string") {
+  if (stepsInFlight.has(tabId)) return { none: true };
+  stepsInFlight.add(tabId);
+  try {
+    const key = stepKey(tabId);
+    const p = (await chrome.storage.session.get(key))[key];
+    if (!p) return { none: true };
+    const info = topInfo(sender);
+    if (info.error || !sameSite(info.host, p.host) || !stepFresh(p, Date.now()) || typeof p.password !== "string") {
+      await dropStep(tabId);
+      return { none: true };
+    }
+    if (sender.tab.active === false) return { none: true };
+    if (!(await appUnlocked())) return { none: true }; // appUnlocked dropped it
+    const again = (await chrome.storage.session.get(key))[key]; // still the same hold (no new fill / drop meanwhile)?
+    if (!again || again.at !== p.at || again.password !== p.password) return { none: true };
     await dropStep(tabId);
-    return { none: true };
+    return { ok: true, host: info.host, username: typeof p.username === "string" ? p.username : "", password: p.password };
+  } finally {
+    stepsInFlight.delete(tabId);
   }
-  if (sender.tab.active === false) return { none: true };
-  await dropStep(tabId);
-  return { ok: true, host: info.host, username: typeof p.username === "string" ? p.username : "", password: p.password };
 }
 // The username fill did not happen after all (field gone, nothing filled).
 async function onStepCancel(_msg, sender) {
@@ -569,7 +586,14 @@ chrome.runtime.onMessage.addListener((msg, sender, send) => {
     fillActiveTab(msg.account !== undefined ? msg.account : undefined).then(send, () => send({ error: "failed" }));
     return true;
   }
-  if (msg.type === "ping") { ask({ op: "ping" }).then(send); return true; }
+  if (msg.type === "ping") {
+    // The popup opened: also the moment to drop any held password if the vault is locked (or Notiq closed).
+    ask({ op: "ping" }).then(async (res) => {
+      if (!(res && res.ok === true && res.locked !== true)) await dropAllSteps().catch(() => {});
+      send(res);
+    });
+    return true;
+  }
   if (msg.type === "theme") {
     refreshTheme(0).then((theme) => send({ ok: true, theme }), () => send({ ok: true, theme: null }));
     return true;

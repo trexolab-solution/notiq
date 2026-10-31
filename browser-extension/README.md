@@ -102,9 +102,16 @@ default dark or light colours, following your system setting.
   into the page, logged, or written to disk by the extension. The save card never shows the password.
 - Forms are never submitted automatically.
 - Iframes: the script runs in every frame but stops at once unless the frame and all its parents are on the top
-  page's site (same host or a subdomain of its last two labels, or last three for `example.co.uk`-style names;
-  IP addresses only match themselves). The background re-checks the frame against the tab's real URL, always asks
-  Notiq for the **top page's** host, and returns the login only to the frame that asked.
+  page's site: the same host, or under the top host's registrable domain per the Public Suffix List (so
+  `login.example.co.uk` belongs to `www.example.co.uk`, but `evil.github.io` never belongs to `me.github.io`; IP
+  addresses and `localhost` only match themselves). The background re-checks the frame against the tab's real URL,
+  always asks Notiq for the **top page's** host, and returns the login only to the frame that asked.
+- Toolbar button / Alt+Shift+L (icon off): first a probe **without any secret** runs in every frame and reports
+  only its origin, its parents' origins and whether it has login fields; the login is then injected only into the
+  frames that pass the same-site rule (by `documentId` on Chromium, so a frame that navigated meanwhile gets
+  nothing; the injected code re-checks its origin either way).
+- Multi-step sign-ins: a held password is dropped as soon as Notiq reports the vault locked or is closed (checked
+  before every hand-out and whenever the popup opens).
 - Generated passwords exist only in the page's fields and the extension's memory until you submit the form.
 
 ## Protocol with the app (native messaging)
@@ -113,7 +120,14 @@ default dark or light colours, following your system setting.
 - `{op:"fill", host, account}` → the chosen login. The extension only sends an `account` that the app offered for
   that tab and host in the last 2 minutes, once.
 - `{op:"save", host, url, username, password, title}` → `{ok:true, status:"saved"|"updated"|"unchanged"}` or `{error}`.
-- `{op:"ping"}`.
+- `{op:"ping"}` → `{ok:true, appVersion, locked, protocol, minProtocol}` (an app before 0.9.0 answers `{ok:true}`).
+  The popup shows "Notiq is locked", "Update Notiq" or "Update the extension" from it.
+- Every request also carries `ext` (this extension's version) and `protocol` (`PROTOCOL` in `shared.js`). The app
+  has its own `PROTOCOL` and `MIN_EXTENSION_PROTOCOL` (`src-tauri/src/autofill.rs`); they are compatible when
+  `app protocol >= MIN_APP_PROTOCOL` (extension side) and `extension protocol >= MIN_EXTENSION_PROTOCOL` (app side,
+  which otherwise answers `{error:"extension_outdated", appVersion, minProtocol}`). A missing `protocol` means 1.
+  Bump `PROTOCOL` on both sides together (a test on each side checks they agree); raise a minimum only when older
+  peers would misbehave.
 - `{op:"theme"}` → `{ok:true, theme:{id, mode:"dark"|"light", bg, bgSecondary, bgTertiary, text, textMuted, border,
   primary, primaryText, danger, success}}` (colours `#rrggbb`), or `{ok:true, theme:null}` when the app has none.
   Never launches the app. `{error:"unknown_op"}` from an older app is treated as no theme; when the app is
@@ -152,10 +166,11 @@ focus-suggestion screenshots in dark, light and a custom theme) (needs Node 22+,
 ```
 node browser-extension/build.mjs [--out dist]     # Node 20+, no dependencies
 node browser-extension/build.mjs --check          # validate only, write nothing
-node --test browser-extension/test/*.test.mjs    # unit tests: transforms, zip writer, shared.js (theme, suggestion), multi-step hand-off
+node --test browser-extension/test/*.test.mjs    # unit tests: transforms, zip writer, shared.js (theme, suggestion, same-site, handshake), multi-step hand-off, toolbar fill
+node browser-extension/build.mjs --psl            # refresh the Public Suffix List copy in shared.js from src/lib/publicSuffixData.ts
 ```
 Only runtime files are packaged (manifest, `shared.js`, `content.js`, `background.js`, popup, icons). `shared.js` holds
-the pure helpers (theme validation, suggestion placement); the content script and popup load it first, the Chromium
+the pure helpers (theme validation, suggestion placement, the Public Suffix List same-site rule, the app handshake); the content script and popup load it first, the Chromium
 service worker loads it with `importScripts`, and the Firefox build lists it before `background.js`. Output is reproducible
 (fixed timestamps). It writes, with a size and SHA-256 table:
 
