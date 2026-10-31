@@ -10,6 +10,7 @@ mod vault;
 mod vault_backup;
 mod vault_core;
 mod vault_db;
+mod vault_hlc; // 0.9.0 sync: HLC stamps + device id
 mod profile;
 mod session_lock;
 mod hello; // 0.7.0 hello

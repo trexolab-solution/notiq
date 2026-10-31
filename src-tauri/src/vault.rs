@@ -42,6 +42,9 @@ struct Store {
     /// Modification time of `vault.nqdb` when `db` was loaded/saved; a different time
     /// on disk means another process (e.g. a folder-sync tool) replaced it.
     stamp: Option<SystemTime>,
+    /// This installation's sync device id (`vault_hlc::DEVICE_FILE` in the app-data folder);
+    /// given to every loaded DB before it can change anything.
+    device: Option<String>,
 }
 
 #[derive(Default)]
@@ -92,7 +95,10 @@ impl VaultState {
             st.db = Some(vdb::load(&root, &u.key, &u.vault_id)?);
             st.stamp = on_disk;
         }
+        // Normally set by vault_set_root; a session-only id keeps stamps well-formed otherwise.
+        let device = st.device.get_or_insert_with(crate::vault_hlc::new_device_id).clone();
         let db = st.db.as_mut().expect("loaded above");
+        if db.device.is_empty() { db.device = device; }
         let purged = db.purge_expired(vdb::now_ms()) > 0; // recycle-bin items older than 30 days
         let (out, dirty) = match f(db, &root, &u.key, &u.vault_id) {
             Ok(r) => r,
@@ -100,7 +106,7 @@ impl VaultState {
         };
         let dirty = dirty || purged;
         if dirty {
-            // save_db keeps a one-time vault.nqdb.v1.bak when this save upgrades an older format.
+            // save_db keeps a one-time vault.nqdb.v{N}.bak when this save upgrades an older format.
             let saved = vdb::save_db(&root, st.db.as_mut().expect("still loaded"), &u.key, &u.vault_id);
             if let Err(e) = saved { st.db = None; return Err(e); }
             st.stamp = fs::metadata(vdb::db_path(&root)).and_then(|m| m.modified()).ok();
@@ -115,6 +121,16 @@ impl VaultState {
             st.root = Some(root);
             st.db = None;
             st.stamp = None;
+        }
+    }
+
+    /// Loads (or creates) this installation's device id from `dir` (the app-data folder), once.
+    pub(crate) fn ensure_device(&self, dir: &Path) {
+        let mut st = self.store.lock().unwrap_or_else(|e| e.into_inner());
+        if st.device.is_some() { return; }
+        match crate::vault_hlc::load_or_create_device(dir) {
+            Ok(id) => st.device = Some(id),
+            Err(e) => eprintln!("[vault] couldn't store the sync device id ({e}); using a session-only id"),
         }
     }
 
@@ -364,7 +380,8 @@ pub fn vault_lock(app: AppHandle, window: tauri::Window, state: State<'_, VaultS
 
 /// Tells the backend which folder holds `vault.nqdb`. Works while locked.
 #[tauri::command]
-pub fn vault_set_root(state: State<'_, VaultState>, root: String) -> Result<(), String> {
+pub fn vault_set_root(app: AppHandle, state: State<'_, VaultState>, root: String) -> Result<(), String> {
+    if let Ok(dir) = app.path().app_data_dir() { state.ensure_device(&dir); }
     state.set_root(PathBuf::from(root));
     Ok(())
 }
