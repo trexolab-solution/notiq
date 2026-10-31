@@ -3,6 +3,8 @@ import { DialogCheckbox } from "../ui/DialogParts";
 import { Input } from "../ui/Input";
 import { cardTitle, LOGINS_FOLDER, type CardMatch, type LoginMatch, type SavePlan, type SaveRequest } from "../../lib/autofill";
 import { cardBrand, cardExpired, maskCardNumber } from "../../lib/cardEntry";
+import { identityTitle, type IdentityMatch } from "../../lib/autofill";
+import { identitySummary } from "../../lib/identityEntry";
 
 /**
  * The interactive parts of the browser-autofill prompts, shared by the small autofill window
@@ -128,5 +130,29 @@ export function SaveFields({ req, plan, name, onName, nameError, reveal, onRevea
         </p>
       )}
     </>
+  );
+}
+
+export interface IdentityChoiceProps {
+  identities: IdentityMatch[];
+  pick: number;
+  onPick: (index: number) => void;
+  disabled?: boolean;
+}
+
+/** Which saved identity to send: its title plus name and city (the rest is only sent once allowed). */
+export function IdentityChoice({ identities, pick, onPick, disabled }: IdentityChoiceProps) {
+  return (
+    <div role="radiogroup" aria-label="Saved identities" className="af-logins">
+      {identities.map((m, i) => (
+        <label key={m.path} className="af-login" data-selected={pick === i ? "" : undefined}>
+          <input type="radio" name="af-identity" checked={pick === i} disabled={disabled} onChange={() => onPick(i)} />
+          <span className="af-login-text">
+            <span className="af-login-title">{identityTitle(m)}</span>
+            <span className="af-login-user">{identitySummary(m.fill) || "(no name)"}</span>
+          </span>
+        </label>
+      ))}
+    </div>
   );
 }

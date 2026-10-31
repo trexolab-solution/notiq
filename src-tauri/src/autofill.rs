@@ -21,6 +21,12 @@
 //! * `{op:"save", host, url, username, password, title}` → `{ok:true, status}` | `{error}`
 //! * `{op:"fill_card", host, origin}` → `{ok:true, title, name, number, exp_month, exp_year, csc}` | `{error}`.
 //!   Always asks the user (no trust window) and is never handled by the main-window fallback.
+//! * `{op:"fill_identity", host, origin, account?}` → `{ok:true, title, name, email, phone, address1, address2, city,
+//!   state, postal, country}` | `{error}`. Same origin rule and routing as `fill_card`; the user always picks the
+//!   identity (`account`, from `identities`, only pre-selects it).
+//! * `{op:"identities"}` → `{ok:true, identities:[{account, title}]}` (file names of Identity entries only, at most
+//!   20) | `{error:"locked"}`. Answered by the app itself without any window, only while the vault is unlocked;
+//!   never starts the app. Used for the browser's right-click menu.
 //!
 //! Every request from protocol-2 extensions also carries `ext` (the extension's version) and `protocol`
 //! (its [`PROTOCOL`] number; missing = 1). Compatibility: the app serves extensions with
@@ -385,6 +391,44 @@ pub fn validate_fill_card(req: &Value) -> Result<String, &'static str> {
     Ok(host.to_string())
 }
 
+// ─── Identities (browser right-click menu + in-page identity icon) ────────────
+
+/// Strict validation of an untrusted `fill_identity` message: the `fill_card` origin rule plus an optional
+/// `account` (an identity's vault path from an earlier `identities` reply). Returns `(host, account)`.
+pub fn validate_fill_identity(req: &Value) -> Result<(String, Option<String>), &'static str> {
+    let host = validate_fill_card(req)?;
+    let account = validate_account(req.get("account"))?;
+    Ok((host, account))
+}
+
+/// Most identities listed for the right-click menu.
+pub const MAX_IDENTITIES: usize = 20;
+const IDENTITY_EXT: &str = "identity";
+
+/// `identities` reply from the vault listing: live Identity entries only, titled by their file name (control
+/// characters dropped, at most 60 characters), sorted by title, at most [`MAX_IDENTITIES`]. No field values.
+pub fn identities_reply(items: &[crate::vault_db::ListItem]) -> Value {
+    let mut out: Vec<(String, String)> = items
+        .iter()
+        .filter(|i| !i.dir && i.ext == IDENTITY_EXT && i.trashed_at.is_none())
+        .filter_map(|i| {
+            let rel = i.rel.replace('\\', "/");
+            let lower = rel.to_ascii_lowercase();
+            let stem = rel.get(..rel.len().checked_sub(4)?).filter(|_| lower.ends_with(".nqv"))?;
+            let name = stem.rsplit('/').next().unwrap_or(stem);
+            let title: String = name.chars().filter(|c| !c.is_control()).take(60).collect::<String>().trim().to_string();
+            if title.is_empty() || validate_account(Some(&json!(rel))).ok().flatten().is_none() {
+                return None;
+            }
+            Some((title, rel))
+        })
+        .collect();
+    out.sort_by(|a, b| a.0.to_lowercase().cmp(&b.0.to_lowercase()).then_with(|| a.1.cmp(&b.1)));
+    out.truncate(MAX_IDENTITIES);
+    let list: Vec<Value> = out.into_iter().map(|(title, account)| json!({ "account": account, "title": title })).collect();
+    json!({ "ok": true, "identities": list })
+}
+
 /// The protocol a request speaks: its `protocol` field, or 1 when it has none (extensions before protocol 2).
 /// Anything but a positive integer is a bad request.
 pub fn request_protocol(req: &Value) -> Result<u64, &'static str> {
@@ -432,8 +476,8 @@ fn handle(app: &AppHandle, req: Value) -> Value {
             return reply;
         }
     }
-    // Card requests are only ever answered by the prompt window (see `await_ui`).
-    let fallback = op != "fill_card";
+    // Card and identity requests are only ever answered by the prompt window (see `await_ui`).
+    let fallback = op != "fill_card" && op != "fill_identity";
     let (event, payload, host) = match op {
         "ping" => {
             touch_extension();
@@ -478,6 +522,31 @@ fn handle(app: &AppHandle, req: Value) -> Value {
                 Ok(host) => ("autofill:card", json!({ "host": host }), host),
                 Err(e) => return json!({ "error": e }),
             }
+        }
+        "fill_identity" => {
+            touch_extension();
+            match validate_fill_identity(&req) {
+                Ok((host, account)) => {
+                    let mut payload = json!({ "host": host });
+                    if let Some(a) = account {
+                        payload["account"] = json!(a);
+                    }
+                    ("autofill:identity", payload, host)
+                }
+                Err(e) => return json!({ "error": e }),
+            }
+        }
+        // Titles for the right-click menu: no window, nothing while locked.
+        "identities" => {
+            touch_extension();
+            let vault = app.state::<crate::vault::VaultState>();
+            if !vault.is_unlocked() {
+                return json!({ "error": "locked" });
+            }
+            return match vault.with_db_quiet(|db, _, _, _| Ok((db.list(), false))) {
+                Ok(items) => identities_reply(&items),
+                Err(_) => json!({ "error": "locked" }),
+            };
         }
         _ => return json!({ "error": "unknown_op" }),
     };
@@ -876,7 +945,7 @@ fn is_timeout(e: &std::io::Error) -> bool {
 
 /// Ops that may start Notiq when it isn't running (a user action in the browser). `ping` and `theme` never do.
 fn may_launch(op: &str) -> bool {
-    matches!(op, "fill" | "fill_card" | "save" | "launch")
+    matches!(op, "fill" | "fill_card" | "fill_identity" | "save" | "launch")
 }
 
 // ─── Theme shared with the extension ─────────────────────────────────────────
@@ -1203,6 +1272,59 @@ mod tests {
     }
 
     #[test]
+    fn fill_identity_uses_the_card_origin_rule_and_an_optional_account() {
+        let req = |v: Value| validate_fill_identity(&v);
+        assert_eq!(
+            req(json!({ "op": "fill_identity", "host": "shop.example.in", "origin": "https://shop.example.in" })),
+            Ok(("shop.example.in".into(), None))
+        );
+        assert_eq!(
+            req(json!({ "host": "localhost", "origin": "http://localhost:8000", "account": "Identities/Home.nqv" })),
+            Ok(("localhost".into(), Some("Identities/Home.nqv".into())))
+        );
+        assert_eq!(req(json!({ "host": "a.com", "origin": "https://a.com", "account": "" })), Ok(("a.com".into(), None)));
+        assert_eq!(req(json!({ "host": "a.com", "origin": "http://a.com" })), Err("not_https"));
+        assert_eq!(req(json!({ "host": "a.com", "origin": "https://b.com" })), Err("bad_request"));
+        assert_eq!(req(json!({ "host": "A.com", "origin": "https://a.com" })), Err("bad_host"));
+        for bad in [json!("../x.nqv"), json!("/abs.nqv"), json!("C:x"), json!(5), json!("a\u{1}b")] {
+            assert_eq!(req(json!({ "host": "a.com", "origin": "https://a.com", "account": bad })), Err("bad_request"));
+        }
+    }
+
+    #[test]
+    fn identities_reply_lists_identity_titles_only() {
+        let item = |rel: &str, ext: &str, dir: bool, trashed: bool| crate::vault_db::ListItem {
+            rel: rel.into(), ext: ext.into(), updated: 0, dir, tags: vec![], starred: false,
+            trashed_at: if trashed { Some(1) } else { None }, attachments: 0, history: 0,
+        };
+        let items = vec![
+            item("Identities/Office.nqv", "identity", false, false),
+            item("home.NQV", "identity", false, false),
+            item("Logins/bank.nqv", "login", false, false),
+            item("Cards/visa.nqv", "card", false, false),
+            item("Identities", "identity", true, false),
+            item("Old.nqv", "identity", false, true),
+            item("x/..evil.nqv", "identity", false, false),
+            item("Bad\u{7}Name.nqv", "identity", false, false),
+        ];
+        let r = identities_reply(&items);
+        assert_eq!(r["ok"], json!(true));
+        // Logins, cards, folders, trashed entries and unsafe paths are left out; sorted by title.
+        assert_eq!(
+            r["identities"],
+            json!([
+                { "account": "home.NQV", "title": "home" },
+                { "account": "Identities/Office.nqv", "title": "Office" },
+            ])
+        );
+        let many: Vec<_> = (0..30).map(|i| item(&format!("id{i:02}.nqv"), "identity", false, false)).collect();
+        let r = identities_reply(&many);
+        assert_eq!(r["identities"].as_array().unwrap().len(), MAX_IDENTITIES);
+        assert_eq!(r["identities"][0], json!({ "account": "id00.nqv", "title": "id00" }));
+        assert_eq!(identities_reply(&[]), json!({ "ok": true, "identities": [] }));
+    }
+
+    #[test]
     fn fill_card_accepts_secure_origins_only() {
         let req = |host: &str, origin: &str| json!({ "op": "fill_card", "host": host, "origin": origin });
         assert_eq!(validate_fill_card(&req("shop.example.com", "https://shop.example.com")), Ok("shop.example.com".into()));
@@ -1293,6 +1415,8 @@ mod tests {
     fn may_launch_only_for_user_actions() {
         assert!(may_launch("fill") && may_launch("fill_card") && may_launch("save") && may_launch("launch"));
         assert!(!may_launch("ping") && !may_launch("hello") && !may_launch("theme") && !may_launch(""));
+        // A filled identity is a user action; listing titles for the menu never starts Notiq.
+        assert!(may_launch("fill_identity") && !may_launch("identities"));
     }
 
     fn sample_theme() -> Value {

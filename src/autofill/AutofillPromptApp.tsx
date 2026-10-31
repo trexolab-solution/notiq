@@ -5,9 +5,9 @@ import { flushSync } from "react-dom";
 import { invoke } from "@tauri-apps/api/core";
 import { emitTo, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
-import { CreditCard, KeyRound, Lock, TriangleAlert, X } from "lucide-react";
+import { CreditCard, IdCard, KeyRound, Lock, TriangleAlert, X } from "lucide-react";
 import { DialogButton, DialogFooter, DialogIcon } from "../components/ui/DialogParts";
-import { CardChoice, FillChoice, SaveFields } from "../components/vault/autofillBodies";
+import { CardChoice, FillChoice, IdentityChoice, SaveFields } from "../components/vault/autofillBodies";
 import { useVaultUnlock } from "../components/vault/unlock/useVaultUnlock";
 import { VaultUnlockActions, VaultUnlockBody } from "../components/vault/unlock/VaultUnlockForm";
 import { useDialogBehaviour } from "../components/ui/useDialogBehaviour";
@@ -21,6 +21,7 @@ import {
   cardReply, clearTrust, fillReply, isFallbackRequest, isTrusted, saveLogin, scanCards, scanLogins, setVaultRootResolver,
   trustHost, validIntent, type SaveRequest,
 } from "../lib/autofill";
+import { identityReply, scanIdentities, validAccount } from "../lib/autofill";
 import { fitWindowSize, sizeChanged } from "./fitWindowSize";
 import { splitHost } from "./hostParts";
 import {
@@ -139,6 +140,17 @@ export default function AutofillPromptApp() {
         await reply(e.id, cardReply(e.card));
         dispatch({ type: "answered" });
         return;
+      case "scanIdentities":
+        try {
+          dispatch({ type: "identitiesScanned", identities: await scanIdentities() });
+        } catch (err) {
+          dispatch(err === ERR_LOCKED ? { type: "vaultLocked" } : { type: "failed" });
+        }
+        return;
+      case "releaseIdentity":
+        await reply(e.id, identityReply(e.identity));
+        dispatch({ type: "answered" });
+        return;
       case "release":
         try {
           if (e.trustHost) trustHost(e.trustHost);
@@ -218,6 +230,12 @@ export default function AutofillPromptApp() {
         const { id, host } = e.payload;
         accept({ kind: "card", req: { id, host } });
       }),
+      // Identity requests too (prompt window only; `account` only pre-selects the identity).
+      listen<{ id: string; host: string; account?: unknown }>("autofill:identity", (e) => {
+        const { id, host } = e.payload;
+        const account = validAccount(e.payload.account);
+        accept({ kind: "identity", req: { id, host, ...(account ? { account } : {}) } });
+      }),
       listen<{ id: string }>("autofill:cancel", (e) => {
         queue.current = dropFromQueue(queue.current, e.payload.id);
         dispatch({ type: "cancel", id: e.payload.id });
@@ -264,7 +282,8 @@ export default function AutofillPromptApp() {
         <Panel key={`checking-${state.job.req.id}`} refs={refs} host={state.job.req.host} icon="shield" onClose={deny}
                sub="Vault unlocked." footer={<DialogButton cancel onClick={deny}>Cancel</DialogButton>}>
           <p className="af-detail" role="status">
-            {state.job.kind === "card" ? "Looking for saved cards…" : "Looking for saved logins for this site…"}
+            {state.job.kind === "card" ? "Looking for saved cards…"
+              : state.job.kind === "identity" ? "Looking for saved identities…" : "Looking for saved logins for this site…"}
           </p>
         </Panel>
       );
@@ -300,6 +319,24 @@ export default function AutofillPromptApp() {
                </>}>
           <p className="af-detail">Only allow this if you just pressed Fill on this site&rsquo;s checkout.</p>
           <CardChoice cards={cards} pick={pick} disabled={busy} onPick={(index) => dispatch({ type: "pick", index })} />
+        </Panel>
+      );
+    }
+    case "identity": {
+      const { job, identities, pick, busy } = state;
+      return (
+        <Panel key={`identity-${job.req.id}`} refs={refs} host={job.req.host} icon={<IdCard size={16} />}
+               sub="The Notiq extension in your browser wants to fill your details into a form on this site." onClose={deny}
+               defaultFocus="cancel"
+               footer={<>
+                 <DialogButton cancel onClick={deny} disabled={busy}>Deny</DialogButton>
+                 <DialogButton variant="primary" loading={busy} loadingText="Filling…" onClick={() => dispatch({ type: "allow" })}>Fill</DialogButton>
+               </>}>
+          <p className="af-detail">
+            Name, email, phone and address go to <strong className="af-host-inline">{job.req.host}</strong>. Only allow
+            this if you just asked to fill a form there.
+          </p>
+          <IdentityChoice identities={identities} pick={pick} disabled={busy} onPick={(index) => dispatch({ type: "pick", index })} />
         </Panel>
       );
     }
@@ -422,9 +459,12 @@ function LockedStage({ refs, job, dispatch, onDeny }: LockedProps) {
       await win.setFocus().catch(() => {});
     },
   });
-  const what = job.kind === "fill" ? (job.req.intent === "code" ? "fill a 2FA code" : "fill a saved login") : job.kind === "card" ? "fill a payment card" : "save a login";
-  const submitLabel = job.kind === "fill" ? "Unlock & fill" : job.kind === "card" ? "Unlock & pick card" : "Unlock & save";
-  const purpose = job.kind === "fill" ? "unlock and fill it" : job.kind === "card" ? "unlock and pick a card" : "unlock and save it";
+  const what = job.kind === "fill" ? (job.req.intent === "code" ? "fill a 2FA code" : "fill a saved login")
+    : job.kind === "card" ? "fill a payment card" : job.kind === "identity" ? "fill your details (identity)" : "save a login";
+  const submitLabel = job.kind === "fill" ? "Unlock & fill" : job.kind === "card" ? "Unlock & pick card"
+    : job.kind === "identity" ? "Unlock & pick identity" : "Unlock & save";
+  const purpose = job.kind === "fill" ? "unlock and fill it" : job.kind === "card" ? "unlock and pick a card"
+    : job.kind === "identity" ? "unlock and pick an identity" : "unlock and save it";
   return (
     <Panel refs={refs} host={job.req.host} icon={<Lock size={16} />} onClose={onDeny} onSubmit={u.submit}
            sub={`The Notiq extension wants to ${what}.`}
