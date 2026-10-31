@@ -181,6 +181,8 @@ test("deepQuery finds inputs inside open shadow roots, in tree order, recursivel
   const host = node("x-login", {}, [], [b, node("div", {}, [inner])]);
   const doc = node("doc", {}, [a, host, d]);
   assert.deepEqual(FK.deepQuery(doc, "input").map((n) => n.id).join(), ["a", "b", "c", "d"].join());
+  // A scope that is itself a shadow host includes its own shadow tree.
+  assert.deepEqual(FK.deepQuery(host, "input").map((n) => n.id).join(), "b,c");
   // Closed roots look like no shadow root at all (shadowRoot === null): nothing inside is found.
   host.shadowRoot = null;
   assert.deepEqual(FK.deepQuery(doc, "input").map((n) => n.id).join(), ["a", "d"].join());

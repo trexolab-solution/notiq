@@ -1022,6 +1022,94 @@ try {
     await cdp("Target.closeTarget", { targetId: pop2Target });
   }
 
+  // 25. Login forms inside open shadow roots (web components)
+  const SHADOW = `http://localhost:${PORT}/test-pages/shadow-login.html`;
+  // Centre of a field reached through open roots (window.__field on the test page), and the icon drawn in it.
+  const shadowBox = (path) => P(`(() => { const e = window.__field(${JSON.stringify(path)}); e.scrollIntoView({ block: "center" });
+    const r = e.getBoundingClientRect(); return { x: r.x + 20, right: r.right, cy: r.y + r.height / 2 }; })()`);
+  const shadowIcon = async (path) => {
+    const f = await shadowBox(path);
+    await sleep(250);
+    return ((await icons()) || []).find((i) => Math.abs(i.y - f.cy) < 3 && i.x < f.right && i.x > f.right - 30) || null;
+  };
+  const shadowVal = (path) => P(`window.__field(${JSON.stringify(path)}).value`);
+  await resetState();
+  await mockNative(NATIVE);
+  await load(SHADOW);
+  await sleep(1500); // the late component renders its form after 1.2 s
+  const ic25 = (await icons()) || [];
+  check("shadow DOM: icons on the open-root forms (2 + nested 2 + late 2), none in the closed root", ic25.length === 6, String(ic25.length));
+  const si = await shadowIcon(["#c1", "#c1-pass"]);
+  check("shadow DOM: the icon sits at the right inside edge of the shadow field", !!si);
+  await mouseClick(si.x, si.y);
+  await waitFor(async () => (await shadowVal(["#c1", "#c1-pass"])) !== "", 3000);
+  check("shadow DOM: one fill fills username and password inside the open root",
+    (await shadowVal(["#c1", "#c1-user"])) === "alice@example.com" && (await shadowVal(["#c1", "#c1-pass"])) === "Notiq-Filled-1!");
+  const si2 = await shadowIcon(["#c2", "#c2-pass", "input"]);
+  await sleep(2100); // the previous icon's "done" state
+  await mouseClick(si2.x, si2.y);
+  await waitFor(async () => (await shadowVal(["#c2", "#c2-pass", "input"])) !== "", 3000);
+  check("shadow DOM: nested components (email and password each in its own root) are filled together",
+    (await shadowVal(["#c2", "#c2-user", "input"])) === "alice@example.com" && (await shadowVal(["#c2", "#c2-pass", "input"])) === "Notiq-Filled-1!");
+  check("shadow DOM: the late-rendered form got its icons", !!(await shadowIcon(["#c3", "#c3-pass"])));
+  check("shadow DOM: the closed root's fields stay untouched", await P(`document.getElementById("c4").shadowRoot === null`));
+  // Capture from a shadow form: typed login, Enter submits the form inside the root.
+  await resetState();
+  await load(SHADOW);
+  for (const [path, text] of [[["#c1", "#c1-user"], "sam@example.com"], [["#c1", "#c1-pass"], "Shadow-Typed-7!"]]) {
+    const b = await shadowBox(path);
+    await mouseClick(b.x, b.cy);
+    await cdp("Input.insertText", { text }, page);
+  }
+  await pressEnter();
+  const p25 = await waitFor(async () => (await pendingEntries())[0], 2500);
+  check("shadow DOM: a login submitted inside an open root is offered for saving",
+    p25 && p25.username === "sam@example.com" && p25.password === "Shadow-Typed-7!", JSON.stringify(p25 && { ...p25, password: "<redacted>" }));
+
+  // 26. The generator follows the site's maxlength / passwordrules / pattern
+  const RULES = `http://localhost:${PORT}/test-pages/signup-rules.html`;
+  await resetState();
+  await mockNative(NATIVE);
+  await load(RULES);
+  const generate = async (id) => {
+    const gi26 = await iconFor(id);
+    if (!gi26) return null;
+    await mouseClick(gi26.x, gi26.y);
+    const m = await waitFor(menuInfo, 1500);
+    if (!m || !m.items.length) return null;
+    const sub = m.text;
+    await mouseClick(m.items[0].x, m.items[0].y);
+    await sleep(400);
+    const after = await menuInfo();
+    await key("Escape", "Escape", 27);
+    await sleep(250);
+    return { sub, after: after ? after.text : "" };
+  };
+  const fieldVals = (ids) => P(`${JSON.stringify(ids)}.map((id) => document.getElementById(id).value)`);
+  let g26 = await generate("m-pass");
+  let v26 = await fieldVals(["m-pass", "m-pass2"]);
+  check("maxlength=16: menu says 16 characters, both fields get the same 16-character password",
+    g26 && /16 characters/.test(g26.sub) && v26[0].length === 16 && v26[0] === v26[1] && /[A-Z]/.test(v26[0]) && /[^A-Za-z0-9]/.test(v26[0]),
+    JSON.stringify({ sub: g26 && g26.sub, len: v26[0].length }));
+  g26 = await generate("r-pass");
+  v26 = await fieldVals(["r-pass", "r-pass2"]);
+  check("passwordrules: 14 characters, lower+upper+digit, only -_. as symbols, confirm field too",
+    v26[0].length === 14 && v26[0] === v26[1] && /^[A-Za-z0-9._-]+$/.test(v26[0]) && /[a-z]/.test(v26[0]) && /[A-Z]/.test(v26[0]) && /\d/.test(v26[0]),
+    JSON.stringify({ len: v26[0].length }));
+  g26 = await generate("p-pass");
+  v26 = await fieldVals(["p-pass"]);
+  check("pattern [A-Za-z0-9]{8,12}: 12 letters/digits, valid for the browser",
+    /^[A-Za-z0-9]{12}$/.test(v26[0]) && (await P(`document.getElementById("p-pass").checkValidity()`)), JSON.stringify({ len: v26[0].length }));
+  g26 = await generate("i-pass");
+  v26 = await fieldVals(["i-pass"]);
+  check("impossible rules: a warning, and the default password capped at the 10-character maximum",
+    g26 && /couldn.t be met/.test(g26.after) && v26[0].length === 10, JSON.stringify({ after: g26 && g26.after, len: v26[0].length }));
+  g26 = await generate("j-pass");
+  v26 = await fieldVals(["j-pass", "j-pass2"]);
+  check("a script that cuts the value: retried at its length, the page keeps exactly what was generated (both fields)",
+    v26[0].length === 10 && v26[0] === v26[1] && /[A-Z]/.test(v26[0]), JSON.stringify({ len: v26[0].length, same: v26[0] === v26[1] }));
+  check("generating with rules sends nothing to Notiq", (await calls()).length === 0);
+
   exitCode = results.every((r) => r.ok) ? 0 : 1;
 } catch (e) {
   console.error("ERROR", e && e.stack || e);

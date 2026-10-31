@@ -242,6 +242,8 @@
         }
       }
     };
+    // A scope that is itself a host: its shadow content first (it renders in place of the light children).
+    if (root && root.shadowRoot && !(o.skip && o.skip(root))) { roots++; walk(root.shadowRoot, 1); }
     walk(root, 0);
     return out;
   }

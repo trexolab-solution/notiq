@@ -139,16 +139,55 @@
     const ac = acOf(el);
     return ac.includes("username") || ac.includes("email") || typeOf(el) === "email" || USER_HINT.test(hintOf(el));
   }
-  const precedes = (a, b) => !!(b.compareDocumentPosition(a) & Node.DOCUMENT_POSITION_PRECEDING);
-  const inputsIn = (scope) => Array.from((scope || document).querySelectorAll("input"));
+  // The items of a tree-ordered list (inputsIn) that come before `ref`. Unlike
+  // compareDocumentPosition this also orders fields in different shadow trees.
+  const beforeIn = (list, ref) => { const k = list.indexOf(ref); return k < 0 ? [] : list.slice(0, k); };
 
+  // ---------- open shadow roots ----------
+  // Web-component login forms keep their inputs in OPEN shadow roots, which
+  // querySelectorAll doesn't enter. Each scan lists the open roots under the
+  // document (NotiqFill.shadowRoots: bounded depth and count; our own closed
+  // overlay is never entered); while there are none, lookups stay plain
+  // querySelectorAll. New roots are watched for mutations, and their submit and
+  // scroll events (which don't leave a shadow root) are listened to as well.
+  let shadowList = [];
+  const hookedRoots = new WeakSet();
+  const skipOwn = (h) => h === shadowHost;
+  function refreshShadows() {
+    shadowList = FK.shadowRoots(document, { skip: skipOwn });
+    for (const sr of shadowList) {
+      if (hookedRoots.has(sr)) continue;
+      hookedRoots.add(sr);
+      try { mo.observe(sr, MO_OPTS); } catch { /* not observable */ }
+      sr.addEventListener("submit", onSubmit, true);
+      sr.addEventListener("scroll", schedulePosition, { capture: true, passive: true });
+    }
+  }
+  const deepAll = (scope, sel) => (shadowList.length
+    ? FK.deepQuery(scope || document, sel, { skip: skipOwn })
+    : Array.from((scope || document).querySelectorAll(sel)));
+  const inputsIn = (scope) => deepAll(scope, "input");
+  const activeField = () => FK.deepActive(document);
+
+  // getComputedStyle results, kept only while one scan runs (null otherwise).
+  let styleCache = null;
+  function styleOf(n) {
+    if (!styleCache) return getComputedStyle(n);
+    let cs = styleCache.get(n);
+    if (!cs) {
+      const c = getComputedStyle(n);
+      cs = { display: c.display, opacity: c.opacity, visibility: c.visibility };
+      styleCache.set(n, cs);
+    }
+    return cs;
+  }
   function shown(el, minW = 1, minH = 1) {
     if (!el || !el.isConnected || el.disabled) return false;
     const r = el.getBoundingClientRect();
     if (r.width < minW || r.height < minH) return false;
     let n = el;
-    for (let depth = 0; n && n.nodeType === 1 && depth < 12; depth++, n = n.parentElement) {
-      const cs = getComputedStyle(n);
+    for (let depth = 0; n && n.nodeType === 1 && depth < 12; depth++, n = FK.parentAcross(n)) {
+      const cs = styleOf(n);
       if (cs.display === "none" || parseFloat(cs.opacity) === 0) return false;
       if (depth === 0 && (cs.visibility === "hidden" || cs.visibility === "collapse")) return false;
     }
@@ -157,13 +196,15 @@
   const usable = (el) => shown(el, MIN_W, MIN_H) && !el.readOnly;
 
   // The form, or for formless (SPA) password fields the closest ancestor that also holds another input.
+  // The climb steps out of shadow roots, so a password inside its own web component finds the
+  // username component next to it.
   function scopeOf(field) {
     if (field.form) return field.form;
-    let n = field.parentElement;
-    for (let i = 0; n && i < 6; i++, n = n.parentElement) {
+    let n = FK.parentAcross(field);
+    for (let i = 0; n && i < 6; i++, n = FK.parentAcross(n)) {
       if (inputsIn(n).some((x) => x !== field && isTextual(x))) return n;
     }
-    return field.parentElement || document;
+    return field.parentElement || field.getRootNode() || document; // a shadow root at the top of its tree
   }
 
   // Sign-up / change-password detection.
@@ -209,7 +250,7 @@
     }
     // Username-first flows: the only text field of a form on a login-looking URL.
     if (LOGIN_PATH.test(location.pathname)) {
-      for (const form of Array.from(document.forms || [])) {
+      for (const form of shadowList.length ? deepAll(document, "form") : Array.from(document.forms || [])) {
         const ins = inputsIn(form);
         if (ins.some((i) => isPassword(i) && shown(i))) continue;
         const texts = ins.filter((i) => isTextual(i) && shown(i));
@@ -466,16 +507,22 @@
   }
 
   function scan() {
+    styleCache = new Map();
+    try { scanNow(); } finally { styleCache = null; }
+  }
+  function scanNow() {
+    refreshShadows();
     cardFields = detectCards();
     maybeStepFill(); // after detectCards: a masked CVC field is never a password step
-    if (!settings.showIcon) { clearIcons(); return; }
+    if (!settings.showIcon) { clearIcons(); noteScanResult(cardFields.size > 0 || anyVisiblePassword()); return; }
     const found = detect();
     for (const f of cardIconFields(cardFields)) found.add(f);
     for (const f of Array.from(icons.keys())) if (!found.has(f)) removeIcon(f);
     for (const f of found) if (!icons.has(f)) addIcon(f);
+    noteScanResult(found.size > 0 || cardFields.size > 0);
     schedulePosition();
     // A field that got focus before it was detected (autofocus, SPA): suggest now.
-    if (pendingFocus && pendingFocus === document.activeElement && icons.has(pendingFocus)) {
+    if (pendingFocus && pendingFocus === activeField() && icons.has(pendingFocus)) {
       const f = pendingFocus;
       pendingFocus = null;
       maybeSuggest(f);
@@ -570,9 +617,11 @@
     if (refocus && f.isConnected) focusQuietly(f, { preventScroll: true });
   }
   function onFocusIn(e) {
-    scheduleScan();
-    schedulePosition();
     const t = realTarget(e);
+    // Focus in an input always gets a prompt scan, and wakes a backed-off observer
+    // (a login form shown by a class/style change is found this way).
+    if (isInput(t)) wakeScans(); else scheduleScan();
+    schedulePosition();
     if (t === shadowHost) return; // focus moved into our own UI
     if (suggest && suggest.field !== t) hideSuggest();
     if (quiet || !isInput(t)) return;
@@ -783,7 +832,7 @@
     let pw = isPassword(anchor) ? anchor : inputsIn(anchor.form || scopeOf(anchor)).find((i) => isPassword(i) && usable(i)) || null;
     let n = 0;
     if (pw) {
-      const before = inputsIn(scopeOf(pw)).filter((i) => i !== pw && isTextual(i) && !isOtp(i) && shown(i) && !i.readOnly && precedes(i, pw));
+      const before = beforeIn(inputsIn(scopeOf(pw)), pw).filter((i) => isTextual(i) && !isOtp(i) && shown(i) && !i.readOnly);
       const user = !isPassword(anchor) ? anchor : before[before.length - 1] || null;
       if (user && cred.username) { setValue(user, cred.username); n++; }
       setValue(pw, cred.password); n++;
@@ -868,7 +917,7 @@
   }
   function detectCards() {
     const found = [];
-    for (const f of Array.from(document.querySelectorAll("input, select"))) {
+    for (const f of deepAll(document, "input, select")) {
       if (f.tagName === "INPUT" && (typeOf(f) === "hidden" || f.readOnly)) continue;
       const r = cardKindOf(f);
       if (r && shown(f)) found.push([f, r]);
@@ -945,7 +994,7 @@
       if (!pw.isConnected || !usable(pw) || pw.value) return;
       const username = typeof res.username === "string" ? res.username : "";
       // A username field on this step that holds a different account: not ours to fill.
-      const before = inputsIn(scopeOf(pw)).filter((i) => i !== pw && isTextual(i) && !isOtp(i) && shown(i) && !i.readOnly && precedes(i, pw));
+      const before = beforeIn(inputsIn(scopeOf(pw)), pw).filter((i) => isTextual(i) && !isOtp(i) && shown(i) && !i.readOnly);
       const user = before[before.length - 1] || null;
       if (user && user.value && user.value.trim().toLowerCase() !== username.trim().toLowerCase()) return;
       const n = fillFields(pw, { username: user && !user.value ? username : "", password: res.password, code: "" });
@@ -990,7 +1039,7 @@
     const pw = pickPassword(pws);
     const password = String(pw.value);
     if (!password || password.length > MAX_PW) return null;
-    const before = ins.filter((i) => isTextual(i) && !isOtp(i) && i.value && shown(i) && precedes(i, pws[0]));
+    const before = beforeIn(ins, pws[0]).filter((i) => isTextual(i) && !isOtp(i) && i.value && shown(i));
     const hiddenUser = ins.find((i) => isInput(i) && acOf(i).includes("username") && i.value && !isPassword(i));
     const username = clean((before.length && before[before.length - 1].value) || (hiddenUser && hiddenUser.value) || recentUser(), MAX_USER);
     if (filled && password === filled.password && (!username || username === filled.username)) return null;
@@ -1188,7 +1237,7 @@
     if (msg && msg.type === "checkPending" && IS_TOP) schedulePending(1200);
     // Alt+Shift+L (background): same as clicking the icon of the focused login field, else the first visible one.
     if (msg && msg.type === "fillShortcut") {
-      const active = document.activeElement;
+      const active = activeField();
       const field = icons.has(active) ? active : [...icons.keys()].find((f) => f.isConnected && shown(f));
       if (field && (active === field || document.hasFocus())) onIconClick(field);
     }
@@ -1219,27 +1268,51 @@
   });
 
   // ---------- wiring ----------
-  let scanTimer = 0, lastHref = location.href;
+  // Scans are coalesced and run when the page is idle (requestIdleCallback, else a
+  // timeout), at most one every 250 ms. A page that keeps changing but shows no login,
+  // card or code field backs off: after 6 empty scans mutations wait 1.5 s, after 15
+  // they wait 5 s, and after 30 the observer stops scanning until the user focuses an
+  // input or the URL changes (SPA route), which also scans at once. The observer
+  // ignores class / style changes (most of a busy page's churn); a form revealed that
+  // way is found on the first focus into it.
+  const SCAN_GAP = 250, EMPTY_SLOW = 6, EMPTY_SLOWER = 15, EMPTY_STOP = 30;
+  const idle = typeof requestIdleCallback === "function"
+    ? (fn) => requestIdleCallback(fn, { timeout: 600 })
+    : (fn) => setTimeout(fn, 0);
+  let scanTimer = 0, scanDue = 0, emptyScans = 0, lastHref = location.href;
+  const scanDelay = () => (emptyScans >= EMPTY_SLOWER ? 5000 : emptyScans >= EMPTY_SLOW ? 1500 : SCAN_GAP);
+  function scheduleScan(delay = scanDelay()) {
+    if (emptyScans >= EMPTY_STOP && delay > SCAN_GAP) return; // dormant until woken
+    const due = Date.now() + delay;
+    if (scanTimer) {
+      if (due >= scanDue) return; // one is already coming soon enough
+      clearTimeout(scanTimer);
+    }
+    scanDue = due;
+    scanTimer = setTimeout(() => idle(() => { scanTimer = 0; scan(); }), delay);
+  }
+  function wakeScans() {
+    emptyScans = 0;
+    scheduleScan(SCAN_GAP);
+  }
+  function noteScanResult(found) {
+    emptyScans = found ? 0 : Math.min(emptyScans + 1, EMPTY_STOP);
+  }
   function onUrlMaybeChanged() {
     if (location.href === lastHref) return;
     lastHref = location.href;
-    scheduleScan();
+    wakeScans();
     schedulePending(800);
   }
-  function scheduleScan() {
-    if (scanTimer) return; // throttle: at most one scan per 250 ms even under constant mutations
-    scanTimer = setTimeout(() => { scanTimer = 0; scan(); }, 250);
-  }
+  const MO_OPTS = { childList: true, subtree: true, attributes: true,
+    attributeFilter: ["type", "hidden", "disabled", "aria-hidden"] };
   const mo = new MutationObserver((muts) => {
     if (shadowHost && muts.every((m) => m.target === shadowHost ||
       (m.type === "childList" && [...m.addedNodes, ...m.removedNodes].every((n) => n === shadowHost)))) return;
-    scheduleScan();
     onUrlMaybeChanged();
+    scheduleScan();
   });
-  mo.observe(document.documentElement, {
-    childList: true, subtree: true, attributes: true,
-    attributeFilter: ["type", "style", "class", "hidden", "disabled", "aria-hidden"],
-  });
+  mo.observe(document.documentElement, MO_OPTS);
 
   document.addEventListener("submit", onSubmit, true);
   document.addEventListener("keydown", onKeydown, true);
