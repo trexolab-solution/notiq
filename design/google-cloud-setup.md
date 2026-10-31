@@ -59,6 +59,11 @@ PKCE se aati hai. Phir bhi secret repo mein commit mat karna:
 3. Page live hone par **Verify**.
 4. Ab step 3 ke "Authorized domains" mein `trexolab-solution.github.io` accept ho jaana chahiye.
 
+> **Agar Google ise accept na kare:** ho sakta hai Google `/notiq/` wale path ko poore domain ka proof na maane, aur
+> root `https://trexolab-solution.github.io/` ka proof maange. Tab GitHub par organization `trexolab-solution` mein
+> `trexolab-solution.github.io` naam ka ek chhota repo banao, Pages on karo, aur wahi HTML file uske root mein daal kar
+> root URL ki property verify karo.
+
 ## 6. Mujhe kya bhejna hai
 - Client ID (public hai, chat mein bhej sakte ho)
 - Confirm karo ki secret GitHub Actions secret mein daal diya hai. **Secret chat mein mat bhejna.**
