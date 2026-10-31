@@ -12,6 +12,7 @@ import { DriveVaultCard, useDriveVaultHint } from "./sync/DriveVaultCard";
 import { RestoreBackupDialog } from "./RestoreBackupDialog";
 import { useSyncStatus } from "../../lib/vaultSync";
 import { startSyncSetup } from "../../lib/syncSetupFlow";
+import { useVaultPanelResize } from "../../hooks/useVaultPanelResize";
 
 const baseName = (p: string) => p.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || p;
 
@@ -27,6 +28,7 @@ export function VaultPanel() {
   useEffect(() => { void useVaultStore.getState().refresh().finally(() => setChecked(true)); }, []);
   const data = useVaultItems();
   const custom = getVaultDir() !== null;
+  const { width, dragging, handleProps } = useVaultPanelResize();
 
   const storageRow = (
     <div className="vt-footer-row" title={data.root ? `Stored in ${data.root}` : undefined}>
@@ -48,7 +50,7 @@ export function VaultPanel() {
   );
 
   return (
-    <section className="vt-panel" aria-label="Secure Vault">
+    <section className="vt-panel" aria-label="Secure Vault" style={{ width }}>
       {unlocked ? (
         <>
           <BackupReminder />
@@ -64,6 +66,7 @@ export function VaultPanel() {
           <div className="vt-footer">{storageRow}</div>
         </>
       )}
+      <div className={`vt-resize-handle${dragging ? " is-dragging" : ""}`} {...handleProps} />
     </section>
   );
 }
