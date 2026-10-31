@@ -6,11 +6,11 @@ import { FitAddon } from "@xterm/addon-fit";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { readText, writeText } from "@tauri-apps/plugin-clipboard-manager";
-import { Clipboard, Copy, Trash2, SquareMousePointer } from "lucide-react";
 import { useAppStore } from "../../store";
 import { THEMES } from "../../lib/themes";
 import type { ThemeId } from "../../types";
-import { ContextMenu, type ContextMenuItem } from "../ui/ContextMenu";
+import { ContextMenu } from "../ui/ContextMenu";
+import { buildTerminalMenu } from "../../lib/contextMenu/items";
 
 export interface InstanceHandle {
   fit():   void;
@@ -281,13 +281,10 @@ export const TerminalInstance = forwardRef<InstanceHandle, Props>(
 
     const hasSelection = termRef.current?.hasSelection() ?? false;
 
-    const ctxMenuItems: ContextMenuItem[] = [
-      { type: "item", label: "Copy",       icon: <Copy size={13} />,                shortcut: "Ctrl+C", disabled: !hasSelection, onClick: handleCopy },
-      { type: "item", label: "Paste",      icon: <Clipboard size={13} />,           shortcut: "Ctrl+V", onClick: handlePaste },
-      { type: "separator" },
-      { type: "item", label: "Select All", icon: <SquareMousePointer size={13} />,  onClick: handleSelectAll },
-      { type: "item", label: "Clear",      icon: <Trash2 size={13} />,              onClick: handleClear },
-    ];
+    const ctxMenuItems = buildTerminalMenu(
+      { hasSelection },
+      { copy: handleCopy, paste: handlePaste, selectAll: handleSelectAll, clear: handleClear },
+    );
 
     return (
       <div

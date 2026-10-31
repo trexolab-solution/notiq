@@ -7,6 +7,7 @@
   border-radius: 9px;
   box-shadow: 0 8px 32px rgba(0,0,0,0.4), 0 2px 8px rgba(0,0,0,0.2);
   backdrop-filter: blur(16px); animation: ctx-in 0.1s ease-out; outline: none;
+  max-height: calc(100vh - 16px); overflow-y: auto;
 }
 @keyframes ctx-in {
   from { opacity: 0; transform: scale(0.96) translateY(-4px); }
@@ -18,7 +19,7 @@
   border: none; background: transparent; width: 100%; text-align: left;
   transition: background 0.08s; white-space: nowrap;
 }
-.context-menu-item:hover {
+.context-menu-item:hover, .context-menu-item:focus-visible {
   background: color-mix(in srgb, var(--color-primary) 10%, var(--color-bg-tertiary));
   color: var(--color-text);
 }
