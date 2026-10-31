@@ -6,7 +6,9 @@ vi.mock("@tauri-apps/api/event", () => ({ listen: () => Promise.resolve(() => {}
 const {
   badgeTooltip, deviceCountLabel, isCacheFresh, loadingModel, markIndicatorTipShown, popoverModel, readIndicatorTip,
   shouldShowIndicatorTip, surfaceIndicator, syncCommandAvailability, syncSettingsRow, INDICATOR_TIP_KEY, SYNC_PITCH,
+  isDriveFull, titlebarIndicator, deviceDisplayName, requestSyncSetup,
 } = await import("./syncSurfaces");
+const { SYNC_START_SETUP_EVENT } = await import("./syncSetup");
 type SyncStatus = import("./vaultSync").SyncStatus;
 
 const NOW = 1_800_000_000_000;
@@ -40,7 +42,7 @@ describe("surfaceIndicator", () => {
 
 describe("badgeTooltip", () => {
   it.each([
-    [status(), "Synced with Google Drive · me@gmail.com · 5 minutes ago"],
+    [status(), "Synced with Google Drive · me@gmail.com"],
     [status({ pending: true }), "Changes waiting to sync with Google Drive · me@gmail.com"],
     [status({ state: "syncing" }), "Syncing with Google Drive… · me@gmail.com"],
     [status({ state: "error", lastError: "Drive is full" }), "Sync problem: Drive is full"],
@@ -49,17 +51,23 @@ describe("badgeTooltip", () => {
     [off(), "Sync off · me@gmail.com"],
     [disconnected(), "Sync off"],
   ] as [SyncStatus, string][])("%#: %s", (s, text) => {
-    expect(badgeTooltip(s, true, NOW)).toBe(text);
+    expect(badgeTooltip(s, true)).toBe(text);
   });
 
   it("is hidden when the indicator is", () => {
-    expect(badgeTooltip(status(), false, NOW)).toBeNull();
-    expect(badgeTooltip(null, true, NOW)).toBeNull();
-    expect(badgeTooltip(disconnected({ configured: false }), true, NOW)).toBeNull();
+    expect(badgeTooltip(status(), false)).toBeNull();
+    expect(badgeTooltip(null, true)).toBeNull();
+    expect(badgeTooltip(disconnected({ configured: false }), true)).toBeNull();
   });
 });
 
 describe("popoverModel", () => {
+  it("off with a reason from Notiq: shows it, Turn On Sync", () => {
+    const m = popoverModel(off({ lastError: "Sync was turned off because this device now has a different vault." }), NOW);
+    expect(m).toMatchObject({ messageTone: "danger", actions: ["turnOn", "settings"] });
+    expect(m.message).toContain("different vault");
+  });
+
   it("not connected: the pitch and Connect", () => {
     const m = popoverModel(disconnected(), NOW);
     expect(m).toMatchObject({ connected: false, account: null, location: null, message: SYNC_PITCH, actions: ["connect"], showDevices: false });
@@ -87,9 +95,18 @@ describe("popoverModel", () => {
     expect(popoverModel(status({ state: "syncing" }), NOW)).toMatchObject({ badge: { tone: "busy" }, disabled: ["syncNow"] });
   });
 
-  it("error: the message and Retry", () => {
-    const m = popoverModel(status({ state: "error", lastError: "Drive is full" }), NOW);
-    expect(m).toMatchObject({ message: "Drive is full", messageTone: "danger", actions: ["retry", "settings"], badge: { tone: "danger" } });
+  it("error: the reason replaces Last synced, ONE action: Retry", () => {
+    const m = popoverModel(status({ state: "error", lastError: "Something broke" }), NOW);
+    expect(m).toMatchObject({ message: "Something broke", messageTone: "danger", actions: ["retry", "settings"], badge: { tone: "danger" }, lastSynced: null, showDevices: false });
+  });
+
+  it("Drive full: says so and opens the storage page", () => {
+    const m = popoverModel(status({ state: "error", lastError: "Your Google Drive storage is full." }), NOW);
+    expect(m.message).toMatch(/^Google Drive is full/);
+    expect(m.actions).toEqual(["openStorage", "settings"]);
+    expect(isDriveFull("Your Google Drive storage is full.")).toBe(true);
+    expect(isDriveFull("Network down")).toBe(false);
+    expect(isDriveFull(null)).toBe(false);
   });
 
   it("authNeeded: Reconnect", () => {
@@ -104,8 +121,10 @@ describe("popoverModel", () => {
     expect(m.actions).toEqual(["unlock", "settings"]);
   });
 
-  it("offline and pending explain themselves", () => {
-    expect(popoverModel(status({ state: "offline" }), NOW)).toMatchObject({ badge: { tone: "warn" }, actions: ["syncNow", "settings"] });
+  it("offline: no action, will sync when back online; pending explains itself", () => {
+    expect(popoverModel(status({ state: "offline" }), NOW)).toMatchObject({
+      badge: { tone: "warn" }, actions: ["settings"], lastSynced: null, message: "Offline. Will sync when you're back online.",
+    });
     expect(popoverModel(status({ pending: true }), NOW).message).toContain("waiting to upload");
   });
 
@@ -121,8 +140,8 @@ describe("popoverModel", () => {
 
 describe("small helpers", () => {
   it("device count and cache", () => {
-    expect(deviceCountLabel(1)).toBe("1 device");
-    expect(deviceCountLabel(3)).toBe("3 devices");
+    expect(deviceCountLabel(1)).toBe("1 PC");
+    expect(deviceCountLabel(3)).toBe("3 PCs");
     expect(isCacheFresh(null, NOW)).toBe(false);
     expect(isCacheFresh(NOW - 1000, NOW)).toBe(true);
     expect(isCacheFresh(NOW - 31_000, NOW)).toBe(false);
@@ -137,8 +156,12 @@ describe("small helpers", () => {
 
 describe("syncCommandAvailability", () => {
   const unlocked = { exists: true, unlocked: true };
-  it("nothing without a vault", () => {
-    expect(syncCommandAvailability(status(), { exists: false, unlocked: false })).toEqual({ syncNow: false, settings: false, connect: false });
+  it("without a vault: Connect for new users, Settings once connected, never Sync now", () => {
+    const none = { exists: false, unlocked: false };
+    expect(syncCommandAvailability(status(), none)).toEqual({ syncNow: false, settings: true, connect: false });
+    expect(syncCommandAvailability(disconnected(), none)).toEqual({ syncNow: false, settings: false, connect: true });
+    expect(syncCommandAvailability(disconnected({ configured: false }), none)).toEqual({ syncNow: false, settings: false, connect: false });
+    expect(syncCommandAvailability(null, none)).toEqual({ syncNow: false, settings: false, connect: false });
   });
   it("connect only when configured and not connected", () => {
     expect(syncCommandAvailability(disconnected(), unlocked)).toEqual({ syncNow: false, settings: true, connect: true });
@@ -182,5 +205,51 @@ describe("indicator tip flag", () => {
     vi.stubGlobal("localStorage", { getItem: () => { throw new Error("no"); }, setItem: () => { throw new Error("no"); } });
     expect(readIndicatorTip()).toBeNull();
     expect(() => markIndicatorTipShown()).not.toThrow();
+  });
+});
+
+describe("titlebarIndicator", () => {
+  it("shows whenever this build can sync, with or without a vault", () => {
+    expect(titlebarIndicator(null, NOW)).toBeNull();
+    expect(titlebarIndicator(disconnected({ configured: false }), NOW)).toBeNull();
+    expect(titlebarIndicator(disconnected(), NOW)).toMatchObject({ kind: "off", label: "Sync off" });
+    expect(titlebarIndicator(disconnected(), NOW)!.tooltip).toContain("other PCs");
+    expect(titlebarIndicator(off(), NOW)!.tooltip).toContain("turn it on");
+    // Connected in a build without a client id still shows (settings matter).
+    expect(titlebarIndicator(status({ configured: false }), NOW)!.kind).toBe("synced");
+  });
+
+  it.each([
+    [status(), "synced"],
+    [status({ state: "syncing" }), "syncing"],
+    [status({ state: "offline" }), "offline"],
+    [status({ state: "error", lastError: "x" }), "problem"],
+    [status({ state: "authNeeded" }), "problem"],
+    [status({ state: "locked" }), "locked"],
+  ] as [SyncStatus, string][])("%#: same states as the status bar (%s)", (s, kind) => {
+    expect(titlebarIndicator(s, NOW)!.kind).toBe(kind);
+    expect(titlebarIndicator(s, NOW)).toEqual(surfaceIndicator(s, true, NOW));
+  });
+});
+
+describe("device names and the set-up hand-off", () => {
+  it("never shows an id: Unnamed device when the name is unknown", () => {
+    expect(deviceDisplayName({ name: "CODEMUNI" })).toBe("CODEMUNI");
+    expect(deviceDisplayName({ name: "" })).toBe("Unnamed device");
+    expect(deviceDisplayName({ name: "   " })).toBe("Unnamed device");
+  });
+
+  it("requestSyncSetup dispatches notiq:sync-start-setup (no detail) and is safe without listeners", () => {
+    expect(SYNC_START_SETUP_EVENT).toBe("notiq:sync-start-setup");
+    const target = new EventTarget();
+    const seen: Event[] = [];
+    target.addEventListener(SYNC_START_SETUP_EVENT, (e) => seen.push(e));
+    vi.stubGlobal("window", target);
+    requestSyncSetup();
+    expect(seen).toHaveLength(1);
+    expect((seen[0] as CustomEvent).detail).toBeNull();
+    vi.stubGlobal("window", undefined);
+    expect(() => requestSyncSetup()).not.toThrow();
+    vi.unstubAllGlobals();
   });
 });

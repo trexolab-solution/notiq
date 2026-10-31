@@ -165,15 +165,21 @@ describe("conflict notice", () => {
       { path: "mail.nqv", fromDevice: "Laptop" },
       { path: "wifi.nqv", fromDevice: "Office PC" },
     ])!;
-    expect(n.message).toBe("3 notes were edited on two devices; the newer version was kept and the other is in each note's history.");
-    expect(n.detail).toContain("Other devices: Laptop, Office PC.");
+    expect(n.message).toBe("3 notes were edited on two PCs. The newer versions are kept, the others are in their history.");
+    expect(n.detail).toContain("Other PCs: Laptop, Office PC.");
     expect(n.detail).toContain("Notes: bank, mail, wifi.");
   });
 
   it("uses the singular for one note", () => {
     const n = conflictNotice([{ path: "bank.nqv", fromDevice: "Laptop" }])!;
-    expect(n.message).toBe("1 note was edited on two devices; the newer version was kept and the other is in the note's history.");
-    expect(n.detail).toContain("Other device: Laptop.");
+    expect(n.message).toBe("1 note was edited on two PCs. The newer version is kept, the other is in its history.");
+    expect(n.detail).toContain("Other PC: Laptop.");
+  });
+
+  it("never lists an unknown device (empty name)", () => {
+    const n = conflictNotice([{ path: "bank.nqv", fromDevice: "" }, { path: "x.nqv", fromDevice: "  " }])!;
+    expect(n.detail).not.toContain("Other PC");
+    expect(n.detail).toBe("Notes: bank, x.");
   });
 
   it("caps the list of names", () => {

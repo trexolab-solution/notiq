@@ -22,7 +22,7 @@ const mem = new Map<string, string>();
 (globalThis as { window?: unknown }).window = new EventTarget();
 
 const N = await import("./notifications");
-const { turnOnSyncWithFeedback, checkNewDevices } = await import("./syncFeedback");
+const { turnOnSyncWithFeedback, checkNewDevices, reconnectFromNotification, notifyAuthNeeded } = await import("./syncFeedback");
 const { followSyncLifecycle } = await import("./vaultSyncEvents");
 const { useSyncStore } = await import("./vaultSync");
 const { SYNC_BANNER_KEY, seenDevicesKey } = await import("./syncLifecycle");
@@ -111,5 +111,50 @@ describe("new devices", () => {
     handlers.sync_devices = () => [];
     await checkNewDevices(status({ enabled: false }));
     expect(calls).not.toContain("sync_devices");
+  });
+});
+
+describe("reconnect from the notification", () => {
+  const paused = () => N.getState().history.filter((n) => n.title === "Vault sync paused");
+  const click = (title: string | undefined, label: string) => {
+    const n = N.getState().history.find((x) => (title ? x.title === title : true) && x.actions?.some((a) => a.label === label));
+    n!.actions!.find((a) => a.label === label)!.onClick();
+  };
+
+  it("a failed reconnect re-shows the paused notice with Reconnect and the error detail", async () => {
+    notifyAuthNeeded();
+    handlers.sync_connect = () => { throw "SYNC_OFFLINE"; };
+    click("Vault sync paused", "Reconnect");
+    await vi.waitFor(() => expect(paused()).toHaveLength(1));
+    await vi.waitFor(() => expect(paused()[0].detail).toBe("You're offline. Changes will sync when you're back online."));
+    expect(paused()[0].actions?.map((a) => a.label)).toEqual(["Reconnect"]);
+    expect(messages().some((m) => m.startsWith("Waiting for Google"))).toBe(false);
+    // …and Reconnect works again from the re-shown notice.
+    handlers.sync_connect = () => status();
+    click("Vault sync paused", "Reconnect");
+    await vi.waitFor(() => expect(messages()).toContain("Reconnected to Google Drive as me@gmail.com"));
+    expect(paused()).toHaveLength(0);
+  });
+
+  it("cancel stops waiting and never re-shows the notice, even when the sign-in fails later", async () => {
+    let fail: (e: unknown) => void = () => {};
+    handlers.sync_connect = () => new Promise((_, reject) => { fail = reject; });
+    const p = reconnectFromNotification();
+    click(undefined, "Cancel");
+    fail("SYNC_AUTH");
+    await p;
+    expect(paused()).toHaveLength(0);
+    expect(messages()).toEqual([]);
+  });
+});
+
+describe("new devices without a known name", () => {
+  it("are announced as another PC, never by id", async () => {
+    let devices = [{ id: "me", name: "Desk", lastSeenMs: null, thisDevice: true }];
+    handlers.sync_devices = () => devices;
+    await checkNewDevices(status({ lastSyncedMs: 1 }));
+    devices = [...devices, { id: "623dc26ac14b29a54ac147abce02d215", name: "", lastSeenMs: 2, thisDevice: false }];
+    await checkNewDevices(status({ lastSyncedMs: 2 }));
+    expect(messages()).toEqual(["New device: another PC joined your vault"]);
   });
 });

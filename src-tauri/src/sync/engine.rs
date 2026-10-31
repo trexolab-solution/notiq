@@ -47,7 +47,7 @@ pub const BLOB_GC_AFTER_MS: u64 = 30 * 24 * 60 * 60 * 1000;
 #[serde(rename_all = "camelCase")]
 pub struct SyncConflict {
     pub path: String,
-    /// Device NAME whose version lost (falls back to its id).
+    /// Device NAME whose version lost; empty when that device's name isn't known (never an id).
     pub from_device: String,
 }
 
@@ -180,12 +180,14 @@ async fn list_all(p: &dyn StorageProvider) -> Result<Listing, SyncError> {
     Ok(l)
 }
 
+/// A device's name as last read from its snapshot (`None` when unknown). Ids are never names.
+fn device_name_of<'s>(st: &'s SyncState, id: &str) -> Option<&'s str> {
+    st.devices.get(id).map(|d| d.name.trim()).filter(|n| !n.is_empty())
+}
+
+/// A device for warning text: its name, or "another PC" (never its raw id).
 fn device_label(st: &SyncState, id: &str) -> String {
-    match st.devices.get(id).map(|d| d.name.as_str()).filter(|n| !n.is_empty()) {
-        Some(n) => n.to_string(),
-        None if id.is_empty() => "another device".into(),
-        None => id.to_string(),
-    }
+    device_name_of(st, id).map_or_else(|| "another PC".into(), str::to_string)
 }
 
 fn warn(out: &mut Vec<String>, msg: String) {
@@ -563,7 +565,12 @@ pub async fn sync_once<L: LocalVault>(ctx: &Ctx<'_>, local: &L, st: &mut SyncSta
         conflicts: {
             let mut v: Vec<SyncConflict> = vec![];
             for c in &applied.report.conflicts {
-                let sc = SyncConflict { path: c.path.clone(), from_device: device_label(st, &c.from_device) };
+                let from_device = if c.from_device == me {
+                    ctx.device_name.clone()
+                } else {
+                    device_name_of(st, &c.from_device).unwrap_or_default().to_string()
+                };
+                let sc = SyncConflict { path: c.path.clone(), from_device };
                 if !v.contains(&sc) {
                     v.push(sc);
                 }
@@ -623,6 +630,62 @@ async fn upload_own(ctx: &Ctx<'_>, st: &mut SyncState, own: Db, uploads: &[(Stri
     st.revisions.insert(ctx.device_id.clone(), obj.revision);
     st.devices.insert(ctx.device_id.clone(), DeviceInfo { name: ctx.device_name.clone(), last_seen_ms: Some(ctx.now_ms) });
     Ok(())
+}
+
+// ─── devices list ────────────────────────────────────────────────────────────
+
+/// One row of the devices list (`sync_devices`). `name` is empty when unknown — never an id.
+#[derive(Serialize, Clone, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct DeviceRow {
+    pub id: String,
+    pub name: String,
+    pub last_seen_ms: Option<u64>,
+    pub this_device: bool,
+}
+
+/// The devices that have a snapshot in the store, this device (`me`, named `my_name`) first.
+///
+/// Names come from `known` (filled whenever a sync opens a snapshot). A device not known yet (e.g. on
+/// a fresh install before its first sync) is named from its snapshot when `keys` is given (vault
+/// unlocked) and remembered in `known`; otherwise, or when its snapshot can't be read, the name is
+/// empty. Returns the rows and whether `known` changed (the caller persists it).
+pub async fn list_devices(
+    p: &dyn StorageProvider,
+    keys: Option<&SyncKeys>,
+    known: &mut BTreeMap<String, DeviceInfo>,
+    me: &str,
+    my_name: &str,
+) -> Result<(Vec<DeviceRow>, bool), SyncError> {
+    let objs = p.list(seal::DEVICES_PREFIX).await?;
+    let mut rows = vec![];
+    let mut learned = false;
+    for o in &objs {
+        let Some(id) = seal::device_from_object(&o.name) else { continue };
+        let this = !me.is_empty() && id == me;
+        let modified = o.modified_ms.map(|m| m.max(0) as u64);
+        let has_name = known.get(id).is_some_and(|i| !i.name.trim().is_empty());
+        if !this && !has_name {
+            if let Some(keys) = keys {
+                // Best effort: an unreadable / missing snapshot just leaves the name empty.
+                if let Ok(data) = p.get(&o.name).await {
+                    if let Ok(snap) = seal::open_snapshot(keys, id, &data) {
+                        known.insert(id.to_string(), DeviceInfo { name: snap.device_name.trim().to_string(), last_seen_ms: Some(snap.written_at_ms) });
+                        learned = true;
+                    }
+                }
+            }
+        }
+        let info = known.get(id);
+        rows.push(DeviceRow {
+            id: id.to_string(),
+            name: if this { my_name.trim().to_string() } else { info.map(|i| i.name.trim().to_string()).unwrap_or_default() },
+            last_seen_ms: info.and_then(|i| i.last_seen_ms).or(modified),
+            this_device: this,
+        });
+    }
+    rows.sort_by_key(|r| !r.this_device); // stable: this PC first, the rest in store order
+    Ok((rows, learned))
 }
 
 // ─── remote vault discovery, join, adopt ─────────────────────────────────────
@@ -773,4 +836,21 @@ pub fn import_local(target: &mut Db, local: &Db) -> ImportCounts {
     }
     target.normalise();
     c
+}
+
+#[cfg(test)]
+mod label_tests {
+    use super::*;
+
+    #[test]
+    fn unknown_devices_are_never_labelled_with_their_id() {
+        let mut st = SyncState::default();
+        let id = "623dc26ac14b29a54ac147abce02d215";
+        assert_eq!(device_name_of(&st, id), None);
+        assert_eq!(device_label(&st, id), "another PC");
+        st.devices.insert(id.into(), DeviceInfo { name: "  ".into(), last_seen_ms: None });
+        assert_eq!(device_label(&st, id), "another PC", "blank names count as unknown");
+        st.devices.insert(id.into(), DeviceInfo { name: "LAPTOP".into(), last_seen_ms: None });
+        assert_eq!(device_label(&st, id), "LAPTOP");
+    }
 }

@@ -4,12 +4,12 @@ import { Cloud, CloudAlert, CloudCheck, CloudOff, LockKeyhole, RefreshCw, type L
 import { Tooltip } from "../ui/Tooltip";
 import { syncIndicator, type SyncStatus } from "../../lib/vaultSync";
 import {
-  INDICATOR_TIP_EVENT, INDICATOR_TIP_TEXT, markIndicatorTipShown, readIndicatorTip, shouldShowIndicatorTip,
+  INDICATOR_TIP_EVENT, INDICATOR_TIP_TEXT, SYNC_BUTTON_SELECTOR, markIndicatorTipShown, readIndicatorTip, shouldShowIndicatorTip,
   surfaceIndicator, type SurfaceIndicator, type SurfaceKind,
 } from "../../lib/syncSurfaces";
 import { useSyncPopoverStore } from "./SyncPopover";
 
-const ICONS: Record<SurfaceKind, LucideIcon> = {
+export const ICONS: Record<SurfaceKind, LucideIcon> = {
   synced: CloudCheck, syncing: RefreshCw, offline: CloudOff, problem: CloudAlert, locked: LockKeyhole, off: Cloud,
 };
 
@@ -49,12 +49,8 @@ export const SyncIndicator = React.memo(function SyncIndicator({ status, onOpen,
 }) {
   const ind = vaultExists ? surfaceIndicator(status, true) : syncIndicator(status);
   if (!ind) return null;
-  return (
-    <>
-      <SyncIndicatorButton ind={ind} onOpen={onOpen} expanded={expanded} />
-      <IndicatorTip />
-    </>
-  );
+  // The one-time tip points at the title bar cloud button (SyncTitlebarButton), not here.
+  return <SyncIndicatorButton ind={ind} onOpen={onOpen} expanded={expanded} />;
 });
 
 // ── One-time tip bubble ─────────────────────────────────────────────────────────
@@ -79,11 +75,16 @@ function useTipFlag(): [string | null, () => void] {
   return [flag, dismiss];
 }
 
-/** Shown once, above the indicator, while `notiq.sync.indicatorTip` is "pending" (mounted only with the indicator). */
-export function IndicatorTip() {
+/**
+ * Shown once while `notiq.sync.indicatorTip` is "pending", next to the element `selector` finds (mounted
+ * only with that element): `below` it (title bar button, the default) or `above` it (status bar).
+ */
+export function IndicatorTip({ selector = SYNC_BUTTON_SELECTOR, placement = "below" }: {
+  selector?: string; placement?: "above" | "below";
+} = {}) {
   const [flag, dismiss] = useTipFlag();
   const show = shouldShowIndicatorTip(flag, true);
-  const [pos, setPos] = useState<{ right: number; bottom: number } | null>(null);
+  const [pos, setPos] = useState<{ right: number; top?: number; bottom?: number } | null>(null);
 
   // Mark it seen as soon as it's displayed; it stays up for this session until dismissed.
   useEffect(() => { if (show) markIndicatorTipShown(); }, [show]);
@@ -91,15 +92,16 @@ export function IndicatorTip() {
   useLayoutEffect(() => {
     if (!show) return;
     const place = () => {
-      const el = document.querySelector('[data-tour="sync-indicator"]');
+      const el = document.querySelector(selector);
       if (!el) { setPos(null); return; }
       const r = el.getBoundingClientRect();
-      setPos({ right: Math.max(8, window.innerWidth - r.right - 8), bottom: window.innerHeight - r.top + 8 });
+      const right = Math.max(8, window.innerWidth - r.right - 8);
+      setPos(placement === "below" ? { right, top: r.bottom + 8 } : { right, bottom: window.innerHeight - r.top + 8 });
     };
     place();
     window.addEventListener("resize", place);
     return () => window.removeEventListener("resize", place);
-  }, [show]);
+  }, [show, selector, placement]);
 
   // Opening the popover answers the tip.
   const popoverOpen = useSyncPopoverStore((s) => s.open);
@@ -107,7 +109,8 @@ export function IndicatorTip() {
 
   if (!show || !pos) return null;
   return createPortal(
-    <div className="sync-tip" role="status" style={{ right: pos.right, bottom: pos.bottom }}>
+    <div className={`sync-tip${placement === "below" ? " sync-tip--below" : ""}`} role="status"
+         style={{ right: pos.right, top: pos.top, bottom: pos.bottom }}>
       <span>{INDICATOR_TIP_TEXT}</span>
       <button type="button" className="sync-tip__btn" onClick={dismiss}>Got it</button>
     </div>,

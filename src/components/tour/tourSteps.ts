@@ -53,11 +53,11 @@ export const TOUR_STEPS: TourStep[] = [
     placement: "right",
   },
   {
-    // Only present once a vault exists (filtered out otherwise).
-    selector: '[data-tour="sync-indicator"]',
+    // Title bar cloud button: present whenever this build can sync (filtered out otherwise).
+    selector: '[data-tour="sync-button"]',
     title: "Vault sync",
     body: "Your vault's sync status lives here. Click it to connect Google Drive, sync now, or see which PCs share this vault.",
-    placement: "top",
+    placement: "bottom",
   },
   {
     title: "You're all set 🎉",

@@ -1017,6 +1017,32 @@
 .sync-pop__btn--primary:hover:not(:disabled) { background: var(--color-primary-hover); border-color: transparent; }
 .sync-pop__btn:disabled { opacity: 0.55; cursor: default; }
 .sync-pop__btn:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 1px; }
+.sync-pop__link {
+  display: inline-flex; align-items: center; gap: 2px; margin-left: auto; height: 26px; padding: 0 4px;
+  border: none; border-radius: 5px; background: transparent; color: var(--color-text-muted); font-size: 12px; cursor: pointer;
+}
+.sync-pop__link:hover { color: var(--color-text); }
+.sync-pop__link:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 1px; }
+
+/* "This PC" badge in Settings > Vault > Sync > Devices. */
+.sync-device__badge {
+  flex-shrink: 0; padding: 0 6px; border-radius: 999px; font-size: 10.5px; line-height: 16px; font-weight: 600;
+  background: color-mix(in srgb, var(--color-primary) 16%, transparent); color: var(--color-primary);
+}
+
+/* Title bar cloud button (SyncTitlebarButton.tsx): same states as the status-bar indicator. */
+.titlebar-sync { position: relative; }
+.titlebar-sync--off { opacity: 0.85; }
+.titlebar-sync--synced svg { color: var(--color-success); }
+.titlebar-sync--offline { color: var(--color-warning); }
+.titlebar-sync--problem { color: var(--color-danger); }
+.titlebar-sync--syncing svg { animation: status-ai-spin 1.2s linear infinite; }
+@media (prefers-reduced-motion: reduce) { .titlebar-sync--syncing svg { animation: none; } }
+.titlebar-sync[aria-expanded="true"] { background: color-mix(in srgb, var(--color-text) 8%, transparent); color: var(--color-text); }
+.titlebar-sync__dot {
+  position: absolute; top: 4px; right: 4px; width: 6px; height: 6px; border-radius: 50%;
+  background: var(--color-danger); box-shadow: 0 0 0 1.5px var(--color-bg-secondary);
+}
 
 /* One-time tip above the indicator (SyncIndicator.tsx IndicatorTip). */
 .sync-tip {
@@ -1046,6 +1072,11 @@
   border-bottom: 1px solid var(--color-border);
   background: var(--color-bg-secondary);
   transform: rotate(45deg);
+}
+/* Below the title bar button: arrow on top, near the right edge. */
+.sync-tip--below::after {
+  top: -5px; bottom: auto;
+  border: none; border-left: 1px solid var(--color-border); border-top: 1px solid var(--color-border);
 }
 .sync-tip__btn {
   flex-shrink: 0;
