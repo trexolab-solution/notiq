@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Cloud, ExternalLink, Loader2, LogOut, RefreshCw, Trash2 } from "lucide-react";
+import { Cloud, ExternalLink, LogOut, RefreshCw, Trash2 } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { SettingRow } from "../SettingRow";
 import { SettingsBlock } from "../SettingsGroup";
@@ -8,6 +8,7 @@ import { Toggle } from "../Toggle";
 import { Input } from "../Input";
 import { Tooltip } from "../Tooltip";
 import { ConfirmDialog } from "../ConfirmDialog";
+import { InlineLoading, Spinner } from "../Loading";
 import { useSyncConnect, WAITING_FOR_GOOGLE } from "../../vault/sync/useSyncConnect";
 import { toast } from "../../../lib/toast";
 import { useVaultStore } from "../../../store/vaultStore";
@@ -63,7 +64,7 @@ export function SyncStatusFallback({ error, onRetry }: { error: string | null; o
       {error ? (
         <Button className="settings-btn" size="sm" icon={<RefreshCw size={12} />} onClick={onRetry}>Retry</Button>
       ) : (
-        <Loader2 size={14} className="animate-spin text-[var(--color-text-muted)]" aria-hidden />
+        <Spinner size={14} className="text-[var(--color-text-muted)]" />
       )}
     </SettingRow>
   );
@@ -146,7 +147,11 @@ export function SyncSection() {
       <SettingRow id="vault.sync.account" label="Google Drive account" keywords={k("vault.sync.account")}
                   description={connectError ? `${accountText} ${connectError}` : accountText}>
         {connecting ? (
-          <Button className="settings-btn" size="sm" onClick={cancel}>Cancel</Button>
+          <>
+            {/* The row's description says what we're waiting for. */}
+            <Spinner size={14} className="text-[var(--color-text-muted)]" />
+            <Button className="settings-btn" size="sm" onClick={cancel}>Cancel</Button>
+          </>
         ) : connected ? (
           <>
             {status.state === "authNeeded" && (
@@ -186,8 +191,9 @@ export function SyncSection() {
           {status.state === "authNeeded" ? (
             <Button className="settings-btn-primary" variant="primary" size="sm" onClick={() => void connect()}>Reconnect</Button>
           ) : (
-            <Button className="settings-btn" size="sm" icon={<RefreshCw size={12} className={busy === "now" || status.state === "syncing" ? "animate-spin" : undefined} />}
-                    disabled={!status.enabled || status.state === "locked" || busy === "now"} onClick={() => void runNow()}>
+            <Button className="settings-btn" size="sm" icon={<RefreshCw size={12} />}
+                    loading={busy === "now" || status.state === "syncing"} loadingText="Syncing…"
+                    disabled={!status.enabled || status.state === "locked"} onClick={() => void runNow()}>
               Sync now
             </Button>
           )}
@@ -254,7 +260,7 @@ function DeviceNameRow({ status }: { status: SyncStatus }) {
       <form onSubmit={save} className="flex items-center gap-2">
         <Input aria-label="This device's name" value={name} maxLength={40} className="w-[180px]"
                onChange={(e) => { setName(e.target.value); setError(null); }} />
-        <Button className="settings-btn" size="sm" type="submit" disabled={!changed || busy}>Save</Button>
+        <Button className="settings-btn" size="sm" type="submit" disabled={!changed} loading={busy} loadingText="Saving…">Save</Button>
       </form>
     </SettingRow>
   );
@@ -291,7 +297,7 @@ export function DevicesBlock({ status }: { status: SyncStatus }) {
         {error ? (
           <p className="text-xs text-[var(--color-text-muted)]">Couldn't load the devices: {error}</p>
         ) : !devices ? (
-          <p className="text-xs text-[var(--color-text-muted)]">Loading…</p>
+          <InlineLoading label="Loading devices…" />
         ) : devices.length === 0 ? (
           <p className="text-xs text-[var(--color-text-muted)]">No devices have synced yet.</p>
         ) : (

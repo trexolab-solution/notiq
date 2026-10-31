@@ -150,15 +150,21 @@ export interface InlineLoadingProps {
   slowAfter?: number;
   size?: number;
   className?: string;
+  /** Keep the row's height while waiting out the delay (dialogs / fixed panels), so nothing jumps. */
+  reserveSpace?: boolean;
 }
 
 /** Section / panel / row loading: spinner + label after a short delay, with an optional slow hint. */
 export function InlineLoading({
-  label, delay = LOADING_SHOW_DELAY_MS, slowHint, slowAfter = LOADING_SLOW_AFTER_MS, size = 13, className = "",
+  label, delay = LOADING_SHOW_DELAY_MS, slowHint, slowAfter = LOADING_SLOW_AFTER_MS, size = 13, className = "", reserveSpace,
 }: InlineLoadingProps) {
   const shown = useDelayedFlag(true, delay);
   const slow = useDelayedFlag(!!slowHint, slowAfter);
-  if (!shown) return null;
+  if (!shown) {
+    return reserveSpace
+      ? <div className={`nq-inline-loading invisible ${className}`} aria-hidden data-pending=""><span className="nq-inline-loading__row">&nbsp;</span></div>
+      : null;
+  }
   return (
     <div className={`nq-inline-loading ${className}`} role="status" aria-live="polite">
       <span className="nq-inline-loading__row">

@@ -116,7 +116,8 @@ export function TwoVaultsDialog({ items, lastChanged, busy, error, localLocked, 
       </DialogBody>
       <DialogFooter>
         <DialogButton onClick={onKeepSeparate} disabled={busy}>Keep this PC separate</DialogButton>
-        <DialogButton type="submit" variant="primary" disabled={busy}>{busy ? "Working…" : "Continue"}</DialogButton>
+        <DialogButton type="submit" variant="primary" loading={busy}
+                      loadingText={choice === "import" ? "Adding items…" : "Switching…"}>Continue</DialogButton>
       </DialogFooter>
     </Dialog>
   );

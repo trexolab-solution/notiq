@@ -1,3 +1,4 @@
+import { Spinner } from "../../ui/Loading";
 import { useEffect, useState } from "react";
 import { Cloud } from "lucide-react";
 import { PasswordInput } from "../../ui/PasswordInput";
@@ -103,9 +104,10 @@ export function DriveVaultCard({ account, devices }: { account: string | null; d
         onPassword={(v) => { setPassword(v); setError(null); }} busy={busy} error={error}
       />
       <button
-        type="submit" disabled={busy}
-        className="mt-1 px-3 py-1.5 rounded-md text-xs font-semibold cursor-pointer bg-[var(--color-primary)] text-[var(--color-bg)] hover:bg-[var(--color-primary-hover)] disabled:opacity-60 disabled:cursor-not-allowed focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-primary)]"
+        type="submit" disabled={busy} aria-busy={busy || undefined}
+        className="mt-1 inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold cursor-pointer bg-[var(--color-primary)] text-[var(--color-bg)] hover:bg-[var(--color-primary-hover)] disabled:opacity-60 disabled:cursor-not-allowed aria-busy:disabled:cursor-progress focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-primary)]"
       >
+        {busy && <Spinner size={12} />}
         {busy ? "Opening…" : "Open vault"}
       </button>
     </form>
