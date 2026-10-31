@@ -64,17 +64,26 @@ export async function reconnectFromNotification(): Promise<void> {
     toast.remove(CONNECT_ID);
     toast.success(`Reconnected to Google Drive${s.account ? ` as ${s.account}` : ""}`, { source: SOURCE });
   } catch (e) {
-    if (mine !== connectAttempt) return;
+    if (mine !== connectAttempt) return; // cancelled: the user chose not to; don't nag again
     toast.remove(CONNECT_ID);
-    toast.error("Couldn't reconnect to Google Drive", { source: SOURCE, detail: syncErrorMessage(e) });
+    // Never leave the user stuck: the paused notice comes back with Reconnect and why it failed.
+    notifyAuthNeeded(syncErrorMessage(e));
   }
 }
 
-export function notifyAuthNeeded(): void {
-  toast.warning("Google needs you to sign in again to keep your vault in sync.", {
-    id: AUTH_ID, duration: 0, title: "Vault sync paused", source: SOURCE,
-    actions: [{ label: "Reconnect", primary: true, onClick: () => { void reconnectFromNotification(); } }],
-  });
+/**
+ * The single "Vault sync paused" notice with Reconnect. `failure` (why the last reconnect failed) is shown
+ * as its detail when it is re-shown after a failed attempt.
+ */
+export function notifyAuthNeeded(failure?: string): void {
+  toast.warning(
+    failure ? "Couldn't reconnect to Google Drive. Try again to keep your vault in sync." : "Google needs you to sign in again to keep your vault in sync.",
+    {
+      id: AUTH_ID, duration: 0, title: "Vault sync paused", source: SOURCE,
+      ...(failure ? { detail: failure } : {}),
+      actions: [{ label: "Reconnect", primary: true, onClick: () => { void reconnectFromNotification(); } }],
+    },
+  );
 }
 
 export const clearAuthNeeded = () => toast.remove(AUTH_ID);
