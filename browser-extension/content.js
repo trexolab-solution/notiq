@@ -855,28 +855,60 @@
     });
     focusQuietly(boxes[boxes.length - 1]);
   }
-  function fillFields(anchor, cred) {
+  // cred: { username, password, code, fields?, host? }; `clicked`: the field whose icon the user clicked (if any).
+  function fillFields(anchor, cred, clicked) {
     let pw = isPassword(anchor) ? anchor : inputsIn(anchor.form || scopeOf(anchor)).find((i) => isPassword(i) && usable(i)) || null;
     let n = 0;
+    const used = new Set(); // the login's own fields: custom fields never go there
     if (pw) {
       const before = beforeIn(inputsIn(scopeOf(pw)), pw).filter((i) => isTextual(i) && !isOtp(i) && shown(i) && !i.readOnly);
       const user = !isPassword(anchor) ? anchor : before[before.length - 1] || null;
-      if (user && cred.username) { setValue(user, cred.username); n++; }
-      setValue(pw, cred.password); n++;
+      if (user && cred.username) { setValue(user, cred.username); n++; used.add(user); }
+      setValue(pw, cred.password); n++; used.add(pw);
     } else if (cred.username) {
-      setValue(anchor, cred.username); n++;
+      setValue(anchor, cred.username); n++; used.add(anchor);
     }
     if (cred.code) {
       const boxes = otpBoxes();
       if (boxes && boxes.length === cred.code.length && /^[0-9A-Za-z]+$/.test(cred.code)) {
         fillOtpBoxes(boxes, cred.code); n++;
+        for (const b of boxes) used.add(b);
       } else {
         const otp = inputsIn(document).find((i) => isTextual(i) && isOtp(i) && i.maxLength !== 1 && shown(i) && !i.readOnly);
-        if (otp) { setValue(otp, cred.code); n++; }
+        if (otp) { setValue(otp, cred.code); n++; used.add(otp); }
       }
     }
+    n += fillCustomFields(cred.fields, used, clicked, cred.host, (pw || anchor).form || document);
     if (n) filled = { username: cred.username || "", password: cred.password || "" };
     return n;
+  }
+
+  // ---------- custom fields (filled with the login, by name) ----------
+  // `fields`: the login's custom fields [{ name, value, secret }], already validated by the background.
+  // A visible, editable text field whose label / aria-label / placeholder / name / id names one of them
+  // (NotiqFill.matchCustomFields: normalised whole-name match) gets its value. Never the login's own
+  // username / password / 2FA fields (`used`), never one-time-code, new-password or card fields, never a
+  // hidden field, and never a field that already holds something unless it is the one the user clicked.
+  // Secret fields only when the login was approved for this page's own site (`host`, the same rule as
+  // its password: the page and this frame are on that site). `scope`: the login's form (other forms on
+  // the page are left alone), or the whole frame for formless pages.
+  function fillCustomFields(fields, used, clicked, host, scope) {
+    if (!Array.isArray(fields) || !fields.length) return 0;
+    const ownSite = typeof host === "string" && host === topHost() && sameSite(pageHost(), host);
+    const els = deepAll(scope || document, "input, textarea").filter((el) => {
+      if (!FK.customFillable(el) || used.has(el) || cardFields.has(el) || el.readOnly || !shown(el)) return false;
+      const ac = acOf(el);
+      if (ac.includes("one-time-code") || ac.includes("new-password") || isOtp(el) || el.maxLength === 1) return false;
+      return true;
+    });
+    const plan = FK.matchCustomFields(fields, els.map((el) => ({
+      texts: FK.describeField(el), value: el.value, clicked: el === clicked, excluded: false,
+    })), { allowSecret: ownSite });
+    if (!plan.length) return 0;
+    const back = activeField();
+    for (const p of plan) setValue(els[p.field], fields[p.custom].value);
+    if (back && back.isConnected && back !== activeField()) focusQuietly(back);
+    return plan.length;
   }
   function onIconClick(field) {
     hideSuggest();
@@ -913,7 +945,8 @@
         username: typeof res.username === "string" ? res.username : "",
         password: res.password,
         code: typeof res.code === "string" ? res.code : "",
-      });
+        fields: NS.validCustomFields(res.fields), host: res.host,
+      }, field);
       if (step && !n) send({ type: "stepCancel" });
       setState(field, n ? "done" : "error", n ? "Filled" : TEXT.no_fields);
     } else {
@@ -1063,7 +1096,10 @@
       const before = beforeIn(inputsIn(scopeOf(pw)), pw).filter((i) => isTextual(i) && !isOtp(i) && shown(i) && !i.readOnly);
       const user = before[before.length - 1] || null;
       if (user && user.value && user.value.trim().toLowerCase() !== username.trim().toLowerCase()) return;
-      const n = fillFields(pw, { username: user && !user.value ? username : "", password: res.password, code: "" });
+      const n = fillFields(pw, {
+        username: user && !user.value ? username : "", password: res.password, code: "",
+        fields: NS.validCustomFields(res.fields), host: res.host,
+      });
       if (n) {
         filled = { username, password: res.password };
         if (icons.has(pw)) setState(pw, "done", "Filled");

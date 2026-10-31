@@ -66,6 +66,17 @@ Updating from 0.1: click the reload button on the extension's card. The browser 
   second request to Notiq. Nothing is submitted for you. The password waits in the extension's session memory for
   that tab only and is dropped once used, after 2 minutes, when the tab closes or leaves the site, on a new fill, or
   when Notiq reports the vault locked.
+- **Custom fields:** a login's custom fields (for example a bank's "Customer ID", "Membership No." or "PIN") are
+  filled with the login, from the in-page icon, the toolbar and the password step of a multi-step sign-in. A field
+  gets one when its label, `aria-label`, `aria-labelledby` text, placeholder, `name` or `id` names it. Names are
+  compared without case, accents, spaces or punctuation, camelCase is split, `no` / `num` / `nbr` / `nr` / `#` mean
+  "number" and filler words ("Enter your …") are ignored, so "Customer ID" matches `name="customerId"`,
+  `id="customer_id"`, a "Customer Id:" label or an "Enter your customer ID" placeholder, and "Membership No." matches
+  `membershipNumber`. Only whole names match: "PIN" never fills "PIN code". Only text-like fields of the login's own
+  form (the whole frame for formless pages) are used, never the username / password / 2FA fields of that fill,
+  one-time-code, new-password or card fields, hidden or read-only fields, or a field that already holds a value
+  (unless it is the one you clicked). Secret custom fields are filled only on the login's own site, under the same
+  rule as its password. Try it on `test-pages/custom-fields.html`.
 - **Several logins for one site:** Notiq sends back just their titles and usernames; pick one from the list next to
   the icon (or in the toolbar popup), then approve in Notiq as usual. Esc cancels.
 - **Login iframes on the same site** (for example `login.example.com` inside `www.example.com`) get the icon, fill
@@ -129,7 +140,8 @@ default dark or light colours, following your system setting.
 - Generated passwords exist only in the page's fields and the extension's memory until you submit the form.
 
 ## Protocol with the app (native messaging)
-- `{op:"fill", host}` → `{ok:true, username, password, title, code?}`, or `{choose:[{account, title, username}]}`
+- `{op:"fill", host}` → `{ok:true, username, password, title, code?, fields?}` (`fields`, Notiq 0.9.0+: that
+  login's custom fields `[{name, value, secret}]`, at most 20, re-validated here one by one), or `{choose:[{account, title, username}]}`
   when several logins match (no secrets; at most 20 entries, strictly validated, shown as plain text), or `{error}`.
 - `{op:"fill", host, intent:"code", account?}` (a separate 2FA page) → `{ok:true, username, title, code}` (never the
   password; the extension also drops anything else an older app sends), or `{error:"no_code"}` when no matching
@@ -178,6 +190,8 @@ on a new page ("Next (new page)").
 <http://localhost:8000/otp.html> is a 2FA step on its own page (one code field and six split boxes).
 <http://localhost:8000/shadow-login.html> has logins inside open shadow roots (one component, nested components,
 one rendered late) and one in a closed root (ignored).
+<http://localhost:8000/custom-fields.html> checks custom fields filled by name (a bank form with Customer ID,
+Membership No. and PIN next to the login, a password field labelled "PIN", placeholder-only fields).
 <http://localhost:8000/signup-rules.html> has sign-up forms with `maxlength`, `passwordrules`, `pattern`, impossible
 rules, and a script that cuts the password.
 

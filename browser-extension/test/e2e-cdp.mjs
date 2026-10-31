@@ -11,7 +11,7 @@
 // uses CDP Input events — which the page sees as trusted user input — to click and
 // type. Synthetic DOM events are used for the "untrusted" cases.
 import { spawn } from "node:child_process";
-import { mkdtempSync, readdirSync, existsSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, existsSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -1167,6 +1167,57 @@ try {
   await resetState();
   await load(EXTRA);
   check("login page with code boxes: still no code-only icon", ((await icons()) || []).length === 5);
+
+  // 28. Custom fields filled by name with the login (test-pages/custom-fields.html)
+  const CF = `http://localhost:${PORT}/test-pages/custom-fields.html`;
+  const FIELDS = [
+    { name: "Customer ID", value: "C-1001", secret: false },
+    { name: "Membership No.", value: "M-42", secret: false },
+    { name: "PIN", value: "4321", secret: true },
+    { name: "Branch", value: "North", secret: false },
+    { name: "Account nickname", value: "Daily", secret: false },
+  ];
+  const cfVals = (ids) => P(`(${JSON.stringify(ids)}).reduce((o, id) => (o[id] = document.getElementById(id).value, o), {})`);
+  await resetState();
+  await mockNative({ ...NATIVE, fill: { ...NATIVE.fill, fields: FIELDS } });
+  await load(CF);
+  let cfi = await iconFor("b-pass");
+  check("custom fields: the bank form's password field has an icon", !!cfi);
+  await mouseClick(cfi.x, cfi.y);
+  await waitFor(async () => (await P(`document.getElementById("b-pass").value`)) !== "", 3000);
+  const v28 = await cfVals(["b-cust", "b-member", "b-user", "b-pass", "b-pin", "b-pincode", "b-branch", "b-nick", "b-hidden", "b-gone", "p-member", "ph-cust"]);
+  check("custom fields: Customer ID, Membership No., PIN and nickname filled by name next to the login",
+    v28["b-cust"] === "C-1001" && v28["b-member"] === "M-42" && v28["b-pin"] === "4321" && v28["b-nick"] === "Daily" &&
+    v28["b-user"] === "alice@example.com" && v28["b-pass"] === "Notiq-Filled-1!", JSON.stringify({ ...v28, "b-pass": "<redacted>" }));
+  check("custom fields: 'PIN code' stays empty, a filled field is kept, hidden fields untouched",
+    v28["b-pincode"] === "" && v28["b-branch"] === "Main street" && v28["b-hidden"] === "" && v28["b-gone"] === "", JSON.stringify(v28));
+  check("custom fields: other forms on the page are left alone", v28["p-member"] === "" && v28["ph-cust"] === "");
+  check("custom fields: focus stays on the login's field", (await P(`document.activeElement && document.activeElement.id`)) === "b-pass");
+  // The site calls its password "PIN": the password goes there and the custom PIN never replaces it.
+  await resetCalls();
+  cfi = await iconFor("p-pass");
+  await mouseClick(cfi.x, cfi.y);
+  await waitFor(async () => (await P(`document.getElementById("p-pass").value`)) !== "", 3000);
+  const v28b = await cfVals(["p-user", "p-pass", "p-member"]);
+  check("custom fields: a password field labelled 'PIN' keeps the password; username field keeps the username",
+    v28b["p-pass"] === "Notiq-Filled-1!" && v28b["p-user"] === "alice@example.com" && v28b["p-member"] === "M-42", JSON.stringify({ ...v28b, "p-pass": "<redacted>" }));
+  // An older app sends no fields: the fill is exactly as before.
+  await resetState();
+  await mockNative(NATIVE);
+  await load(CF);
+  cfi = await iconFor("b-pass");
+  await mouseClick(cfi.x, cfi.y);
+  await waitFor(async () => (await P(`document.getElementById("b-pass").value`)) !== "", 3000);
+  const v28c = await cfVals(["b-cust", "b-pin", "b-user"]);
+  check("custom fields: none from the app -> only the login is filled", v28c["b-cust"] === "" && v28c["b-pin"] === "" && v28c["b-user"] === "alice@example.com", JSON.stringify(v28c));
+  // Toolbar path: fillPage with the matcher loaded (the background injects fillkit.js first).
+  await load(CF);
+  await P(readFileSync(join(EXT, "fillkit.js"), "utf8"));
+  const fp28 = await P(`(${FILLPAGE})("localhost", { username: "u@example.com", password: "Tool-Pw-1", code: "", fields: ${JSON.stringify(FIELDS)} }, { top: location.origin, allowed: [location.origin] })`);
+  const v28d = await cfVals(["b-cust", "b-member", "b-pin", "b-pincode", "b-branch", "b-user", "p-member"]);
+  check("custom fields: toolbar fill fills them by name too (same rules)",
+    fp28 === 6 && v28d["b-cust"] === "C-1001" && v28d["b-member"] === "M-42" && v28d["b-pin"] === "4321" && v28d["b-pincode"] === "" &&
+    v28d["b-branch"] === "Main street" && v28d["b-user"] === "u@example.com" && v28d["p-member"] === "", JSON.stringify({ fp28, ...v28d }));
 
   exitCode = results.every((r) => r.ok) ? 0 : 1;
 } catch (e) {
