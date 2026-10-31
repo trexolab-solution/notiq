@@ -72,6 +72,10 @@ pub struct MockState {
     faults: VecDeque<(String, String, Canned)>,
     /// `METHOD path` of every request.
     pub log: Vec<String>,
+    /// `scope` returned by the code exchange (None: omitted, as before).
+    pub granted_scope: Option<String>,
+    /// The page the loopback listener answered the OAuth redirect with.
+    pub callback_html: Option<String>,
 }
 
 pub struct MockDrive {
@@ -226,6 +230,17 @@ impl MockDrive {
         self.state.lock().unwrap()
     }
 
+    /// The page the loopback listener sent the mock browser (its thread stores it just after `connect` returns).
+    pub async fn callback_page(&self) -> String {
+        for _ in 0..200 {
+            if let Some(p) = self.st().callback_html.clone() {
+                return p;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        panic!("the mock browser never got the callback page");
+    }
+
     /// A provider wired to this mock, with fast retries and a 1 MiB resumable threshold.
     pub fn provider(&self, signed_in: bool) -> (GoogleDriveProvider, Arc<MemorySecretStore>) {
         let store = Arc::new(MemorySecretStore::default());
@@ -240,6 +255,7 @@ impl MockDrive {
             st.lock().unwrap().expected_challenge = q.get("code_challenge").cloned();
             let redirect = q["redirect_uri"].clone();
             let state = q["state"].clone();
+            let st = st.clone();
             std::thread::spawn(move || {
                 let addr = redirect.trim_start_matches("http://").to_string();
                 // A favicon probe first: it must be ignored.
@@ -248,6 +264,9 @@ impl MockDrive {
                     write!(s, "GET {target} HTTP/1.1\r\nHost: {addr}\r\n\r\n").unwrap();
                     let mut out = String::new();
                     let _ = s.read_to_string(&mut out);
+                    if target.contains("code=") {
+                        st.lock().unwrap().callback_html = Some(out);
+                    }
                 }
             });
             Ok(())
@@ -350,7 +369,11 @@ fn handle(st: &Arc<Mutex<MockState>>, base: &str, req: &Req) -> Option<Resp> {
                     s.access_n += 1;
                     s.access_token = format!("at-{}", s.access_n);
                     let idt = format!("h.{}.sig", B64.encode(br#"{"email":"user@example.com"}"#));
-                    json_resp(200, json!({"access_token": s.access_token, "expires_in": 3599, "refresh_token": s.refresh_token, "id_token": idt}))
+                    let mut body = json!({"access_token": s.access_token, "expires_in": 3599, "refresh_token": s.refresh_token, "id_token": idt});
+                    if let Some(scope) = &s.granted_scope {
+                        body["scope"] = json!(scope);
+                    }
+                    json_resp(200, body)
                 }
             }
             Some("refresh_token") if f.get("refresh_token") == Some(&s.refresh_token) && !s.revoked.contains(&s.refresh_token) => {
@@ -494,6 +517,34 @@ fn drive_provider_passes_the_contract_against_the_mock() {
         let st = m.st();
         assert!(st.count("PUT /session/") >= 12, "large object used chunked resumable upload");
         assert!(st.files.is_empty());
+    });
+}
+
+#[test]
+fn connect_without_the_drive_box_ticked_fails_and_saves_nothing() {
+    block_on(async {
+        let m = MockDrive::start().await;
+        m.st().granted_scope = Some("openid https://www.googleapis.com/auth/userinfo.email".into());
+        let (p, store) = m.provider(false);
+        let err = p.connect().await.unwrap_err();
+        assert!(matches!(&err, ProviderError::Other(msg) if msg.contains("tick the Google Drive box")), "{err:?}");
+        assert_eq!(store.load().unwrap(), None, "nothing stored");
+        assert_eq!(p.account(), None);
+        let page = m.callback_page().await;
+        assert!(page.contains("Couldn&#x27;t connect") || page.contains("Couldn't connect Google Drive"));
+        assert!(page.contains("status err") && !page.contains("Signed in as"));
+    });
+}
+
+#[test]
+fn connect_page_reports_success_only_after_the_exchange() {
+    block_on(async {
+        let m = MockDrive::start().await;
+        m.st().granted_scope = Some(format!("openid {} email", super::gdrive::DRIVE_SCOPE));
+        let (p, _store) = m.provider(false);
+        p.connect().await.unwrap();
+        let page = m.callback_page().await;
+        assert!(page.contains("You're connected") && page.contains("Signed in as <strong>user@example.com</strong>"));
     });
 }
 
