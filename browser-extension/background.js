@@ -183,15 +183,22 @@ function validChoices(list) {
   return out;
 }
 
+// A one-time code as the app sends it (TOTP: 6-8 digits; a little slack for other generators).
+const CODE_RE = /^[0-9A-Za-z]{4,10}$/;
+
 // Asks the app for a login for `host`, optionally a specific `account`. Returns
-// { cred } | { choose } | { error }.
-async function askFill(tabId, host, account) {
+// { cred } | { choose } | { error }. `intent: "code"` (a separate 2FA page) asks for the
+// login's one-time code only: the cred is then { username, title, code } and never holds a
+// password, even if an older app that doesn't know the intent sends one.
+async function askFill(tabId, host, account, intent) {
   if (account !== undefined) {
     if (typeof account !== "string" || !account || account.length > MAX.account) return { error: "bad_request" };
     const o = offers.get(tabId);
     if (!o || o.host !== host || !(Date.now() - o.at < OFFER_TTL) || !o.accounts.has(account)) return { error: "stale" };
   }
-  const res = await ask(account !== undefined ? { op: "fill", host, account } : { op: "fill", host });
+  const req = account !== undefined ? { op: "fill", host, account } : { op: "fill", host };
+  if (intent === "code") req.intent = "code";
+  const res = await ask(req);
   if (res && res.choose !== undefined && !res.error) {
     const list = account === undefined ? validChoices(res.choose) : null;
     if (!list) return { error: "no_reply" };
@@ -200,6 +207,10 @@ async function askFill(tabId, host, account) {
   }
   offers.delete(tabId);
   if (!res || res.error) return { error: res ? String(res.error).slice(0, 40) : "no_reply" };
+  if (intent === "code") {
+    if (res.ok !== true || typeof res.code !== "string" || !CODE_RE.test(res.code)) return { error: "no_code" };
+    return { cred: { username: str(res.username, MAX.username), title: str(res.title, 200), code: res.code } };
+  }
   if (typeof res.password !== "string") return { error: "no_reply" };
   return { cred: res };
 }
@@ -256,15 +267,19 @@ async function fillForSender(sender, msg) {
   if (info.error) return { error: info.error };
   if (sender.tab.active === false) return { error: "denied" };
   const tabId = sender.tab.id;
+  // `intent: "code"`: the one-time code field of a separate 2FA page (see askFill).
+  if (msg && msg.intent !== undefined && msg.intent !== "code") return { error: "bad_request" };
+  const intent = msg && msg.intent === "code" ? "code" : undefined;
   if (fillsInFlight.has(tabId)) return { error: "busy" };
   fillsInFlight.add(tabId);
   try {
-    await dropStep(tabId); // a new fill in this tab replaces any held password
+    if (!intent) await dropStep(tabId); // a new fill in this tab replaces any held password
     const account = msg && msg.account !== undefined ? msg.account : undefined;
-    const got = await askFill(tabId, info.host, account);
+    const got = await askFill(tabId, info.host, account, intent);
     if (got.error) return { error: got.error };
     if (got.choose) return { choose: got.choose, host: info.host };
     const res = got.cred;
+    if (intent) return { ok: true, host: info.host, title: res.title, username: res.username, code: res.code };
     // The content script says this is a username-only page: the password stays here
     // for the next step instead of going to the page now.
     const step = !!(msg && msg.step === true && typeof res.username === "string" && res.username);

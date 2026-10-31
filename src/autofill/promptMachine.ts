@@ -1,6 +1,7 @@
 import type { Lookalike } from "../lib/lookalike";
 import {
-  decideTrusted, defaultLoginName, indexOfAccount, planSave, type CardMatch, type LoginMatch, type SavePlan, type SaveRequest,
+  decideTrusted, defaultLoginName, indexOfAccount, matchesForIntent, planSave,
+  type CardMatch, type FillIntent, type LoginMatch, type SavePlan, type SaveRequest,
 } from "../lib/autofill";
 
 /**
@@ -17,8 +18,9 @@ import {
  *   idle ─start─▶ (locked ─unlocked─▶) checking ─cardsScanned─▶ card ─allow/deny─▶ idle
  */
 
-/** `account`: optional vault-relative path the extension asks for (from an earlier `choose` reply). */
-export interface FillReq { id: string; host: string; account?: string }
+/** `account`: optional vault-relative path the extension asks for (from an earlier `choose` reply).
+ *  `intent: "code"`: a separate 2FA page wants only the TOTP code (only logins with a 2FA secret count). */
+export interface FillReq { id: string; host: string; account?: string; intent?: FillIntent }
 export interface CardReq { id: string; host: string }
 export type FillJob = { kind: "fill"; req: FillReq };
 export type SaveJob = { kind: "save"; req: SaveRequest };
@@ -65,8 +67,8 @@ export type Effect =
   | { kind: "scan"; host: string }
   /** List the vault's cards, then dispatch `cardsScanned`. */
   | { kind: "scanCards" }
-  /** Look up the credentials of `match`, reply `{ok, …}`, then dispatch `answered`. */
-  | { kind: "release"; id: string; match: LoginMatch; trustHost: string | null }
+  /** Look up the credentials of `match` (only its code for `intent: "code"`), reply `{ok, …}`, then dispatch `answered`. */
+  | { kind: "release"; id: string; match: LoginMatch; trustHost: string | null; intent?: FillIntent }
   /** Reply with the picked card's fill data, then dispatch `answered`. */
   | { kind: "releaseCard"; id: string; card: CardMatch }
   /** Write the login, reply `{ok, status}`, then dispatch `answered`. */
@@ -80,6 +82,9 @@ const same = (state: PromptState): Step => ({ state, effects: [] });
 const end = (...effects: Effect[]): Step => ({ state: IDLE, effects: [...effects, { kind: "finish" }] });
 const reply = (id: string, payload: unknown): Effect => ({ kind: "reply", id, payload });
 const scanFor = (job: Job): Effect => (job.kind === "card" ? { kind: "scanCards" } : { kind: "scan", host: job.req.host });
+const release = (job: FillJob, match: LoginMatch, trustHost: string | null): Effect => ({
+  kind: "release", id: job.req.id, match, trustHost, ...(job.req.intent ? { intent: job.req.intent } : {}),
+});
 
 /** The id of the request the window is busy with, if any. */
 export function currentId(s: PromptState): string | null {
@@ -137,20 +142,23 @@ export function step(state: PromptState, ev: PromptEvent): Step {
           effects: [reply(id, { error: "no_match" }), { kind: "show" }],
         };
       }
+      // A code-only fill (separate 2FA page) can only use logins that have a 2FA secret.
+      const matches = matchesForIntent(ev.matches, job.req.intent);
+      if (!matches.length) return end(reply(id, { error: "no_code" }));
       if (state.silent) {
-        const d = decideTrusted(ev.matches, job.req.account);
-        if (d.kind === "fill") return { state, effects: [{ kind: "release", id, match: d.match, trustHost: null }] };
+        const d = decideTrusted(matches, job.req.account);
+        if (d.kind === "fill") return { state, effects: [release(job, d.match, null)] };
         if (d.kind === "choose") return end(reply(id, { choose: d.options }));
         return end(reply(id, { error: "no_match" }));
       }
       if (state.consent) {
-        const d = decideTrusted(ev.matches, job.req.account);
-        if (d.kind === "fill") return { state, effects: [{ kind: "release", id, match: d.match, trustHost: null }] };
+        const d = decideTrusted(matches, job.req.account);
+        if (d.kind === "fill") return { state, effects: [release(job, d.match, null)] };
       }
       return {
         state: {
-          stage: "request", job, matches: ev.matches, trust: false, busy: false,
-          pick: Math.max(0, indexOfAccount(ev.matches, job.req.account)),
+          stage: "request", job, matches, trust: false, busy: false,
+          pick: Math.max(0, indexOfAccount(matches, job.req.account)),
         },
         effects: [{ kind: "show" }],
       };
@@ -182,7 +190,7 @@ export function step(state: PromptState, ev: PromptEvent): Step {
       if (!match) return same(state);
       return {
         state: { ...state, busy: true },
-        effects: [{ kind: "release", id: state.job.req.id, match, trustHost: state.trust ? state.job.req.host : null }],
+        effects: [release(state.job, match, state.trust ? state.job.req.host : null)],
       };
     }
     case "confirmSave":

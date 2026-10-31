@@ -1110,6 +1110,51 @@ try {
     v26[0].length === 10 && v26[0] === v26[1] && /[A-Z]/.test(v26[0]), JSON.stringify({ len: v26[0].length, same: v26[0] === v26[1] }));
   check("generating with rules sends nothing to Notiq", (await calls()).length === 0);
 
+  // 27. The 2FA step on its own page: code-only fill (single field and split boxes)
+  const OTP = `http://localhost:${PORT}/test-pages/otp.html`;
+  // An older app ignores the intent and sends the whole login: the page must still get only the code.
+  await resetState();
+  await mockNative({ ...NATIVE, fill: { ...NATIVE.fill, code: "482916" } });
+  await load(OTP);
+  const ic27 = (await icons()) || [];
+  check("2FA page: one icon on the code field, one after the split boxes", ic27.length === 2, String(ic27.length));
+  let ci = await iconFor("code");
+  check("2FA page: the code field's icon sits inside it", !!ci);
+  await mouseClick(ci.x, ci.y);
+  await waitFor(async () => (await P(`document.getElementById("code").value`)) !== "", 3000);
+  const c27 = await calls();
+  check("2FA page: one fill request with intent 'code' for the page host",
+    c27.length === 1 && c27[0].op === "fill" && c27[0].host === "localhost" && c27[0].intent === "code", JSON.stringify(c27));
+  check("2FA page: the code goes into the field", (await P(`document.getElementById("code").value`)) === "482916");
+  check("2FA page: the password never reaches the page", !(await P(`document.documentElement.outerHTML.includes("Notiq-Filled-1!")`)));
+  const t27 = await waitFor(async () => (await icons()).find((i) => i.tip === "Code filled"), 1500);
+  check("2FA page: the icon says 'Code filled'", !!t27);
+  // Split boxes: the icon right after the last box fills one digit per box.
+  const lastBox = await P(`(() => { const r = document.getElementById("b6").getBoundingClientRect(); return { right: r.right, cy: r.y + r.height / 2 }; })()`);
+  await sleep(2000);
+  const bi = ((await icons()) || []).find((i) => Math.abs(i.y - lastBox.cy) < 3 && i.x > lastBox.right && i.x < lastBox.right + 30);
+  check("2FA page: the split-box icon sits just after the last box", !!bi, JSON.stringify({ lastBox, ic: await icons() }));
+  await resetCalls();
+  await mouseClick(bi.x, bi.y);
+  await waitFor(async () => (await P(`document.getElementById("b6").value`)) !== "", 3000);
+  const bx = await P(`({ code: [1,2,3,4,5,6].map((k) => document.getElementById("b" + k).value).join(""), active: document.activeElement.id, inputs: window.__boxInputs })`);
+  check("2FA page: split boxes get one digit each, the last box is focused", bx.code === "482916" && bx.active === "b6" && bx.inputs >= 6, JSON.stringify(bx));
+  const c27b = await calls();
+  check("2FA page: the split boxes asked with intent 'code' too", c27b.length === 1 && c27b[0].intent === "code");
+  // No 2FA secret saved: a clear message, nothing filled.
+  await resetState();
+  await mockNative({ ...NATIVE, fill: { error: "no_code" } });
+  await load(OTP);
+  ci = await iconFor("code");
+  await mouseClick(ci.x, ci.y);
+  const e27 = await waitFor(async () => (await icons()).find((i) => i.cls.includes("error")), 3000);
+  check("2FA page: no saved code -> 'No 2FA code saved for this site'", e27 && /No 2FA code saved/.test(e27.tip) && (await P(`document.getElementById("code").value`)) === "",
+    JSON.stringify(e27));
+  // A login page with a code field keeps the old behaviour (no code icon: the normal fill brings the code).
+  await resetState();
+  await load(EXTRA);
+  check("login page with code boxes: still no code-only icon", ((await icons()) || []).length === 5);
+
   exitCode = results.every((r) => r.ok) ? 0 : 1;
 } catch (e) {
   console.error("ERROR", e && e.stack || e);

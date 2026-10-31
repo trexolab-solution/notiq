@@ -88,6 +88,8 @@
     stale: "That list of logins expired. Try again.",
     no_card: "No saved card in your vault.",
     no_card_fields: "Couldn't find card fields on this page.",
+    no_code: "No 2FA code saved for this site in your vault.",
+    bad_code: "The code doesn't fit these boxes.",
   };
   const GENERIC = "Something went wrong.";
   const SAVE_TEXT = { saved: "Saved to Notiq", updated: "Password updated in Notiq", unchanged: "Already saved" };
@@ -238,6 +240,26 @@
     const codeLike = (i) => acOf(i).includes("one-time-code") || attr(i, "inputmode").toLowerCase() === "numeric" ||
       typeOf(i) === "number" || isOtp(i);
     return runs.find((r) => r.length >= 4 && r.length <= 8 && r.some(codeLike)) || null;
+  }
+
+  // Code-only pages (the 2FA step after the password page): a one-time-code field, or a
+  // run of split code boxes, on a page that shows no password field (a login page with a
+  // code field gets the code with the normal fill). Its icon asks Notiq for the matching
+  // login's code only ({type:"fill", intent:"code"}), with the usual approval.
+  const CODE_MIN_W = 80;
+  let codeFields = new Map(); // icon field -> its split boxes (array) or null for a single field; refreshed by scan()
+  const isCodeInput = (i) => (isTextual(i) || typeOf(i) === "number") && isOtp(i) && i.maxLength !== 1;
+  function detectCodeFields() {
+    const out = new Map();
+    if (anyVisiblePassword()) return out;
+    const boxes = otpBoxes();
+    if (boxes) out.set(boxes[0], boxes);
+    for (const i of inputsIn(document)) {
+      if (out.size >= 4) break;
+      if (!isCodeInput(i) || cardFields.has(i) || i.readOnly || !shown(i, CODE_MIN_W, MIN_H)) continue;
+      out.set(i, null);
+    }
+    return out;
   }
 
   // ---------- detection ----------
@@ -425,6 +447,7 @@
   };
 
   // ---------- inline icons ----------
+  const iconLabel = (f) => (cardFields.has(f) ? "Fill card with Notiq" : codeFields.has(f) ? "Fill 2FA code with Notiq" : "Fill with Notiq");
   const icons = new Map(); // field -> { wrap, btn, tip, timer }
   const ro = typeof ResizeObserver === "function" ? new ResizeObserver(() => schedulePosition()) : null;
   let filling = false;
@@ -435,7 +458,7 @@
     const btn = el("button", "nq-icon");
     btn.type = "button";
     btn.tabIndex = -1; // keyboard users have Alt+Shift+L; don't hijack the page's tab order
-    btn.title = cardFields.has(field) ? "Fill card with Notiq" : "Fill with Notiq";
+    btn.title = iconLabel(field);
     btn.setAttribute("aria-label", btn.title);
     btn.appendChild(svg("nq-key", KEY));
     btn.appendChild(el("span", "nq-spin"));
@@ -474,7 +497,7 @@
     clearTimeout(ic.timer);
     ic.wrap.className = `nq-wrap ${state}${text ? " has-tip" : ""}`;
     ic.tip.textContent = text || "";
-    const label = cardFields.has(field) ? "Fill card with Notiq" : "Fill with Notiq";
+    const label = iconLabel(field);
     ic.btn.title = label;
     ic.btn.setAttribute("aria-label", text ? `${label}: ${text}` : label);
     if (state === "done" || state === "error") {
@@ -492,18 +515,30 @@
     const vw = window.innerWidth, vh = window.innerHeight;
     for (const [field, ic] of Array.from(icons)) {
       if (!field.isConnected) { removeIcon(field); continue; }
-      const r = field.getBoundingClientRect();
-      const onScreen = r.width >= MIN_W && r.height >= MIN_H && r.bottom > 0 && r.top < vh && r.right > 0 && r.left < vw;
+      const boxes = codeFields.get(field);
+      const r = boxes ? unionRect(boxes) : field.getBoundingClientRect();
+      const minW = boxes ? 1 : codeFields.has(field) ? CODE_MIN_W : MIN_W;
+      const onScreen = r.width >= minW && r.height >= MIN_H && r.bottom > 0 && r.top < vh && r.right > 0 && r.left < vw;
       if (!onScreen) { ic.wrap.style.display = "none"; continue; }
       const size = Math.max(12, Math.min(ICON, r.height - 4));
       const pad = Math.min(8, Math.max(3, (r.height - size) / 2));
       ic.wrap.style.display = "block";
       ic.wrap.style.width = ic.wrap.style.height = `${size}px`;
-      ic.wrap.style.left = `${Math.round(r.right - size - pad)}px`;
+      // Split boxes are too small to hold it: it goes just after the last box (inside the viewport).
+      const left = boxes ? Math.min(vw - size - 2, r.right + 6) : r.right - size - pad;
+      ic.wrap.style.left = `${Math.round(left)}px`;
       ic.wrap.style.top = `${Math.round(r.top + (r.height - size) / 2)}px`;
     }
     positionMenu();
     positionSuggest();
+  }
+
+  function unionRect(list) {
+    const rs = list.filter((b) => b.isConnected).map((b) => b.getBoundingClientRect());
+    if (!rs.length) return { left: 0, top: 0, right: 0, bottom: 0, width: 0, height: 0 };
+    const left = Math.min(...rs.map((x) => x.left)), right = Math.max(...rs.map((x) => x.right));
+    const top = Math.min(...rs.map((x) => x.top)), bottom = Math.max(...rs.map((x) => x.bottom));
+    return { left, top, right, bottom, width: right - left, height: bottom - top };
   }
 
   function scan() {
@@ -514,9 +549,11 @@
     refreshShadows();
     cardFields = detectCards();
     maybeStepFill(); // after detectCards: a masked CVC field is never a password step
-    if (!settings.showIcon) { clearIcons(); noteScanResult(cardFields.size > 0 || anyVisiblePassword()); return; }
+    if (!settings.showIcon) { codeFields = new Map(); clearIcons(); noteScanResult(cardFields.size > 0 || anyVisiblePassword()); return; }
     const found = detect();
     for (const f of cardIconFields(cardFields)) found.add(f);
+    codeFields = detectCodeFields();
+    for (const f of codeFields.keys()) found.add(f);
     for (const f of Array.from(icons.keys())) if (!found.has(f)) removeIcon(f);
     for (const f of found) if (!icons.has(f)) addIcon(f);
     noteScanResult(found.size > 0 || cardFields.size > 0);
@@ -546,7 +583,7 @@
   function maybeSuggest(field) {
     if (quiet || !isInput(field)) return;
     const ok = NS.shouldSuggest({
-      showIcon: settings.showIcon, suggestOnFocus: settings.suggestOnFocus, detected: icons.has(field),
+      showIcon: settings.showIcon, suggestOnFocus: settings.suggestOnFocus, detected: icons.has(field) && !codeFields.has(field),
       dismissed: dismissedFields.has(field), menuOpen: !!menu, filling, typed: typedField === field,
       rect: field.getBoundingClientRect(), viewport: viewport(),
     });
@@ -797,12 +834,13 @@
     }
     return out;
   }
-  function openChooser(anchor, field, list) {
+  // pick(choice) runs the follow-up request for the chosen login.
+  function openChooser(field, list, pick) {
     openMenu(field, "Choose a login", (node) => {
       node.appendChild(el("div", "nq-mhead", "Choose a login"));
       for (const c of list) {
         node.appendChild(menuItem(c.title || c.username || "Login", c.title ? c.username || "no username" : "",
-          () => { closeMenu(false); doFill(anchor, field, c.account); }));
+          () => { closeMenu(false); pick(c); }));
       }
     });
   }
@@ -857,6 +895,7 @@
     if (menu && menu.field === field) { closeMenu(true); return; }
     closeMenu(false);
     if (filling) return;
+    if (codeFields.has(field)) { doCodeFill(field); return; }
     if (cardFields.has(field)) { doCardFill(field); return; }
     const info = newPasswordInfo(field);
     if (info) openNewPasswordMenu(field, info);
@@ -877,7 +916,7 @@
       const list = validChoices(res.choose);
       if (!list || !field.isConnected || !anchor.isConnected || account) { setState(field, "error", GENERIC); return; }
       setState(field, "idle", "");
-      openChooser(anchor, field, list);
+      openChooser(field, list, (c) => doFill(anchor, field, c.account));
       return;
     }
     if (res.ok && typeof res.password === "string" && res.host === topHost() && field.isConnected && anchor.isConnected) {
@@ -892,6 +931,44 @@
       if (step && res.ok) send({ type: "stepCancel" });
       setState(field, "error", res.ok ? GENERIC : errText(res.error));
     }
+  }
+
+  // ---------- one-time code only (separate 2FA page; trusted click on a code field's icon) ----------
+  // The background asks Notiq with intent "code": only logins with a 2FA secret count, the
+  // usual approval / 5-minute trust applies, and the reply carries the code, never a password.
+  async function doCodeFill(field, account) {
+    if (filling) return;
+    filling = true;
+    hideSuggest();
+    setState(field, "waiting", "Approve in Notiq");
+    const res = await send(account ? { type: "fill", intent: "code", account } : { type: "fill", intent: "code" });
+    filling = false;
+    if (res && res.choose !== undefined) {
+      const list = validChoices(res.choose);
+      if (!list || !field.isConnected || account) { setState(field, "error", GENERIC); return; }
+      setState(field, "idle", "");
+      openChooser(field, list, (c) => doCodeFill(field, c.account));
+      return;
+    }
+    if (res.ok && typeof res.code === "string" && res.host === topHost() && field.isConnected) {
+      const n = fillCode(field, res.code);
+      setState(field, n ? "done" : "error", n ? "Code filled" : TEXT.bad_code);
+    } else {
+      setState(field, "error", res.ok ? GENERIC : errText(res.error));
+    }
+  }
+  // Split boxes get one character each (the code must have exactly as many characters).
+  function fillCode(field, code) {
+    if (!/^[0-9A-Za-z]{4,10}$/.test(code)) return 0;
+    const boxes = codeFields.get(field);
+    if (boxes) {
+      if (boxes.length !== code.length || !boxes.every((b) => b.isConnected)) return 0;
+      fillOtpBoxes(boxes, code);
+      return 1;
+    }
+    if (field.maxLength > 0 && field.maxLength < code.length) return 0;
+    setValue(field, code);
+    return 1;
   }
 
   // ---------- payment cards (only after a trusted click on a card field's icon) ----------

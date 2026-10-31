@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { defaultLoginName, entryMatches, hostMatches, lookalikeWarning, planSave, type LoginMatch } from "./autofill";
+import {
+  defaultLoginName, entryMatches, fillReply, hostMatches, lookalikeWarning, matchesForIntent, planSave, validIntent, type LoginMatch,
+} from "./autofill";
 import { emptyLogin } from "./loginEntry";
 
 const m = (username: string, password: string, path = "r/a.nqv"): LoginMatch =>
@@ -71,5 +73,35 @@ describe("lookalikeWarning", () => {
   it("names both hosts", () => {
     expect(lookalikeWarning("paypa1.com", { saved: "paypal.com", reason: "homoglyph" }))
       .toBe("Blocked a possible fake site: paypa1.com looks like paypal.com");
+  });
+});
+
+describe("code-only fills", () => {
+  const login = (totp: string): LoginMatch =>
+    ({ path: "/v/Logins/a.nqv", rel: "Logins/a.nqv", entry: { ...emptyLogin("Site"), username: "me", password: "secret-pw", totp } });
+
+  it("matchesForIntent keeps only logins with a 2FA secret for a code fill", () => {
+    const a = login(""), b = login("JBSWY3DPEHPK3PXP"), c = login("   ");
+    expect(matchesForIntent([a, b, c], "code")).toEqual([b]);
+    expect(matchesForIntent([a, b, c])).toEqual([a, b, c]);
+  });
+
+  it("validIntent accepts only \"code\"", () => {
+    expect(validIntent("code")).toBe("code");
+    for (const v of [undefined, null, "", "CODE", "password", 1, {}]) expect(validIntent(v)).toBeUndefined();
+  });
+
+  it("fillReply for a code fill sends the code, username and title, never the password", async () => {
+    const r = await fillReply(login("JBSWY3DPEHPK3PXP"), "code");
+    expect(Object.keys(r).sort()).toEqual(["code", "ok", "title", "username"]);
+    expect(r).toMatchObject({ ok: true, username: "me", title: "Site" });
+    expect((r as { code: string }).code).toMatch(/^\d{6}$/);
+    expect(JSON.stringify(r)).not.toContain("secret-pw");
+  });
+
+  it("fillReply: no 2FA secret (or a broken one) → no_code; a normal fill is unchanged", async () => {
+    expect(await fillReply(login(""), "code")).toEqual({ error: "no_code" });
+    expect(await fillReply(login("not base32!"), "code")).toEqual({ error: "no_code" });
+    expect(await fillReply(login(""))).toEqual({ ok: true, username: "me", password: "secret-pw", title: "Site" });
   });
 });

@@ -203,6 +203,29 @@ export async function credentialsFor(m: LoginMatch) {
   return { username: m.entry.username, password: m.entry.password, title: m.entry.title, ...(code ? { code } : {}) };
 }
 
+// ─── Code-only fills (a separate 2FA page) ───────────────────────────────────
+
+/** What the extension asked for: `"code"` = only the TOTP code of the matching login (Rust validated it). */
+export type FillIntent = "code";
+export const validIntent = (v: unknown): FillIntent | undefined => (v === "code" ? "code" : undefined);
+
+const hasTotp = (m: LoginMatch) => !!m.entry.totp && !!m.entry.totp.trim();
+
+/** The logins a fill may use: for a code-only fill, just those with a 2FA secret. */
+export function matchesForIntent(matches: LoginMatch[], intent?: FillIntent): LoginMatch[] {
+  return intent === "code" ? matches.filter(hasTotp) : matches;
+}
+
+/**
+ * The reply to an approved fill. A code-only fill gets the current TOTP code (with the username and
+ * title so the user can tell which login it was) and never the password.
+ */
+export async function fillReply(m: LoginMatch, intent?: FillIntent) {
+  if (intent !== "code") return { ok: true, ...(await credentialsFor(m)) };
+  const code = hasTotp(m) ? await totpCode(m.entry.totp) : null;
+  return code ? { ok: true, username: m.entry.username, title: m.entry.title, code } : { error: "no_code" };
+}
+
 // ─── Saving a login captured in the browser ──────────────────────────────────
 
 export interface SaveRequest { id: string; host: string; url: string; username: string; password: string; title: string }
