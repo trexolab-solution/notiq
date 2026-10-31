@@ -1,6 +1,6 @@
 import type { Lookalike } from "../lib/lookalike";
 import {
-  decideTrusted, defaultLoginName, indexOfAccount, matchesForIntent, planSave,
+  decideTrusted, defaultLoginName, indexOfAccount, matchesForIntent, pickSaveTarget, planSave, setSaveAsNew,
   type CardMatch, type FillIntent, type LoginMatch, type SavePlan, type SaveRequest,
 } from "../lib/autofill";
 
@@ -51,6 +51,10 @@ export type PromptEvent =
   | { type: "pick"; index: number }
   | { type: "trust"; on: boolean }
   | { type: "name"; value: string }
+  /** Save prompt with several logins for this username: update candidate `index` … */
+  | { type: "saveTarget"; index: number }
+  /** … or save as a new login instead (`on: false` goes back to updating). */
+  | { type: "saveAsNew"; on: boolean }
   | { type: "reveal" }
   | { type: "allow" }
   | { type: "confirmSave"; nameOk: boolean }
@@ -176,6 +180,10 @@ export function step(state: PromptState, ev: PromptEvent): Step {
       return state.stage === "request" ? same({ ...state, trust: ev.on }) : same(state);
     case "name":
       return state.stage === "save" ? same({ ...state, name: ev.value }) : same(state);
+    case "saveTarget":
+      return state.stage === "save" && !state.busy ? same({ ...state, plan: pickSaveTarget(state.plan, ev.index) }) : same(state);
+    case "saveAsNew":
+      return state.stage === "save" && !state.busy ? same({ ...state, plan: setSaveAsNew(state.plan, ev.on) }) : same(state);
     case "reveal":
       return state.stage === "save" ? same({ ...state, reveal: !state.reveal }) : same(state);
 
