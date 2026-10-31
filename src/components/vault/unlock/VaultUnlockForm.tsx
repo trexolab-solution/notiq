@@ -31,9 +31,9 @@ export function VaultUnlockBody({ u, purpose, idPrefix }: BodyProps) {
             <Fingerprint size={28} strokeWidth={1.6} />
           </span>
           <Button type="button" variant="primary" className="w-full justify-center" autoFocus data-autofocus=""
-                  disabled={u.busy} icon={<Fingerprint size={15} />} onClick={() => void u.unlockWithHello()}
-                  aria-describedby={u.error ? errId : undefined}>
-            {u.busy ? "Waiting for verification…" : "Unlock with PC sign-in"}
+                  loading={u.busy} loadingText="Waiting for verification…" icon={<Fingerprint size={15} />}
+                  onClick={() => void u.unlockWithHello()} aria-describedby={u.error ? errId : undefined}>
+            Unlock with PC sign-in
           </Button>
         </div>
       ) : (
@@ -73,7 +73,7 @@ export function VaultUnlockActions({ u, onCancel, submitLabel }: ActionsProps) {
     <>
       <DialogButton cancel onClick={onCancel} disabled={u.busy}>Cancel</DialogButton>
       {!u.showHello && (
-        <DialogButton type="submit" variant="primary" disabled={u.busy}>{u.busy ? "Unlocking…" : submitLabel}</DialogButton>
+        <DialogButton type="submit" variant="primary" loading={u.busy} loadingText="Unlocking…">{submitLabel}</DialogButton>
       )}
     </>
   );

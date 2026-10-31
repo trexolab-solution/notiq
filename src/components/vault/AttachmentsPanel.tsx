@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Download, File, Paperclip, Plus, Trash2 } from "lucide-react";
+import { Download, File, Plus, Trash2 } from "lucide-react";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { readFile, stat } from "@tauri-apps/plugin-fs";
 import { Button } from "../ui/Button";
@@ -156,10 +156,10 @@ export function AttachmentsPanel({ tab }: { tab: Tab }) {
         </ul>
       )}
       <div className="flex items-center gap-2">
-        <Button size="sm" icon={busy ? <Paperclip size={12} /> : <Plus size={12} />} disabled={busy || full || !path}
+        <Button size="sm" icon={<Plus size={12} />} disabled={full || !path} loading={busy} loadingText="Adding…"
                 title={full ? `At most ${VAULT_ATTACH_MAX_PER_NOTE} attachments per entry` : undefined}
                 onClick={() => { void add(); }}>
-          {busy ? "Adding…" : "Add files…"}
+          Add files…
         </Button>
         <span className="text-[11px] text-[var(--color-text-muted)]">
           {n}/{VAULT_ATTACH_MAX_PER_NOTE} files

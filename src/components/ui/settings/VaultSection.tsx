@@ -174,8 +174,8 @@ export const VaultSection = React.memo(function VaultSection() {
                      value={confirmPw} onChange={(e) => setConfirmPw(e.target.value)} />
               {error && <p role="alert" className="text-xs text-[var(--color-danger)]">{error}</p>}
               <div>
-                <Button type="submit" variant="primary" size="sm" disabled={busy || !oldPw || !newPw}>
-                  {busy ? "Working…" : "Change password"}
+                <Button type="submit" variant="primary" size="sm" disabled={!oldPw || !newPw} loading={busy} loadingText="Changing…">
+                  Change password
                 </Button>
               </div>
               <p className="text-xs text-[var(--color-text-muted)]">

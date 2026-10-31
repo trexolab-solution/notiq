@@ -3,6 +3,8 @@ import { Copy, FolderOpen, Globe, RefreshCw, Wrench } from "lucide-react";
 import { SettingRow } from "../SettingRow";
 import { SettingsBlock } from "../SettingsGroup";
 import { Button } from "../Button";
+import { BusyIcon, InlineLoading, busyIconProps } from "../Loading";
+import { Tooltip } from "../Tooltip";
 import { toast } from "../../../lib/toast";
 import { isTauri } from "../../../lib/tauriWindow";
 import { useCopyToClipboard } from "../../../hooks/useCopyToClipboard";
@@ -29,6 +31,7 @@ function ago(ms: number | null | undefined): string {
 export const AutofillSection = React.memo(function AutofillSection() {
   const [status, setStatus] = useState<AutofillStatus | null>(null);
   const [busy, setBusy] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [extDir, setExtDir] = useState<string | null | undefined>(undefined); // undefined = still loading
   const { copied, copy } = useCopyToClipboard();
@@ -45,9 +48,12 @@ export const AutofillSection = React.memo(function AutofillSection() {
 
   const refresh = useCallback(async () => {
     if (!isTauri) return;
+    setRefreshing(true);
     try { setStatus(await autofillStatus()); setErr(null); }
     catch (e) { setErr(String(e)); }
+    finally { setRefreshing(false); }
   }, []);
+  const refreshName = busyIconProps(refreshing, "Refresh status", "Checking status…");
 
   useEffect(() => { void refresh(); }, [refresh]);
 
@@ -124,9 +130,14 @@ export const AutofillSection = React.memo(function AutofillSection() {
         }
       >
         <div className="flex items-center gap-2">
-          <Button className="settings-btn" size="sm" variant="ghost" onClick={() => void refresh()} aria-label="Refresh status"><RefreshCw size={12} /></Button>
-          <Button className="settings-btn" size="sm" icon={<Wrench size={12} />} disabled={busy || !status?.supported} onClick={() => void repair()}>
-            {busy ? "Repairing…" : "Repair"}
+          <Tooltip content={refreshName.tooltip}>
+            <Button className="settings-btn" size="sm" variant="ghost" onClick={() => void refresh()} disabled={refreshing}
+                    aria-label={refreshName["aria-label"]} aria-busy={refreshName["aria-busy"]}>
+              <BusyIcon icon={RefreshCw} busy={refreshing} spinSelf size={12} />
+            </Button>
+          </Tooltip>
+          <Button className="settings-btn" size="sm" icon={<Wrench size={12} />} disabled={!status?.supported} loading={busy} loadingText="Repairing…" onClick={() => void repair()}>
+            Repair
           </Button>
         </div>
       </SettingRow>
@@ -184,7 +195,7 @@ export const AutofillSection = React.memo(function AutofillSection() {
             )}
           </div>
         )}
-        {!status && !err && <p className="text-xs text-[var(--color-text-muted)]">Checking browser status…</p>}
+        {!status && !err && <InlineLoading label="Checking browser status…" />}
       </SettingsBlock>
     </>
   );
