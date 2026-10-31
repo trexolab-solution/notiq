@@ -108,17 +108,20 @@ function fillPage(host, cred, scope) {
       r.some((i) => otpLike(i) || i.inputMode === "numeric" || i.type === "number")) || null;
   }
   const otp = all.find((i) => textual(i) && i.maxLength !== 1 && otpLike(i));
+  const used = [];
+  if (otp) used.push(otp);
+  if (boxes) used.push(...boxes);
   if (pw) {
     const form = pw.form || document;
     const candidates = [...form.querySelectorAll("input")].filter((i) => visible(i) && textual(i) && i !== otp && !(boxes && boxes.includes(i)));
     const before = candidates.filter((i) => pw.compareDocumentPosition(i) & Node.DOCUMENT_POSITION_PRECEDING);
     const user = before.length ? before[before.length - 1] : null;
-    if (user && cred.username) { set(user, cred.username); n++; }
-    set(pw, cred.password); n++;
+    if (user && cred.username) { set(user, cred.username); n++; used.push(user); }
+    set(pw, cred.password); n++; used.push(pw);
   } else if (!otp && !boxes) {
     // Username-first flows: fill the only visible text/email field.
     const user = all.find((i) => textual(i) && /user|email|login|account/i.test(`${i.name} ${i.id} ${i.autocomplete} ${i.type}`)) || all.find(textual);
-    if (user && cred.username) { set(user, cred.username); n++; }
+    if (user && cred.username) { set(user, cred.username); n++; used.push(user); }
   }
   const code = typeof cred.code === "string" ? cred.code : "";
   if (code && boxes && boxes.length === code.length && /^[0-9A-Za-z]+$/.test(code)) {
@@ -135,6 +138,22 @@ function fillPage(host, cred, scope) {
     boxes[boxes.length - 1].focus();
     n++;
   } else if (otp && code) { set(otp, code); n++; }
+  // The login's custom fields, by name (NotiqFill.matchCustomFields; same rules as the in-page fill). This
+  // frame passed the same-site checks above, so secret ones may go here too, like the password.
+  const FK = globalThis.NotiqFill;
+  const fields = Array.isArray(cred.fields) ? cred.fields : [];
+  if (fields.length && FK && typeof FK.matchCustomFields === "function") {
+    const root = (pw && pw.form) || (used.find((el) => el.form) || {}).form || document; // the login's form, else the frame
+    const els = [...root.querySelectorAll("input, textarea")].filter((el) => FK.customFillable(el) && visible(el) &&
+      !used.includes(el) && el.maxLength !== 1 && !otpLike(el) &&
+      !/(^|\s)(one-time-code|new-password|cc-[a-z-]+)(\s|$)/i.test(el.getAttribute("autocomplete") || ""));
+    const active = document.activeElement;
+    for (const p of FK.matchCustomFields(fields, els.map((el) => ({ texts: FK.describeField(el), value: el.value, clicked: false })),
+      { allowSecret: true })) {
+      set(els[p.field], fields[p.custom].value); n++;
+    }
+    if (active && active !== document.activeElement && active.focus) active.focus();
+  }
   return n;
 }
 
@@ -247,12 +266,17 @@ async function fillActiveTab(account) {
   const target = byDoc
     ? { tabId: tab.id, documentIds: targets.map((r) => r.documentId) }
     : { tabId: tab.id, frameIds: targets.map((r) => r.frameId) };
+  // The custom-field matcher (fillkit.js) is normally there already as a content script; loading it again is harmless.
+  const fields = NotiqShared.validCustomFields(res.fields);
+  if (fields.length) {
+    try { await chrome.scripting.executeScript({ target, files: ["fillkit.js"] }); } catch { /* custom fields are skipped */ }
+  }
   let out;
   try {
     out = await chrome.scripting.executeScript({
       target,
       func: fillPage,
-      args: [host, { username: res.username, password: step ? "" : res.password, code: res.code }, { top: top.origin, allowed }],
+      args: [host, { username: res.username, password: step ? "" : res.password, code: res.code, fields }, { top: top.origin, allowed }],
     });
   } catch {
     return { error: "no_fields" };
@@ -310,6 +334,7 @@ async function fillForSender(sender, msg) {
       username: typeof res.username === "string" ? res.username : "",
       password: step ? "" : res.password,
       code: typeof res.code === "string" ? res.code : "",
+      fields: NotiqShared.validCustomFields(res.fields), // the login's custom fields (filled by name)
     };
   } finally {
     fillsInFlight.delete(tabId);
@@ -463,7 +488,8 @@ const stepKey = (tabId) => `step:${tabId}`;
 async function armStep(tabId, host, account, res) {
   await chrome.storage.session.set({
     [stepKey(tabId)]: {
-      host, account: typeof account === "string" ? account : "", username: res.username, password: res.password, at: Date.now(),
+      host, account: typeof account === "string" ? account : "", username: res.username, password: res.password,
+      fields: NotiqShared.validCustomFields(res.fields), at: Date.now(),
     },
   });
   setTimeout(() => { purgeSteps().catch(() => {}); }, STEP_TTL + 1000); // best effort; reads re-check the age anyway
@@ -504,7 +530,10 @@ async function onStepFill(_msg, sender) {
     const again = (await chrome.storage.session.get(key))[key]; // still the same hold (no new fill / drop meanwhile)?
     if (!again || again.at !== p.at || again.password !== p.password) return { none: true };
     await dropStep(tabId);
-    return { ok: true, host: info.host, username: typeof p.username === "string" ? p.username : "", password: p.password };
+    return {
+      ok: true, host: info.host, username: typeof p.username === "string" ? p.username : "", password: p.password,
+      fields: NotiqShared.validCustomFields(p.fields),
+    };
   } finally {
     stepsInFlight.delete(tabId);
   }

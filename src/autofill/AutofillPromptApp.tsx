@@ -18,7 +18,7 @@ import { ERR_LOCKED, vaultStatus } from "../lib/vault";
 import { nameError } from "../lib/vaultTree";
 import { LOOKALIKE_REASON_TEXT } from "../lib/lookalike";
 import {
-  cardReply, clearTrust, fillReply, isFallbackRequest, isTrusted, saveLogin, scanCards, scanLogins, setVaultRootResolver,
+  cardReply, clearTrust, fillReply, hasSaveChoice, isFallbackRequest, isTrusted, saveLogin, scanCards, scanLogins, setVaultRootResolver,
   trustHost, validIntent, type SaveRequest,
 } from "../lib/autofill";
 import { fitWindowSize, sizeChanged } from "./fitWindowSize";
@@ -308,17 +308,24 @@ export default function AutofillPromptApp() {
       const update = plan.kind === "update";
       const nameErr = update ? null : nameError(name);
       const confirm = () => dispatch({ type: "confirmSave", nameOk: !nameErr });
+      const choice = hasSaveChoice(plan);
       return (
         <Panel key={`save-${job.req.id}`} refs={refs} host={job.req.host} icon={<KeyRound size={16} />}
                sub={update ? "The Notiq extension wants to update a saved password." : "The Notiq extension wants to save a new login."}
                onClose={deny}
                footer={<>
                  <DialogButton cancel onClick={deny} disabled={busy}>Not now</DialogButton>
-                 <DialogButton variant="primary" disabled={busy || !!nameErr} onClick={confirm}>{update ? "Update" : "Save"}</DialogButton>
+                 {update && choice && (
+                   <DialogButton disabled={busy} onClick={() => dispatch({ type: "saveAsNew", on: true })}>Save as new</DialogButton>
+                 )}
+                 <DialogButton variant="primary" disabled={!!nameErr} loading={busy} loadingText={update ? "Updating…" : "Saving…"}
+                               onClick={confirm}>{update ? "Update" : "Save"}</DialogButton>
                </>}>
           <p className="af-detail">Only save it if you just signed in on this site.</p>
-          <SaveFields req={job.req} plan={plan} name={name} nameError={nameErr} reveal={reveal}
+          <SaveFields req={job.req} plan={plan} name={name} nameError={nameErr} reveal={reveal} disabled={busy}
                       onName={(value) => dispatch({ type: "name", value })} onReveal={() => dispatch({ type: "reveal" })}
+                      onTarget={(index) => dispatch({ type: "saveTarget", index })}
+                      onSaveAsNew={(on) => dispatch({ type: "saveAsNew", on })}
                       onEnter={confirm} />
         </Panel>
       );

@@ -456,6 +456,25 @@
     return ao[ao.length - 1] === top.origin;
   }
 
+  // ---------- custom fields of a login fill ----------
+  // The app's fill reply may carry the login's custom fields: fields: [{ name, value, secret }] (0.9.0+;
+  // older apps send none). Invalid entries are dropped one by one, never the whole fill. Limits match the
+  // app's (20 fields, 60-character names) with room for long values (1024).
+  const MAX_CUSTOM = 20, MAX_CUSTOM_NAME = 60, MAX_CUSTOM_VALUE = 1024;
+  function validCustomFields(list) {
+    if (!Array.isArray(list)) return [];
+    const out = [];
+    for (const f of list.slice(0, MAX_CUSTOM)) {
+      if (!f || typeof f !== "object" || Array.isArray(f)) continue;
+      if (typeof f.name !== "string" || typeof f.value !== "string") continue;
+      const name = f.name.replace(/[\u0000-\u001f\u007f]+/g, " ").trim();
+      if (!name || name.length > MAX_CUSTOM_NAME || !f.value || f.value.length > MAX_CUSTOM_VALUE) continue;
+      if (/[\u0000-\u0008\u000b-\u001f\u007f]/.test(f.value)) continue;
+      out.push({ name, value: f.value, secret: f.secret === true });
+    }
+    return out;
+  }
+
   // ---------- app <-> extension handshake ----------
   // PROTOCOL is this extension's message protocol; the app has its own (autofill.rs `PROTOCOL`).
   // Compatible when appProtocol >= MIN_APP_PROTOCOL and PROTOCOL >= the app's `minProtocol`.
@@ -499,6 +518,7 @@
     shouldSuggest, suggestPosition, rectsOverlap,
     cardFieldKind, validCardReply, cardFieldValue, pickOption,
     normalizeHost, publicSuffix, registrableDomain, sameSite, secureOrigin, fillTargetOk,
+    validCustomFields,
     PROTOCOL, MIN_APP_PROTOCOL, APP_VERSION_FOR_PROTOCOL, appStatus,
   });
   try {

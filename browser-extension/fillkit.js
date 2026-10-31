@@ -278,10 +278,100 @@
   // The parent element, stepping out of a shadow root to its host.
   const parentAcross = (n) => (n && (n.parentElement || (n.parentNode && n.parentNode.host))) || null;
 
+  // ---------- custom fields (a login's extra fields, filled by name) ----------
+  // A login may carry user-defined fields ("Customer ID", "Membership No.", "PIN"). When it is filled,
+  // a page field whose label / aria-label / placeholder / name / id names one of them gets its value.
+  // Names are compared normalised: accents, case, camelCase, spaces and punctuation don't matter,
+  // "no" / "num" / "nbr" / "nr" / "#" mean "number", and filler words ("Enter your …") are ignored, so
+  // "Customer ID" = name="customerId" = id="customer_id" = label "Customer Id:" = placeholder "Enter your customer ID",
+  // and "Membership No." = name="membershipNumber". Only whole names match: "PIN" never matches "PIN code"
+  // or "spinner".
+  const NAME_FILLER = new Set(["enter", "your", "the", "a", "an", "please", "type", "input", "here", "my"]);
+  const NAME_SYNONYM = Object.freeze({ no: "number", num: "number", nbr: "number", nr: "number", numero: "number" });
+  const MAX_NAME_TEXT = 200;
+
+  function nameTokens(text) {
+    if (typeof text !== "string" || !text) return [];
+    let s = text.slice(0, MAX_NAME_TEXT);
+    try { s = s.normalize("NFKD").replace(/[̀-ͯ]/g, ""); } catch { /* keep as is */ }
+    s = s.replace(/#/g, " number ")
+      .replace(/([a-z0-9])([A-Z])/g, "$1 $2")      // customerId -> customer Id
+      .replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2")   // PINCode -> PIN Code
+      .toLowerCase();
+    const raw = s.split(/[^\p{L}\p{N}]+/u).filter(Boolean).map((t) => NAME_SYNONYM[t] || t);
+    const kept = raw.filter((t) => !NAME_FILLER.has(t));
+    return kept.length ? kept : raw;
+  }
+  // The comparison key of a name ("" when it has no letters or digits).
+  const nameKey = (text) => nameTokens(text).join("");
+
+  // May a custom field go into this element at all? Text-like inputs and textareas only (never hidden,
+  // checkbox, radio, file, date, button…). Visibility, disabled and read-only are the caller's checks.
+  const CUSTOM_TYPES = new Set(["text", "email", "tel", "number", "password", "search", "url", ""]);
+  function customFillable(el) {
+    if (!el || typeof el.tagName !== "string") return false;
+    const tag = el.tagName.toUpperCase();
+    if (tag === "TEXTAREA") return true;
+    if (tag !== "INPUT") return false;
+    const t = String((el.getAttribute && el.getAttribute("type")) || el.type || "").toLowerCase();
+    return CUSTOM_TYPES.has(t);
+  }
+
+  // The texts that name a page field: its <label>s, aria-label, aria-labelledby targets, placeholder, name, id.
+  function describeField(el) {
+    const out = [];
+    const add = (v) => { if (typeof v === "string" && v.trim()) out.push(v.trim().slice(0, MAX_NAME_TEXT)); };
+    const get = (n) => (el && el.getAttribute ? el.getAttribute(n) : null);
+    try {
+      if (el && el.labels) for (const l of Array.from(el.labels).slice(0, 4)) add(l.textContent);
+    } catch { /* no labels */ }
+    add(get("aria-label"));
+    const by = get("aria-labelledby");
+    if (by) {
+      let root = null;
+      try { root = el.getRootNode ? el.getRootNode() : null; } catch { root = null; }
+      for (const id of String(by).split(/\s+/).filter(Boolean).slice(0, 4)) {
+        let n = null;
+        try { n = root && root.getElementById ? root.getElementById(id) : null; } catch { n = null; }
+        if (n) add(n.textContent);
+      }
+    }
+    add(get("placeholder"));
+    add(get("name"));
+    add(get("id"));
+    return out;
+  }
+
+  // Which custom field goes into which page field.
+  //   customs:    [{ name, value, secret }] (validated: NotiqShared.validCustomFields)
+  //   candidates: [{ texts: [names of the field], value, clicked, excluded }] in page order
+  //   opts:       { allowSecret } — secret fields only on the login's own site (same rule as its password)
+  // Returns [{ field: candidate index, custom: custom index }]. A candidate is skipped when `excluded`
+  // (the username / password / 2FA fields of this fill, or anything else the caller rules out) or when
+  // it already holds a value, unless it is the field the user clicked. The first custom field whose
+  // name matches wins; one custom field may fill several page fields (e.g. a repeated box).
+  function matchCustomFields(customs, candidates, opts) {
+    const allowSecret = !!(opts && opts.allowSecret);
+    const out = [];
+    if (!Array.isArray(customs) || !Array.isArray(candidates) || !customs.length) return out;
+    const keys = customs.map((c) => (c && typeof c.name === "string" && typeof c.value === "string" && c.value &&
+      (allowSecret || c.secret !== true) ? nameKey(c.name) : ""));
+    candidates.forEach((cand, i) => {
+      if (!cand || cand.excluded) return;
+      if (typeof cand.value === "string" && cand.value !== "" && !cand.clicked) return;
+      const texts = Array.isArray(cand.texts) ? cand.texts : [];
+      const have = new Set(texts.map(nameKey).filter(Boolean));
+      const k = keys.findIndex((key) => key && have.has(key));
+      if (k >= 0) out.push({ field: i, custom: k });
+    });
+    return out;
+  }
+
   const api = Object.freeze({
     DEFAULT_LEN, MIN_LEN, DEFAULT_CLASSES,
     parsePasswordRules, simplePattern, planPassword, drawPassword, generateFor, mergeConstraints,
     deepQuery, shadowRoots, deepActive, parentAcross,
+    nameTokens, nameKey, customFillable, describeField, matchCustomFields,
   });
   try {
     Object.defineProperty(g, "NotiqFill", { value: api, writable: false, configurable: false, enumerable: false });
