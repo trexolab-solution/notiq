@@ -1,4 +1,4 @@
-// Unit tests for browser-extension/shared.js (theme validation, suggestion logic).
+// Unit tests for browser-extension/shared.js (theme validation, suggestion logic, same-site rule, handshake).
 //   node --test browser-extension/test/
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -8,7 +8,7 @@ import { dirname, join } from "node:path";
 import vm from "node:vm";
 
 const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "shared.js"), "utf8");
-const ctx = vm.createContext({});
+const ctx = vm.createContext({ URL }); // URL: present in every extension context
 vm.runInContext(src, ctx);
 const NS = ctx.NotiqShared;
 
@@ -155,3 +155,51 @@ test("rectsOverlap", () => {
   assert.ok(!NS.rectsOverlap(rect(0, 0, 10, 10), rect(10, 0, 10, 10)));
   assert.ok(!NS.rectsOverlap(null, rect(0, 0, 1, 1)));
 });
+
+// ---------- same site (Public Suffix List) ----------
+test("sameSite: subdomains of the top host's registrable domain", () => {
+  const yes = [
+    ["login.example.com", "www.example.com"], ["example.com", "example.com"], ["example.com", "www.example.com"],
+    ["a.b.example.co.uk", "www.example.co.uk"], ["Login.Example.COM", "www.example.com."], ["x.bbc.co.uk", "bbc.co.uk"],
+    ["admin.myapp.github.io", "myapp.github.io"], ["myapp.github.io", "www.myapp.github.io"],
+    ["api.shop.myshopify.com", "shop.myshopify.com"], ["a.b.s3.amazonaws.com", "c.b.s3.amazonaws.com"],
+    ["city.kawasaki.jp", "www.city.kawasaki.jp"],
+  ];
+  for (const [h, t] of yes) assert.equal(NS.sameSite(h, t), true, `${h} ~ ${t}`);
+});
+
+test("sameSite: other sites, public suffixes, hosting tenants, IPs and localhost", () => {
+  const no = [
+    ["evil.com", "example.com"], ["example.com.evil.com", "example.com"], ["notexample.com", "example.com"],
+    ["evil.co.uk", "example.co.uk"], ["other.co.uk", "co.uk"], ["co.uk", "example.co.uk"], ["example.com", "com"],
+    // github.io-style private suffixes: every tenant is its own site
+    ["evil.github.io", "myapp.github.io"], ["github.io", "myapp.github.io"], ["a.github.io", "github.io"],
+    ["evil.herokuapp.com", "app.herokuapp.com"], ["evil.vercel.app", "app.vercel.app"], ["evil.blogspot.com", "me.blogspot.com"],
+    ["evil.netlify.app", "app.netlify.app"], ["evil.pages.dev", "app.pages.dev"], ["evil.web.app", "app.web.app"],
+    ["evil.firebaseapp.com", "app.firebaseapp.com"], ["evil.appspot.com", "app.appspot.com"],
+    ["evil.azurewebsites.net", "app.azurewebsites.net"], ["d2.cloudfront.net", "d1.cloudfront.net"],
+    ["evil.s3.amazonaws.com", "bucket.s3.amazonaws.com"],
+    // wildcard rules: *.kawasaki.jp, so foo.kawasaki.jp is a suffix
+    ["a.foo.kawasaki.jp", "b.foo.kawasaki.jp"],
+    // IPs and localhost only match themselves
+    ["127.0.0.1", "localhost"], ["10.0.0.2", "10.0.0.1"], ["1.example.com", "127.0.0.1"], ["::1", "[::2]"],
+    ["app.localhost", "localhost"], ["a.app.localhost", "app.localhost"], ["localhost", "app.localhost"],
+    ["", "example.com"], ["example.com", ""], [null, undefined],
+  ];
+  for (const [h, t] of no) assert.equal(NS.sameSite(h, t), false, `${h} !~ ${t}`);
+  for (const h of ["127.0.0.1", "localhost", "[::1]", "app.localhost"]) assert.equal(NS.sameSite(h, h), true, h);
+});
+
+test("registrableDomain / publicSuffix follow the app's table", () => {
+  const cases = [
+    ["www.bbc.co.uk", "bbc.co.uk", "co.uk"], ["a.b.example.com", "example.com", "com"], ["myapp.github.io", "myapp.github.io", "github.io"],
+    ["x.y.compute.amazonaws.com", "x.y.compute.amazonaws.com", "y.compute.amazonaws.com"],
+    ["www.city.kobe.jp", "city.kobe.jp", "kobe.jp"], ["co.uk", null, "co.uk"], ["github.io", null, "github.io"],
+    ["localhost", null, "localhost"], ["192.168.1.1", null, ""], ["[::1]", null, ""],
+  ];
+  for (const [h, reg, ps] of cases) {
+    assert.equal(NS.registrableDomain(h), reg, `registrable ${h}`);
+    assert.equal(NS.publicSuffix(h), ps, `suffix ${h}`);
+  }
+});
+

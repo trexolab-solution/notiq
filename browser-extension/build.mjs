@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Packages the Notiq Autofill extension. No dependencies (Node 20+).
 //   node browser-extension/build.mjs [--out dist] [--check]
+//   node browser-extension/build.mjs --psl      refresh the Public Suffix List copy in shared.js
 // Writes three reproducible zips:
 //   notiq-autofill-<ver>-chrome.zip   sideload / GitHub release (keeps manifest `key` => stable extension ID)
 //   notiq-autofill-<ver>-store.zip    Chrome Web Store + Edge Add-ons (`key` removed; the store assigns the ID)
@@ -97,6 +98,66 @@ export function validateBuild(manifest, files, version, { store = false, firefox
   JSON.parse(files.get("manifest.json").toString("utf8"));
 }
 
+// ---------- Public Suffix List snapshot (shared.js <- src/lib/publicSuffixData.ts) ----------
+// shared.js carries a copy of the app's compact PSL table between the markers below, so the extension
+// (loaded unpacked straight from this folder) needs no build step. `--psl` rewrites that block from the
+// app's table; a normal build / `--check` fails while the copy is stale.
+export const PSL_SOURCE = join("src", "lib", "publicSuffixData.ts");
+export const PSL_BEGIN = "  // BEGIN PSL";
+export const PSL_END = "  // END PSL";
+
+// Reads SECOND_LEVEL / EXTRA / WILDCARD / EXCEPTION from the TypeScript data file (a plain literal table).
+export function parsePslData(ts) {
+  const pick = (name, open, close) => {
+    const at = ts.indexOf(`export const ${name}`);
+    if (at < 0) throw new Error(`PSL data: ${name} missing`);
+    const start = ts.indexOf(open, ts.indexOf("=", at));
+    const end = ts.indexOf(close, start);
+    if (start < 0 || end < 0) throw new Error(`PSL data: ${name} unreadable`);
+    return ts.slice(start, end + 1).replace(/\/\/[^\n]*/g, "");
+  };
+  const strings = (body) => [...body.matchAll(/"([^"]*)"/g)].map((m) => m[1]);
+  const second = {};
+  for (const m of pick("SECOND_LEVEL", "{", "};").matchAll(/^\s*"?([a-z0-9-]+)"?\s*:\s*"([^"]*)"/gm)) {
+    second[m[1]] = m[2].split(/\s+/).filter(Boolean).join(" ");
+  }
+  const data = {
+    second,
+    extra: strings(pick("EXTRA", "[", "];")),
+    wildcard: strings(pick("WILDCARD", "[", "];")),
+    exception: strings(pick("EXCEPTION", "[", "];")),
+  };
+  if (Object.keys(second).length < 50 || !data.extra.includes("github.io")) throw new Error("PSL data looks wrong");
+  for (const s of [...Object.keys(second), ...Object.values(second).join(" ").split(" "), ...data.extra, ...data.wildcard, ...data.exception]) {
+    if (!/^[a-z0-9.-]+$/.test(s)) throw new Error(`PSL data: bad label ${JSON.stringify(s)}`);
+  }
+  return data;
+}
+
+export function pslBlock(data) {
+  const lines = [
+    `${PSL_BEGIN} (generated from ${PSL_SOURCE.replace(/\\/g, "/")} by \`node browser-extension/build.mjs --psl\`; do not edit by hand)`,
+    "  const PSL = {",
+    "    second: {",
+    ...Object.entries(data.second).map(([tld, l]) => `      ${JSON.stringify(tld)}: ${JSON.stringify(l)},`),
+    "    },",
+    `    extra: ${JSON.stringify(data.extra)},`,
+    `    wildcard: ${JSON.stringify(data.wildcard)},`,
+    `    exception: ${JSON.stringify(data.exception)},`,
+    "  };",
+    PSL_END,
+  ];
+  return lines.join("\n");
+}
+
+// shared.js text with its PSL block replaced by one built from `ts`.
+export function syncPsl(shared, ts) {
+  const a = shared.indexOf(PSL_BEGIN);
+  const b = shared.indexOf(PSL_END, a);
+  if (a < 0 || b < 0) throw new Error("shared.js has no PSL block");
+  return shared.slice(0, a) + pslBlock(parsePslData(ts)) + shared.slice(b + PSL_END.length);
+}
+
 // ---------- ZIP writer ----------
 const CRC_TABLE = (() => {
   const t = new Uint32Array(256);
@@ -178,6 +239,20 @@ function main() {
   const check = args.includes("--check");
   const oi = args.indexOf("--out");
   const outDir = resolve(oi >= 0 && args[oi + 1] ? args[oi + 1] : "dist");
+
+  // The PSL copy in shared.js must match the app's table (skipped when packaging outside the repo).
+  const pslPath = join(here, "..", PSL_SOURCE);
+  if (existsSync(pslPath)) {
+    const sharedPath = join(here, BACKGROUND_SHARED);
+    const cur = readFileSync(sharedPath, "utf8");
+    const next = syncPsl(cur, readFileSync(pslPath, "utf8"));
+    if (args.includes("--psl")) {
+      if (next !== cur) writeFileSync(sharedPath, next);
+      console.log(next !== cur ? "Updated the PSL snapshot in shared.js" : "PSL snapshot in shared.js is current");
+      return;
+    }
+    if (next !== cur) throw new Error(`shared.js PSL snapshot is stale: run node browser-extension/build.mjs --psl`);
+  }
 
   const base = JSON.parse(readFileSync(join(here, "manifest.json"), "utf8"));
   const version = base.version;

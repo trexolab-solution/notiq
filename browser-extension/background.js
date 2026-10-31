@@ -9,27 +9,8 @@ const MAX = { host: 253, url: 2048, title: 80, username: 512, password: 1024, me
 const SETTINGS_DEFAULTS = { offerSave: true, showIcon: true, suggestOnFocus: false, neverSave: [] };
 const OFFER_TTL = 2 * 60 * 1000;
 
-// Conservative "same site" test for login iframes: the frame's host must equal
-// or be a subdomain of the top page's site (its last two labels, or last three
-// for example.co.uk-style hosts). Bare public suffixes and IPs only match exactly.
-const SLD = new Set(["co", "com", "org", "net", "gov", "ac", "edu"]);
-const isIp = (h) => /^[\d.]+$/.test(h) || h.includes(":");
-function siteOf(host) {
-  const l = host.split(".");
-  if (l.length >= 3 && l[l.length - 1].length === 2 && SLD.has(l[l.length - 2])) return l.slice(-3).join(".");
-  return l.slice(-2).join(".");
-}
-function sameSite(host, top) {
-  host = String(host || "").toLowerCase();
-  top = String(top || "").toLowerCase();
-  if (!host || !top) return false;
-  if (host === top) return true;
-  if (isIp(top) || isIp(host)) return false;
-  const site = siteOf(top);
-  const l = site.split(".");
-  if (l.length < 2 || (l.length === 2 && l[1].length === 2 && SLD.has(l[0]))) return false;
-  return host === site || host.endsWith(`.${site}`);
-}
+// The one same-site rule (Public Suffix List based), from shared.js.
+const sameSite = (host, top) => NotiqShared.sameSite(host, top);
 
 function ask(msg) {
   return new Promise((resolve) => {
