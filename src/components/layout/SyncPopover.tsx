@@ -9,7 +9,7 @@ import { toast } from "../../lib/toast";
 import { useAppStore } from "../../store";
 import { useVaultStore } from "../../store/vaultStore";
 import { describeSyncResult, syncDevices, syncErrorMessage, syncNow, useSyncStatus, useSyncStore } from "../../lib/vaultSync";
-import { enableSync } from "../../lib/vaultSyncFlows";
+import { turnOnSyncWithFeedback } from "../../lib/syncFeedback";
 import {
   ACTION_LABELS, OPEN_SYNC_POPOVER_EVENT, deviceCountLabel, isCacheFresh, markIndicatorTipShown,
   loadingModel, popoverModel, syncSettingsRow, type BadgeTone, type PopoverAction, type PopoverModel, type SyncPopoverRequest,
@@ -259,8 +259,10 @@ export function SyncPopoverHost() {
   const statusError = useSyncStore((s) => s.error);
   const [busy, setBusy] = useState<PopoverAction | null>(null);
   const [adopting, setAdopting] = useState(false);
+  const turnOnRef = useRef<() => void>(() => {});
   const { connecting, error: connectError, connect, cancel } = useSyncConnect((s) => {
     toast.success(`Connected to Google Drive${s.account ? ` as ${s.account}` : ""}`);
+    if (!s.enabled) turnOnRef.current(); // "Keep this vault on your other PCs": connecting goes on to turn sync on
   });
 
   useEffect(() => {
@@ -276,12 +278,11 @@ export function SyncPopoverHost() {
     close(); // the unlock / A-B-C dialogs take over
     if (!(await useVaultStore.getState().ensureUnlocked())) return; // merging needs the vault key
     setBusy("turnOn");
-    const out = await enableSync();
+    const out = await turnOnSyncWithFeedback(); // first-upload progress + result toasts
     setBusy(null);
     if (out.kind === "different") setAdopting(true);
-    else if (out.kind === "error") toast.error("Couldn't turn on sync", { source: "Vault sync", detail: out.error });
-    else toast.success(`Sync is on. ${describeSyncResult(out.result) ?? "Your vault is up to date."}`);
   }, [close]);
+  turnOnRef.current = () => { void turnOn(); };
 
   const runNow = useCallback(async (a: PopoverAction) => {
     setBusy(a);

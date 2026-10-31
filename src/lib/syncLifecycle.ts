@@ -118,6 +118,8 @@ export function shouldShowSyncBanner(input: { exists: boolean; status: SyncStatu
 export function setIndicatorTipPending(): void {
   if (read(INDICATOR_TIP_KEY) === "shown") return;
   write(INDICATOR_TIP_KEY, "pending");
+  // Same-window writes fire no `storage` event; tell the indicator directly.
+  try { window.dispatchEvent(new Event("notiq:sync-indicator-tip")); } catch { /* no window */ }
 }
 export const getIndicatorTip = () => read(INDICATOR_TIP_KEY);
 
