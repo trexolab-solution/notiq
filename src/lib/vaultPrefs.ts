@@ -73,3 +73,20 @@ export const getAutoHideSeconds = (): number => parseAutoHideSeconds(read(KEY_AU
 export const setAutoHideSeconds = (n: number) => write(KEY_AUTOHIDE, String(n));
 /** Whether a session-lock event should lock the vault right now (pure). */
 export const shouldLockOnSession = (prefOn: boolean, unlocked: boolean): boolean => prefOn && unlocked;
+
+/**
+ * 0.9.0: wipe a copied secret from the clipboard after this many seconds, but only if the clipboard still holds
+ * it; 0 = never. Used by every secret copy in the app (`copySecret`) and by the browser extension's copy.
+ */
+const KEY_CLIP_CLEAR = "pref:vaultClipboardClearSeconds";
+export const DEFAULT_CLIPBOARD_CLEAR_SECONDS = 30;
+export const CLIPBOARD_CLEAR_OPTIONS = [15, 30, 60, 120, 0] as const;
+export function parseClipboardClearSeconds(raw: string | null): number {
+  if (raw === null) return DEFAULT_CLIPBOARD_CLEAR_SECONDS;
+  const n = Number(raw);
+  return (CLIPBOARD_CLEAR_OPTIONS as readonly number[]).includes(n) ? n : DEFAULT_CLIPBOARD_CLEAR_SECONDS;
+}
+export const getClipboardClearSeconds = (): number => parseClipboardClearSeconds(read(KEY_CLIP_CLEAR));
+export const setClipboardClearSeconds = (n: number) => write(KEY_CLIP_CLEAR, String(n));
+/** "15 s", "1 min", "2 min", "Never". */
+export const clipboardClearLabel = (n: number): string => (n <= 0 ? "Never" : n < 60 ? `${n} s` : `${n / 60} min`);
