@@ -7,8 +7,8 @@ a vault, A/B/C dialog for an empty local vault, raw device ids). Implementation 
 ## Principles
 
 1. **Connecting is the intent to sync.** After Google sign-in, Notiq immediately checks Drive and offers the one next
-   step. Sync is ON as soon as that step finishes; there is no separate toggle to find. (The toggle becomes
-   "Pause sync on this PC".)
+   step. Sync is ON as soon as that step finishes; there is no separate toggle to find. (Settings then shows
+   "Sync is on · [Pause]" / "Sync is paused on this PC · [Resume sync]", see F8.)
 2. **Never ask to create a vault when Drive already has one.** If Drive has a vault, the only question is its master
    password; the local vault is created from Drive with that same password.
 3. **No dead ends.** Every screen that can't do something says what to do next and offers the button for it.
@@ -133,7 +133,11 @@ A backup of this PC's vault is saved first: Documents\Notiq\…\backup.nqbackup
 | This PC removed from devices elsewhere | "This PC was removed from sync" | Reconnect / keep local |
 
 ### F8. Leaving
-- **Pause sync on this PC** (toggle): stops syncing, keeps the connection.
+- **Pause / Resume** (status line + button, no toggle; 0.9.0 decision 2): "Sync is on · [Pause]" /
+  "Sync is paused on this PC · [Resume sync]". Pausing stops syncing and keeps the connection. Cancelling "Upload this
+  vault?" or choosing "Keep this PC separate" also ends here. Resume runs the setup decision; if this PC synced before
+  and Drive is now empty it asks "Your vault wasn't found in Google Drive (it may have been deleted). Upload this PC's
+  vault (N items) again?" [Upload] [Cancel] (row 7; Cancel stays paused; never uploads silently).
 - **Disconnect…**: confirm "Your vault stays on this PC and in your Google Drive. This PC stops syncing."
 - **Devices**: names (never ids), "This PC" badge, last seen, remove (with confirm).
 
