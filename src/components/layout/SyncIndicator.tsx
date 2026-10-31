@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useLayoutEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { Cloud, CloudAlert, CloudCheck, CloudOff, LockKeyhole, RefreshCw, type LucideIcon } from "lucide-react";
+import { Cloud, CloudAlert, CloudCheck, CloudOff, RefreshCw, createLucideIcon, type LucideIcon } from "lucide-react";
 import { Tooltip } from "../ui/Tooltip";
 import { syncIndicator, type SyncStatus } from "../../lib/vaultSync";
 import {
@@ -10,8 +10,15 @@ import {
 import { useSyncPopoverStore } from "./SyncPopover";
 import { BusyIcon } from "../ui/Loading";
 
+/** Sync paused while the vault is locked: a cloud with a small padlock (a bare padlock looked like "Lock vault"). */
+export const CloudLock = createLucideIcon("cloud-lock", [
+  ["path", { d: "M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z", key: "cloud" }],
+  ["rect", { x: "9.5", y: "12", width: "5", height: "4", rx: "1", key: "body" }],
+  ["path", { d: "M10.75 12v-1.25a1.25 1.25 0 0 1 2.5 0V12", key: "shackle" }],
+]);
+
 export const ICONS: Record<SurfaceKind, LucideIcon> = {
-  synced: CloudCheck, syncing: RefreshCw, offline: CloudOff, problem: CloudAlert, locked: LockKeyhole, off: Cloud,
+  synced: CloudCheck, syncing: RefreshCw, offline: CloudOff, problem: CloudAlert, locked: CloudLock, off: Cloud,
 };
 
 /** The button itself, for a known indicator (exported for tests). */

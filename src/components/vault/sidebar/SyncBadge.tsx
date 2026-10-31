@@ -1,13 +1,14 @@
-import { Cloud, CloudAlert, CloudCheck, CloudOff, LockKeyhole, RefreshCw, type LucideIcon } from "lucide-react";
+import { Cloud, CloudAlert, CloudCheck, CloudOff, RefreshCw, type LucideIcon } from "lucide-react";
 import { Tooltip } from "../../ui/Tooltip";
 import { useVaultStore } from "../../../store/vaultStore";
 import { useSyncStatus, type SyncStatus } from "../../../lib/vaultSync";
 import { badgeTooltip, surfaceIndicator, type SurfaceKind } from "../../../lib/syncSurfaces";
 import { useSyncPopoverStore } from "../../layout/SyncPopover";
+import { CloudLock } from "../../layout/SyncIndicator";
 import { BusyIcon } from "../../ui/Loading";
 
 const ICONS: Record<SurfaceKind, LucideIcon> = {
-  synced: CloudCheck, syncing: RefreshCw, offline: CloudOff, problem: CloudAlert, locked: LockKeyhole, off: Cloud,
+  synced: CloudCheck, syncing: RefreshCw, offline: CloudOff, problem: CloudAlert, locked: CloudLock, off: Cloud,
 };
 
 /** The badge for a known status (exported for tests); null when hidden. */
