@@ -155,7 +155,10 @@ export function syncPsl(shared, ts) {
   const a = shared.indexOf(PSL_BEGIN);
   const b = shared.indexOf(PSL_END, a);
   if (a < 0 || b < 0) throw new Error("shared.js has no PSL block");
-  return shared.slice(0, a) + pslBlock(parsePslData(ts)) + shared.slice(b + PSL_END.length);
+  // Keep the file's own line endings (a Windows checkout with autocrlf has CRLF).
+  const eol = shared.includes("\r\n") ? "\r\n" : "\n";
+  const block = pslBlock(parsePslData(ts)).replace(/\r?\n/g, eol);
+  return shared.slice(0, a) + block + shared.slice(b + PSL_END.length);
 }
 
 // ---------- ZIP writer ----------
