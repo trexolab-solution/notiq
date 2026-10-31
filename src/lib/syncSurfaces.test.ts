@@ -62,7 +62,7 @@ describe("badgeTooltip", () => {
 });
 
 describe("popoverModel", () => {
-  it("off with a reason from Notiq: shows it, Turn On Sync", () => {
+  it("off with a reason from Notiq: shows it, Turn on sync", () => {
     const m = popoverModel(off({ lastError: "Sync was turned off because this device now has a different vault." }), NOW);
     expect(m).toMatchObject({ messageTone: "danger", actions: ["turnOn", "settings"] });
     expect(m.message).toContain("different vault");

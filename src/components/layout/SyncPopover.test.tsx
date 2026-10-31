@@ -225,7 +225,7 @@ describe("SyncPopoverHost", () => {
     expect(invoke).not.toHaveBeenCalledWith("sync_connect", undefined);
   });
 
-  it("connected but off: Turn On Sync hands over to the set-up flow (no direct sync_enable)", async () => {
+  it("connected but off: Turn on sync hands over to the set-up flow (no direct sync_enable)", async () => {
     useSyncStore.setState({ status: status({ enabled: false, state: "off" }) });
     await render(<App />);
     await act(async () => openSyncPopover());
@@ -238,7 +238,7 @@ describe("SyncPopoverHost", () => {
     expect(pop()).toBeNull();
   });
 
-  it("Drive full: Open Drive Storage opens Google's storage page", async () => {
+  it("Drive full: Open Drive storage opens Google's storage page", async () => {
     const { openUrl } = await import("@tauri-apps/plugin-opener");
     useSyncStore.setState({ status: status({ state: "error", lastError: "Your Google Drive storage is full." }) });
     await render(<App />);

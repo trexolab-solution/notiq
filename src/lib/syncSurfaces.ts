@@ -128,17 +128,17 @@ export interface PopoverModel {
   disabled: PopoverAction[];
 }
 
-/** Button labels (title case, no trailing periods: design/vault-sync-ux-flow.md copy rules). */
+/** Button labels: sentence case like the rest of the app, no trailing periods. */
 export const ACTION_LABELS: Record<PopoverAction, string> = {
-  syncNow: "Sync Now",
+  syncNow: "Sync now",
   retry: "Retry",
   reconnect: "Reconnect",
   connect: "Connect Google Drive",
-  turnOn: "Turn On Sync",
+  turnOn: "Turn on sync",
   unlock: "Unlock",
-  settings: "Sync Settings",
+  settings: "Sync settings",
   recheck: "Retry",
-  openStorage: "Open Drive Storage",
+  openStorage: "Open Drive storage",
 };
 
 export const SYNC_PITCH = "Use this vault on your other PCs. It's encrypted before it leaves this computer.";
