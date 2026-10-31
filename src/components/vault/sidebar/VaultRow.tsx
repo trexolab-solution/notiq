@@ -2,6 +2,7 @@ import { memo, useCallback, type MouseEvent, type ReactNode } from "react";
 import { useDraggable, useDroppable } from "@dnd-kit/core";
 import { ChevronRight, Ellipsis, Star } from "lucide-react";
 import type { TreeNode } from "../../../lib/vaultTree";
+import { isTextFieldTarget } from "../../../lib/contextMenu/target";
 import { EntryIcon, kindLabel } from "./EntryIcon";
 
 export const INDENT = 14;
@@ -82,7 +83,10 @@ export const VaultRow = memo(function VaultRow({
       style={{ paddingLeft: 4 + depth * INDENT }}
       onPointerDown={editor ? undefined : pointerDown}
       onClick={(e) => onSelect(rowKey, node, e)}
-      onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); onMenu(rowKey, node, e.clientX, e.clientY); }}
+      onContextMenu={(e) => {
+        if (isTextFieldTarget(e.target)) return; // inline rename box: text menu instead
+        e.preventDefault(); e.stopPropagation(); onMenu(rowKey, node, e.clientX, e.clientY);
+      }}
     >
       {node.dir ? (
         <span

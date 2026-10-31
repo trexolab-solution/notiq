@@ -17,7 +17,7 @@ export interface FileMenuContext {
   isNote: boolean;
 }
 
-/** Build the shared File menu items used by both TitlebarMenuBar and useGlobalContextMenu. */
+/** Build the shared File menu items used by the titlebar File menu. */
 export function buildFileMenuItems(ctx: FileMenuContext): ContextMenuItem[] {
   const { addTab, onNewWhiteboard, onOpenMultiple, onOpenFolder, saveTabToFile, saveTabToFileAs, exportPDF, requestClose, activeTab, isMd, isNote } = ctx;
   return [

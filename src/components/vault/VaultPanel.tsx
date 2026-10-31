@@ -52,7 +52,7 @@ export function VaultPanel() {
       ) : (
         <>
           <PanelHeader unlocked={false} />
-          <div className="flex-1 min-h-0 flex flex-col items-center justify-center px-5 text-center gap-2">
+          <div data-context-area="vault-locked" className="flex-1 min-h-0 flex flex-col items-center justify-center px-5 text-center gap-2">
             <div className="w-10 h-10 rounded-full flex items-center justify-center bg-[var(--color-bg-tertiary)] text-[var(--color-text-muted)]">
               {exists || !checked ? <Lock size={17} aria-hidden /> : <ShieldCheck size={17} aria-hidden />}
             </div>
