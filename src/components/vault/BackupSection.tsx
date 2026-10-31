@@ -64,7 +64,7 @@ export function BackupSection() {
         help="Without the backup file plus the master password or recovery key, a backup cannot be opened, so keep it somewhere safe."
         keywords={["backup", "last backup", "export", "save a copy", ".nqbackup", "encrypted"]}
       >
-        <Button className="settings-btn-primary" size="sm" variant="primary" icon={<Download size={12} />} disabled={!exists || busy} onClick={() => void start()}>
+        <Button className="settings-btn-primary" size="sm" variant="primary" icon={<Download size={12} />} disabled={!exists} loading={busy} loadingText="Exporting…" onClick={() => void start()}>
           Export backup…
         </Button>
       </SettingRow>
@@ -137,7 +137,7 @@ function PasswordPrompt({ onCancel, onVerified }: { onCancel: () => void; onVeri
         {error && <p role="alert" className="text-xs mt-2 text-[var(--color-danger)]">{error}</p>}
         <div className="flex justify-end gap-2 mt-4">
           <Button className="settings-btn" type="button" onClick={onCancel}>Cancel</Button>
-          <Button type="submit" variant="primary" disabled={busy}>{busy ? "Checking…" : "Continue"}</Button>
+          <Button type="submit" variant="primary" loading={busy} loadingText="Checking…">Continue</Button>
         </div>
       </form>
     </Modal>

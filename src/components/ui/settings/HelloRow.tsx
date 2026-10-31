@@ -80,7 +80,7 @@ export function HelloRow() {
         keywords={["pc sign-in", "windows hello", "fingerprint", "face", "pin", "biometric", "quick unlock", "unlock"]}
       >
         {status.enabled ? (
-          <Button className="settings-btn" size="sm" variant="ghost" disabled={busy} onClick={() => void disable()}>Turn off</Button>
+          <Button className="settings-btn" size="sm" variant="ghost" loading={busy} loadingText="Turning off…" onClick={() => void disable()}>Turn off</Button>
         ) : !asking ? (
           <Button className="settings-btn" size="sm" disabled={!exists || !unlocked || busy} onClick={() => setAsking(true)}
                   title={unlocked ? undefined : "Unlock the vault first"}>
@@ -98,8 +98,9 @@ export function HelloRow() {
           </p>
           {error && <p role="alert" className="text-xs text-[var(--color-danger)]">{error}</p>}
           <div className="setting-subform-actions">
-            <Button className="settings-btn-primary" type="submit" size="sm" variant="primary" disabled={busy || !password}>
-              {busy ? "Waiting for verification…" : "Turn on PC sign-in"}
+            <Button className="settings-btn-primary" type="submit" size="sm" variant="primary" disabled={!password}
+                    loading={busy} loadingText="Waiting for verification…">
+              Turn on PC sign-in
             </Button>
             <Button className="settings-btn" type="button" size="sm" disabled={busy} onClick={closeForm}>Cancel</Button>
           </div>

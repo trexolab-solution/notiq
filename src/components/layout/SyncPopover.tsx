@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { createPortal } from "react-dom";
-import { ChevronRight, Cloud, Loader2, RefreshCw, X } from "lucide-react";
+import { ChevronRight, Cloud, RefreshCw, X } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { create } from "zustand";
 import { useClickOutside } from "../../hooks/useClickOutside";
@@ -16,6 +16,7 @@ import {
   type BadgeTone, type PopoverAction, type PopoverModel, type SyncPopoverRequest,
 } from "../../lib/syncSurfaces";
 import { useSyncConnect, WAITING_FOR_GOOGLE } from "../vault/sync/useSyncConnect";
+import { BusyIcon, Spinner, useLoadingWidth } from "../ui/Loading";
 
 /** Status-bar indicator selector (the fallback anchor when the title bar button isn't on screen). */
 export const SYNC_INDICATOR_SELECTOR = '[data-tour="sync-indicator"]';
@@ -105,6 +106,34 @@ const TONE_CLASS: Record<BadgeTone, string> = {
   danger: "sync-pop__badge--danger",
   muted: "sync-pop__badge--muted",
 };
+
+/** Progressive labels while an action runs (text-button rule, ui/Loading.tsx). */
+const BUSY_LABELS: Partial<Record<PopoverAction, string>> = {
+  syncNow: "Syncing…", retry: "Syncing…", recheck: "Checking…",
+};
+
+/** A popover action button: spinner + progressive label while busy, idle width kept. */
+function PopoverButton({ action, primary, busy, disabled, onAction }: {
+  action: PopoverAction; primary: boolean; busy: boolean; disabled: boolean; onAction: (a: PopoverAction) => void;
+}) {
+  const { ref, style } = useLoadingWidth<HTMLButtonElement>(busy);
+  const refreshy = action === "syncNow" || action === "retry" || action === "recheck";
+  return (
+    <button
+      ref={ref}
+      type="button"
+      className={`sync-pop__btn${primary ? " sync-pop__btn--primary" : ""}`}
+      data-action={action}
+      disabled={disabled || busy}
+      aria-busy={busy || undefined}
+      style={style}
+      onClick={() => onAction(action)}
+    >
+      {refreshy && <BusyIcon icon={RefreshCw} busy={busy} spinSelf size={11} />}
+      {busy ? BUSY_LABELS[action] ?? ACTION_LABELS[action] : ACTION_LABELS[action]}
+    </button>
+  );
+}
 
 const POP_W = 300;
 const POP_MAX_H = 360;
@@ -216,7 +245,7 @@ export function SyncPopoverPanel({
         {facts && <p className="m-0 text-[11.5px] text-[var(--color-text-muted)]">{facts}</p>}
         {connecting ? (
           <p className="m-0 flex items-center gap-1.5 text-[11.5px] text-[var(--color-text-muted)]" role="status">
-            <Loader2 size={12} className="animate-spin" aria-hidden />{WAITING_FOR_GOOGLE}
+            <Spinner size={12} />{WAITING_FOR_GOOGLE}
           </p>
         ) : (connectError || model.message) && (
           <p className={`m-0 text-[11.5px] leading-relaxed ${connectError || model.messageTone === "danger" ? "text-[var(--color-danger)]" : "text-[var(--color-text-muted)]"}`}
@@ -230,19 +259,11 @@ export function SyncPopoverPanel({
             {connecting ? (
               <button type="button" className="sync-pop__btn" onClick={onCancelConnect}>Cancel</button>
             ) : buttons.map((a, i) => {
+              // Busy: this action is running, or a sync is already under way (Sync now is disabled meanwhile).
               const spinning = busy === a || (a === "syncNow" && model.badge.tone === "busy" && model.disabled.includes("syncNow"));
               return (
-                <button
-                  key={a}
-                  type="button"
-                  className={`sync-pop__btn${i === 0 ? " sync-pop__btn--primary" : ""}`}
-                  data-action={a}
-                  disabled={model.disabled.includes(a) || busy != null}
-                  onClick={() => onAction(a)}
-                >
-                  {(a === "syncNow" || a === "retry" || a === "recheck") && <RefreshCw size={11} className={spinning ? "animate-spin" : undefined} aria-hidden />}
-                  {ACTION_LABELS[a]}
-                </button>
+                <PopoverButton key={a} action={a} primary={i === 0} busy={spinning}
+                               disabled={model.disabled.includes(a) || busy != null} onAction={onAction} />
               );
             })}
             {!connecting && hasSettings && (
@@ -296,7 +317,10 @@ export function SyncPopoverHost() {
       case "connect":
       case "turnOn": close(); requestSyncSetup(); break; // the decision flow takes over
       case "reconnect": void connect(); break;
-      case "recheck": void useSyncStore.getState().refresh(); break;
+      case "recheck":
+        setBusy(a);
+        void Promise.resolve(useSyncStore.getState().refresh()).finally(() => setBusy(null));
+        break;
       case "unlock": close(); void useVaultStore.getState().ensureUnlocked(); break;
       case "openStorage": openUrl(DRIVE_STORAGE_URL).catch((e) => toast.error(String(e))); break;
       case "settings": close(); useAppStore.getState().openSettings("vault", syncSettingsRow(useSyncStore.getState().status)); break;

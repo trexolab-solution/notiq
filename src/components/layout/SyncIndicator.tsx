@@ -8,6 +8,7 @@ import {
   surfaceIndicator, type SurfaceIndicator, type SurfaceKind,
 } from "../../lib/syncSurfaces";
 import { useSyncPopoverStore } from "./SyncPopover";
+import { BusyIcon } from "../ui/Loading";
 
 export const ICONS: Record<SurfaceKind, LucideIcon> = {
   synced: CloudCheck, syncing: RefreshCw, offline: CloudOff, problem: CloudAlert, locked: LockKeyhole, off: Cloud,
@@ -24,13 +25,15 @@ export function SyncIndicatorButton({ ind, onOpen, expanded }: {
         type="button"
         className={`status-sync status-sync--${ind.kind}`}
         aria-label={ind.tooltip}
+        aria-busy={ind.busy || undefined}
         aria-haspopup="dialog"
         aria-expanded={expanded ?? false}
         data-sync-state={ind.kind}
         data-tour="sync-indicator"
         onClick={(e) => onOpen(e.currentTarget)}
       >
-        <Icon size={11} aria-hidden />
+        {/* Status bar has room: the sync arrows spin + "Syncing…" (ui/Loading.tsx rule 4). */}
+        <BusyIcon icon={Icon} busy={ind.busy} spinSelf size={11} />
         <span>{ind.label}</span>
       </button>
     </Tooltip>

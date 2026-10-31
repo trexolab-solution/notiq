@@ -23,6 +23,7 @@ export function RestoreBackupDialog({ onClose }: { onClose: () => void }) {
   const [info, setInfo] = useState<BackupInspect | null>(null);
   const [typed, setTyped] = useState("");
   const [busy, setBusy] = useState(false);
+  const [checking, setChecking] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
 
@@ -32,10 +33,13 @@ export function RestoreBackupDialog({ onClose }: { onClose: () => void }) {
       const p = await pickBackupFile();
       if (!p) return;
       setPath(p); setInfo(null);
+      setChecking(true);
       setInfo(await vaultBackupInspect(p));
     } catch (e) {
       setInfo(null);
       setError(vaultErrorMessage(e));
+    } finally {
+      setChecking(false);
     }
   };
 
@@ -84,7 +88,7 @@ export function RestoreBackupDialog({ onClose }: { onClose: () => void }) {
             detail="The file is checked first; nothing is changed until you confirm."
           >
             <div className="flex items-center gap-2 mb-3">
-              <Button icon={<FileUp size={13} />} onClick={() => void choose()} disabled={busy}>
+              <Button icon={<FileUp size={13} />} onClick={() => void choose()} disabled={busy} loading={checking} loadingText="Checking file…">
                 {path ? "Choose another file…" : "Choose backup file…"}
               </Button>
               {path && <span className="text-xs truncate text-[var(--color-text-muted)]" title={path}>{path}</span>}
@@ -117,8 +121,9 @@ export function RestoreBackupDialog({ onClose }: { onClose: () => void }) {
           </DialogBody>
           <DialogFooter>
             <DialogButton cancel onClick={onClose}>Cancel</DialogButton>
-            <DialogButton variant={exists ? "danger" : "primary"} disabled={!canRestore} onClick={() => void restore()}>
-              {busy ? "Restoring…" : exists ? "Replace vault" : "Restore vault"}
+            <DialogButton variant={exists ? "danger" : "primary"} disabled={!canRestore} loading={busy} loadingText="Restoring…"
+                          onClick={() => void restore()}>
+              {exists ? "Replace vault" : "Restore vault"}
             </DialogButton>
           </DialogFooter>
           </>

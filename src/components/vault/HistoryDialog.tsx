@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Eye, EyeOff, History, RotateCcw } from "lucide-react";
 import { Button } from "../ui/Button";
+import { InlineLoading } from "../ui/Loading";
 import { Dialog, DialogBody, DialogText } from "../ui/Dialog";
 import { ConfirmDialog } from "../ui/ConfirmDialog";
 import { useAppStore } from "../../store";
@@ -87,7 +88,7 @@ export function HistoryDialog({ tab, onClose }: { tab: Tab; onClose: () => void 
         </div>
 
         {revs === null && !error ? (
-          <p className="dlg-inset pb-5 text-xs text-[var(--color-text-muted)]">Loading…</p>
+          <InlineLoading label="Loading versions…" className="dlg-inset pb-5" reserveSpace />
         ) : revs && revs.length === 0 ? (
           <p className="dlg-inset pb-5 text-sm text-[var(--color-text-muted)]">
             No earlier versions yet. Each time you save a change to this entry, the previous version is kept here.
@@ -108,7 +109,7 @@ export function HistoryDialog({ tab, onClose }: { tab: Tab; onClose: () => void 
             <div className="flex-1 min-w-0 flex flex-col">
               <div className="flex-1 min-h-0 overflow-y-auto px-4 py-3">
                 {!file ? (
-                  <p className="text-xs text-[var(--color-text-muted)]">Loading version…</p>
+                  <InlineLoading label="Loading version…" />
                 ) : rows.length === 0 ? (
                   <p className="text-xs text-[var(--color-text-muted)]">This version was empty.</p>
                 ) : (
@@ -131,8 +132,8 @@ export function HistoryDialog({ tab, onClose }: { tab: Tab; onClose: () => void 
                   </Button>
                 )}
                 <div className="flex-1" />
-                <Button variant="primary" size="sm" icon={<RotateCcw size={13} />} disabled={!file || busy} onClick={() => setConfirm(true)}>
-                  {busy ? "Restoring…" : "Restore this version"}
+                <Button variant="primary" size="sm" icon={<RotateCcw size={13} />} disabled={!file} loading={busy} loadingText="Restoring…" onClick={() => setConfirm(true)}>
+                  Restore this version
                 </Button>
               </div>
             </div>

@@ -112,7 +112,7 @@ export function AutofillPrompt() {
       </DialogBody>
       <DialogFooter>
         <DialogButton cancel onClick={() => void deny()}>Deny</DialogButton>
-        <DialogButton variant="primary" disabled={busy} onClick={() => void allow()}>Allow</DialogButton>
+        <DialogButton variant="primary" loading={busy} loadingText="Filling…" onClick={() => void allow()}>Allow</DialogButton>
       </DialogFooter>
     </Dialog>
   );

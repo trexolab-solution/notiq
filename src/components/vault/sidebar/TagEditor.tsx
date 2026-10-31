@@ -95,7 +95,7 @@ export function TagEditor({ name, initial, allTags, onSave, onClose }: Props) {
       </DialogBody>
       <DialogFooter>
         <DialogButton cancel onClick={onClose}>Cancel</DialogButton>
-        <DialogButton type="submit" variant="primary" disabled={busy}>Save tags</DialogButton>
+        <DialogButton type="submit" variant="primary" loading={busy} loadingText="Saving…">Save tags</DialogButton>
       </DialogFooter>
     </Dialog>
   );

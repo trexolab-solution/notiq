@@ -189,6 +189,7 @@
   outline-offset: 2px;
 }
 .dlg-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.dlg-btn[aria-busy="true"] { opacity: 0.8; cursor: progress; }
 
 .dlg-btn--secondary {
   background: var(--color-bg-tertiary);

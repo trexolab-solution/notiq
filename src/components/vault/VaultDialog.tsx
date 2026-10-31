@@ -245,8 +245,9 @@ function VaultDialogInner({ mode, onCreated }: { mode: SetupMode; onCreated?: ()
         ) : undefined}
       >
         <DialogButton cancel onClick={cancel}>Cancel</DialogButton>
-        <DialogButton type="submit" variant="primary" disabled={busy}>
-          {busy ? "Working…" : mode === "setup" ? "Create vault" : "Reset & unlock"}
+        <DialogButton type="submit" variant="primary" loading={busy}
+                      loadingText={mode === "setup" ? "Creating…" : "Resetting…"}>
+          {mode === "setup" ? "Create vault" : "Reset & unlock"}
         </DialogButton>
       </DialogFooter>
     </Dialog>

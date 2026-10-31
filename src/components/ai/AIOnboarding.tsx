@@ -197,7 +197,7 @@ export function AIOnboarding({ onClose }: AIOnboardingProps) {
             {step > 0 && <Button variant="ghost" size="sm" onClick={() => setStep((s) => (s - 1) as Step)}>Back</Button>}
             {step === 0 && <Button variant="primary" size="sm" icon={<Sparkles size={13} />} onClick={() => setStep(1)}>Get started</Button>}
             {step === 1 && <Button variant="primary" size="sm" onClick={() => setStep(2)}>Next</Button>}
-            {step === 2 && <Button variant="primary" size="sm" onClick={connectAndContinue} disabled={busy}>{busy ? "Connecting…" : "Test & continue"}</Button>}
+            {step === 2 && <Button variant="primary" size="sm" onClick={connectAndContinue} loading={busy} loadingText="Connecting…">Test & continue</Button>}
             {step === 3 && <Button variant="primary" size="sm" icon={<Check size={13} />} onClick={finish}>Finish</Button>}
           </div>
         </div>

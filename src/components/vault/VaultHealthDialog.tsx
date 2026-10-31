@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { RefreshCw } from "lucide-react";
 import { Button } from "../ui/Button";
+import { InlineLoading } from "../ui/Loading";
 import { Dialog, DialogBody, DialogButton, DialogFooter } from "../ui/Dialog";
 import { useVaultStore } from "../../store/vaultStore";
 import { vaultErrorMessage } from "../../lib/vault";
@@ -61,15 +62,13 @@ export function VaultHealthDialog({ onClose }: { onClose: () => void }) {
   return (
     <Dialog onClose={onClose} zClassName="z-[70]" size="lg" title="Vault health" icon="shield"
             headerActions={
-              <Button size="sm" icon={<RefreshCw size={13} className={progress ? "animate-spin" : ""} />}
-                      disabled={!!progress} onClick={() => void check()}>Re-check</Button>
+              <Button size="sm" icon={<RefreshCw size={13} />} loading={!!progress} loadingText="Checking…"
+                      onClick={() => void check()}>Re-check</Button>
             }>
       <DialogBody fill detail="Checked on this device only. Nothing is sent anywhere, and passwords are never shown here.">
           {error && <div role="alert" className="text-xs text-[var(--color-danger)]">{error}</div>}
           {progress && (
-            <div className="text-xs text-[var(--color-text-muted)]" aria-live="polite">
-              Checking logins{progress.total ? ` (${progress.done} of ${progress.total})` : ""}…
-            </div>
+            <InlineLoading label={`Checking logins${progress.total ? ` (${progress.done} of ${progress.total})` : ""}…`} />
           )}
           {report && (
             <>

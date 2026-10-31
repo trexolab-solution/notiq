@@ -890,21 +890,13 @@
 .status-item.saved   { color: var(--color-success); }
 
 /* AI activity (autocomplete fetch / AI action in flight). A small spinner +
-   "Thinking…" pill; only the icon animates, so the status bar stays calm. */
+   "Thinking…" pill; only the Spinner animates (ui/Loading.tsx), so the status bar stays calm. */
 .status-item.status-ai-indicator {
   color: var(--color-primary);
   font-weight: 600;
   padding: 1px 8px;
   border-radius: 10px;
   background: color-mix(in srgb, var(--color-primary) 13%, transparent);
-}
-.status-item.status-ai-indicator svg { animation: status-ai-spin 0.8s linear infinite; }
-@keyframes status-ai-spin {
-  from { transform: rotate(0deg); }
-  to   { transform: rotate(360deg); }
-}
-@media (prefers-reduced-motion: reduce) {
-  .status-item.status-ai-indicator svg { animation-duration: 1.6s; }
 }
 .status-item.status-brand {
   font-size: 10px;
@@ -950,10 +942,6 @@
 .status-sync--synced  svg { color: var(--color-success); }
 .status-sync--offline { color: var(--color-warning); }
 .status-sync--problem { color: var(--color-danger); }
-.status-sync--syncing svg { animation: status-ai-spin 1.2s linear infinite; }
-@media (prefers-reduced-motion: reduce) {
-  .status-sync--syncing svg { animation: none; }
-}
 .status-sync--off { opacity: 0.75; }
 .status-sync--off:hover, .status-sync[aria-expanded="true"] { opacity: 1; }
 .status-sync[aria-expanded="true"] { background: color-mix(in srgb, var(--color-text) 8%, transparent); color: var(--color-text); }
@@ -1036,8 +1024,6 @@
 .titlebar-sync--synced svg { color: var(--color-success); }
 .titlebar-sync--offline { color: var(--color-warning); }
 .titlebar-sync--problem { color: var(--color-danger); }
-.titlebar-sync--syncing svg { animation: status-ai-spin 1.2s linear infinite; }
-@media (prefers-reduced-motion: reduce) { .titlebar-sync--syncing svg { animation: none; } }
 .titlebar-sync[aria-expanded="true"] { background: color-mix(in srgb, var(--color-text) 8%, transparent); color: var(--color-text); }
 .titlebar-sync__dot {
   position: absolute; top: 4px; right: 4px; width: 6px; height: 6px; border-radius: 50%;

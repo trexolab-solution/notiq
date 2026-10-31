@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
-import { Cloud, CloudUpload, Loader2, ShieldPlus } from "lucide-react";
+import { Cloud, CloudUpload, ShieldPlus } from "lucide-react";
 import { Dialog, DialogBody, DialogButton, DialogFooter } from "../../ui/Dialog";
 import { NO_DRIVE_VAULT_TEXT, lastChangedText, uploadQuestion } from "../../../lib/syncSetup";
 import { listenForSetupRequests, useSyncSetupStore } from "../../../lib/syncSetupFlow";
 import { ConnectWaiting } from "./ConnectWaiting";
 import { DriveVaultFields } from "./DriveVaultCard";
 import { TwoVaultsDialog } from "./AdoptRemoteDialog";
+import { InlineLoading } from "../../ui/Loading";
 
 const Z = "z-[80]";
 
@@ -48,9 +49,8 @@ export function SyncSetupHost() {
       return (
         <Dialog onClose={cancel} zClassName={Z} size="sm" title="Vault sync" icon={<Cloud size={16} />}>
           <DialogBody>
-            <p className="dlg-detail dlg-detail--block inline-flex items-center gap-2" aria-live="polite">
-              <Loader2 size={14} className="animate-spin" aria-hidden /> Checking your Google Drive…
-            </p>
+            <InlineLoading label="Checking your Google Drive…" reserveSpace
+                           slowHint="Still checking. This can take a moment on a slow connection." />
           </DialogBody>
           <DialogFooter><DialogButton cancel onClick={cancel}>Cancel</DialogButton></DialogFooter>
         </Dialog>
@@ -125,7 +125,7 @@ function OpenDriveStep({ replaceLocal }: { replaceLocal: boolean }) {
       </DialogBody>
       <DialogFooter>
         <DialogButton cancel onClick={cancel} disabled={busy}>Cancel</DialogButton>
-        <DialogButton type="submit" variant="primary" disabled={busy}>{busy ? "Opening…" : "Open vault"}</DialogButton>
+        <DialogButton type="submit" variant="primary" loading={busy} loadingText="Opening…">Open vault</DialogButton>
       </DialogFooter>
     </Dialog>
   );

@@ -276,7 +276,7 @@ export default function AutofillPromptApp() {
                sub="The Notiq extension in your browser wants to fill a saved login." onClose={deny} defaultFocus="cancel"
                footer={<>
                  <DialogButton cancel onClick={deny} disabled={busy}>Deny</DialogButton>
-                 <DialogButton variant="primary" disabled={busy} onClick={() => dispatch({ type: "allow" })}>Allow</DialogButton>
+                 <DialogButton variant="primary" loading={busy} loadingText="Filling…" onClick={() => dispatch({ type: "allow" })}>Allow</DialogButton>
                </>}>
           <p className="af-detail">Only allow this if you just pressed Fill on this site.</p>
           <FillChoice host={job.req.host} matches={matches} pick={pick} disabled={busy}
@@ -292,7 +292,7 @@ export default function AutofillPromptApp() {
                sub="The Notiq extension in your browser wants to fill a payment card." onClose={deny} defaultFocus="cancel"
                footer={<>
                  <DialogButton cancel onClick={deny} disabled={busy}>Deny</DialogButton>
-                 <DialogButton variant="primary" disabled={busy} onClick={() => dispatch({ type: "allow" })}>Fill card</DialogButton>
+                 <DialogButton variant="primary" loading={busy} loadingText="Filling…" onClick={() => dispatch({ type: "allow" })}>Fill card</DialogButton>
                </>}>
           <p className="af-detail">Only allow this if you just pressed Fill on this site&rsquo;s checkout.</p>
           <CardChoice cards={cards} pick={pick} disabled={busy} onPick={(index) => dispatch({ type: "pick", index })} />

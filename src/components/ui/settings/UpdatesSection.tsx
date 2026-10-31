@@ -72,11 +72,12 @@ export const UpdatesSection = React.memo(function UpdatesSection() {
               <Button
                 variant="ghost"
                 className="settings-btn"
-                icon={<RefreshCw size={14} className={busy ? "animate-spin" : ""} />}
+                icon={<RefreshCw size={14} />}
                 onClick={runCheck}
-                disabled={busy}
+                loading={busy}
+                loadingText="Checking…"
               >
-                {busy ? "Checking…" : "Check now"}
+                Check now
               </Button>
             )}
           </div>

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Download, X } from "lucide-react";
 import { Tooltip } from "../ui/Tooltip";
+import { BusyIcon } from "../ui/Loading";
 import { toast } from "../../lib/toast";
 import { useVaultStore } from "../../store/vaultStore";
 import { vaultErrorMessage } from "../../lib/vault";
@@ -71,11 +72,11 @@ export function BackupReminder() {
       </div>
       <div className="flex items-center justify-between mt-1.5">
         <button
-          type="button" disabled={busy}
+          type="button" disabled={busy} aria-busy={busy || undefined}
           className="inline-flex items-center gap-1 font-semibold cursor-pointer text-[var(--color-primary)] hover:underline disabled:opacity-50"
           onClick={() => void backUp()}
         >
-          <Download size={11} /> {busy ? "Backing up…" : "Back up now"}
+          <BusyIcon icon={Download} busy={busy} size={11} /> {busy ? "Backing up…" : "Back up now"}
         </button>
         <button
           type="button"

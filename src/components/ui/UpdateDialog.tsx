@@ -60,7 +60,7 @@ export const UpdateDialog = React.memo(function UpdateDialog() {
             Restart now
           </DialogButton>
         ) : downloading ? (
-          <DialogButton disabled>Installing…</DialogButton>
+          <DialogButton variant="primary" loading>Installing…</DialogButton>
         ) : (
           <>
             <DialogButton cancel onClick={() => updater.closeDialog()}>Later</DialogButton>

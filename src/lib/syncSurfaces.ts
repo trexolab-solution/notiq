@@ -40,7 +40,7 @@ export const syncSettingsRow = (s: SyncStatus | null) => (s?.provider ? SYNC_SET
 // ── Indicator (status bar) ──────────────────────────────────────────────────────
 
 export type SurfaceKind = SyncIndicatorKind | "off";
-export interface SurfaceIndicator { kind: SurfaceKind; label: string; tooltip: string }
+export interface SurfaceIndicator { kind: SurfaceKind; label: string; tooltip: string; busy?: boolean }
 
 /** Whether this build can sync at all, or is already connected (then sync settings still matter). */
 export const syncPossible = (s: SyncStatus) => s.configured || !!s.provider;

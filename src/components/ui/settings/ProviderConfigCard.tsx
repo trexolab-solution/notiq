@@ -4,6 +4,8 @@ import { SettingRow } from "../SettingRow";
 import { SettingsGroup, SettingsBlock } from "../SettingsGroup";
 import { ModelPicker } from "../../ai/ModelPicker";
 import { Button } from "../Button";
+import { BusyIcon, busyIconProps } from "../Loading";
+import { Tooltip } from "../Tooltip";
 import { ConfirmDialog } from "../ConfirmDialog";
 import {
   aiListModels, aiComplete, setApiKey, hasApiKey, clearApiKey, baseUrlFor, type ModelInfo,
@@ -47,6 +49,7 @@ export const ProviderConfigCard = React.memo(function ProviderConfigCard({
   const [loadingModels, setLoadingModels] = useState(false);
   const [modelsError, setModelsError] = useState<string | null>(null);
   const [testing, setTesting] = useState(false);
+  const refreshName = busyIconProps(loadingModels, "Refresh models", "Loading models…");
 
   useEffect(() => {
     if (!needsKey) { setKeyPresent(false); return; }
@@ -173,9 +176,10 @@ export const ProviderConfigCard = React.memo(function ProviderConfigCard({
                 type="button"
                 onClick={saveKey}
                 disabled={savingKey}
+                aria-busy={savingKey || undefined}
                 className="flex items-center gap-1 px-2.5 text-xs font-semibold cursor-pointer border-l border-[var(--color-border)] bg-[var(--color-primary)] text-[var(--color-bg)] hover:bg-[var(--color-primary-hover)] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
               >
-                <Save size={13} /> {keyPresent ? "Update" : "Save"}
+                <BusyIcon icon={Save} busy={savingKey} size={13} /> {savingKey ? "Saving…" : keyPresent ? "Update" : "Save"}
               </button>
             ) : keyPresent ? (
               <button
@@ -228,8 +232,12 @@ export const ProviderConfigCard = React.memo(function ProviderConfigCard({
             placeholder="Select model"
             aria-label={`${PROVIDER_LABEL[provider]} model`}
           />
-          <Button variant="ghost" size="sm" icon={<RefreshCw size={13} className={loadingModels ? "animate-spin" : ""} />} onClick={loadModels} aria-label="Refresh models" />
-          <Button className="settings-btn" variant="ghost" size="sm" icon={<Zap size={13} />} onClick={testModel} disabled={testing || !model}>
+          <Tooltip content={refreshName.tooltip}>
+            <Button variant="ghost" size="sm" icon={<BusyIcon icon={RefreshCw} busy={loadingModels} spinSelf size={13} />}
+                    onClick={loadModels} aria-label={refreshName["aria-label"]} aria-busy={refreshName["aria-busy"]} />
+          </Tooltip>
+          <Button className="settings-btn" variant="ghost" size="sm" icon={<Zap size={13} />} onClick={testModel} disabled={!model}
+                  loading={testing} loadingText="Testing…">
             Test
           </Button>
         </div>

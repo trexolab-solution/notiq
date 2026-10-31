@@ -11,6 +11,7 @@ import {
 import { ContextMenu } from "../../ui/ContextMenu";
 import { ConfirmDialog } from "../../ui/ConfirmDialog";
 import { Tooltip } from "../../ui/Tooltip";
+import { InlineLoading } from "../../ui/Loading";
 import * as A from "./actions";
 import { useExpanded, useSortMode, useStarredOpen } from "./prefs";
 import { PanelHeader } from "./PanelHeader";
@@ -229,7 +230,9 @@ export function VaultExplorer({ root, items, trash, loading, error, reload, foot
     </CreateRow>
   );
 
-  const emptyState = loading ? null : error ? (
+  const emptyState = loading ? (
+    <div className="vt-empty"><InlineLoading label="Loading items…" className="items-center" /></div>
+  ) : error ? (
     <div className="vt-empty" role="alert">
       <div className="vt-empty-title text-[var(--color-danger)]">Couldn't read the vault</div>
       <div className="mb-2 break-words">{error}</div>
