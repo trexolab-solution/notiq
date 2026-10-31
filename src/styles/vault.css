@@ -13,6 +13,12 @@
   color: var(--color-text-muted); background: transparent; border: none;
   transition: background 0.1s, color 0.1s;
 }
+.vt-sync-badge { margin-left: 2px; }
+.vt-sync-badge--synced svg { color: var(--color-success); }
+.vt-sync-badge--offline { color: var(--color-warning); }
+.vt-sync-badge--problem { color: var(--color-danger); }
+.vt-sync-badge--syncing svg { animation: status-ai-spin 1.2s linear infinite; }
+@media (prefers-reduced-motion: reduce) { .vt-sync-badge--syncing svg { animation: none; } }
 .vt-icon-btn:hover, .vt-icon-btn[aria-expanded="true"] { color: var(--color-text); background: var(--color-bg-tertiary); }
 .vt-icon-btn:focus-visible,
 .vt-chip:focus-visible,

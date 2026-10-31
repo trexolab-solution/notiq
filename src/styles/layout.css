@@ -954,6 +954,114 @@
 @media (prefers-reduced-motion: reduce) {
   .status-sync--syncing svg { animation: none; }
 }
+.status-sync--off { opacity: 0.75; }
+.status-sync--off:hover, .status-sync[aria-expanded="true"] { opacity: 1; }
+.status-sync[aria-expanded="true"] { background: color-mix(in srgb, var(--color-text) 8%, transparent); color: var(--color-text); }
+
+/* Vault Sync popover (SyncPopover.tsx), opened from the indicator or the vault sidebar badge. */
+.sync-pop {
+  position: fixed;
+  z-index: 9990; /* above the app, below modals (10000) so the unlock / A-B-C dialogs cover it */
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-bg-secondary);
+  color: var(--color-text);
+  box-shadow: 0 8px 24px -6px rgb(0 0 0 / 0.35), 0 2px 6px -2px rgb(0 0 0 / 0.2);
+  font-size: 12.5px;
+  outline: none;
+  animation: sync-pop-in 0.14s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+@keyframes sync-pop-in { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+.sync-pop__badge {
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  background: color-mix(in srgb, var(--sync-tone) 14%, transparent);
+  color: var(--sync-tone);
+}
+.sync-pop__badge--ok     { --sync-tone: var(--color-success); }
+.sync-pop__badge--busy   { --sync-tone: var(--color-primary); }
+.sync-pop__badge--warn   { --sync-tone: var(--color-warning); }
+.sync-pop__badge--danger { --sync-tone: var(--color-danger); }
+.sync-pop__badge--muted  { --sync-tone: var(--color-text-muted); }
+.sync-pop__avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--color-primary) 18%, transparent);
+  color: var(--color-primary);
+  font-size: 12.5px;
+  font-weight: 700;
+}
+.sync-pop__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 5px;
+  background: var(--color-bg-tertiary);
+  color: var(--color-text);
+  font-size: 12px;
+  cursor: pointer;
+}
+.sync-pop__btn:hover:not(:disabled) { border-color: color-mix(in srgb, var(--color-text) 25%, var(--color-border)); }
+.sync-pop__btn--primary { border-color: transparent; background: var(--color-primary); color: var(--color-bg); font-weight: 600; }
+.sync-pop__btn--primary:hover:not(:disabled) { background: var(--color-primary-hover); border-color: transparent; }
+.sync-pop__btn:disabled { opacity: 0.55; cursor: default; }
+.sync-pop__btn:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 1px; }
+
+/* One-time tip above the indicator (SyncIndicator.tsx IndicatorTip). */
+.sync-tip {
+  position: fixed;
+  z-index: 9980;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 300px;
+  padding: 8px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-bg-secondary);
+  color: var(--color-text);
+  box-shadow: 0 8px 24px -6px rgb(0 0 0 / 0.35);
+  font-size: 12px;
+  line-height: 1.4;
+}
+.sync-tip::after {
+  content: "";
+  position: absolute;
+  right: 18px;
+  bottom: -5px;
+  width: 8px;
+  height: 8px;
+  border-right: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-bg-secondary);
+  transform: rotate(45deg);
+}
+.sync-tip__btn {
+  flex-shrink: 0;
+  padding: 3px 8px;
+  border: none;
+  border-radius: 4px;
+  background: var(--color-primary);
+  color: var(--color-bg);
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.sync-tip__btn:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) {
+  .sync-pop { animation: none; }
+}
 
 /* ══════════════════════════════════════════════════════════════════════════════
    RESPONSIVE TITLEBAR — progressively collapse on narrow windows so the
