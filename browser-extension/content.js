@@ -430,7 +430,8 @@
   };
 
   // ---------- inline icons ----------
-  const iconLabel = (f) => (cardFields.has(f) ? "Fill card with Notiq" : codeFields.has(f) ? "Fill 2FA code with Notiq" : "Fill with Notiq");
+  const iconLabel = (f) => (cardFields.has(f) ? "Fill card with Notiq" : codeFields.has(f) ? "Fill 2FA code with Notiq"
+    : identityFields.has(f) ? "Fill identity with Notiq" : "Fill with Notiq");
   const icons = new Map(); // field -> { wrap, btn, tip, timer }
   const ro = typeof ResizeObserver === "function" ? new ResizeObserver(() => schedulePosition()) : null;
   let filling = false;
@@ -532,11 +533,14 @@
     refreshShadows();
     cardFields = detectCards();
     maybeStepFill(); // after detectCards: a masked CVC field is never a password step
-    if (!settings.showIcon) { codeFields = new Map(); clearIcons(); noteScanResult(cardFields.size > 0 || anyVisiblePassword()); return; }
+    if (!settings.showIcon) { codeFields = new Map(); identityFields = new Map(); clearIcons(); noteScanResult(cardFields.size > 0 || anyVisiblePassword()); return; }
     const found = detect();
+    identityFields = detectIdentities(found);
     for (const f of cardIconFields(cardFields)) found.add(f);
     codeFields = detectCodeFields();
     for (const f of codeFields.keys()) found.add(f);
+    for (const f of identityFields.keys()) found.add(f);
+    for (const f of menuIcons) if (f.isConnected) found.add(f); // a right-click menu action still running
     for (const f of Array.from(icons.keys())) if (!found.has(f)) removeIcon(f);
     for (const f of found) if (!icons.has(f)) addIcon(f);
     noteScanResult(found.size > 0 || cardFields.size > 0);
@@ -750,9 +754,11 @@
       }
     });
   }
-  function generateInto(field) {
-    const info = newPasswordInfo(field);
-    const targets = info ? info.targets.filter((i) => i.isConnected && usable(i)) : [];
+  // `only`: the fields to fill instead of the field's form (the right-click menu's "Generate password").
+  function generateInto(field, only) {
+    const info = only ? null : newPasswordInfo(field);
+    const targets = only ? only.filter((i) => i.isConnected && shown(i) && !i.readOnly)
+      : info ? info.targets.filter((i) => i.isConnected && usable(i)) : [];
     if (!targets.length || !menu) { closeMenu(true); setState(field, "error", TEXT.no_fields); return; }
     let gen = FK.generateFor(constraintsOf(targets));
     let pw = gen.password;
@@ -918,6 +924,7 @@
     if (filling) return;
     if (codeFields.has(field)) { doCodeFill(field); return; }
     if (cardFields.has(field)) { doCardFill(field); return; }
+    if (identityFields.has(field)) { openIdentityChooser(field); return; }
     const info = newPasswordInfo(field);
     if (info) openNewPasswordMenu(field, info);
     else doFill(field, field);
@@ -1069,6 +1076,237 @@
       setState(field, "error", res.ok ? GENERIC : errText(res.error));
     }
   }
+
+  // ---------- identities: address / contact forms (only after a trusted click or a menu choice) ----------
+  // Fields are classified by NotiqIdentity.identityFieldKind (identity.js): autocomplete tokens first (name,
+  // given-name / family-name, email, tel, address-line1/2, street-address, address-level1/2, postal-code,
+  // country / country-name), then label / name / id / placeholder hints (incl. "PIN code", "Mobile",
+  // "Flat, House no."). A form gets icons only when it looks like an address or contact form
+  // (NotiqIdentity.isIdentityForm), has no visible password field, and the field isn't a login or card field.
+  // Clicking the icon lists the identity titles (no values) when Notiq is unlocked, else goes straight to Notiq,
+  // which always asks the user to pick an identity and shows the site. Hidden, read-only and disabled fields
+  // are never filled; the identity is kept in local variables for the fill only.
+  const NI = globalThis.NotiqIdentity; // identity.js, loaded before this file
+  const IDENTITY_TEXT = {
+    no_identity: "No saved identity in your vault. Add one in Notiq (New > Identity).",
+    no_identity_fields: "Couldn't find address or contact fields here.",
+    unknown_op: "Update Notiq to use this.",
+  };
+  const identityErr = (code) =>
+    (typeof code === "string" && Object.prototype.hasOwnProperty.call(IDENTITY_TEXT, code) ? IDENTITY_TEXT[code] : errText(code));
+  const MAX_IDENTITY_ICONS = 12; // per form
+  let identityFields = new Map(); // icon field -> kind, refreshed by scan()
+
+  function identityKindOf(f) {
+    if (!NI || !f || (f.tagName !== "INPUT" && f.tagName !== "SELECT" && f.tagName !== "TEXTAREA")) return null;
+    return NI.identityFieldKind({
+      tag: f.tagName, type: f.tagName === "INPUT" ? typeOf(f) : "", autocomplete: attr(f, "autocomplete"),
+      name: f.name, id: f.id, placeholder: attr(f, "placeholder"), label: labelOf(f),
+    });
+  }
+  // The visible, editable identity fields in `scope`, in page order: [[field, { kind, tagged }]].
+  function identityFieldsIn(scope) {
+    const out = [];
+    for (const f of deepAll(scope || document, "input, select, textarea")) {
+      if ((f.tagName === "INPUT" && typeOf(f) === "hidden") || f.readOnly || f.disabled || cardFields.has(f)) continue;
+      const r = identityKindOf(f);
+      if (r && shown(f)) out.push([f, r]);
+    }
+    return out;
+  }
+  // Icon fields of the page's address / contact forms. `loginFields`: the login fields detect() found.
+  function detectIdentities(loginFields) {
+    if (!NI) return new Map();
+    const groups = new Map();
+    for (const [f, r] of identityFieldsIn(document)) {
+      if (loginFields.has(f)) continue;
+      const key = f.form || document;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push([f, r]);
+    }
+    const out = new Map();
+    for (const [key, list] of groups) {
+      if (!NI.isIdentityForm(list.map(([, r]) => r))) continue;
+      if (inputsIn(key).some((i) => isPassword(i) && shown(i))) continue; // a sign-up / login form
+      let n = 0;
+      for (const [f, r] of list) {
+        if (n >= MAX_IDENTITY_ICONS) break;
+        if (f.tagName !== "SELECT" && usable(f)) { out.set(f, r.kind); n++; }
+      }
+    }
+    return out;
+  }
+
+  // Where an identity goes: the anchor's form; for formless pages the closest ancestor with two or more
+  // identity fields, else the page.
+  function identityScope(anchor) {
+    if (anchor.form) return anchor.form;
+    let n = FK.parentAcross(anchor);
+    for (let i = 0; n && i < 8; i++, n = FK.parentAcross(n)) {
+      if (n.nodeType === 1 && identityFieldsIn(n).length >= 2) return n;
+    }
+    return document;
+  }
+  const identityValue = (f, kind, id) => NI.identityFieldValue(kind, id, {
+    tag: f.tagName, type: f.tagName === "INPUT" ? typeOf(f) : "", maxLength: f.maxLength, autocomplete: attr(f, "autocomplete"),
+    options: f.tagName === "SELECT" ? Array.from(f.options).map((o) => ({ value: o.value, text: o.text })) : null,
+  });
+  const SECTION_TOKEN = /^(section-.+|shipping|billing)$/;
+  // Fills one form's identity fields (the first field of each kind; the country first, since forms often reload
+  // their state list when it changes). Returns how many fields were set.
+  function fillIdentityFields(anchor, id) {
+    let list = identityFieldsIn(identityScope(anchor));
+    // Shipping and billing addresses in one form: stay in the section the anchor names, if any.
+    const section = acOf(anchor).filter((t) => SECTION_TOKEN.test(t));
+    if (section.length) {
+      const same = list.filter(([f]) => section.every((t) => acOf(f).includes(t)));
+      if (same.length) list = same;
+    }
+    const kinds = NI.resolveKinds(list.map(([, r]) => r.kind));
+    const rank = (i) => (kinds[i] === "country" ? 0 : 1);
+    const order = list.map((_, i) => i).sort((a, b) => rank(a) - rank(b));
+    const done = new Set();
+    const stateLater = [];
+    let n = 0;
+    for (const i of order) {
+      const f = list[i][0], kind = kinds[i];
+      if (done.has(kind)) continue;
+      const v = identityValue(f, kind, id);
+      if (v === null) { if (kind === "state" && f.tagName === "SELECT") stateLater.push(f); continue; }
+      setValue(f, v);
+      done.add(kind);
+      n++;
+    }
+    if (stateLater.length && !done.has("state")) {
+      setTimeout(() => {
+        for (const f of stateLater) {
+          if (done.has("state") || !f.isConnected || !shown(f)) continue;
+          const v = identityValue(f, "state", id);
+          if (v !== null) { setValue(f, v); done.add("state"); }
+        }
+      }, 400);
+    }
+    if (n && anchor.isConnected) focusQuietly(anchor, { preventScroll: true });
+    return n;
+  }
+
+  async function doIdentityFill(field, account) {
+    if (filling || !NI) return;
+    filling = true;
+    hideSuggest();
+    setState(field, "waiting", "Approve in Notiq");
+    const res = await send(account ? { type: "fillIdentity", account } : { type: "fillIdentity" });
+    filling = false;
+    const id = res && res.ok && res.host === topHost() && res.identity && typeof res.identity === "object"
+      ? NI.validIdentityReply({ ...res.identity, ok: true }) : null;
+    if (id && field.isConnected) {
+      const n = fillIdentityFields(field, id);
+      setState(field, n ? "done" : "error", n ? "Filled" : IDENTITY_TEXT.no_identity_fields);
+    } else {
+      setState(field, "error", res && res.ok ? GENERIC : identityErr(res && res.error));
+    }
+  }
+
+  // The in-page chooser: the identity titles when Notiq is unlocked; otherwise (locked, closed, an older
+  // Notiq, no identities) Notiq itself asks, unlocking first if needed.
+  let identityListing = false;
+  async function openIdentityChooser(field) {
+    if (filling || identityListing || !NI) return;
+    identityListing = true;
+    const res = await send({ type: "identities" });
+    identityListing = false;
+    if (!field.isConnected || filling) return;
+    const list = res && res.ok ? NI.validIdentityList(res) : null;
+    if (!list || !list.length) { await doIdentityFill(field); return; }
+    openMenu(field, "Choose an identity", (node) => {
+      node.appendChild(el("div", "nq-mhead", "Fill identity"));
+      for (const c of list) {
+        node.appendChild(menuItem(c.title, "Asks Notiq for approval", () => { closeMenu(false); doIdentityFill(field, c.account); }));
+      }
+      node.appendChild(menuItem("Choose in Notiq…", null, () => { closeMenu(false); doIdentityFill(field); }));
+    });
+  }
+
+  // ---------- right-click menu: Notiq > Fill login · Fill 2FA code · Fill identity · Generate password ----------
+  // The background sends the choice to the frame the menu was opened in (only frames that pass the same-site
+  // check run this script). It acts on the editable field the page's context menu was opened on (a trusted
+  // event, at most 2 minutes ago), else the focused one, with the same paths as the icons.
+  const MENU_TTL = 2 * 60 * 1000;
+  const MENU_INPUT_TYPES = ["", "text", "email", "tel", "password", "number", "search", "url"];
+  let menuTarget = null; // { field, at }
+  const menuIcons = new Set(); // fields that got a temporary icon to show a menu action's progress
+  const editableField = (t) => !!t && !t.readOnly && !t.disabled &&
+    ((t.tagName === "INPUT" && MENU_INPUT_TYPES.includes(typeOf(t))) || t.tagName === "TEXTAREA");
+
+  function onContextMenu(e) {
+    if (e.isTrusted !== true) return;
+    const t = realTarget(e);
+    if (!editableField(t)) { menuTarget = null; return; }
+    menuTarget = { field: t, at: Date.now() };
+    send({ type: "menuOpening" }); // lets the background load the identity titles for the menu
+  }
+  function menuField() {
+    const m = menuTarget, now = Date.now();
+    if (m && m.field.isConnected && now - m.at < MENU_TTL && now >= m.at && editableField(m.field)) return m.field;
+    const a = activeField();
+    return editableField(a) ? a : null;
+  }
+  // The menu works on any editable field; one without an icon gets one while the request runs.
+  function withIcon(field) {
+    if (icons.has(field)) return;
+    menuIcons.add(field);
+    addIcon(field);
+    schedulePosition();
+  }
+  function menuDone(field) {
+    if (!menuIcons.has(field)) return;
+    setTimeout(() => { menuIcons.delete(field); wakeScans(); }, 5500); // the next scan drops the icon
+  }
+  function onMenuFill(msg) {
+    const field = menuField();
+    if (!field || filling) return;
+    hideSuggest();
+    nudgeTheme();
+    closeMenu(false);
+    const input = field.tagName === "INPUT";
+    const run = (p) => Promise.resolve(p).catch(() => {}).finally(() => menuDone(field));
+    switch (msg.action) {
+      case "login":
+        if (!input) return;
+        withIcon(field);
+        run(doFill(field, field));
+        return;
+      case "code": {
+        if (!input) return;
+        const boxes = otpBoxes();
+        const target = boxes && boxes.includes(field) && codeFields.has(boxes[0]) ? boxes[0] : field;
+        withIcon(target);
+        Promise.resolve(doCodeFill(target)).catch(() => {}).finally(() => menuDone(target));
+        return;
+      }
+      case "identity":
+        withIcon(field);
+        run(doIdentityFill(field, typeof msg.account === "string" && msg.account ? msg.account : undefined));
+        return;
+      case "chooseIdentity":
+        withIcon(field);
+        run(openIdentityChooser(field));
+        return;
+      case "generate": {
+        if (!input) return;
+        const info = newPasswordInfo(field);
+        openMenu(field, "Notiq password options", () => {});
+        generateInto(field, info ? info.targets : [field]);
+        return;
+      }
+    }
+  }
+  chrome.runtime.onMessage.addListener((msg, sender) => {
+    if (!sender || sender.id !== chrome.runtime.id || sender.tab) return false;
+    if (msg && msg.type === "menuFill" && typeof msg.action === "string") onMenuFill(msg);
+    return false;
+  });
+  document.addEventListener("contextmenu", onContextMenu, true);
 
   // ---------- multi-step logins (username page, then password page) ----------
   // On a username-only page the approved fill puts in just the username and the

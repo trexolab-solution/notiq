@@ -9,7 +9,7 @@ import { emptySecret, SECRET_KINDS, serializeSecret } from "./secretEntry";
 import { CODES_EXT, emptyCodes, serializeCodes } from "./recoveryCodes";
 import { toast } from "./toast";
 
-export type NewEntryKind = "note" | "login" | "ssh" | "secret" | "card" | "wifi" | "codes";
+export type NewEntryKind = "note" | "login" | "ssh" | "secret" | "card" | "wifi" | "codes" | "identity";
 
 export const NEW_ENTRY_OPTIONS: { kind: NewEntryKind; label: string; hint: string }[] = [
   { kind: "note",   label: "Secure note",     hint: "Free text, Markdown" },
@@ -19,6 +19,7 @@ export const NEW_ENTRY_OPTIONS: { kind: NewEntryKind; label: string; hint: strin
   { kind: "card",   label: SECRET_KINDS.card.label,   hint: SECRET_KINDS.card.hint },
   { kind: "wifi",   label: SECRET_KINDS.wifi.label,   hint: SECRET_KINDS.wifi.hint },
   { kind: "codes",  label: "Recovery codes",          hint: "Backup codes, mark each one used" },
+  { kind: "identity", label: SECRET_KINDS.identity.label, hint: SECRET_KINDS.identity.hint },
 ];
 
 const nameOf = (p: string) => (p.split(/[\\/]/).pop() ?? "").replace(/\.nqv$/i, "");
@@ -40,7 +41,7 @@ export async function createVaultEntry(kind: NewEntryKind): Promise<void> {
 /** Default name for a new entry created straight from the sidebar (renamed inline right after). */
 export const DEFAULT_ENTRY_NAME: Record<NewEntryKind, string> = {
   note: "Untitled note", login: "New login", ssh: "New server", secret: "New API key",
-  card: "New card", wifi: "New Wi-Fi", codes: "New recovery codes",
+  card: "New card", wifi: "New Wi-Fi", codes: "New recovery codes", identity: "New identity",
 };
 
 /**

@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { CreditCard, Eye, EyeOff, KeyRound, QrCode, Terminal, Wifi, type LucideIcon } from "lucide-react";
+import { CreditCard, Eye, EyeOff, IdCard, KeyRound, QrCode, Terminal, Wifi, type LucideIcon } from "lucide-react";
 import { Button } from "../ui/Button";
 import { Input } from "../ui/Input";
 import { Select } from "../ui/Select";
@@ -71,7 +71,7 @@ function Field({ kind, def, value, onChange }: { kind: string; def: FieldDef; va
                     className={`${textArea} ${secret ? "font-mono" : ""}`}
                     style={secret && !show ? ({ WebkitTextSecurity: "disc" } as React.CSSProperties) : undefined} />
         ) : (
-          <Input id={id} type={secret && !show ? "password" : "text"} value={value} placeholder={def.placeholder}
+          <Input id={id} type={secret && !show ? "password" : def.inputType ?? "text"} value={value} placeholder={def.placeholder}
                  onChange={(e) => onChange(cleanValue(def, e.target.value))} spellCheck={false} autoComplete="off"
                  inputMode={def.format ? "numeric" : undefined} aria-invalid={msg?.error || undefined}
                  className={`${secret || def.format ? "font-mono" : ""} ${msg?.error ? "!border-[var(--color-danger)]" : ""}`} />
@@ -90,13 +90,13 @@ function Field({ kind, def, value, onChange }: { kind: string; def: FieldDef; va
 }
 
 const ICONS: Record<string, LucideIcon> = {
-  ssh: Terminal, secret: KeyRound, card: CreditCard, wifi: Wifi,
+  ssh: Terminal, secret: KeyRound, card: CreditCard, wifi: Wifi, identity: IdCard,
 };
 
 /** Fields hidden for the current state (e.g. no password on an open Wi-Fi network). */
 const hiddenField = (e: SecretEntry, key: string) => e.kind === "wifi" && key === "password" && e.fields.security === "Open";
 
-/** Schema-driven editor for API-key, payment-card and Wi-Fi vault entries. */
+/** Schema-driven editor for API-key, payment-card, Wi-Fi and identity vault entries. */
 export function SecretEntryEditor({ tab, kind }: { tab: Tab; kind: string }) {
   const def = SECRET_KINDS[kind];
   const entry = useMemo(() => parseSecret(kind, tab.content), [kind, tab.content]);

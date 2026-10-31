@@ -621,4 +621,10 @@ mod tests {
             assert!(!all.contains(secret), "index leaked {secret}");
         }
     }
+
+    #[test]
+    fn identity_entries_are_found_by_title_only() {
+        let id = r#"{"v":1,"kind":"identity","title":"Home","fields":{"name":"Asha Rao","email":"a@b.in","city":"Pune"}}"#;
+        assert_eq!(index_fields("identity", id), (String::new(), vec![]));
+    }
 }

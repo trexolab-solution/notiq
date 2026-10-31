@@ -7,6 +7,7 @@ import { siteMatches } from "./publicSuffix";
 import { lookalikeOf, type Lookalike } from "./lookalike";
 import { parseSecret, type SecretEntry } from "./secretEntry";
 import { cardFill, type CardFill } from "./cardEntry";
+import { IDENTITY_EXT, identityFill, type IdentityFill } from "./identityEntry";
 
 const CARD_EXT = "card";
 
@@ -111,6 +112,48 @@ export const cardTitle = (c: Pick<CardMatch, "entry">) => c.entry.title.trim() |
 
 /** The reply that releases a card to the extension. Never send it without the user picking the card. */
 export const cardReply = (c: CardMatch) => ({ ok: true, title: cardTitle(c).slice(0, 200), ...c.fill });
+
+// ─── Identities (name / contact / address for forms) ────────────────────────
+
+/** A saved identity that can be filled (`fill` is what the extension would receive). */
+export interface IdentityMatch { path: string; rel: string; entry: SecretEntry; fill: IdentityFill }
+
+/**
+ * Every identity in the vault with something to fill, sorted by title. Like cards, identities are not
+ * tied to a site: the user always picks one in the approval window, which names the site that gets it.
+ * Only files the listing marks as identities are decrypted.
+ */
+export async function scanIdentities(): Promise<IdentityMatch[]> {
+  const root = await vaultRoot();
+  const out: IdentityMatch[] = [];
+  for (const i of await vaultList()) {
+    if (i.dir || i.ext !== IDENTITY_EXT || !/\.nqv$/i.test(i.rel)) continue;
+    const path = `${root}/${i.rel}`;
+    try {
+      const f = await vaultReadFile(path);
+      if (f.ext !== IDENTITY_EXT) continue;
+      const entry = parseSecret(IDENTITY_EXT, f.content);
+      const fill = identityFill(entry.fields);
+      if (fill) out.push({ path, rel: normRel(i.rel), entry, fill });
+    } catch { /* unreadable file: skip */ }
+  }
+  return out.sort((a, b) => identityTitle(a).localeCompare(identityTitle(b)));
+}
+
+/** The identity's name in lists: its title, else its file name, else "Identity". */
+export const identityTitle = (m: Pick<IdentityMatch, "entry" | "rel">) =>
+  m.entry.title.trim() || (m.rel.split("/").pop() ?? "").replace(/\.nqv$/i, "").trim() || "Identity";
+
+/** Index of the identity the extension asked for (`account`, case-insensitive), else 0. */
+export function indexOfIdentity(list: Pick<IdentityMatch, "rel">[], account: unknown): number {
+  const a = validAccount(account);
+  if (!a) return 0;
+  const k = list.findIndex((m) => normRel(m.rel).toLowerCase() === a.toLowerCase());
+  return k < 0 ? 0 : k;
+}
+
+/** The reply that releases an identity to the extension. Never send it without the user picking it. */
+export const identityReply = (m: IdentityMatch) => ({ ok: true, title: identityTitle(m).slice(0, 200), ...m.fill });
 
 /** The in-app warning shown when a fill request came from a possible fake site. */
 export const lookalikeWarning = (pageHost: string, l: Lookalike) =>

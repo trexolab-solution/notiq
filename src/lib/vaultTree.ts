@@ -9,7 +9,7 @@ import type { VaultItem } from "./vault";
  * with ".nqv"; a "full" path is `<root>/<rel>` (what tabs store as filePath).
  */
 
-export type EntryKind = "folder" | "note" | "login" | "ssh" | "secret" | "card" | "wifi" | "codes";
+export type EntryKind = "folder" | "note" | "login" | "ssh" | "secret" | "card" | "wifi" | "codes" | "identity";
 export type SortMode = "name" | "modified";
 
 export interface TreeNode {
@@ -141,6 +141,7 @@ export function entryKind(item: { dir: boolean; ext: string }): EntryKind {
     case "card": return "card";
     case "wifi": return "wifi";
     case "codes": return "codes";
+    case "identity": return "identity";
     default: return "note";
   }
 }

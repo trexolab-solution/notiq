@@ -102,6 +102,30 @@ Updating from 0.1: click the reload button on the extension's card. The browser 
   fills number, expiry, cardholder name and the security code if you stored one. Only https pages (or localhost),
   and only the page itself or a same-site iframe: card fields inside another site's iframe (Stripe, Adyen, …) are
   never filled.
+- **Identities (address / contact forms):** add one or more **Identity** entries in Notiq (New > Identity, e.g.
+  "Home", "Office": full name, email, phone, address lines 1–2, city, state, PIN/ZIP, country). Fields are found by
+  their `autocomplete` tokens first (`name`, `given-name` / `family-name`, `email`, `tel`, `address-line1/2`,
+  `street-address`, `address-level2` (city), `address-level1` (state), `postal-code`, `country` / `country-name`,
+  `<select>` lists included), then by their labels, names and placeholders (Indian forms too: "PIN code", "Pincode",
+  "Mobile number", "Flat, House no., Building", "Area, Street, Sector, Village", "Town/City"). A form that looks like
+  an address or contact form (three kinds of field, one of them an address or phone field; never a form with a
+  password field) gets the Notiq icon in its text fields. Clicking it lists your identity titles when Notiq is
+  unlocked (`{op:"identities"}`, titles only), or goes straight to Notiq otherwise; Notiq **always** asks you to pick
+  the identity and shows which site gets it (no "allow for 5 minutes"). Then name (split into first / last name where
+  the form wants that), email, phone (the last 10 digits for a 10-digit mobile field), both address lines (a single
+  address box gets line 1 when the form also has a locality / line-2 field), city, state and country (matched
+  against the form's lists, by name or ISO code) and PIN/ZIP are filled into that form only. Landmark, company,
+  alternate phone, hidden, invisible, read-only and disabled fields are never touched. Same https / same-site frame
+  rules as cards.
+- **Right-click menu** on any editable field: **Notiq ▸ Fill login · Fill 2FA code · Fill identity ▸ (Home / Office …,
+  Choose identity…) · Generate password**. Each item does what the matching icon does, for the field you
+  right-clicked, in that frame only (the background re-checks that the frame is on the top page's site; frames from
+  other sites have no Notiq script at all), with the usual approval in Notiq. Generate password fills that field
+  (and its confirm field on a sign-up form) locally. The identity titles are loaded when the menu opens (Firefox
+  `menus.onShown`; on Chrome / Edge when you right-click a field, at most every 15 s, so a just-added identity shows
+  the next time) and only while Notiq is unlocked; otherwise **Choose identity…** opens the in-page chooser, where
+  Notiq can unlock. Titles live in session memory only and are dropped when Notiq reports the vault locked. An
+  older Notiq shows "Update Notiq to use this." for identities.
 
 ### Settings (toolbar popup)
 - **Offer to save new logins** (on by default).
@@ -124,6 +148,7 @@ default dark or light colours, following your system setting.
 - `storage` — your settings above, the cached app theme, and (in memory-only session storage, never on disk) a just-submitted
   login for at most 90 seconds while the save offer is open.
 - `activeTab`, `scripting` — the toolbar button fills the tab you clicked it on.
+- `contextMenus` — the **Notiq** entry in the right-click menu of editable fields (Firefox: `menus`, same API).
 - **Content script on all `https://` sites (plus `http://localhost` / `127.0.0.1`)** — this is what makes the browser
   show "Read and change all your data on all websites". It is needed to spot login fields and notice a submitted
   login on any site you visit. The script only looks at login forms, keeps everything in its own isolated, closed
@@ -184,6 +209,12 @@ default dark or light colours, following your system setting.
     approved like a fill (prompt that can unlock, or the site's trust window), the username needs an unlocked vault.
   - `{op:"open", host, account}` → `{ok:true}`: Notiq comes to the front and opens that entry (asking to unlock
     first if needed).
+- `{op:"fill_identity", host, origin, account?}` → `{ok:true, title, name, email, phone, address1, address2, city, state,
+  postal, country}` (strictly validated: strings within caps, at least one set) or `{error}` (`no_identity`, `denied`,
+  `locked`, …; `unknown_op` from a Notiq before identities). Same origin rule as `fill_card`; `account` (from
+  `identities`) only pre-selects the identity in Notiq's picker.
+- `{op:"identities"}` → `{ok:true, identities:[{account, title}]}` (at most 20, titles are entry file names, no values)
+  or `{error:"locked"}`. Answered without any window, only while the vault is unlocked; never starts Notiq.
 - `{op:"theme"}` → `{ok:true, theme:{id, mode:"dark"|"light", bg, bgSecondary, bgTertiary, text, textMuted, border,
   primary, primaryText, danger, success}}` (colours `#rrggbb`), or `{ok:true, theme:null}` when the app has none.
   Never launches the app. `{error:"unknown_op"}` from an older app is treated as no theme; when the app is
@@ -217,6 +248,9 @@ on a new page ("Next (new page)").
 <http://localhost:8000/otp.html> is a 2FA step on its own page (one code field and six split boxes).
 <http://localhost:8000/shadow-login.html> has logins inside open shadow roots (one component, nested components,
 one rendered late) and one in a closed root (ignored).
+<http://localhost:8000/identity.html> has an Amazon.in-style address form (labels only), a Shopify-style one
+(`autocomplete` tokens), a Flipkart-style one with an address text box, a newsletter box and a login form (no identity
+icon on the last two); right-click any field for the Notiq menu.
 <http://localhost:8000/custom-fields.html> checks custom fields filled by name (a bank form with Customer ID,
 Membership No. and PIN next to the login, a password field labelled "PIN", placeholder-only fields).
 <http://localhost:8000/signup-rules.html> has sign-up forms with `maxlength`, `passwordrules`, `pattern`, impossible
@@ -234,12 +268,14 @@ focus-suggestion screenshots in dark, light and a custom theme) (needs Node 22+,
 ```
 node browser-extension/build.mjs [--out dist]     # Node 20+, no dependencies
 node browser-extension/build.mjs --check          # validate only, write nothing
-node --test browser-extension/test/*.test.mjs    # unit tests: transforms, zip writer, shared.js (theme, suggestion, same-site, handshake), fillkit.js (generator rules, shadow roots), multi-step hand-off, toolbar fill, code-only fills
+node --test browser-extension/test/*.test.mjs    # unit tests: transforms, zip writer, shared.js (theme, suggestion, same-site, handshake), fillkit.js (generator rules, shadow roots), multi-step hand-off, toolbar fill, code-only fills, identity.js (field classification incl. Indian checkout forms, values)
 node browser-extension/build.mjs --psl            # refresh the Public Suffix List copy in shared.js from src/lib/publicSuffixData.ts
 ```
-Only runtime files are packaged (manifest, `shared.js`, `fillkit.js`, `content.js`, `background.js`, popup, icons).
+Only runtime files are packaged (manifest, `shared.js`, `fillkit.js`, `identity.js`, `content.js`, `background.js`, popup, icons).
 `fillkit.js` holds the content script's pure fill helpers (the site-aware password generator, the open-shadow-root walk)
-and loads between `shared.js` and `content.js`. `shared.js` holds
+and loads between `shared.js` and `content.js`. `identity.js` holds the identity helpers (field classification, form
+detection, reply validation, value mapping); it loads before `content.js`, and the background loads it after
+`shared.js` (`importScripts`; the Firefox build lists it in `background.scripts`). `shared.js` holds
 the pure helpers (theme validation, suggestion placement, the Public Suffix List same-site rule, the app handshake); the content script and popup load it first, the Chromium
 service worker loads it with `importScripts`, and the Firefox build lists it before `background.js`. Output is reproducible
 (fixed timestamps). It writes, with a size and SHA-256 table:
