@@ -30,13 +30,15 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::TcpListener;
+use tokio::net::{TcpListener, TcpStream};
 
 use super::provider::{
     validate_name, AccountInfo, Capabilities, ProviderAuth, ProviderError, RemoteObject, StorageProvider,
 };
 
 pub const PROVIDER_ID: &str = "gdrive";
+/// The one Drive scope Notiq needs. Google shows it as an unticked checkbox, so it can be left out.
+pub const DRIVE_SCOPE: &str = "https://www.googleapis.com/auth/drive.appdata";
 pub const SCOPES: &str = "https://www.googleapis.com/auth/drive.appdata openid email";
 /// Dev builds use their own keychain entry, like `ai.rs`, so they never touch the installed app's sign-in.
 pub const KEYRING_SERVICE: &str = if crate::profile::IS_DEV { "notiq-vault-sync-dev" } else { "notiq-vault-sync" };
@@ -322,6 +324,13 @@ pub struct TokenResponse {
     pub expires_in: u64,
     pub refresh_token: Option<String>,
     pub id_token: Option<String>,
+    /// Space-separated scopes Google actually granted (absent from some replies, e.g. refreshes).
+    pub scope: Option<String>,
+}
+
+/// Did the user grant the Drive app-folder scope? A reply without `scope` says nothing, so it counts as granted.
+pub fn grants_drive(scope: Option<&str>) -> bool {
+    scope.is_none_or(|s| s.split_whitespace().any(|x| x == DRIVE_SCOPE))
 }
 
 /// Interpret a token-endpoint reply.
@@ -334,6 +343,7 @@ pub fn parse_token_response(status: u16, body: &str) -> Result<TokenResponse, Pr
                 expires_in: v["expires_in"].as_u64().unwrap_or(3000),
                 refresh_token: v["refresh_token"].as_str().map(str::to_string),
                 id_token: v["id_token"].as_str().map(str::to_string),
+                scope: v["scope"].as_str().map(str::to_string),
             });
         }
         return Err(ProviderError::Other("Unexpected reply from Google sign-in".into()));
@@ -557,44 +567,104 @@ fn success_or_resume(s: u16) -> bool {
     is_success(s) || s == 308
 }
 
-/// The page the browser lands on after Google redirects to the loopback port.
-pub fn callback_page(ok: bool, heading: &str, text: &str) -> String {
+fn html_escape(t: &str) -> String {
+    t.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;")
+}
+
+/// The page the browser lands on after Google redirects to the loopback port. `account` (success only) is shown as
+/// "Signed in as …". Self-contained (no external requests) and follows the system light / dark mode.
+pub fn callback_page(ok: bool, heading: &str, text: &str, account: Option<&str>) -> String {
     let icon = STANDARD.encode(include_bytes!("../callback-icon.png"));
-    let mark = if ok {
-        r##"<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>"##
+    let (tone, mark) = if ok {
+        ("ok", r##"<svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>"##)
     } else {
-        r##"<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 7v6M12 17v.01"/></svg>"##
+        ("err", r##"<svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 7v6M12 17v.01"/></svg>"##)
+    };
+    let account = account
+        .map(|a| {
+            let initial = a.chars().next().map(|c| c.to_uppercase().to_string()).unwrap_or_else(|| "G".into());
+            format!(
+                r#"<div class="account"><span class="avatar" aria-hidden="true">{}</span><span>Signed in as <strong>{}</strong></span></div>"#,
+                html_escape(&initial),
+                html_escape(a)
+            )
+        })
+        .unwrap_or_default();
+    let facts = if ok {
+        r##"<ul class="facts">
+<li><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="10.5" width="16" height="10" rx="2.5"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/></svg><span><strong>Encrypted on your device.</strong> Google only stores locked data it can't read.</span></li>
+<li><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 7.5a2 2 0 0 1 2-2h4l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/></svg><span><strong>Private app folder.</strong> Notiq can't see any other file in your Drive.</span></li>
+</ul>"##
+    } else {
+        ""
+    };
+    let next = if ok {
+        "You can close this tab and go back to Notiq."
+    } else {
+        "Go back to Notiq and choose <strong>Connect Google Drive</strong> to try again."
     };
     format!(
         r##"<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Notiq</title>
+<title>Notiq · Google Drive</title>
 <style>
-:root{{--bg:#fbfaf8;--text:#1d1b17;--muted:#6a655b;--line:#dcd8ce;--accent:#9a6a0a}}
-@media(prefers-color-scheme:dark){{:root{{--bg:#14130f;--text:#ece8dc;--muted:#a09a8a;--line:#2e2b22;--accent:#c9a84c}}}}
+:root{{--bg:#f4f3f8;--card:#fff;--text:#1c1b22;--muted:#5f5d6b;--line:#e4e2ec;--chip:#f1effa;--primary:#6d4bd8;--ok:#1f8f4e;--ok-bg:#e5f5ec;--err:#c4373c;--err-bg:#fbe9ea;--shadow:0 1px 2px rgba(20,16,40,.06),0 12px 32px rgba(20,16,40,.08)}}
+@media(prefers-color-scheme:dark){{:root{{--bg:#16161d;--card:#1f1f29;--text:#ecebf3;--muted:#a3a1b3;--line:#2f2e3b;--chip:#282735;--primary:#b79cff;--ok:#5fd394;--ok-bg:rgba(95,211,148,.12);--err:#ff8a8f;--err-bg:rgba(255,138,143,.12);--shadow:0 1px 2px rgba(0,0,0,.3),0 16px 40px rgba(0,0,0,.35)}}}}
 *{{box-sizing:border-box}}
-body{{margin:0;min-height:100vh;display:grid;place-items:center;background:var(--bg);color:var(--text);
-font:17px/1.6 -apple-system,"Segoe UI",system-ui,sans-serif;-webkit-font-smoothing:antialiased}}
-main{{width:min(460px,calc(100vw - 48px))}}
-.brand{{display:flex;align-items:center;gap:10px;font-weight:700;font-size:18px;margin-bottom:40px}}
-.brand img{{width:30px;height:30px;border-radius:8px}}
-.badge{{display:grid;place-items:center;width:44px;height:44px;border-radius:50%;border:1.5px solid var(--accent);color:var(--accent);margin-bottom:20px;animation:pop .5s cubic-bezier(.2,.9,.3,1.2) both}}
-h1{{font-size:1.65rem;line-height:1.2;letter-spacing:-.02em;margin:0 0 12px}}
+body{{margin:0;min-height:100vh;display:grid;place-items:center;padding:24px 16px;background:var(--bg);color:var(--text);
+font:15px/1.55 "Segoe UI Variable Text","Segoe UI",system-ui,-apple-system,sans-serif;-webkit-font-smoothing:antialiased}}
+main{{width:min(440px,100%);background:var(--card);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);overflow:hidden}}
+header{{display:flex;align-items:center;gap:10px;padding:16px 24px;border-bottom:1px solid var(--line);font-weight:600}}
+header img{{width:24px;height:24px;border-radius:6px}}
+header .sep{{color:var(--muted);font-weight:400}}
+.body{{padding:32px 24px 24px;text-align:center}}
+.status{{display:grid;place-items:center;width:56px;height:56px;margin:0 auto 18px;border-radius:50%;animation:pop .45s cubic-bezier(.2,.9,.3,1.25) both}}
+.status.ok{{background:var(--ok-bg);color:var(--ok)}}
+.status.err{{background:var(--err-bg);color:var(--err)}}
+h1{{margin:0 0 8px;font-size:1.4rem;line-height:1.25;letter-spacing:-.01em}}
 p{{margin:0;color:var(--muted)}}
-.hint{{margin-top:28px;padding-top:18px;border-top:1px solid var(--line);font-size:14px}}
+.account{{display:inline-flex;align-items:center;gap:8px;margin-top:18px;padding:6px 14px 6px 6px;border-radius:999px;background:var(--chip);font-size:13px;max-width:100%}}
+.account strong{{overflow-wrap:anywhere}}
+.avatar{{display:grid;place-items:center;flex:none;width:24px;height:24px;border-radius:50%;background:var(--primary);color:var(--card);font-size:12px;font-weight:700}}
+.facts{{list-style:none;margin:24px 0 0;padding:0;text-align:left;display:grid;gap:12px}}
+.facts li{{display:flex;gap:12px;align-items:flex-start;padding:12px 14px;border:1px solid var(--line);border-radius:12px;font-size:14px;color:var(--muted)}}
+.facts svg{{flex:none;margin-top:2px;color:var(--primary)}}
+.facts strong{{color:var(--text);font-weight:600}}
+footer{{padding:14px 24px;border-top:1px solid var(--line);font-size:13px;color:var(--muted);text-align:center}}
+footer strong{{color:var(--text)}}
 @keyframes pop{{from{{transform:scale(.6);opacity:0}}to{{transform:none;opacity:1}}}}
-@media(prefers-reduced-motion:reduce){{.badge{{animation:none}}}}
+@media(prefers-reduced-motion:reduce){{.status{{animation:none}}}}
 </style></head><body><main>
-<div class="brand"><img src="data:image/png;base64,{icon}" alt="">Notiq</div>
-<div class="badge">{mark}</div>
+<header><img src="data:image/png;base64,{icon}" alt="">Notiq<span class="sep">·</span><span class="sep">Google Drive</span></header>
+<div class="body">
+<div class="status {tone}">{mark}</div>
 <h1>{heading}</h1>
 <p>{text}</p>
-<p class="hint">You can close this tab and return to the Notiq window.</p>
-</main></body></html>"##
+{account}
+{facts}
+</div>
+<footer>{next}</footer>
+</main></body></html>"##,
+        heading = html_escape(heading),
+        text = html_escape(text),
     )
 }
 
-/// Serve loopback requests until the OAuth redirect arrives.
-async fn wait_for_code(listener: &TcpListener, want_state: &str) -> Result<String, ProviderError> {
+async fn respond(s: &mut TcpStream, html: &str) {
+    let _ = s
+        .write_all(
+            format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nCache-Control: no-store\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{html}",
+                html.len()
+            )
+            .as_bytes(),
+        )
+        .await;
+    let _ = s.shutdown().await;
+}
+
+/// Serve loopback requests until the OAuth redirect arrives. The redirect's connection is handed back unanswered,
+/// so the page can report the real outcome once the code has been exchanged.
+async fn wait_for_code(listener: &TcpListener, want_state: &str) -> Result<(String, TcpStream), ProviderError> {
     loop {
         let (mut s, _) = listener
             .accept()
@@ -621,37 +691,21 @@ async fn wait_for_code(listener: &TcpListener, want_state: &str) -> Result<Strin
         }
         let req = String::from_utf8_lossy(&buf[..n]).to_string();
         let target = req.lines().next().and_then(|l| l.split_whitespace().nth(1)).unwrap_or("/").to_string();
-        let outcome = parse_callback(&target, want_state);
-        let (ok, heading, text) = match &outcome {
-            Callback::Code(_) => (
-                true,
-                "Notiq is connected to Google Drive",
-                "Your encrypted vault syncs to Notiq's private app folder. Notiq can't see any other file in your Drive.",
-            ),
-            Callback::Cancelled(_) => (false, "Sign-in was cancelled", "Nothing was connected. You can try again from Notiq."),
-            Callback::StateMismatch => (
-                false,
-                "Sign-in didn't match",
-                "This response wasn't for the sign-in Notiq started. Try again from the app.",
-            ),
-            Callback::Ignore => (false, "Waiting for sign-in", "Finish signing in with Google, then return here."),
-        };
-        let html = callback_page(ok, heading, text);
-        let _ = s
-            .write_all(
-                format!(
-                    "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nCache-Control: no-store\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{html}",
-                    html.len()
-                )
-                .as_bytes(),
-            )
-            .await;
-        let _ = s.shutdown().await;
-        match outcome {
-            Callback::Code(c) => return Ok(c),
-            Callback::Cancelled(e) => return Err(ProviderError::Other(format!("Google sign-in was cancelled ({e})."))),
-            Callback::StateMismatch => return Err(ProviderError::Other("Sign-in response didn't match this request. Try again.".into())),
-            Callback::Ignore => continue,
+        match parse_callback(&target, want_state) {
+            Callback::Code(c) => return Ok((c, s)),
+            Callback::Cancelled(e) => {
+                let page = callback_page(false, "Sign-in was cancelled", "Nothing was connected. Your vault stays on this device.", None);
+                respond(&mut s, &page).await;
+                return Err(ProviderError::Other(format!("Google sign-in was cancelled ({e}).")));
+            }
+            Callback::StateMismatch => {
+                let page = callback_page(false, "Sign-in didn't match", "This response wasn't for the sign-in Notiq started.", None);
+                respond(&mut s, &page).await;
+                return Err(ProviderError::Other("Sign-in response didn't match this request. Try again.".into()));
+            }
+            Callback::Ignore => {
+                respond(&mut s, &callback_page(false, "Waiting for sign-in", "Finish signing in with Google, then return here.", None)).await;
+            }
         }
     }
 }
@@ -1034,6 +1088,50 @@ impl StorageProvider for GoogleDriveProvider {
     }
 }
 
+impl GoogleDriveProvider {
+    /// Exchanges the authorization code, checks the granted scope and stores the refresh token.
+    async fn finish_sign_in(&self, oauth: &OAuthClient, code: &str, redirect: &str, verifier: &str) -> Result<AccountInfo, ProviderError> {
+        let resp = self
+            .http
+            .post(&self.cfg.endpoints.token)
+            .form(&[
+                ("client_id", oauth.client_id.as_str()),
+                ("client_secret", oauth.client_secret.as_str()),
+                ("code", code),
+                ("redirect_uri", redirect),
+                ("grant_type", "authorization_code"),
+                ("code_verifier", verifier),
+            ])
+            .send()
+            .await
+            .map_err(|e| net_failure(e).err)?;
+        let status = resp.status().as_u16();
+        let body = Self::body_text(resp).await?;
+        let tok = match parse_token_response(status, &body) {
+            Err(ProviderError::Auth) => return Err(ProviderError::Other("Google rejected the sign-in. Try again.".into())),
+            other => other?,
+        };
+        if !grants_drive(tok.scope.as_deref()) {
+            return Err(ProviderError::Other(
+                "Notiq needs access to its own Google Drive app folder. Connect again and tick the Google Drive box on Google's permission screen."
+                    .into(),
+            ));
+        }
+        let refresh = tok.refresh_token.clone().ok_or_else(|| {
+            ProviderError::Other("Google didn't grant offline access. Remove Notiq from your Google account's third-party access and try again.".into())
+        })?;
+        let email = tok.id_token.as_deref().and_then(email_from_id_token).unwrap_or_else(|| "Google account".into());
+        let stored = serde_json::to_string(&StoredAuth { refresh_token: refresh, email: email.clone() })
+            .map_err(|e| ProviderError::Other(e.to_string()))?;
+        self.cfg
+            .store
+            .save(&stored)
+            .map_err(|e| ProviderError::Other(format!("Couldn't save the sign-in to the system keychain: {e}")))?;
+        *self.access.lock().await = Some((tok.access_token, Instant::now() + Duration::from_secs(tok.expires_in)));
+        Ok(AccountInfo { label: email })
+    }
+}
+
 #[async_trait]
 impl ProviderAuth for GoogleDriveProvider {
     async fn connect(&self) -> Result<AccountInfo, ProviderError> {
@@ -1048,43 +1146,22 @@ impl ProviderAuth for GoogleDriveProvider {
         let redirect = format!("http://127.0.0.1:{port}");
         let url = build_auth_url(&self.cfg.endpoints.auth, &oauth.client_id, &redirect, &pkce_challenge(&verifier), &state)?;
         opener(&url).map_err(|e| ProviderError::Other(format!("Couldn't open the browser: {e}")))?;
-        let code = tokio::time::timeout(self.cfg.login_timeout, wait_for_code(&listener, &state))
+        let (code, mut browser) = tokio::time::timeout(self.cfg.login_timeout, wait_for_code(&listener, &state))
             .await
             .map_err(|_| ProviderError::Other("Google sign-in timed out. Try again.".into()))??;
         drop(listener);
-
-        let resp = self
-            .http
-            .post(&self.cfg.endpoints.token)
-            .form(&[
-                ("client_id", oauth.client_id.as_str()),
-                ("client_secret", oauth.client_secret.as_str()),
-                ("code", code.as_str()),
-                ("redirect_uri", redirect.as_str()),
-                ("grant_type", "authorization_code"),
-                ("code_verifier", verifier.as_str()),
-            ])
-            .send()
-            .await
-            .map_err(|e| net_failure(e).err)?;
-        let status = resp.status().as_u16();
-        let body = Self::body_text(resp).await?;
-        let tok = match parse_token_response(status, &body) {
-            Err(ProviderError::Auth) => return Err(ProviderError::Other("Google rejected the sign-in. Try again.".into())),
-            other => other?,
+        let result = self.finish_sign_in(&oauth, &code, &redirect, &verifier).await;
+        let page = match &result {
+            Ok(acc) => callback_page(
+                true,
+                "You're connected",
+                "Notiq now keeps your encrypted vault in sync through Google Drive.",
+                Some(&acc.label),
+            ),
+            Err(e) => callback_page(false, "Couldn't connect Google Drive", &e.to_string(), None),
         };
-        let refresh = tok.refresh_token.clone().ok_or_else(|| {
-            ProviderError::Other("Google didn't grant offline access. Remove Notiq from your Google account's third-party access and try again.".into())
-        })?;
-        let email = tok.id_token.as_deref().and_then(email_from_id_token).unwrap_or_else(|| "Google account".into());
-        let stored = serde_json::to_string(&StoredAuth { refresh_token: refresh, email: email.clone() })
-            .map_err(|e| ProviderError::Other(e.to_string()))?;
-        self.cfg
-            .store
-            .save(&stored)
-            .map_err(|e| ProviderError::Other(format!("Couldn't save the sign-in to the system keychain: {e}")))?;
-        *self.access.lock().await = Some((tok.access_token, Instant::now() + Duration::from_secs(tok.expires_in)));
-        Ok(AccountInfo { label: email })
+        respond(&mut browser, &page).await;
+        result
     }
 
     async fn disconnect(&self) -> Result<(), ProviderError> {
@@ -1271,9 +1348,29 @@ mod tests {
 
     #[test]
     fn callback_page_is_self_contained_html() {
-        let p = callback_page(true, "Connected", "ok");
+        let p = callback_page(true, "Connected", "ok", Some("me@example.com"));
         assert!(p.contains("<h1>Connected</h1>") && p.contains("data:image/png;base64,"));
+        assert!(p.contains("Signed in as <strong>me@example.com</strong>"));
         assert!(!p.contains("http://") && !p.contains("https://"));
+        let e = callback_page(false, "Couldn't connect", "x", None);
+        assert!(e.contains("class=\"status err\"") && !e.contains("Signed in as"));
+    }
+
+    #[test]
+    fn callback_page_escapes_text() {
+        let p = callback_page(false, "<b>", "a & <script>", Some("<x>@y"));
+        assert!(!p.contains("<script>") && !p.contains("<b>") && !p.contains("<x>"));
+        assert!(p.contains("a &amp; &lt;script&gt;"));
+    }
+
+    #[test]
+    fn drive_scope_must_be_granted() {
+        assert!(grants_drive(Some("openid https://www.googleapis.com/auth/drive.appdata email")));
+        assert!(!grants_drive(Some("openid https://www.googleapis.com/auth/userinfo.email")));
+        assert!(!grants_drive(Some("")));
+        assert!(grants_drive(None), "replies without a scope list say nothing");
+        let t = parse_token_response(200, r#"{"access_token":"a","scope":"openid email"}"#).unwrap();
+        assert_eq!(t.scope.as_deref(), Some("openid email"));
     }
 
     #[test]
