@@ -12,16 +12,25 @@ export function notifyConflicts(conflicts: SyncConflict[]): void {
 }
 
 /**
- * A sync changed local vault data: refresh the vault tree (the sidebar listens for VAULT_CHANGED_EVENT)
- * and reload open vault tabs. `refreshVaultTabs` skips dirty tabs, so unsaved edits are never replaced.
+ * A sync changed local vault data: re-read `vault_status` (join / adopt can create, replace or unlock the vault, and
+ * the backend's `vault:state-changed` from a command this window ran is ignored here), refresh the vault tree (the
+ * sidebar listens for VAULT_CHANGED_EVENT) and reload open vault tabs. `refreshVaultTabs` skips dirty tabs, so
+ * unsaved edits are never replaced.
  */
 export async function applyRemoteChanges(): Promise<void> {
-  window.dispatchEvent(new Event(VAULT_CHANGED_EVENT));
   const { useVaultStore } = await import("../store/vaultStore");
+  const wasUnlocked = useVaultStore.getState().unlocked;
+  await useVaultStore.getState().refresh();
+  window.dispatchEvent(new Event(VAULT_CHANGED_EVENT));
   if (!useVaultStore.getState().unlocked) return;
   const { useAppStore } = await import("../store"); // lazy: the app store pulls in most of the app
-  await useAppStore.getState().refreshVaultTabs();
+  if (wasUnlocked) await useAppStore.getState().refreshVaultTabs();
+  else await useAppStore.getState().unlockVaultTabs();
 }
+
+/** Whether a status change can mean the vault on this PC changed (connected, sync turned on/off). */
+export const vaultMayHaveChanged = (s: SyncStatus | null, prev: SyncStatus | null) =>
+  !!s && (!prev || s.provider !== prev.provider || s.enabled !== prev.enabled);
 
 /**
  * Lifecycle notifications from the status stream: ONE "sign in again" notice per authNeeded episode, and a
@@ -40,7 +49,14 @@ export function followSyncLifecycle(): () => void {
     }
   };
   onStatus(useSyncStore.getState().status);
-  return useSyncStore.subscribe((st, prev) => { if (st.status !== prev.status) onStatus(st.status); });
+  return useSyncStore.subscribe((st, prev) => {
+    if (st.status === prev.status) return;
+    onStatus(st.status);
+    // Sync turned on/off or the account changed: the vault on this PC may be new (join), replaced or unlocked.
+    if (vaultMayHaveChanged(st.status, prev.status)) {
+      void import("../store/vaultStore").then(({ useVaultStore }) => useVaultStore.getState().refresh()).catch(() => {});
+    }
+  });
 }
 
 /**

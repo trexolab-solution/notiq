@@ -8,7 +8,6 @@ import { Toggle } from "../Toggle";
 import { Input } from "../Input";
 import { Tooltip } from "../Tooltip";
 import { ConfirmDialog } from "../ConfirmDialog";
-import { AdoptRemoteDialog } from "../../vault/sync/AdoptRemoteDialog";
 import { useSyncConnect, WAITING_FOR_GOOGLE } from "../../vault/sync/useSyncConnect";
 import { toast } from "../../../lib/toast";
 import { useVaultStore } from "../../../store/vaultStore";
@@ -17,7 +16,7 @@ import {
   syncDevices, syncDisable, syncDisconnect, syncErrorMessage, syncNow, syncRemoveDevice, syncSetDeviceName,
   useSyncStatus, useSyncStore, type SyncDevice, type SyncStatus,
 } from "../../../lib/vaultSync";
-import { turnOnSyncWithFeedback } from "../../../lib/syncFeedback";
+import { startSyncSetup, useSyncSetupStore } from "../../../lib/syncSetupFlow";
 import { SYNC_INDEX } from "./syncIndex";
 import { deviceDisplayName } from "../../../lib/syncSurfaces";
 
@@ -28,7 +27,7 @@ const k = (id: string): string[] => {
 };
 
 export const DISCONNECT_MESSAGE =
-  "This PC stops syncing and forgets your Google sign-in. Your vault on this PC is not changed.";
+  "Your vault stays on this PC and in your Google Drive. This PC stops syncing.";
 export const DISCONNECT_DETAIL =
   "Your synced vault stays in your Google Drive, so your other devices keep syncing. To delete it from Drive, open Google Drive → Settings → Manage apps, find Notiq, then choose Options → \"Delete hidden app data\".";
 
@@ -76,31 +75,29 @@ export function SyncSection() {
   const statusError = useSyncStore((s) => s.error);
   const exists = useVaultStore((s) => s.exists);
   const now = useNow();
-  const { connecting, error: connectError, connect, cancel } = useSyncConnect((s) => {
-    toast.success(`Connected to Google Drive${s.account ? ` as ${s.account}` : ""}`);
+  // Reconnect (sign-in expired) only; connecting for the first time runs the setup flow.
+  const { connecting: reconnecting, error: connectError, connect, cancel: cancelReconnect } = useSyncConnect((s) => {
+    toast.success(`Reconnected to Google Drive${s.account ? ` as ${s.account}` : ""}`);
   });
+  const setupConnecting = useSyncSetupStore((s) => s.view.step === "connecting");
+  const connecting = reconnecting || setupConnecting;
+  const cancel = () => { if (reconnecting) cancelReconnect(); else useSyncSetupStore.getState().cancel(); };
 
   const [busy, setBusy] = useState<null | "enable" | "now" | "name">(null);
   const [confirmDisconnect, setConfirmDisconnect] = useState(false);
-  const [adopting, setAdopting] = useState(false);
 
   const connected = !!status?.provider;
   const configured = !!status?.configured;
   const problem = status?.state === "authNeeded" || status?.state === "error";
 
-  const turnOn = async () => {
-    if (!(await useVaultStore.getState().ensureUnlocked())) return; // merging needs the vault key
-    setBusy("enable");
-    const out = await turnOnSyncWithFeedback(); // first upload progress + result toasts
-    setBusy(null);
-    if (out.kind === "different") setAdopting(true);
-  };
+  // Resuming runs the same flow as connecting (unlock if needed, then merge / upload / two vaults).
+  const resume = () => { void startSyncSetup(); };
 
-  const turnOff = async () => {
+  const pause = async () => {
     setBusy("enable");
     try {
       await syncDisable();
-      toast.info("Sync is off on this PC. Your synced vault stays in your Google Drive.");
+      toast.info("Sync is paused on this PC. Your vault stays in your Google Drive.");
     } catch (e) {
       toast.error(syncErrorMessage(e));
     } finally {
@@ -162,17 +159,26 @@ export function SyncSection() {
           </>
         ) : (
           <Button className="settings-btn-primary" variant="primary" size="sm" icon={<Cloud size={12} />}
-                  disabled={!configured} onClick={() => void connect()}>Connect Google Drive</Button>
+                  disabled={!configured} onClick={() => void startSyncSetup()}>Connect Google Drive</Button>
         )}
       </SettingRow>
 
-      <SettingRow id="vault.sync.enabled" label="Sync this vault" keywords={k("vault.sync.enabled")}
-                  description={!exists ? "Set up the vault first." : !connected ? "Connect Google Drive first."
-                    : "Keep this vault the same on all your PCs. Changes upload a few seconds after you make them, while the vault is unlocked."}
-                  disabled={!connected || !exists}>
-        <Toggle aria-label="Sync this vault" value={status.enabled} disabled={!connected || !exists || busy === "enable"}
-                onChange={(v) => void (v ? turnOn() : turnOff())} />
-      </SettingRow>
+      {connected && exists && (
+        <SettingRow id="vault.sync.enabled" label="Pause sync on this PC" keywords={k("vault.sync.enabled")}
+                    description={status.enabled
+                      ? "Sync is on. Changes upload a few seconds after you make them, while the vault is unlocked."
+                      : "Sync is off on this PC. Turn this off to sync again."}>
+          <Toggle aria-label="Pause sync on this PC" value={!status.enabled} disabled={busy === "enable"}
+                  onChange={(paused) => void (paused ? pause() : resume())} />
+        </SettingRow>
+      )}
+      {connected && !exists && (
+        <SettingRow id="vault.sync.enabled" label="Vault on this PC" keywords={k("vault.sync.enabled")}
+                    description="There's no vault on this PC yet. Open the one in your Google Drive, or create one.">
+          <Button className="settings-btn-primary" variant="primary" size="sm" icon={<Cloud size={12} />}
+                  onClick={() => void startSyncSetup()}>Set up vault</Button>
+        </SettingRow>
+      )}
 
       {connected && (
         <SettingRow id="vault.sync.status" label="Sync status" keywords={k("vault.sync.status")}
@@ -214,13 +220,6 @@ export function SyncSection() {
           onConfirm={() => void disconnect()}
           onCancel={() => setConfirmDisconnect(false)}
         />
-      )}
-      {adopting && (
-        <AdoptRemoteDialog onClose={(done) => {
-          setAdopting(false);
-          if (done) toast.success("Sync is on. This PC now uses the vault from your Google Drive.");
-          void useSyncStore.getState().refresh();
-        }} />
       )}
     </>
   );

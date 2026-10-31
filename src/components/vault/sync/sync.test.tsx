@@ -16,7 +16,6 @@ const mem = new Map<string, string>();
 
 const { AdoptChoiceList, ADOPT_CHOICES } = await import("./AdoptRemoteDialog");
 const { SyncIndicator, SyncIndicatorButton } = await import("../../layout/SyncIndicator");
-const { DEFAULT_ADOPT_CHOICE } = await import("../../../lib/vaultSyncFlows");
 const { syncIndicator } = await import("../../../lib/vaultSync");
 const { SyncStatusFallback } = await import("../../ui/settings/SyncSection");
 type SyncStatus = import("../../../lib/vaultSync").SyncStatus;
@@ -27,22 +26,22 @@ const status = (o: Partial<SyncStatus> = {}): SyncStatus => ({
   lastSyncedMs: null, lastError: null, pending: false, deviceId: "d1", deviceName: "Desk", ...o,
 });
 
-describe("A/B/C choice list", () => {
-  it("offers A, B and C in order, with A checked by default", () => {
-    const html = renderToStaticMarkup(<AdoptChoiceList choice={DEFAULT_ADOPT_CHOICE} onChange={noop} />);
-    expect(ADOPT_CHOICES.map((c) => c.value)).toEqual(["import", "backupOnly", "cancel"]);
-    expect(html).toContain("A. Import this PC&#x27;s vault into the synced vault");
-    expect(html).toContain("B. Back up this PC&#x27;s vault to a file, then use the synced vault");
-    expect(html).toContain("C. Cancel");
+describe("two vaults choice list (F5)", () => {
+  it("offers two plain choices, the first recommended and checked by default", () => {
+    const html = renderToStaticMarkup(<AdoptChoiceList choice="import" onChange={noop} />);
+    expect(ADOPT_CHOICES.map((c) => c.value)).toEqual(["import", "backupOnly"]);
+    expect(html).toContain("Use the Google Drive vault and add this PC&#x27;s items to it");
+    expect(html).toContain("Use the Google Drive vault only");
+    expect(html).toContain("Recommended");
+    expect(html).not.toMatch(/>[ABC]\. /);
     const radios = html.match(/<input[^>]*type="radio"[^>]*>/g) ?? [];
-    expect(radios).toHaveLength(3);
+    expect(radios).toHaveLength(2);
     expect(radios[0]).toContain('value="import"');
     expect(radios[0]).toContain("checked");
     expect(radios[1]).not.toContain("checked");
-    expect(radios[2]).not.toContain("checked");
   });
 
-  it("explains skipped and renamed entries for A", () => {
+  it("explains skipped and renamed entries for the first choice", () => {
     const html = renderToStaticMarkup(<AdoptChoiceList choice="import" onChange={noop} />);
     expect(html).toContain("Identical logins are skipped");
     expect(html).toContain("(This PC)");

@@ -117,23 +117,6 @@ describe("A/B/C dialog (runAdopt)", () => {
 });
 
 describe("join from Google Drive", () => {
-  it("starts at notConfigured / connect / noRemote / password", async () => {
-    await expect(F.joinStep(status({ configured: false }))).resolves.toEqual({ step: "notConfigured" });
-    await expect(F.joinStep(null)).resolves.toEqual({ step: "notConfigured" });
-    await expect(F.joinStep(status({ provider: null }))).resolves.toEqual({ step: "connect" });
-    route({ sync_remote_info: { exists: false, sameVault: null } });
-    await expect(F.joinStep(status())).resolves.toEqual({ step: "noRemote" });
-    route({ sync_remote_info: { exists: true, sameVault: null } });
-    await expect(F.joinStep(status())).resolves.toEqual({ step: "password" });
-  });
-
-  it("falls back to connect when Google needs a new sign-in", async () => {
-    route({ sync_remote_info: reject("SYNC_AUTH") });
-    const out = await F.joinStep(status());
-    expect(out.step).toBe("connect");
-    expect(out.error).toMatch(/sign in again/);
-  });
-
   it("joins with the password", async () => {
     route({ sync_join: undefined, sync_status: status() });
     await expect(F.runJoin("pw")).resolves.toEqual({ kind: "joined" });
