@@ -16,7 +16,7 @@ use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_opener::OpenerExt;
 use zeroize::Zeroizing;
 
-use super::engine::{self, Ctx, LocalVault, Mode, Outcome, SyncError, SyncResult};
+use super::engine::{self, Ctx, DeviceRow, LocalVault, Mode, Outcome, SyncError, SyncResult};
 use super::gdrive::{self, GoogleDriveProvider, OAuthClient, UrlOpener};
 use super::provider::{ProviderAuth, ProviderError, StorageProvider};
 use super::seal;
@@ -50,15 +50,6 @@ pub struct SyncStatus {
     pending: bool,
     device_id: String,
     device_name: String,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SyncDevice {
-    id: String,
-    name: String,
-    last_seen_ms: Option<u64>,
-    this_device: bool,
 }
 
 #[derive(Serialize)]
@@ -153,6 +144,19 @@ impl SyncManager {
         self.st().device_name.clone().unwrap_or_else(state::host_name)
     }
 
+    /// This installation's device id: the SAME id the engine names its own snapshot with
+    /// (`devices/<id>.nqs`). Loads it from app data first if that hasn't happened yet, so it is
+    /// never missing (or a different session-only id) in states like right after a join.
+    fn device_id(&self, app: &AppHandle) -> Option<String> {
+        let vault = app.state::<VaultState>();
+        if vault.device_id().is_none() {
+            if let Ok(dir) = app.path().app_data_dir() {
+                vault.ensure_device(&dir);
+            }
+        }
+        vault.device_id()
+    }
+
     fn drive(&self, app: &AppHandle) -> Result<Arc<GoogleDriveProvider>, String> {
         let mut d = lock(&self.drive);
         if let Some(p) = d.as_ref() {
@@ -205,7 +209,7 @@ fn status_of(app: &AppHandle) -> SyncStatus {
     let mgr = app.state::<SyncManager>();
     let vault = app.state::<VaultState>();
     let unlocked = vault.is_unlocked();
-    let device_id = vault.device_id().unwrap_or_default();
+    let device_id = mgr.device_id(app).unwrap_or_default();
     let device_name = mgr.device_name();
     let phase = *lock(&mgr.phase);
     let st = mgr.st();
@@ -323,7 +327,7 @@ async fn run_cycle(app: &AppHandle, mode: Mode, wait: bool) -> Result<Option<Syn
         return quiet(msg);
     }
     let drive = mgr.drive(app)?;
-    let device_id = vault.device_id().ok_or("The sync device id isn't set yet")?;
+    let device_id = mgr.device_id(app).ok_or("The sync device id isn't set yet")?;
     let device_name = mgr.device_name();
     let mut st = mgr.st().clone();
     let (meta_gen0, meta_pending0) = (st.meta_generation, st.meta_pending);
@@ -649,7 +653,7 @@ pub async fn sync_join(app: AppHandle, window: tauri::Window, password: String) 
     let m = rm.meta.clone();
     let password = Zeroizing::new(password);
     let key = vault::guarded(&vault_state, move || vc::unlock_with_password(&m, &password)).await.map_err(map_wrong_password)?;
-    let device_id = vault_state.device_id().ok_or("The sync device id isn't set yet")?;
+    let device_id = mgr.device_id(&app).ok_or("The sync device id isn't set yet")?;
     // Everything is downloaded and verified in memory first: on failure nothing local changes.
     let prep = engine::prepare_switch(&*drive, &rm, &key, &device_id, &mgr.device_name(), vdb::now_ms(), None)
         .await
@@ -758,7 +762,7 @@ pub async fn sync_adopt_remote(
         return Ok(AdoptResult { backup_path: backup.to_string_lossy().into_owned(), imported: 0, skipped: 0, renamed: 0 });
     }
 
-    let device_id = vault_state.device_id().ok_or("The sync device id isn't set yet")?;
+    let device_id = mgr.device_id(&app).ok_or("The sync device id isn't set yet")?;
     // Download, verify and merge in memory first: on failure this PC's vault stays as it was
     // (usable with its own password) and sync stays off; only the backup file remains.
     let prep = engine::prepare_switch(&*drive, &rm, &remote_key, &device_id, &mgr.device_name(), vdb::now_ms(), import.then_some(&local_db))
@@ -818,35 +822,41 @@ pub fn sync_disable(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// Devices with a snapshot in the store. Names never fall back to ids: a device whose name isn't
+/// known yet is read from its snapshot while the vault is unlocked, otherwise its name is empty
+/// (the UI says "Unnamed device"). `thisDevice` uses the engine's own snapshot id.
 #[tauri::command]
-pub async fn sync_devices(app: AppHandle) -> Result<Vec<SyncDevice>, String> {
+pub async fn sync_devices(app: AppHandle) -> Result<Vec<DeviceRow>, String> {
     let mgr = app.state::<SyncManager>();
     let drive = mgr.connected_drive(&app)?;
-    let me = app.state::<VaultState>().device_id().unwrap_or_default();
-    let objs = drive.list(seal::DEVICES_PREFIX).await.map_err(|e| SyncError::Provider(e).message())?;
+    let me = mgr.device_id(&app).unwrap_or_default();
     let my_name = mgr.device_name();
-    let st = mgr.st();
-    Ok(objs
-        .iter()
-        .filter_map(|o| seal::device_from_object(&o.name).map(|id| (id, o)))
-        .map(|(id, o)| {
-            let info = st.devices.get(id);
-            let this = id == me;
-            SyncDevice {
-                id: id.to_string(),
-                name: if this { my_name.clone() } else { info.map(|i| i.name.clone()).filter(|n| !n.is_empty()).unwrap_or_else(|| id.to_string()) },
-                last_seen_ms: info.and_then(|i| i.last_seen_ms).or(o.modified_ms.map(|m| m.max(0) as u64)),
-                this_device: this,
+    // The key only helps for the vault this device syncs (another vault's snapshots won't open).
+    let keys = app.state::<VaultState>().key_copy().and_then(|(key, vault_id)| {
+        let ours = mgr.st().vault_id.as_deref() == Some(seal::vault_id_hex(&vault_id).as_str());
+        ours.then(|| seal::SyncKeys::derive(&key, &vault_id))
+    });
+    let mut known = mgr.st().devices.clone();
+    let (rows, learned) = engine::list_devices(&*drive, keys.as_ref(), &mut known, &me, &my_name)
+        .await
+        .map_err(|e| e.message())?;
+    if learned {
+        {
+            let mut st = mgr.st();
+            for (id, info) in known {
+                st.devices.entry(id).or_insert(info);
             }
-        })
-        .collect())
+        }
+        mgr.save();
+    }
+    Ok(rows)
 }
 
 #[tauri::command]
 pub async fn sync_remove_device(app: AppHandle, id: String) -> Result<(), String> {
     let mgr = app.state::<SyncManager>();
     let drive = mgr.connected_drive(&app)?;
-    if Some(&id) == app.state::<VaultState>().device_id().as_ref() {
+    if Some(&id) == mgr.device_id(&app).as_ref() {
         return Err("This device can't be removed from here. Turn sync off instead.".into());
     }
     if !crate::vault_hlc::valid_device_id(&id) {
@@ -873,6 +883,11 @@ pub fn sync_set_device_name(app: AppHandle, name: String) -> Result<SyncStatus, 
         }
         st.enabled
     };
+    if enabled {
+        // A cycle running right now uploads the old name and would clear `pending` when it
+        // finishes; marking it dirty keeps the rename pending for the next cycle.
+        mgr.dirty.store(true, Ordering::SeqCst);
+    }
     mgr.save();
     if enabled {
         mgr.kick(DEBOUNCE);

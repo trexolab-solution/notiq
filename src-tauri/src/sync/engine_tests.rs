@@ -783,3 +783,90 @@ impl StorageProvider for FailGets<'_> {
         self.inner.delete(name).await
     }
 }
+
+// ─── devices list: names, never ids ─────────────────────────────────────────
+
+#[test]
+fn devices_list_never_shows_ids_and_learns_names_from_snapshots() {
+    let p = InMemoryProvider::new();
+    let mut a = Device::create(A, "Laptop");
+    a.put("n.nqv", "x");
+    ok(a.sync(&p));
+    let b = join(&p, B, "Desk", PW).unwrap();
+
+    // A fresh install (C) that hasn't synced: no names known and no key → empty names, not ids.
+    let mut known = std::collections::BTreeMap::new();
+    let (rows, learned) = block_on(list_devices(&p, None, &mut known, C, "CODEMUNI")).unwrap();
+    assert!(!learned);
+    assert_eq!(rows.len(), 2);
+    assert!(rows.iter().all(|r| r.name.is_empty() && !r.this_device), "{rows:?}");
+    assert!(rows.iter().all(|r| r.last_seen_ms.is_some()));
+
+    // Same, but unlocked: names are read from the snapshots and remembered.
+    let keys = SyncKeys::derive(&b.v.key, &b.v.vault_id);
+    let (rows, learned) = block_on(list_devices(&p, Some(&keys), &mut known, C, "CODEMUNI")).unwrap();
+    assert!(learned);
+    let names: Vec<_> = rows.iter().map(|r| r.name.as_str()).collect();
+    assert!(names.contains(&"Laptop") && names.contains(&"Desk"), "{names:?}");
+    assert_eq!(known[A].name, "Laptop");
+
+    // On B: B is "this device", first, with its current name; nothing to learn.
+    let mut known_b = b.st.devices.clone();
+    p.reset_calls();
+    let (rows, learned) = block_on(list_devices(&p, Some(&keys), &mut known_b, B, "Desk renamed")).unwrap();
+    assert!(!learned);
+    assert_eq!(p.calls().get, 0, "known names need no download");
+    assert!(rows[0].this_device && rows[0].id == B && rows[0].name == "Desk renamed");
+    assert_eq!(rows.iter().filter(|r| r.this_device).count(), 1);
+    assert_eq!(rows[1].name, "Laptop");
+}
+
+#[test]
+fn devices_list_with_an_unreadable_snapshot_has_an_empty_name() {
+    let p = InMemoryProvider::new();
+    let mut a = Device::create(A, "Laptop");
+    ok(a.sync(&p));
+    // Another vault's key can't open A's snapshot.
+    let other = Device::create(B, "Other");
+    let keys = SyncKeys::derive(&other.v.key, &other.v.vault_id);
+    let mut known = std::collections::BTreeMap::new();
+    let (rows, learned) = block_on(list_devices(&p, Some(&keys), &mut known, B, "Other")).unwrap();
+    assert!(!learned);
+    assert_eq!((rows.len(), rows[0].name.as_str(), rows[0].this_device), (1, "", false));
+}
+
+#[test]
+fn a_renamed_device_uploads_its_new_name_and_others_pick_it_up() {
+    let p = InMemoryProvider::new();
+    let mut a = Device::create(A, "Laptop");
+    a.put("n.nqv", "x");
+    ok(a.sync(&p));
+    let mut b = join(&p, B, "Desk", PW).unwrap();
+    assert_eq!(b.st.devices[A].name, "Laptop");
+    // What sync_set_device_name does: new name + pending.
+    a.name = "CODEMUNI".into();
+    a.st.pending = true;
+    ok(a.sync(&p));
+    assert!(!a.st.pending);
+    ok(b.sync(&p));
+    assert_eq!(b.st.devices[A].name, "CODEMUNI");
+}
+
+#[test]
+fn conflict_notices_name_the_device_even_after_its_name_was_forgotten() {
+    let p = InMemoryProvider::new();
+    let mut a = Device::create(A, "Laptop A");
+    a.put("n.nqv", "v0");
+    ok(a.sync(&p));
+    let mut b = join(&p, B, "Desk", PW).unwrap();
+    let t = far();
+    a.set_clock(t);
+    b.set_clock(t + 1000);
+    a.put("n.nqv", "from A");
+    b.put("n.nqv", "from B");
+    ok(a.sync(&p));
+    // B lost what it knew about A (state reset): the name comes from the snapshot just opened, never the id.
+    b.st.devices.clear();
+    let o = ok(b.sync(&p));
+    assert_eq!(o.result.conflicts, vec![SyncConflict { path: "n.nqv".into(), from_device: "Laptop A".into() }]);
+}
