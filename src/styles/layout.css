@@ -890,21 +890,13 @@
 .status-item.saved   { color: var(--color-success); }
 
 /* AI activity (autocomplete fetch / AI action in flight). A small spinner +
-   "Thinking…" pill; only the icon animates, so the status bar stays calm. */
+   "Thinking…" pill; only the Spinner animates (ui/Loading.tsx), so the status bar stays calm. */
 .status-item.status-ai-indicator {
   color: var(--color-primary);
   font-weight: 600;
   padding: 1px 8px;
   border-radius: 10px;
   background: color-mix(in srgb, var(--color-primary) 13%, transparent);
-}
-.status-item.status-ai-indicator svg { animation: status-ai-spin 0.8s linear infinite; }
-@keyframes status-ai-spin {
-  from { transform: rotate(0deg); }
-  to   { transform: rotate(360deg); }
-}
-@media (prefers-reduced-motion: reduce) {
-  .status-item.status-ai-indicator svg { animation-duration: 1.6s; }
 }
 .status-item.status-brand {
   font-size: 10px;

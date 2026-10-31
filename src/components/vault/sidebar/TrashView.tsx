@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { ArrowLeft, ArchiveRestore, Trash2, X } from "lucide-react";
 import { ConfirmDialog } from "../../ui/ConfirmDialog";
+import { BusyIcon, busyIconProps } from "../../ui/Loading";
 import type { VaultItem } from "../../../lib/vault";
 import { daysUntilPurge, relativeTime, trashRoots, type TrashRoot } from "../../../lib/vaultTree";
 import { EntryIcon } from "./EntryIcon";
@@ -14,6 +15,12 @@ interface Props {
 }
 
 type Confirm = { kind: "purge"; root: TrashRoot } | { kind: "empty" } | null;
+
+/** Icon-only Restore button's name: "Restore X", or "Restoring…" while it runs (ui/Loading.tsx rule 1). */
+const restoreName = (busy: boolean, name: string) => {
+  const { tooltip, ...aria } = busyIconProps(busy, `Restore ${name}`, `Restoring ${name}…`);
+  return { ...aria, title: busy ? tooltip.replace(` ${name}`, "") : "Restore" };
+};
 
 /** Recycle Bin: trashed entries with Restore / Delete forever, plus Empty trash. */
 export function TrashView({ trash, onBack, onRestore, onPurge, onEmpty }: Props) {
@@ -73,10 +80,10 @@ export function TrashView({ trash, onBack, onRestore, onPurge, onEmpty }: Props)
                   </div>
                   <button
                     type="button" className="vt-icon-btn" disabled={busy === key}
-                    aria-label={`Restore ${r.name}`} title="Restore"
+                    {...restoreName(busy === key, r.name)}
                     onClick={() => void run(key, () => onRestore(key))}
                   >
-                    <ArchiveRestore size={14} />
+                    <BusyIcon icon={ArchiveRestore} busy={busy === key} size={14} />
                   </button>
                   <button
                     type="button" className="vt-icon-btn" disabled={busy === key}

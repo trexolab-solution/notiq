@@ -1,8 +1,9 @@
 import React from "react";
-import { Download, RotateCw, Loader2 } from "lucide-react";
+import { Download, RotateCw } from "lucide-react";
 import { useUpdater } from "../../hooks/useUpdater";
 import { updater } from "../../lib/updater";
 import { Tooltip } from "../ui/Tooltip";
+import { Spinner } from "../ui/Loading";
 
 /**
  * Zed-style "update available" pill in the topbar. Hidden unless an update is
@@ -33,12 +34,14 @@ export const UpdateButton = React.memo(function UpdateButton() {
     <Tooltip content={tip}>
       <button
         className={`update-pill${status === "available" ? " update-pill--attention" : ""}`}
-        aria-label={tip}
+        aria-label={status === "downloading" ? label : tip}
+        aria-busy={status === "downloading" || undefined}
         onClick={onClick}
         disabled={status === "downloading"}
       >
+        {/* The pill has room: spinner + "Updating… 42%" (ui/Loading.tsx rule 4). */}
         {status === "downloading"
-          ? <Loader2 size={12} className="animate-spin" />
+          ? <Spinner size={12} />
           : status === "ready"
             ? <RotateCw size={12} />
             : <Download size={12} />}

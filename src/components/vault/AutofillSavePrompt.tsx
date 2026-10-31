@@ -102,7 +102,8 @@ export function AutofillSavePrompt() {
       </DialogBody>
       <DialogFooter>
         <DialogButton cancel onClick={() => void deny()}>Not now</DialogButton>
-        <DialogButton variant="primary" disabled={busy || !!nameErr} onClick={() => void confirm()}>{update ? "Update" : "Save"}</DialogButton>
+        <DialogButton variant="primary" disabled={!!nameErr} loading={busy} loadingText={update ? "Updating…" : "Saving…"}
+                      onClick={() => void confirm()}>{update ? "Update" : "Save"}</DialogButton>
       </DialogFooter>
     </Dialog>
   );

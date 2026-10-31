@@ -4,6 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Lock, Search, Star } from "lucide-react";
+import { InlineLoading } from "../components/ui/Loading";
 import { applyTheme } from "../lib/themes";
 import { copySecret } from "../lib/secureCopy";
 import { resolveVaultDir } from "../lib/vaultDir";
@@ -186,7 +187,7 @@ export default function QuickSearchApp() {
       </div>
 
       <div className="flex-1 min-h-0 overflow-y-auto">
-        {phase === "loading" && <p className="p-4 text-xs text-[var(--color-text-muted)]">Loading…</p>}
+        {phase === "loading" && <InlineLoading label="Loading…" className="p-4" />}
 
         {phase === "locked" && (
           <div className="h-full flex flex-col items-center justify-center gap-3 p-6 text-center">

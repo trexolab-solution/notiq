@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { HardDrive, SquareTerminal, Loader2 } from "lucide-react";
+import { HardDrive, SquareTerminal } from "lucide-react";
+import { Spinner } from "../ui/Loading";
 import { useAppStore } from "../../store";
 import { isVaultPath } from "../../lib/vault";
 import { Tooltip } from "../ui/Tooltip";
@@ -96,8 +97,8 @@ export const StatusBar = React.memo(function StatusBar({
       {/* Right: AI activity + save state + mode + theme */}
       <div className="status-group">
         {aiBusy && (
-          <span className="status-item status-ai-indicator" aria-live="polite">
-            <Loader2 size={11} />
+          <span className="status-item status-ai-indicator" role="status" aria-live="polite">
+            <Spinner size={11} />
             Thinking…
           </span>
         )}

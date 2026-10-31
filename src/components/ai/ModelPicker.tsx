@@ -6,6 +6,7 @@ import { useEscapeKey } from "../../hooks/useEscapeKey";
 import { computePopoverPos } from "../../lib/popoverPosition";
 import { formatContextLength, isFreeModel, usageLevelFor, usageLevelLabel, usageLevelHelp, type UsageLevel } from "../../lib/ai/models";
 import { Tooltip } from "../ui/Tooltip";
+import { InlineLoading } from "../ui/Loading";
 import type { AIProvider } from "../../types";
 
 const PROVIDER_LABEL: Record<AIProvider, string> = { cloud: "Cloud", local: "Local", openrouter: "OpenRouter" };
@@ -238,7 +239,7 @@ export const ModelPicker = React.memo(function ModelPicker({
           </div>
 
           <div className="model-picker__list">
-            {loading && <div className="model-picker__empty">Loading models…</div>}
+            {loading && <InlineLoading label="Loading models…" className="model-picker__empty items-center" />}
             {!loading && items.length === 0 && (
               <div className="model-picker__empty">{error ? error : query ? "No models match" : "No models available"}</div>
             )}

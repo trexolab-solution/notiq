@@ -47,7 +47,7 @@ export function LockedNoteView({ tab }: { tab: Tab }) {
         <p className="text-xs mb-4 text-[var(--color-text-muted)]">
           This note is locked. Enter your master password to open it.
         </p>
-        <Button variant="primary" size="sm" icon={<Lock size={13} />} onClick={unlock} disabled={busy} autoFocus>
+        <Button variant="primary" size="sm" icon={<Lock size={13} />} onClick={unlock} loading={busy} loadingText="Unlocking…" autoFocus>
           Unlock
         </Button>
       </div>

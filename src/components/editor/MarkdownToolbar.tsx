@@ -12,6 +12,7 @@ import {
 import { open } from "@tauri-apps/plugin-dialog";
 import { useClickOutside } from "../../hooks/useClickOutside";
 import { Tooltip } from "../ui/Tooltip";
+import { BusyIcon } from "../ui/Loading";
 import { formatDocument } from "../../lib/formatter";
 import { toast } from "../../lib/toast";
 import { useAppStore } from "../../store";
@@ -466,15 +467,16 @@ export function MarkdownToolbar({ editorRef, activeFormats, showFormat, showMark
       {showFormat && (
         <>
           <Sep />
-          <Tooltip content="Format document" shortcut="Shift+Alt+F">
+          <Tooltip content={formatting ? "Formatting document…" : "Format document"} shortcut="Shift+Alt+F">
             <button
               ref={btnRef}
               className="md-toolbar-format-btn"
               disabled={formatting}
+              aria-busy={formatting || undefined}
               onMouseDown={(e) => { e.preventDefault(); handleFormat(); }}
-              aria-label="Format document"
+              aria-label={formatting ? "Formatting document…" : "Format document"}
             >
-              <Wand2 size={11} strokeWidth={2} />
+              <BusyIcon icon={Wand2} busy={formatting} size={11} strokeWidth={2} />
               {formatting ? "Formatting…" : "Format"}
             </button>
           </Tooltip>
