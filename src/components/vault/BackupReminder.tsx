@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Download, X } from "lucide-react";
+import { Tooltip } from "../ui/Tooltip";
 import { toast } from "../../lib/toast";
 import { useVaultStore } from "../../store/vaultStore";
 import { vaultErrorMessage } from "../../lib/vault";
@@ -58,13 +59,15 @@ export function BackupReminder() {
     >
       <div className="flex items-start gap-2">
         <span className="flex-1">{text}</span>
-        <button
-          type="button" aria-label="Remind me in 7 days" title="Remind me in 7 days"
-          className="shrink-0 cursor-pointer text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
-          onClick={() => snoozeBackupReminder()}
-        >
-          <X size={12} />
-        </button>
+        <Tooltip content="Remind me in 7 days">
+          <button
+            type="button" aria-label="Remind me in 7 days"
+            className="shrink-0 cursor-pointer text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
+            onClick={() => snoozeBackupReminder()}
+          >
+            <X size={12} />
+          </button>
+        </Tooltip>
       </div>
       <div className="flex items-center justify-between mt-1.5">
         <button

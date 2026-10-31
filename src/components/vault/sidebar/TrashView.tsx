@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { ArrowLeft, ArchiveRestore, Trash2, X } from "lucide-react";
 import { ConfirmDialog } from "../../ui/ConfirmDialog";
+import { Tooltip } from "../../ui/Tooltip";
 import type { VaultItem } from "../../../lib/vault";
 import { daysUntilPurge, relativeTime, trashRoots, type TrashRoot } from "../../../lib/vaultTree";
 import { EntryIcon } from "./EntryIcon";
@@ -29,9 +30,11 @@ export function TrashView({ trash, onBack, onRestore, onPurge, onEmpty }: Props)
   return (
     <div className="flex flex-col min-h-0 flex-1">
       <div className="flex items-center gap-1 px-2 pb-1.5">
-        <button type="button" className="vt-icon-btn" onClick={onBack} aria-label="Back to vault" title="Back to vault">
-          <ArrowLeft size={14} />
-        </button>
+        <Tooltip content="Back to vault">
+          <button type="button" className="vt-icon-btn" onClick={onBack} aria-label="Back to vault">
+            <ArrowLeft size={14} />
+          </button>
+        </Tooltip>
         <span className="flex-1 text-xs font-semibold">Trash</span>
         {roots.length > 0 && (
           <button
@@ -71,20 +74,24 @@ export function TrashView({ trash, onBack, onRestore, onPurge, onEmpty }: Props)
                       {at ? ` · ${left === 0 ? "removing soon" : `${left} d left`}` : ""}
                     </div>
                   </div>
-                  <button
-                    type="button" className="vt-icon-btn" disabled={busy === key}
-                    aria-label={`Restore ${r.name}`} title="Restore"
-                    onClick={() => void run(key, () => onRestore(key))}
-                  >
-                    <ArchiveRestore size={14} />
-                  </button>
-                  <button
-                    type="button" className="vt-icon-btn" disabled={busy === key}
-                    aria-label={`Delete ${r.name} forever`} title="Delete forever"
-                    onClick={() => setConfirm({ kind: "purge", root: r })}
-                  >
-                    <X size={14} />
-                  </button>
+                  <Tooltip content="Restore">
+                    <button
+                      type="button" className="vt-icon-btn" disabled={busy === key}
+                      aria-label={`Restore ${r.name}`}
+                      onClick={() => void run(key, () => onRestore(key))}
+                    >
+                      <ArchiveRestore size={14} />
+                    </button>
+                  </Tooltip>
+                  <Tooltip content="Delete forever">
+                    <button
+                      type="button" className="vt-icon-btn" disabled={busy === key}
+                      aria-label={`Delete ${r.name} forever`}
+                      onClick={() => setConfirm({ kind: "purge", root: r })}
+                    >
+                      <X size={14} />
+                    </button>
+                  </Tooltip>
                 </div>
               );
             })}
