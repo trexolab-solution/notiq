@@ -11,6 +11,8 @@ import { QuickSearchRow } from "./QuickSearchRow";
 import { BackupSection } from "../../vault/BackupSection";
 import { AutofillSection } from "./AutofillSection";
 import { HelloRow } from "./HelloRow";
+import { SyncSection } from "./SyncSection";
+import { SYNC_INDEX } from "./syncIndex";
 import { helloStatus } from "../../../lib/hello";
 import { toast } from "../../../lib/toast";
 import { useAppStore } from "../../../store";
@@ -127,6 +129,13 @@ export const VaultSection = React.memo(function VaultSection() {
       </SettingsGroup>
 
       <SettingsGroup
+        title="Sync"
+        description="Use the same vault on all your PCs, through your own Google Drive. Everything is encrypted before it leaves this PC."
+      >
+        <SyncSection />
+      </SettingsGroup>
+
+      <SettingsGroup
         title="Backup"
         description="Your vault lives only on this computer. Keep an encrypted copy somewhere else."
       >
@@ -222,6 +231,7 @@ export const SETTINGS_INDEX: SettingMeta[] = [
   { id: "vault.storage.folder", section: "vault", group: "Storage", label: "Vault storage folder",
     description: "Where your encrypted vault file (vault.nqdb) is kept. Warns if the folder is synced by a cloud service.",
     keywords: ["folder", "directory", "location", "path", "vault.nqdb", "cloud", "onedrive", "dropbox", "sync", "move"] },
+  ...SYNC_INDEX,
   { id: "vault.backup.export", section: "vault", group: "Backup", label: "Export encrypted backup",
     description: "Save an encrypted copy of your vault and see when you last backed up. The file stays protected by your master password and recovery key.",
     keywords: ["backup", "last backup", "export", "save a copy", ".nqbackup", "encrypted"] },
