@@ -514,6 +514,7 @@ pub async fn hello_unlock(app: AppHandle, window: tauri::Window, state: State<'_
     }
     state.install_key(key, vault_id);
     crate::vault::notify_state(&app, true, window.label());
+    crate::sync::commands::on_unlocked(&app);
     Ok(())
 }
 
