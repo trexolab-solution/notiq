@@ -3,7 +3,7 @@
  * screens and toasts it leads to. Pure functions only; the effects live in ./syncSetupFlow.
  * Spec: design/vault-sync-ux-flow.md → "The decision after sign-in".
  */
-import { relativeTime, type RemoteVaultInfo, type SyncDevice, type SyncResult } from "./vaultSync";
+import { relativeTime, type RemoteVaultInfo, type SyncDevice, type SyncResult, type SyncStatus } from "./vaultSync";
 
 /** Window event that starts the setup flow (title bar / status bar popover "Connect Google Drive"). */
 export const SYNC_START_SETUP_EVENT = "notiq:sync-start-setup";
@@ -20,17 +20,32 @@ export type NextStep =
   | { kind: "unlock" }
   /** Row 4: one confirm ("Upload this vault (N items) to Google Drive?"). */
   | { kind: "upload"; items: number | null }
+  /**
+   * Row 7: resuming on a PC that synced before, and Drive is empty (the Drive vault was deleted): ask
+   * "Upload this PC's vault (N items) again?". Never uploaded without that answer, also not with `autoUpload`.
+   */
+  | { kind: "reupload"; items: number | null }
   /** Row 5: nothing to ask, merge and turn on. */
   | { kind: "merge" }
   /** Row 6: the two-vaults dialog. */
   | { kind: "twoVaults"; items: number | null };
 
+/** What the decision needs besides the two vaults. */
+export interface SetupContext {
+  /** This PC synced before and sync is paused / off now: turning it on is a resume (see `wasSyncedBefore`). */
+  wasSynced?: boolean;
+}
+
+/** A resume: sync is not on here, but this PC has synced before (so an empty Drive means the Drive vault went away). */
+export const wasSyncedBefore = (s: Pick<SyncStatus, "enabled" | "lastSyncedMs"> | null | undefined): boolean =>
+  !!s && !s.enabled && s.lastSyncedMs != null;
+
 /** The decision after sign-in (every row of the table is unit-tested). */
-export function decideAfterSignIn(local: LocalVaultFacts, remote: RemoteVaultInfo): NextStep {
+export function decideAfterSignIn(local: LocalVaultFacts, remote: RemoteVaultInfo, ctx: SetupContext = {}): NextStep {
   if (!local.exists) return remote.exists ? { kind: "openDrive", replaceLocal: false } : { kind: "create" };
   // Everything below reads or merges the local vault, which needs its key.
   if (!local.unlocked) return { kind: "unlock" };
-  if (!remote.exists) return { kind: "upload", items: local.items };
+  if (!remote.exists) return ctx.wasSynced ? { kind: "reupload", items: local.items } : { kind: "upload", items: local.items };
   if (remote.sameVault === true) return { kind: "merge" };
   // A different Drive vault: an empty local vault has nothing to keep, so open the Drive vault directly.
   if (local.items === 0) return { kind: "openDrive", replaceLocal: true };
@@ -70,6 +85,19 @@ export const itemsText = (n: number) => (n === 1 ? "1 item" : `${n} items`);
 /** "Upload this vault (12 items) to Google Drive?" */
 export const uploadQuestion = (items: number | null) =>
   items == null ? "Upload this vault to Google Drive?" : `Upload this vault (${itemsText(items)}) to Google Drive?`;
+
+/** Row 7's dialog title. */
+export const REUPLOAD_TITLE = "Vault not found in Google Drive";
+
+/** "Your vault wasn't found in Google Drive (it may have been deleted). Upload this PC's vault (42 items) again?" */
+export const reuploadQuestion = (items: number | null) =>
+  `Your vault wasn't found in Google Drive (it may have been deleted). Upload this PC's vault${items == null ? "" : ` (${itemsText(items)})`} again?`;
+
+/** Toast when an upload question is answered with Cancel / Not now: sync stays paused here. */
+export const PAUSED_TOAST = "Sync is paused on this PC. Resume it any time in Settings → Sync.";
+
+/** Toast after "Keep this PC separate". */
+export const KEPT_SEPARATE_TOAST = "Sync is paused on this PC. It keeps its own vault.";
 
 /** "Vault ready · synced with LAPTOP" after opening the Drive vault. */
 export const vaultReadyMessage = (device: string | null) =>
