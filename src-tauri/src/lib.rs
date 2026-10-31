@@ -11,6 +11,7 @@ mod vault_backup;
 mod vault_core;
 mod vault_db;
 mod vault_hlc; // 0.9.0 sync: HLC stamps + device id
+mod vault_merge; // 0.9.0 sync: pure merge engine (P1)
 mod profile;
 mod session_lock;
 mod hello; // 0.7.0 hello
