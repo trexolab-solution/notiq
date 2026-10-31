@@ -128,7 +128,7 @@
   #filter::placeholder { color: var(--nq-muted); }
   #filter:focus-visible { outline: 2px solid var(--ring); outline-offset: 0; border-color: transparent; }
   #filter[hidden] { display: none; }
-  #accList { list-style: none; margin: 0; padding: 0; max-height: 236px; overflow-y: auto; display: grid; gap: 4px; }
+  #accList { list-style: none; margin: 0; padding: 0; max-height: 236px; overflow: hidden auto; display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; }
   #accList li { display: flex; align-items: center; gap: 2px; padding: 2px 4px 2px 2px; background: var(--card);
     border: 1px solid var(--line); border-radius: 8px; transition: border-color .15s, background-color .15s; }
   #accList li:hover, #accList li:focus-within { border-color: color-mix(in srgb, var(--nq-primary) 45%, var(--nq-border)); }
