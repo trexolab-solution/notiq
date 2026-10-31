@@ -1,20 +1,21 @@
-//! Vault Sync storage layer (phase P2): the [`StorageProvider`] contract and its
-//! backends. Providers move opaque names and bytes only; sealing, merging and
-//! scheduling live in the engine (P3, `vault_merge.rs` and the orchestrator).
+//! Vault Sync: the [`StorageProvider`] contract and its backends (P2), and the orchestrator (P3):
+//! object sealing (`seal`), per-device state and safety backups (`state`), the Tauri-free sync
+//! engine (`engine`) and the Tauri commands + scheduler (`commands`).
 //! See `design/vault-sync-plan.md`.
 
-// Nothing outside tests uses this layer until the orchestrator (P3) lands.
-#![allow(dead_code, unused_imports)]
-
+pub mod commands;
+pub mod engine;
 pub mod gdrive;
+#[cfg(test)]
 pub mod memory;
 pub mod provider;
+pub mod seal;
+pub mod state;
 
 #[cfg(test)]
 pub(crate) mod contract_tests;
 #[cfg(test)]
+mod engine_tests;
+#[cfg(test)]
 mod gdrive_mock;
 
-pub use gdrive::GoogleDriveProvider;
-pub use memory::InMemoryProvider;
-pub use provider::{AccountInfo, Capabilities, ProviderAuth, ProviderError, RemoteObject, StorageProvider};

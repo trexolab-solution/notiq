@@ -61,7 +61,7 @@ fn crc32(data: &[u8]) -> u32 {
     !crc
 }
 
-fn build_container(meta: &[u8], db: &[u8]) -> Vec<u8> {
+pub(crate) fn build_container(meta: &[u8], db: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(MIN_LEN + meta.len() + db.len());
     out.extend_from_slice(MAGIC);
     out.extend_from_slice(&(meta.len() as u32).to_be_bytes());
@@ -72,13 +72,13 @@ fn build_container(meta: &[u8], db: &[u8]) -> Vec<u8> {
     out
 }
 
-struct Parsed<'a> {
+pub(crate) struct Parsed<'a> {
     meta_bytes: &'a [u8],
     db_bytes: &'a [u8],
     meta: VaultMeta,
 }
 
-fn parse_container(data: &[u8]) -> Result<Parsed<'_>, String> {
+pub(crate) fn parse_container(data: &[u8]) -> Result<Parsed<'_>, String> {
     const BAD: &str = "This isn't a valid Notiq backup file";
     if data.len() < MIN_LEN || &data[..4] != MAGIC {
         return Err(BAD.into());

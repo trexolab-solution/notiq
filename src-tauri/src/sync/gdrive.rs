@@ -80,6 +80,7 @@ impl Endpoints {
     }
 
     /// Endpoints of a mock server at `base` (e.g. `http://127.0.0.1:1234`).
+    #[cfg_attr(not(test), allow(dead_code))] // tests point the provider at a local mock
     pub fn at(base: &str) -> Self {
         Self {
             auth: format!("{base}/auth"),
@@ -193,6 +194,7 @@ impl SecretStore for KeyringStore {
 
 /// A process-local store (tests, or a session that must not persist).
 #[derive(Default)]
+#[cfg_attr(not(test), allow(dead_code))] // tests only
 pub struct MemorySecretStore(Mutex<Option<String>>);
 
 impl SecretStore for MemorySecretStore {
@@ -684,6 +686,7 @@ impl GoogleDriveProvider {
     }
 
     /// Whether this build can sign in at all.
+    #[cfg_attr(not(test), allow(dead_code))] // the app checks `OAuthClient::from_build` without a provider
     pub fn is_configured(&self) -> bool {
         self.cfg.oauth.is_some()
     }

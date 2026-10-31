@@ -79,6 +79,7 @@ impl std::error::Error for ProviderError {}
 #[async_trait]
 pub trait StorageProvider: Send + Sync {
     /// Stable provider id, e.g. `"gdrive"`.
+    #[allow(dead_code)] // part of the contract; used once more providers exist
     fn id(&self) -> &'static str;
     fn capabilities(&self) -> Capabilities;
     /// Every object whose name starts with `prefix` (`""` lists everything), sorted by name.
@@ -105,6 +106,7 @@ pub trait ProviderAuth: Send + Sync {
     /// Revoke access (best effort) and forget all stored credentials.
     async fn disconnect(&self) -> Result<(), ProviderError>;
     /// The connected account, or `None` when not connected.
+    #[allow(dead_code)] // the app shows the label stored at connect time instead (no keychain read)
     fn account(&self) -> Option<AccountInfo>;
 }
 

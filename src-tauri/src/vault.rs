@@ -12,7 +12,10 @@ use std::{
     fs,
     io::Write,
     path::{Path, PathBuf},
-    sync::{Mutex, MutexGuard},
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Mutex, MutexGuard, OnceLock,
+    },
     time::{Instant, SystemTime},
 };
 
@@ -24,6 +27,8 @@ use crate::vault_core::{self as vc, KdfParams, Throttle, VaultError, VaultKey, V
 use crate::vault_db::{self as vdb, AttachmentMeta, Db, ListItem, RevisionMeta};
 
 const META_FILE: &str = "vault.json";
+/// 0.9.0 sync: the `vault.json` a synced password change replaced (for `PASSWORD_CHANGED_ELSEWHERE`).
+const PREV_META_FILE: &str = "vault.prev.json";
 const NQV_EXT: &str = "nqv";
 
 const ERR_NO_VAULT: &str = "NO_VAULT";
@@ -47,11 +52,17 @@ struct Store {
     device: Option<String>,
 }
 
+/// Called after a user change to the vault was saved (0.9.0 sync schedules an upload).
+pub(crate) type ChangeHook = Box<dyn Fn() + Send + Sync>;
+
 #[derive(Default)]
 pub struct VaultState {
     key: Mutex<Option<Unlocked>>,
     throttle: Mutex<Throttle>,
     store: Mutex<Store>,
+    /// 0.9.0 sync: counts saved changes made outside sync, and the hook told about them.
+    change_seq: AtomicU64,
+    change_hook: OnceLock<ChangeHook>,
 }
 
 impl VaultState {
@@ -86,6 +97,46 @@ impl VaultState {
         &self,
         f: impl FnOnce(&mut Db, &Path, &VaultKey, &[u8; VAULT_ID_LEN]) -> Result<(T, bool), String>,
     ) -> Result<T, String> {
+        let (out, dirty) = self.with_db_inner(f)?;
+        if dirty {
+            // After the locks are released: the hook takes the sync manager's own locks.
+            self.change_seq.fetch_add(1, Ordering::SeqCst);
+            if let Some(h) = self.change_hook.get() { h(); }
+        }
+        Ok(out)
+    }
+
+    /// Like [`with_db`](Self::with_db) for the sync engine's own merges: saved the same way, but
+    /// not counted as a local change (that would schedule another upload of itself).
+    pub(crate) fn with_db_quiet<T>(
+        &self,
+        f: impl FnOnce(&mut Db, &Path, &VaultKey, &[u8; VAULT_ID_LEN]) -> Result<(T, bool), String>,
+    ) -> Result<T, String> {
+        self.with_db_inner(f).map(|(out, _)| out)
+    }
+
+    pub(crate) fn change_seq(&self) -> u64 {
+        self.change_seq.load(Ordering::SeqCst)
+    }
+
+    pub(crate) fn set_change_hook(&self, hook: ChangeHook) {
+        let _ = self.change_hook.set(hook);
+    }
+
+    /// A copy of the unlocked key (zeroised on drop) for one sync cycle.
+    pub(crate) fn key_copy(&self) -> Option<(VaultKey, [u8; VAULT_ID_LEN])> {
+        self.guard().as_ref().map(|u| (u.key.clone(), u.vault_id))
+    }
+
+    /// This installation's sync device id, once `ensure_device` ran.
+    pub(crate) fn device_id(&self) -> Option<String> {
+        self.store.lock().unwrap_or_else(|e| e.into_inner()).device.clone()
+    }
+
+    fn with_db_inner<T>(
+        &self,
+        f: impl FnOnce(&mut Db, &Path, &VaultKey, &[u8; VAULT_ID_LEN]) -> Result<(T, bool), String>,
+    ) -> Result<(T, bool), String> {
         let kg = self.guard();
         let u = kg.as_ref().ok_or(ERR_LOCKED)?;
         let mut st = self.store.lock().unwrap_or_else(|e| e.into_inner());
@@ -111,7 +162,7 @@ impl VaultState {
             if let Err(e) = saved { st.db = None; return Err(e); }
             st.stamp = fs::metadata(vdb::db_path(&root)).and_then(|m| m.modified()).ok();
         }
-        Ok(out)
+        Ok((out, dirty))
     }
 
     /// Records the folder that holds vault.nqdb; a different folder drops the cached DB.
@@ -217,8 +268,32 @@ pub(crate) fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), String> {
     result.map_err(|e| e.to_string())
 }
 
-fn save_meta(app: &AppHandle, meta: &VaultMeta) -> Result<(), String> {
+pub(crate) fn save_meta(app: &AppHandle, meta: &VaultMeta) -> Result<(), String> {
     atomic_write(&meta_path(app)?, meta.to_json().as_bytes())
+}
+
+fn prev_meta_path(app: &AppHandle) -> Result<PathBuf, String> {
+    Ok(meta_path(app)?.with_file_name(PREV_META_FILE))
+}
+
+/// The `vault.json` that a synced password change replaced, if any.
+pub(crate) fn load_prev_meta(app: &AppHandle) -> Option<VaultMeta> {
+    let s = fs::read_to_string(prev_meta_path(app).ok()?).ok()?;
+    VaultMeta::from_json(&s).ok()
+}
+
+/// 0.9.0 sync: installs a newer `vault.json` from another device (same key, new password wrap),
+/// keeping the current one as `vault.prev.json`.
+pub(crate) fn adopt_meta(app: &AppHandle, meta: &VaultMeta) -> Result<(), String> {
+    if let Some(cur) = load_meta(app)? {
+        atomic_write(&prev_meta_path(app)?, cur.to_json().as_bytes())?;
+    }
+    save_meta(app, meta)
+}
+
+/// Forgets `vault.prev.json` (the password was changed here, or another vault was installed).
+pub(crate) fn clear_prev_meta(app: &AppHandle) {
+    if let Ok(p) = prev_meta_path(app) { let _ = fs::remove_file(p); }
 }
 
 fn check_nqv_path(path: &str) -> Result<PathBuf, String> {
@@ -310,10 +385,13 @@ pub async fn vault_unlock(
 ) -> Result<(), String> {
     let meta = require_meta(&app)?;
     let m = meta.clone();
+    let prev = load_prev_meta(&app);
     let password = Zeroizing::new(password);
-    let key = guarded(&state, move || vc::unlock_with_password(&m, &password)).await?;
+    // A password another device replaced fails with PASSWORD_CHANGED_ELSEWHERE (0.9.0 sync).
+    let key = guarded(&state, move || vc::unlock_with_password_or_previous(&m, prev.as_ref(), &password)).await?;
     state.set(key, meta.vault_id_bytes().map_err(|e| e.to_string())?);
     notify_state(&app, true, window.label());
+    crate::sync::commands::on_unlocked(&app);
     Ok(())
 }
 
@@ -339,6 +417,8 @@ pub async fn vault_unlock_with_recovery(
     save_meta(&app, &new_meta)?;
     state.set(key, new_meta.vault_id_bytes().map_err(|e| e.to_string())?);
     notify_state(&app, true, window.label());
+    crate::sync::commands::on_local_meta_changed(&app);
+    crate::sync::commands::on_unlocked(&app);
     Ok(())
 }
 
@@ -361,17 +441,23 @@ pub async fn vault_change_password(
     .await?;
     save_meta(&app, &new_meta)?;
     state.set(key, new_meta.vault_id_bytes().map_err(|e| e.to_string())?);
+    crate::sync::commands::on_local_meta_changed(&app);
     Ok(())
 }
 
-/// Drops the key from memory (zeroised on drop).
+/// Drops the key from memory (zeroised on drop). With Vault Sync on and local changes pending,
+/// first makes a best-effort upload (at most 10 s).
 #[tauri::command]
-pub fn vault_lock(app: AppHandle, window: tauri::Window, state: State<'_, VaultState>) {
+pub async fn vault_lock(app: AppHandle, window: tauri::Window) -> Result<(), String> {
+    crate::sync::commands::before_lock(&app).await;
+    let state = app.state::<VaultState>();
     let was_unlocked = state.guard().take().is_some();
     state.clear_db();
     if was_unlocked {
         notify_state(&app, false, window.label());
     }
+    crate::sync::commands::notify_status(&app);
+    Ok(())
 }
 
 // ─── the vault database (single encrypted file) ──────────────────────────────
