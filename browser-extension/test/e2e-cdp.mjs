@@ -1035,6 +1035,139 @@ try {
     await cdp("Target.closeTarget", { targetId: pop2Target });
   }
 
+  // 25. Login forms inside open shadow roots (web components)
+  const SHADOW = `http://localhost:${PORT}/test-pages/shadow-login.html`;
+  // Centre of a field reached through open roots (window.__field on the test page), and the icon drawn in it.
+  const shadowBox = (path) => P(`(() => { const e = window.__field(${JSON.stringify(path)}); e.scrollIntoView({ block: "center" });
+    const r = e.getBoundingClientRect(); return { x: r.x + 20, right: r.right, cy: r.y + r.height / 2 }; })()`);
+  const shadowIcon = async (path) => {
+    const f = await shadowBox(path);
+    await sleep(250);
+    return ((await icons()) || []).find((i) => Math.abs(i.y - f.cy) < 3 && i.x < f.right && i.x > f.right - 30) || null;
+  };
+  const shadowVal = (path) => P(`window.__field(${JSON.stringify(path)}).value`);
+  await resetState();
+  await mockNative(NATIVE);
+  await load(SHADOW);
+  await sleep(1500); // the late component renders its form after 1.2 s
+  const ic25 = (await icons()) || [];
+  check("shadow DOM: icons on the open-root forms (2 + nested 2 + late 2), none in the closed root", ic25.length === 6, String(ic25.length));
+  const si = await shadowIcon(["#c1", "#c1-pass"]);
+  check("shadow DOM: the icon sits at the right inside edge of the shadow field", !!si);
+  await mouseClick(si.x, si.y);
+  await waitFor(async () => (await shadowVal(["#c1", "#c1-pass"])) !== "", 3000);
+  check("shadow DOM: one fill fills username and password inside the open root",
+    (await shadowVal(["#c1", "#c1-user"])) === "alice@example.com" && (await shadowVal(["#c1", "#c1-pass"])) === "Notiq-Filled-1!");
+  const si2 = await shadowIcon(["#c2", "#c2-pass", "input"]);
+  await sleep(2100); // the previous icon's "done" state
+  await mouseClick(si2.x, si2.y);
+  await waitFor(async () => (await shadowVal(["#c2", "#c2-pass", "input"])) !== "", 3000);
+  check("shadow DOM: nested components (email and password each in its own root) are filled together",
+    (await shadowVal(["#c2", "#c2-user", "input"])) === "alice@example.com" && (await shadowVal(["#c2", "#c2-pass", "input"])) === "Notiq-Filled-1!");
+  check("shadow DOM: the late-rendered form got its icons", !!(await shadowIcon(["#c3", "#c3-pass"])));
+  check("shadow DOM: the closed root's fields stay untouched", await P(`document.getElementById("c4").shadowRoot === null`));
+  // Capture from a shadow form: typed login, Enter submits the form inside the root.
+  await resetState();
+  await load(SHADOW);
+  for (const [path, text] of [[["#c1", "#c1-user"], "sam@example.com"], [["#c1", "#c1-pass"], "Shadow-Typed-7!"]]) {
+    const b = await shadowBox(path);
+    await mouseClick(b.x, b.cy);
+    await cdp("Input.insertText", { text }, page);
+  }
+  await pressEnter();
+  const p25 = await waitFor(async () => (await pendingEntries())[0], 2500);
+  check("shadow DOM: a login submitted inside an open root is offered for saving",
+    p25 && p25.username === "sam@example.com" && p25.password === "Shadow-Typed-7!", JSON.stringify(p25 && { ...p25, password: "<redacted>" }));
+
+  // 26. The generator follows the site's maxlength / passwordrules / pattern
+  const RULES = `http://localhost:${PORT}/test-pages/signup-rules.html`;
+  await resetState();
+  await mockNative(NATIVE);
+  await load(RULES);
+  const generate = async (id) => {
+    const gi26 = await iconFor(id);
+    if (!gi26) return null;
+    await mouseClick(gi26.x, gi26.y);
+    const m = await waitFor(menuInfo, 1500);
+    if (!m || !m.items.length) return null;
+    const sub = m.text;
+    await mouseClick(m.items[0].x, m.items[0].y);
+    await sleep(400);
+    const after = await menuInfo();
+    await key("Escape", "Escape", 27);
+    await sleep(250);
+    return { sub, after: after ? after.text : "" };
+  };
+  const fieldVals = (ids) => P(`${JSON.stringify(ids)}.map((id) => document.getElementById(id).value)`);
+  let g26 = await generate("m-pass");
+  let v26 = await fieldVals(["m-pass", "m-pass2"]);
+  check("maxlength=16: menu says 16 characters, both fields get the same 16-character password",
+    g26 && /16 characters/.test(g26.sub) && v26[0].length === 16 && v26[0] === v26[1] && /[A-Z]/.test(v26[0]) && /[^A-Za-z0-9]/.test(v26[0]),
+    JSON.stringify({ sub: g26 && g26.sub, len: v26[0].length }));
+  g26 = await generate("r-pass");
+  v26 = await fieldVals(["r-pass", "r-pass2"]);
+  check("passwordrules: 14 characters, lower+upper+digit, only -_. as symbols, confirm field too",
+    v26[0].length === 14 && v26[0] === v26[1] && /^[A-Za-z0-9._-]+$/.test(v26[0]) && /[a-z]/.test(v26[0]) && /[A-Z]/.test(v26[0]) && /\d/.test(v26[0]),
+    JSON.stringify({ len: v26[0].length }));
+  g26 = await generate("p-pass");
+  v26 = await fieldVals(["p-pass"]);
+  check("pattern [A-Za-z0-9]{8,12}: 12 letters/digits, valid for the browser",
+    /^[A-Za-z0-9]{12}$/.test(v26[0]) && (await P(`document.getElementById("p-pass").checkValidity()`)), JSON.stringify({ len: v26[0].length }));
+  g26 = await generate("i-pass");
+  v26 = await fieldVals(["i-pass"]);
+  check("impossible rules: a warning, and the default password capped at the 10-character maximum",
+    g26 && /couldn.t be met/.test(g26.after) && v26[0].length === 10, JSON.stringify({ after: g26 && g26.after, len: v26[0].length }));
+  g26 = await generate("j-pass");
+  v26 = await fieldVals(["j-pass", "j-pass2"]);
+  check("a script that cuts the value: retried at its length, the page keeps exactly what was generated (both fields)",
+    v26[0].length === 10 && v26[0] === v26[1] && /[A-Z]/.test(v26[0]), JSON.stringify({ len: v26[0].length, same: v26[0] === v26[1] }));
+  check("generating with rules sends nothing to Notiq", (await calls()).length === 0);
+
+  // 27. The 2FA step on its own page: code-only fill (single field and split boxes)
+  const OTP = `http://localhost:${PORT}/test-pages/otp.html`;
+  // An older app ignores the intent and sends the whole login: the page must still get only the code.
+  await resetState();
+  await mockNative({ ...NATIVE, fill: { ...NATIVE.fill, code: "482916" } });
+  await load(OTP);
+  const ic27 = (await icons()) || [];
+  check("2FA page: one icon on the code field, one after the split boxes", ic27.length === 2, String(ic27.length));
+  let ci = await iconFor("code");
+  check("2FA page: the code field's icon sits inside it", !!ci);
+  await mouseClick(ci.x, ci.y);
+  await waitFor(async () => (await P(`document.getElementById("code").value`)) !== "", 3000);
+  const c27 = await calls();
+  check("2FA page: one fill request with intent 'code' for the page host",
+    c27.length === 1 && c27[0].op === "fill" && c27[0].host === "localhost" && c27[0].intent === "code", JSON.stringify(c27));
+  check("2FA page: the code goes into the field", (await P(`document.getElementById("code").value`)) === "482916");
+  check("2FA page: the password never reaches the page", !(await P(`document.documentElement.outerHTML.includes("Notiq-Filled-1!")`)));
+  const t27 = await waitFor(async () => (await icons()).find((i) => i.tip === "Code filled"), 1500);
+  check("2FA page: the icon says 'Code filled'", !!t27);
+  // Split boxes: the icon right after the last box fills one digit per box.
+  const lastBox = await P(`(() => { const r = document.getElementById("b6").getBoundingClientRect(); return { right: r.right, cy: r.y + r.height / 2 }; })()`);
+  await sleep(2000);
+  const bi = ((await icons()) || []).find((i) => Math.abs(i.y - lastBox.cy) < 3 && i.x > lastBox.right && i.x < lastBox.right + 30);
+  check("2FA page: the split-box icon sits just after the last box", !!bi, JSON.stringify({ lastBox, ic: await icons() }));
+  await resetCalls();
+  await mouseClick(bi.x, bi.y);
+  await waitFor(async () => (await P(`document.getElementById("b6").value`)) !== "", 3000);
+  const bx = await P(`({ code: [1,2,3,4,5,6].map((k) => document.getElementById("b" + k).value).join(""), active: document.activeElement.id, inputs: window.__boxInputs })`);
+  check("2FA page: split boxes get one digit each, the last box is focused", bx.code === "482916" && bx.active === "b6" && bx.inputs >= 6, JSON.stringify(bx));
+  const c27b = await calls();
+  check("2FA page: the split boxes asked with intent 'code' too", c27b.length === 1 && c27b[0].intent === "code");
+  // No 2FA secret saved: a clear message, nothing filled.
+  await resetState();
+  await mockNative({ ...NATIVE, fill: { error: "no_code" } });
+  await load(OTP);
+  ci = await iconFor("code");
+  await mouseClick(ci.x, ci.y);
+  const e27 = await waitFor(async () => (await icons()).find((i) => i.cls.includes("error")), 3000);
+  check("2FA page: no saved code -> 'No 2FA code saved for this site'", e27 && /No 2FA code saved/.test(e27.tip) && (await P(`document.getElementById("code").value`)) === "",
+    JSON.stringify(e27));
+  // A login page with a code field keeps the old behaviour (no code icon: the normal fill brings the code).
+  await resetState();
+  await load(EXTRA);
+  check("login page with code boxes: still no code-only icon", ((await icons()) || []).length === 5);
+
   exitCode = results.every((r) => r.ok) ? 0 : 1;
 } catch (e) {
   console.error("ERROR", e && e.stack || e);

@@ -39,13 +39,27 @@ Updating from 0.1: click the reload button on the extension's card. The browser 
 - **Generate a strong password (sign-up / change-password):** on a new-password field (`autocomplete="new-password"`,
   or a form with a confirm field) the icon opens a small menu: **Generate strong password** fills the new password
   and its confirm field with a 20-character password (upper/lower/digits/symbols, no look-alikes like `I l 1 O 0`),
-  made in the extension with `crypto.getRandomValues`. Nothing is sent anywhere at that point: once you submit the
+  made in the extension with `crypto.getRandomValues`. It follows the site's own limits: `maxlength` / `minlength`,
+  the `passwordrules` attribute (`required`, `allowed`, `minlength`, `maxlength`, `max-consecutive`) and a simple
+  `pattern` (one character class with a length, e.g. `[A-Za-z0-9]{8,16}`; any pattern is still checked against the
+  result). It then makes the longest password allowed up to 20 characters (never under 12 unless the site's maximum
+  is lower) from the allowed characters with every required class, and the menu says so. Rules that can't be met
+  fall back to the default password (still no longer than the site's maximum) with a warning. If a page script
+  still changes the value, Notiq retries once at the length the page kept, or clears the fields with an error, so
+  the saved password is always the one the site has. Nothing is sent anywhere at that point: once you submit the
   form the usual **Save login to Notiq?** offer appears. **Show** reveals it inside Notiq's own overlay only.
   **Fill saved login** is offered too when the form has a current-password field. Arrow keys / Enter / Esc work.
 - **Change-password forms** (current + new + confirm): the new password is captured and the offer reads
   **Update password in Notiq?**.
 - **Split code boxes:** when Notiq returns a one-time code and the page has 4–8 single-character code boxes, the
   code is typed into them digit by digit and the last box is focused.
+- **2FA code on its own page:** when the code is asked on a separate page (a one-time-code field, or split code
+  boxes, and no password field), that field gets the key icon too (for split boxes it sits just after the last box).
+  Clicking it asks Notiq for the matching login's current TOTP code only (`intent:"code"`): the same approval and
+  5-minute trust as a fill, only logins with a 2FA secret are offered, and the password is never sent. "No 2FA code
+  saved for this site" means none of the matching logins has a 2FA secret.
+- **Web components:** login fields inside a page's **open** shadow roots (nested too) are found, filled and
+  captured like any other.
 - **Multi-step sign-ins** (Google, Microsoft, most SSO pages: username first, then "Next", then the password): fill
   the username page as usual and approve once. Only the username goes into that page; when the password field
   appears (same page or the next page in the same tab, on the same site, within 2 minutes) it is filled too, with no
@@ -117,6 +131,9 @@ default dark or light colours, following your system setting.
 ## Protocol with the app (native messaging)
 - `{op:"fill", host}` → `{ok:true, username, password, title, code?}`, or `{choose:[{account, title, username}]}`
   when several logins match (no secrets; at most 20 entries, strictly validated, shown as plain text), or `{error}`.
+- `{op:"fill", host, intent:"code", account?}` (a separate 2FA page) → `{ok:true, username, title, code}` (never the
+  password; the extension also drops anything else an older app sends), or `{error:"no_code"}` when no matching
+  login has a 2FA secret. Any other `intent` is refused (`bad_request`).
 - `{op:"fill", host, account}` → the chosen login. The extension only sends an `account` that the app offered for
   that tab and host in the last 2 minutes, once.
 - `{op:"save", host, url, username, password, title}` → `{ok:true, status:"saved"|"updated"|"unchanged"}` or `{error}`.
@@ -141,7 +158,12 @@ default dark or light colours, following your system setting.
   the app only accepts that ID.
 - In a username-first sign-in that reloads the page between steps, the username typed in step 1 is only remembered
   within the same page (for 5 minutes); if it isn't on the final step, the offer shows "no username".
-- Fields hidden inside a page's own shadow DOM aren't detected.
+- Fields inside a page's **closed** shadow roots aren't detected (the page hid them on purpose). Open roots are
+  searched up to 6 levels deep and 200 roots per page. The toolbar button / popup fill does not reach into
+  shadow roots yet; use the in-page icon there.
+- To stay light on busy pages, a page that keeps changing without showing any login, card or code field is
+  re-checked less and less often (and not at all on DOM changes after a while) until you focus an input or the
+  page's URL changes. A login form revealed only by a CSS class change is picked up when you click into it.
 
 ## Trying it locally
 ```
@@ -153,6 +175,11 @@ Open <http://localhost:8000/login.html>: a simple login, a two-step (username fi
 iframe and an iframe from `127.0.0.1` (another site, so it is ignored).
 <http://localhost:8000/signin-steps.html> is a username-first sign-in whose password step is in place ("Next") or
 on a new page ("Next (new page)").
+<http://localhost:8000/otp.html> is a 2FA step on its own page (one code field and six split boxes).
+<http://localhost:8000/shadow-login.html> has logins inside open shadow roots (one component, nested components,
+one rendered late) and one in a closed root (ignored).
+<http://localhost:8000/signup-rules.html> has sign-up forms with `maxlength`, `passwordrules`, `pattern`, impossible
+rules, and a script that cuts the password.
 
 `test/e2e-cdp.mjs` is a developer check (not part of the extension): it loads this folder into Playwright's copy of
 Chromium, mocks the Notiq app in the service worker, and drives the test page with real (trusted) input over the
@@ -166,10 +193,12 @@ focus-suggestion screenshots in dark, light and a custom theme) (needs Node 22+,
 ```
 node browser-extension/build.mjs [--out dist]     # Node 20+, no dependencies
 node browser-extension/build.mjs --check          # validate only, write nothing
-node --test browser-extension/test/*.test.mjs    # unit tests: transforms, zip writer, shared.js (theme, suggestion, same-site, handshake), multi-step hand-off, toolbar fill
+node --test browser-extension/test/*.test.mjs    # unit tests: transforms, zip writer, shared.js (theme, suggestion, same-site, handshake), fillkit.js (generator rules, shadow roots), multi-step hand-off, toolbar fill, code-only fills
 node browser-extension/build.mjs --psl            # refresh the Public Suffix List copy in shared.js from src/lib/publicSuffixData.ts
 ```
-Only runtime files are packaged (manifest, `shared.js`, `content.js`, `background.js`, popup, icons). `shared.js` holds
+Only runtime files are packaged (manifest, `shared.js`, `fillkit.js`, `content.js`, `background.js`, popup, icons).
+`fillkit.js` holds the content script's pure fill helpers (the site-aware password generator, the open-shadow-root walk)
+and loads between `shared.js` and `content.js`. `shared.js` holds
 the pure helpers (theme validation, suggestion placement, the Public Suffix List same-site rule, the app handshake); the content script and popup load it first, the Chromium
 service worker loads it with `importScripts`, and the Firefox build lists it before `background.js`. Output is reproducible
 (fixed timestamps). It writes, with a size and SHA-256 table:

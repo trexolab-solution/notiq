@@ -1,0 +1,63 @@
+<!doctype html>
+<!--
+  The 2FA step on its own page (no password field): a single one-time-code field
+  and a run of six split boxes. Their Notiq icon asks the app for the matching
+  login's code only.
+    cd browser-extension/test-pages && python -m http.server 8000
+    http://localhost:8000/otp.html
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Notiq test page: 2FA code</title>
+<style>
+  :root { color-scheme: light dark; --fg: #1f2328; --bg: #f6f7f9; --card: #fff; --line: #d0d7de; --accent: #6366f1; }
+  @media (prefers-color-scheme: dark) { :root { --fg: #e6edf3; --bg: #0d1117; --card: #161b22; --line: #30363d; } }
+  body { margin: 0; padding: 24px 16px 60px; font: 15px/1.45 system-ui, sans-serif; color: var(--fg); background: var(--bg); }
+  main { max-width: 980px; margin: 0 auto; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; }
+  form { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 18px; }
+  h2 { font-size: 16px; margin: 0 0 4px; }
+  .hint { font-size: 13px; opacity: .7; margin: 0 0 14px; }
+  label { display: block; font-size: 13px; margin: 10px 0 4px; }
+  input { box-sizing: border-box; width: 100%; padding: 9px 10px; font: inherit; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: inherit; }
+  .boxes { display: flex; gap: 6px; }
+  .boxes input { width: 38px; text-align: center; padding: 9px 0; }
+  button { margin-top: 14px; width: 100%; padding: 10px; border: 0; border-radius: 8px; background: var(--accent); color: #fff; font: inherit; font-weight: 600; cursor: pointer; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Two-step verification</h1>
+  <div class="grid">
+    <form id="single" onsubmit="return false">
+      <h2>1. One code field</h2>
+      <p class="hint">Enter the 6-digit code from your authenticator app.</p>
+      <label for="code">Code</label>
+      <input id="code" name="otp" inputmode="numeric" autocomplete="one-time-code" maxlength="6">
+      <button type="submit">Verify</button>
+    </form>
+    <form id="split" onsubmit="return false">
+      <h2>2. Split boxes</h2>
+      <p class="hint">Six boxes, one digit each.</p>
+      <div class="boxes">
+        <input id="b1" maxlength="1" inputmode="numeric" autocomplete="one-time-code" aria-label="Digit 1">
+        <input id="b2" maxlength="1" inputmode="numeric" aria-label="Digit 2">
+        <input id="b3" maxlength="1" inputmode="numeric" aria-label="Digit 3">
+        <input id="b4" maxlength="1" inputmode="numeric" aria-label="Digit 4">
+        <input id="b5" maxlength="1" inputmode="numeric" aria-label="Digit 5">
+        <input id="b6" maxlength="1" inputmode="numeric" aria-label="Digit 6">
+      </div>
+      <button type="submit">Verify</button>
+    </form>
+  </div>
+</main>
+<script>
+  // Typical split-box behaviour: typing a digit moves to the next box.
+  const boxes = [...document.querySelectorAll(".boxes input")];
+  window.__boxInputs = 0;
+  boxes.forEach((b, k) => b.addEventListener("input", () => { window.__boxInputs++; if (b.value && boxes[k + 1]) boxes[k + 1].focus(); }));
+</script>
+</body>
+</html>

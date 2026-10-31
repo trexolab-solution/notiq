@@ -26,6 +26,7 @@
       ],
       "js": [
         "shared.js",
+        "fillkit.js",
         "content.js"
       ],
       "run_at": "document_idle",

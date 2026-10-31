@@ -313,3 +313,49 @@ describe("prompt state machine: card", () => {
     expect(step(shown, { type: "trust", on: true }).state).toBe(shown);
   });
 });
+
+describe("prompt state machine: code-only fill (separate 2FA page)", () => {
+  const withTotp = (rel: string, username: string): LoginMatch => {
+    const x = m(rel, username);
+    return { ...x, entry: { ...x.entry, totp: "JBSWY3DPEHPK3PXP" } };
+  };
+  const code = (id = "c1", account?: string): Job =>
+    ({ kind: "fill", req: { id, host: "example.com", intent: "code", ...(account ? { account } : {}) } });
+
+  it("only logins with a 2FA secret are offered, and the release carries the intent", () => {
+    const a = m("Logins/a.nqv", "a"), b = withTotp("Logins/b.nqv", "b");
+    let r = run(IDLE, start(code()), { type: "scanned", matches: [a, b], lookalike: null });
+    // One usable login: still asks (not trusted), with just that login.
+    expect(r.state).toMatchObject({ stage: "request", matches: [b], pick: 0 });
+    r = run(r.state, { type: "allow" });
+    expect(r.effects).toEqual([{ kind: "release", id: "c1", match: b, trustHost: null, intent: "code" }]);
+  });
+
+  it("matching logins without any 2FA secret: no_code, nothing shown", () => {
+    const r = run(IDLE, start(code()), { type: "scanned", matches: [m("Logins/a.nqv", "a")], lookalike: null });
+    expect(replies(r.effects)).toEqual([{ error: "no_code" }]);
+    expect(kinds(r.effects)).toEqual(["scan", "reply", "finish"]);
+    expect(r.state).toBe(IDLE);
+  });
+
+  it("no match at all stays no_match", () => {
+    const r = run(IDLE, start(code()), { type: "scanned", matches: [], lookalike: null });
+    expect(replies(r.effects)).toEqual([{ error: "no_match" }]);
+  });
+
+  it("a trusted site releases the code silently; several 2FA logins get the chooser", () => {
+    const b = withTotp("Logins/b.nqv", "b"), c = withTotp("Logins/c.nqv", "c");
+    let r = run(IDLE, start(code(), { trusted: true }), { type: "scanned", matches: [m("Logins/a.nqv", "a"), b], lookalike: null });
+    expect(r.effects.slice(-1)).toEqual([{ kind: "release", id: "c1", match: b, trustHost: null, intent: "code" }]);
+    r = run(IDLE, start(code("c2"), { trusted: true }), { type: "scanned", matches: [b, c], lookalike: null });
+    expect(replies(r.effects)).toEqual([{ choose: [
+      { account: "Logins/b.nqv", title: "T", username: "b" }, { account: "Logins/c.nqv", title: "T", username: "c" },
+    ] }]);
+  });
+
+  it("a normal fill's release has no intent key", () => {
+    const a = m("Logins/a.nqv", "a");
+    const r = run(IDLE, start(fill(), { trusted: true }), { type: "scanned", matches: [a], lookalike: null });
+    expect(r.effects.slice(-1)[0]).toStrictEqual({ kind: "release", id: "f1", match: a, trustHost: null });
+  });
+});

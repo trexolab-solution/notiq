@@ -50,8 +50,8 @@ test("validate rejects a build without shared.js", () => {
   files.delete("shared.js");
   assert.throws(() => validateBuild(manifest, files, manifest.version), /shared\.js/);
 });
-test("content scripts load shared.js before content.js", () => {
-  assert.deepEqual(manifest.content_scripts[0].js, ["shared.js", "content.js"]);
+test("content scripts load shared.js and fillkit.js before content.js", () => {
+  assert.deepEqual(manifest.content_scripts[0].js, ["shared.js", "fillkit.js", "content.js"]);
 });
 test("no new permissions in 0.4.0", () => {
   assert.deepEqual([...manifest.permissions].sort(), ["activeTab", "nativeMessaging", "scripting", "storage"]);

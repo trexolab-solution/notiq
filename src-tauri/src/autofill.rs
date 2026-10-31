@@ -16,6 +16,8 @@
 //! * `{op:"launch"}` → `{ok:true}` once the app answers (starts it if needed) or `{error:"app_not_running"}`
 //! * `{op:"fill", host, account?}` → `{ok:true, username, password, title, code?}` | `{choose:[{account,title,username}]}`
 //!   | `{error}`. `account` is a vault entry's relative path from an earlier `choose`.
+//!   With `intent:"code"` (a separate 2FA page) only logins with a TOTP secret count and the reply is
+//!   `{ok:true, username, title, code}` (never the password) or `{error:"no_code"}`.
 //! * `{op:"save", host, url, username, password, title}` → `{ok:true, status}` | `{error}`
 //! * `{op:"fill_card", host, origin}` → `{ok:true, title, name, number, exp_month, exp_year, csc}` | `{error}`.
 //!   Always asks the user (no trust window) and is never handled by the main-window fallback.
@@ -336,6 +338,16 @@ pub fn validate_account(v: Option<&Value>) -> Result<Option<String>, &'static st
     Ok(Some(s.clone()))
 }
 
+/// Validates the optional `intent` of a `fill` request. Missing / `null` → a normal fill;
+/// `"code"` → only the TOTP code of the matching login; anything else is refused.
+pub fn validate_intent(v: Option<&Value>) -> Result<Option<&'static str>, &'static str> {
+    match v {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::String(s)) if s == "code" => Ok(Some("code")),
+        Some(_) => Err("bad_request"),
+    }
+}
+
 /// A page host as the extension sends it: lower-case letters, digits, dots and dashes, 1..=253 chars.
 fn valid_host(host: &str) -> bool {
     !host.is_empty()
@@ -439,6 +451,11 @@ fn handle(app: &AppHandle, req: Value) -> Value {
             let mut payload = json!({ "host": host });
             match validate_account(req.get("account")) {
                 Ok(Some(a)) => payload["account"] = json!(a),
+                Ok(None) => {}
+                Err(e) => return json!({ "error": e }),
+            }
+            match validate_intent(req.get("intent")) {
+                Ok(Some(i)) => payload["intent"] = json!(i),
                 Ok(None) => {}
                 Err(e) => return json!({ "error": e }),
             }
@@ -1130,6 +1147,16 @@ mod tests {
             assert_eq!(validate_account(Some(&bad)), Err("bad_request"), "{bad}");
         }
         assert!(validate_account(Some(&json!("y".repeat(512)))).is_ok());
+    }
+
+    #[test]
+    fn intent_validation() {
+        assert_eq!(validate_intent(None), Ok(None));
+        assert_eq!(validate_intent(Some(&json!(null))), Ok(None));
+        assert_eq!(validate_intent(Some(&json!("code"))), Ok(Some("code")));
+        for bad in [json!(""), json!("password"), json!("CODE"), json!(1), json!(true), json!(["code"]), json!({})] {
+            assert_eq!(validate_intent(Some(&bad)), Err("bad_request"), "{bad}");
+        }
     }
 
     #[test]

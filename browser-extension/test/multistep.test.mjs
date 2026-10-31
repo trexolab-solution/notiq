@@ -402,3 +402,39 @@ test("fillPage re-checks the frame it lands in (it may have navigated since the 
   assert.equal(runFillPage(sw, { ...sub, ancestors: ["https://login.example.com"] }, scope), 0, "outermost must be the top origin");
   assert.equal(runFillPage(sw, { ...sub, ancestors: undefined }, scope), 0, "no ancestorOrigins (Firefox): subframes are never filled");
 });
+
+// ---------- code-only fills (a separate 2FA page) ----------
+test("code intent: the request carries intent 'code' and the reply never holds a password", async () => {
+  // An older app that ignores the intent sends the whole login.
+  const sw = boot((m) => (m.op === "fill" ? { ...CRED, code: "123456" } : { error: "app_not_running" }));
+  const r = await sw.send("fill", { intent: "code" });
+  assert.deepEqual(r, { ok: true, host: "accounts.example.com", title: "Example", username: "alice@example.com", code: "123456" });
+  assert.deepEqual(JSON.parse(JSON.stringify(sw.vaultCalls())), [{ op: "fill", host: "accounts.example.com", intent: "code", ext: "0.0.0-test", protocol: sw.ctx.NotiqShared.PROTOCOL }]);
+});
+
+test("code intent: no or malformed code -> no_code; an unknown intent is refused before asking Notiq", async () => {
+  for (const code of [undefined, "", "12", "12 34 56", "<b>1</b>", 123456]) {
+    const sw = boot((m) => (m.op === "fill" ? { ...CRED, code } : { error: "x" }));
+    assert.deepEqual(await sw.send("fill", { intent: "code" }), { error: "no_code" }, String(code));
+  }
+  const sw = boot();
+  assert.deepEqual(await sw.send("fill", { intent: "password" }), { error: "bad_request" });
+  assert.equal(sw.vaultCalls().length, 0);
+});
+
+test("code intent: the app's errors and chooser pass through; a held step password survives", async () => {
+  const sw = boot((m) => (m.op === "fill" && m.intent === "code" ? { error: "no_code" } : m.op === "fill" ? CRED : { error: "x" }));
+  await sw.send("fill", { step: true });
+  assert.deepEqual(sw.steps(), ["step:7"]);
+  assert.deepEqual(await sw.send("fill", { intent: "code" }), { error: "no_code" });
+  assert.deepEqual(sw.steps(), ["step:7"], "a code request does not drop the username-first hand-off");
+
+  const choose = [{ account: "Logins/a.nqv", title: "A", username: "a" }, { account: "Logins/b.nqv", title: "B", username: "b" }];
+  const sw2 = boot((m) => (m.op === "fill" ? (m.account ? { ok: true, username: "b", title: "B", code: "654321", password: "pw" } : { choose }) : { error: "x" }));
+  const c = await sw2.send("fill", { intent: "code" });
+  assert.deepEqual(c.choose, choose);
+  const r = await sw2.send("fill", { intent: "code", account: "Logins/b.nqv" });
+  assert.equal(r.code, "654321");
+  assert.equal("password" in r, false);
+  assert.deepEqual(JSON.parse(JSON.stringify(sw2.vaultCalls()[1])), { op: "fill", host: "accounts.example.com", account: "Logins/b.nqv", intent: "code", ext: "0.0.0-test", protocol: sw2.ctx.NotiqShared.PROTOCOL });
+});

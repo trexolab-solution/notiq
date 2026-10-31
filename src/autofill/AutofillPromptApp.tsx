@@ -18,8 +18,8 @@ import { ERR_LOCKED, vaultStatus } from "../lib/vault";
 import { nameError } from "../lib/vaultTree";
 import { LOOKALIKE_REASON_TEXT } from "../lib/lookalike";
 import {
-  cardReply, clearTrust, credentialsFor, isFallbackRequest, isTrusted, saveLogin, scanCards, scanLogins, setVaultRootResolver,
-  trustHost, type SaveRequest,
+  cardReply, clearTrust, fillReply, isFallbackRequest, isTrusted, saveLogin, scanCards, scanLogins, setVaultRootResolver,
+  trustHost, validIntent, type SaveRequest,
 } from "../lib/autofill";
 import { fitWindowSize, sizeChanged } from "./fitWindowSize";
 import { splitHost } from "./hostParts";
@@ -142,7 +142,7 @@ export default function AutofillPromptApp() {
       case "release":
         try {
           if (e.trustHost) trustHost(e.trustHost);
-          await reply(e.id, { ok: true, ...(await credentialsFor(e.match)) });
+          await reply(e.id, await fillReply(e.match, e.intent));
         } catch {
           await reply(e.id, { error: "failed" });
         }
@@ -202,10 +202,11 @@ export default function AutofillPromptApp() {
     const subs = [
       listen<{ themeId: string }>("theme-changed", (e) => applyTheme(e.payload.themeId as ThemeId)),
       // A global `listen` also hears events Rust sent to the main window; those (fallback) are not ours.
-      listen<FillReq & { fallback?: boolean }>("autofill:request", (e) => {
+      listen<Omit<FillReq, "intent"> & { intent?: unknown; fallback?: boolean }>("autofill:request", (e) => {
         if (isFallbackRequest(e.payload)) return;
         const { id, host, account } = e.payload;
-        accept({ kind: "fill", req: { id, host, ...(account ? { account } : {}) } });
+        const intent = validIntent(e.payload.intent);
+        accept({ kind: "fill", req: { id, host, ...(account ? { account } : {}), ...(intent ? { intent } : {}) } });
       }),
       listen<SaveRequest & { fallback?: boolean }>("autofill:save", (e) => {
         if (isFallbackRequest(e.payload)) return;
@@ -273,7 +274,10 @@ export default function AutofillPromptApp() {
       const { job, matches, pick, trust, busy } = state;
       return (
         <Panel key={`request-${job.req.id}`} refs={refs} host={job.req.host} icon="shield"
-               sub="The Notiq extension in your browser wants to fill a saved login." onClose={deny} defaultFocus="cancel"
+               sub={job.req.intent === "code"
+                 ? "The Notiq extension in your browser wants the 2FA code of a saved login."
+                 : "The Notiq extension in your browser wants to fill a saved login."}
+               onClose={deny} defaultFocus="cancel"
                footer={<>
                  <DialogButton cancel onClick={deny} disabled={busy}>Deny</DialogButton>
                  <DialogButton variant="primary" loading={busy} loadingText="Filling…" onClick={() => dispatch({ type: "allow" })}>Allow</DialogButton>
@@ -418,7 +422,7 @@ function LockedStage({ refs, job, dispatch, onDeny }: LockedProps) {
       await win.setFocus().catch(() => {});
     },
   });
-  const what = job.kind === "fill" ? "fill a saved login" : job.kind === "card" ? "fill a payment card" : "save a login";
+  const what = job.kind === "fill" ? (job.req.intent === "code" ? "fill a 2FA code" : "fill a saved login") : job.kind === "card" ? "fill a payment card" : "save a login";
   const submitLabel = job.kind === "fill" ? "Unlock & fill" : job.kind === "card" ? "Unlock & pick card" : "Unlock & save";
   const purpose = job.kind === "fill" ? "unlock and fill it" : job.kind === "card" ? "unlock and pick a card" : "unlock and save it";
   return (
