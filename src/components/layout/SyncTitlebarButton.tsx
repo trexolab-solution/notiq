@@ -13,12 +13,14 @@ export function SyncTitlebarButtonView({ ind, expanded, onOpen }: {
   // Problem: the cloud with a red dot; the other states use the status bar's icons.
   const Icon = ind.kind === "problem" ? Cloud : ICONS[ind.kind];
   const label = `Vault sync: ${ind.label}`;
+  const detail = ind.tooltip.replace(/^Vault sync:\s*/i, "");
+  const ariaLabel = `${label}. ${detail.charAt(0).toUpperCase()}${detail.slice(1)}`;
   return (
     <Tooltip content={ind.tooltip} disabled={expanded}>
       <button
         type="button"
         className={`titlebar-tool-btn titlebar-sync titlebar-sync--${ind.kind}`}
-        aria-label={`${label}. ${ind.tooltip}`}
+        aria-label={ariaLabel}
         aria-haspopup="dialog"
         aria-expanded={expanded}
         data-sync-state={ind.kind}

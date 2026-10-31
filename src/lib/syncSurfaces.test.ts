@@ -213,7 +213,7 @@ describe("titlebarIndicator", () => {
     expect(titlebarIndicator(null, NOW)).toBeNull();
     expect(titlebarIndicator(disconnected({ configured: false }), NOW)).toBeNull();
     expect(titlebarIndicator(disconnected(), NOW)).toMatchObject({ kind: "off", label: "Sync off" });
-    expect(titlebarIndicator(disconnected(), NOW)!.tooltip).toContain("other PCs");
+    expect(titlebarIndicator(disconnected(), NOW)!.tooltip).toContain("all your PCs");
     expect(titlebarIndicator(off(), NOW)!.tooltip).toContain("turn it on");
     // Connected in a build without a client id still shows (settings matter).
     expect(titlebarIndicator(status({ configured: false }), NOW)!.kind).toBe("synced");

@@ -75,7 +75,7 @@ export function titlebarIndicator(s: SyncStatus | null, now = Date.now()): Surfa
     label: "Sync off",
     tooltip: s.provider
       ? "Vault sync: off on this PC. Click to turn it on."
-      : "Vault sync: off. Click to use this vault on your other PCs.",
+      : "Vault sync: off. Click to use your vault on all your PCs.",
   };
 }
 
@@ -141,7 +141,7 @@ export const ACTION_LABELS: Record<PopoverAction, string> = {
   openStorage: "Open Drive storage",
 };
 
-export const SYNC_PITCH = "Use this vault on your other PCs. It's encrypted before it leaves this computer.";
+export const SYNC_PITCH = "Use your vault on all your PCs. It's encrypted before it leaves this computer.";
 
 /** Google's storage page (Drive full). */
 export const DRIVE_STORAGE_URL = "https://one.google.com/storage";

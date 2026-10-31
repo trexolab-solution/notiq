@@ -61,7 +61,7 @@ export function BackupSection() {
         id="vault.backup.export"
         label="Export encrypted backup"
         description={`${last ? `Last backup: ${describeAge(last, Date.now())} (${new Date(last).toLocaleString()}).` : "You haven't exported a backup yet."} The file stays protected by your master password and recovery key.`}
-        help="Your vault lives only on this computer. Without the backup file plus the master password or recovery key, a backup cannot be opened, so keep it somewhere safe."
+        help="Without the backup file plus the master password or recovery key, a backup cannot be opened, so keep it somewhere safe."
         keywords={["backup", "last backup", "export", "save a copy", ".nqbackup", "encrypted"]}
       >
         <Button className="settings-btn-primary" size="sm" variant="primary" icon={<Download size={12} />} disabled={!exists || busy} onClick={() => void start()}>

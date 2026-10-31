@@ -204,7 +204,7 @@ describe("SyncPopoverHost", () => {
     await render(<App />);
     expect(trigger().textContent).toBe("Sync off");
     await act(async () => openSyncPopover());
-    expect(pop()!.textContent).toContain("Use this vault on your other PCs. It's encrypted before it leaves this computer.");
+    expect(pop()!.textContent).toContain("Use your vault on all your PCs. It's encrypted before it leaves this computer.");
     const ev = setupEvents();
     await click(q('[data-action="connect"]')!);
     await flush();

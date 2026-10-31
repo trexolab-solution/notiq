@@ -13,6 +13,7 @@ import { AutofillSection } from "./AutofillSection";
 import { HelloRow } from "./HelloRow";
 import { SyncSection } from "./SyncSection";
 import { SYNC_INDEX } from "./syncIndex";
+import { useSyncStatus } from "../../../lib/vaultSync";
 import { helloStatus } from "../../../lib/hello";
 import { toast } from "../../../lib/toast";
 import { useAppStore } from "../../../store";
@@ -36,6 +37,7 @@ const idleLabel = (m: number) => (m === 0 ? "Never" : m === 1 ? "1 minute" : m =
 export const VaultSection = React.memo(function VaultSection() {
   const exists   = useVaultStore((s) => s.exists);
   const unlocked = useVaultStore((s) => s.unlocked);
+  const synced   = !!useSyncStatus()?.enabled;
   useEffect(() => { void useVaultStore.getState().refresh(); }, []);
 
   const [idle, setIdle]       = useState(() => getIdleMinutes());
@@ -137,7 +139,9 @@ export const VaultSection = React.memo(function VaultSection() {
 
       <SettingsGroup
         title="Backup"
-        description="Your vault lives only on this computer. Keep an encrypted copy somewhere else."
+        description={synced
+          ? "Sync keeps a copy in your Google Drive. A backup file is an extra copy you control."
+          : "Your vault lives only on this computer. Keep an encrypted copy somewhere else."}
       >
         <BackupSection />
       </SettingsGroup>
