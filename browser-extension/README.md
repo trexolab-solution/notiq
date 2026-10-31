@@ -30,7 +30,19 @@ Updating from 0.1: click the reload button on the extension's card. The browser 
   that field until the page is reloaded, typing or clicking elsewhere hides it. It is not shown on one-time-code,
   search or other non-login fields, in other sites' iframes, or when the icon is turned off.
 - **Fill from the toolbar:** click the Notiq toolbar icon → **Fill login for this site**. Or press `Alt+Shift+L` on a page to fill right away, as if you had clicked the Notiq icon of the focused login field (the first one if none is focused).
-  The popup header shows whether Notiq is running.
+  The popup header shows whether Notiq is running and whether the vault is locked.
+- **This site's logins in the popup** (Notiq 0.9.0+): under the Fill button the popup lists the logins saved for
+  the current tab's site (title and username only; never the whole vault, never a password or code), with a
+  filter box. Click a login to fill it (Notiq asks you to Allow as usual). Each row also has buttons to **copy the
+  username**, **copy the password**, **copy the 2FA code** (greyed out when none is saved) and **open it in
+  Notiq**. Copies are made by the Notiq app itself: the value never passes through the extension, it is kept out
+  of Windows clipboard history, and Notiq clears it after the time set in Notiq → Settings → Vault → **Clear
+  copied secrets after** (15 s, 30 s (default), 1 min, 2 min or Never; only if the clipboard still holds it).
+  Copying a password or code needs your Allow (or the site's 5-minute trust), like a fill; when Notiq shows its
+  approval window the browser may close the popup, the copy still happens. Keyboard: type to filter, **↓** moves
+  into the list (↑/↓ between logins in the same column, ←/→ along a row, ↑ on the first login back to the filter),
+  **Enter** in the filter fills the first login. When Notiq is locked, not running, or older than 0.9.0 the list
+  says so ("Unlock Notiq…", "Open Notiq…", "Update Notiq…") instead.
 - **Save a new login:** sign in or sign up with a password Notiq doesn't know yet. When the next page no longer shows
   a password field, a card in the top-right corner asks **Save login to Notiq?** with the site and username (never
   the password). **Save** → approve in Notiq → "Saved to Notiq", "Password updated in Notiq" or "Already saved".
@@ -127,6 +139,12 @@ default dark or light colours, following your system setting.
 - Multi-step sign-ins: a held password is dropped as soon as Notiq reports the vault locked or is closed (checked
   before every hand-out and whenever the popup opens).
 - Generated passwords exist only in the page's fields and the extension's memory until you submit the form.
+- Popup list: only the toolbar popup can ask for it (a page's content script cannot), only for the active tab's
+  top host taken from the tab's URL, only while the vault is unlocked, and the app returns only the titles and
+  usernames of the logins that match that site (the same data as the "several logins" chooser). It needs no Allow
+  for that reason; a locked vault answers `locked` and lists nothing. Row actions (fill, copy, open) are accepted
+  only for an account from that tab's latest list (10 minutes) for the same host. Copied secrets never reach the
+  extension: Notiq copies them and only answers `{ok, copied, clearAfter}`.
 
 ## Protocol with the app (native messaging)
 - `{op:"fill", host}` → `{ok:true, username, password, title, code?}`, or `{choose:[{account, title, username}]}`
@@ -145,6 +163,15 @@ default dark or light colours, following your system setting.
   which otherwise answers `{error:"extension_outdated", appVersion, minProtocol}`). A missing `protocol` means 1.
   Bump `PROTOCOL` on both sides together (a test on each side checks they agree); raise a minimum only when older
   peers would misbehave.
+- Toolbar popup (Notiq 0.9.0+; an older app answers `{error:"unknown_op"}` and the popup says to update Notiq).
+  None of these starts Notiq:
+  - `{op:"list", host}` → `{ok:true, accounts:[{account, title, username, totp}]}` (at most 50; `totp` = a 2FA
+    secret is saved) or `{error:"locked"|…}`. No prompt; unlocked vault only.
+  - `{op:"copy", host, account, what:"username"|"password"|"code"}` → `{ok:true, copied, clearAfter}` (seconds,
+    0 = never) or `{error:"denied"|"locked"|"stale"|"no_code"|…}`. Notiq copies the value; password and code are
+    approved like a fill (prompt that can unlock, or the site's trust window), the username needs an unlocked vault.
+  - `{op:"open", host, account}` → `{ok:true}`: Notiq comes to the front and opens that entry (asking to unlock
+    first if needed).
 - `{op:"theme"}` → `{ok:true, theme:{id, mode:"dark"|"light", bg, bgSecondary, bgTertiary, text, textMuted, border,
   primary, primaryText, danger, success}}` (colours `#rrggbb`), or `{ok:true, theme:null}` when the app has none.
   Never launches the app. `{error:"unknown_op"}` from an older app is treated as no theme; when the app is
