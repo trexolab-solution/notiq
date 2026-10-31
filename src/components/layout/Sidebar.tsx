@@ -27,7 +27,7 @@ export const Sidebar = React.memo(function Sidebar({
   return (
     <aside style={{ display: "flex", height: "100%", flexShrink: 0 }}>
       <div className="activity-bar" data-tour="nav-rail">
-        <Tooltip content="Editor" shortcut="Ctrl+1">
+        <Tooltip content="Editor" shortcut="Ctrl+1" placement="right">
           <button
             className={`activity-btn${activeView === "editor" ? " is-active" : ""}`}
             aria-label="Editor"
@@ -37,7 +37,7 @@ export const Sidebar = React.memo(function Sidebar({
           </button>
         </Tooltip>
 
-        <Tooltip content="Knowledge Graph" shortcut="Ctrl+2">
+        <Tooltip content="Knowledge Graph" shortcut="Ctrl+2" placement="right">
           <button
             className={`activity-btn${activeView === "graph" ? " is-active" : ""}`}
             aria-label="Knowledge Graph"
@@ -47,7 +47,7 @@ export const Sidebar = React.memo(function Sidebar({
           </button>
         </Tooltip>
 
-        <Tooltip content="Whiteboard" shortcut="Ctrl+3">
+        <Tooltip content="Whiteboard" shortcut="Ctrl+3" placement="right">
           <button
             className={`activity-btn${isWbActive ? " is-active" : ""}`}
             aria-label="Whiteboard"
@@ -57,7 +57,7 @@ export const Sidebar = React.memo(function Sidebar({
           </button>
         </Tooltip>
 
-        <Tooltip content="Secure Vault">
+        <Tooltip content="Secure Vault" placement="right">
           <button
             className={`activity-btn${vaultOpen ? " is-active" : ""}`}
             aria-label="Secure Vault"
@@ -70,7 +70,7 @@ export const Sidebar = React.memo(function Sidebar({
 
         <div style={{ flex: 1 }} />
 
-        <Tooltip content="Settings" shortcut="Ctrl+,">
+        <Tooltip content="Settings" shortcut="Ctrl+," placement="right">
           <button
             className={`activity-btn${isSettingsActive ? " is-active" : ""}`}
             aria-label="Settings"
