@@ -21,6 +21,7 @@ Thanks for updating! Here's what's new in this release.
 - **No lost edits** — if the same note was changed on two PCs, the newer version is kept and the other one is saved in the note's history. You get one notification saying which notes and devices.
 - **Already have a vault on the other PC?** — Notiq backs it up first, then imports its entries into the synced vault (identical logins are skipped, different ones are kept as *"Name (This PC)"*), or just keeps the backup file. Your choice.
 - **Sync at a glance** — a small indicator in the status bar shows when the vault is synced, syncing, offline or needs attention. Click it for the details, the list of devices and *Sync now*.
+- **Always in the loop** — you see your vault uploading the first time, get one notice when another PC joins your vault, and a single *Reconnect* prompt if Google asks you to sign in again.
 - **Attachments sync too** — within the usual limits: up to 5 MB per file, 25 MB per vault and 20 files per note.
 - **Your account, your control** — disconnect any time; your data stays in your Drive until you delete it (Google Drive → Settings → Manage apps). Sync is off until you turn it on.
 

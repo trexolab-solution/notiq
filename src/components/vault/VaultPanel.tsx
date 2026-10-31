@@ -7,6 +7,7 @@ import { useVaultItems } from "./sidebar/useVaultItems";
 import { PanelHeader } from "./sidebar/PanelHeader";
 import { VaultExplorer } from "./sidebar/VaultExplorer";
 import { BackupReminder } from "./BackupReminder";
+import { SyncBanner } from "./sync/SyncBanner";
 
 const baseName = (p: string) => p.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || p;
 
@@ -47,6 +48,7 @@ export function VaultPanel() {
       {unlocked ? (
         <>
           <BackupReminder />
+          <SyncBanner />
           <VaultExplorer {...data} footer={storageRow} />
         </>
       ) : (

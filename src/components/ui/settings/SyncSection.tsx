@@ -17,7 +17,7 @@ import {
   syncDevices, syncDisable, syncDisconnect, syncErrorMessage, syncNow, syncRemoveDevice, syncSetDeviceName,
   useSyncStatus, useSyncStore, type SyncDevice, type SyncStatus,
 } from "../../../lib/vaultSync";
-import { enableSync } from "../../../lib/vaultSyncFlows";
+import { turnOnSyncWithFeedback } from "../../../lib/syncFeedback";
 import { SYNC_INDEX } from "./syncIndex";
 
 /** Search words for a row: its index keywords plus the index description (row descriptions are live text). */
@@ -26,8 +26,10 @@ const k = (id: string): string[] => {
   return m ? [...(m.keywords ?? []), m.description ?? ""] : [];
 };
 
+export const DISCONNECT_MESSAGE =
+  "This PC stops syncing and forgets your Google sign-in. Your vault on this PC is not changed.";
 export const DISCONNECT_DETAIL =
-  "Your synced vault stays in your Google Drive, so your other devices keep syncing. To delete it, open Google Drive → Settings → Manage apps, find Notiq and choose \"Delete hidden app data\".";
+  "Your synced vault stays in your Google Drive, so your other devices keep syncing. To delete it from Drive, open Google Drive → Settings → Manage apps, find Notiq, then choose Options → \"Delete hidden app data\".";
 
 /** Re-renders every 30 s so "5 minutes ago" stays true. */
 function useNow(): number {
@@ -88,11 +90,9 @@ export function SyncSection() {
   const turnOn = async () => {
     if (!(await useVaultStore.getState().ensureUnlocked())) return; // merging needs the vault key
     setBusy("enable");
-    const out = await enableSync();
+    const out = await turnOnSyncWithFeedback(); // first upload progress + result toasts
     setBusy(null);
     if (out.kind === "different") setAdopting(true);
-    else if (out.kind === "error") toast.error("Couldn't turn on sync", { source: "Vault sync", detail: out.error });
-    else toast.success(`Sync is on. ${describeSyncResult(out.result) ?? "Your vault is up to date."}`);
   };
 
   const turnOff = async () => {
@@ -206,7 +206,7 @@ export function SyncSection() {
       {confirmDisconnect && (
         <ConfirmDialog
           title="Disconnect Google Drive?"
-          message="Notiq stops syncing on this PC and forgets your Google sign-in. Your vault on this PC is not changed."
+          message={DISCONNECT_MESSAGE}
           detail={DISCONNECT_DETAIL}
           confirmLabel="Disconnect"
           danger

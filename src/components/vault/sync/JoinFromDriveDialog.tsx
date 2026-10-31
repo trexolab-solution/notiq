@@ -7,7 +7,8 @@ import { useVaultStore } from "../../../store/vaultStore";
 import { VAULT_CHANGED_EVENT } from "../../../lib/vault";
 import { useSyncStore } from "../../../lib/vaultSync";
 import { joinStep, runJoin, type JoinStep } from "../../../lib/vaultSyncFlows";
-import { useSyncConnect, WAITING_FOR_GOOGLE } from "./useSyncConnect";
+import { useSyncConnect } from "./useSyncConnect";
+import { ConnectWaiting } from "./ConnectWaiting";
 
 export const NO_REMOTE_TEXT =
   "There's no synced vault in this Google account yet. On the PC that has your vault, open Settings → Vault → Sync and turn on sync, then try again here.";
@@ -78,11 +79,7 @@ export function JoinFromDriveDialog({ onBack, onJoined }: { onBack: () => void; 
               Sign in with the Google account your other PC syncs to. Notiq can only see its own files in your Drive.
             </p>
             {connecting ? (
-              <div className="flex items-center gap-2 text-sm" aria-live="polite">
-                <Loader2 size={14} className="animate-spin" aria-hidden />
-                <span className="flex-1">{WAITING_FOR_GOOGLE}</span>
-                <Button size="sm" onClick={cancel}>Cancel</Button>
-              </div>
+              <ConnectWaiting onCancel={cancel} />
             ) : (
               <div><Button variant="primary" onClick={() => void connect()}>Sign in with Google</Button></div>
             )}
