@@ -5,6 +5,7 @@ import { useSyncStatus, type SyncStatus } from "../../lib/vaultSync";
 import { titlebarIndicator, type SurfaceIndicator } from "../../lib/syncSurfaces";
 import { ICONS, IndicatorTip } from "./SyncIndicator";
 import { useSyncPopoverStore } from "./SyncPopover";
+import { BusyIcon } from "../ui/Loading";
 
 /** The button for a known indicator (exported for tests). */
 export function SyncTitlebarButtonView({ ind, expanded, onOpen }: {
@@ -14,20 +15,22 @@ export function SyncTitlebarButtonView({ ind, expanded, onOpen }: {
   const Icon = ind.kind === "problem" ? Cloud : ICONS[ind.kind];
   const label = `Vault sync: ${ind.label}`;
   const detail = ind.tooltip.replace(/^Vault sync:\s*/i, "");
-  const ariaLabel = `${label}. ${detail.charAt(0).toUpperCase()}${detail.slice(1)}`;
+  // Icon-only (ui/Loading.tsx rule 1): while busy the name is just the busy text, like the tooltip.
+  const ariaLabel = ind.busy ? ind.tooltip : `${label}. ${detail.charAt(0).toUpperCase()}${detail.slice(1)}`;
   return (
     <Tooltip content={ind.tooltip} disabled={expanded}>
       <button
         type="button"
         className={`titlebar-tool-btn titlebar-sync titlebar-sync--${ind.kind}`}
         aria-label={ariaLabel}
+        aria-busy={ind.busy || undefined}
         aria-haspopup="dialog"
         aria-expanded={expanded}
         data-sync-state={ind.kind}
         data-tour="sync-button"
         onClick={(e) => onOpen(e.currentTarget)}
       >
-        <Icon size={15} strokeWidth={1.7} aria-hidden />
+        <BusyIcon icon={Icon} busy={ind.busy} spinSelf size={15} strokeWidth={1.7} />
         {ind.kind === "problem" && <span className="titlebar-sync__dot" aria-hidden />}
       </button>
     </Tooltip>

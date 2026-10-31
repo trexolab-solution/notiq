@@ -4,6 +4,7 @@ import { useVaultStore } from "../../../store/vaultStore";
 import { useSyncStatus, type SyncStatus } from "../../../lib/vaultSync";
 import { badgeTooltip, surfaceIndicator, type SurfaceKind } from "../../../lib/syncSurfaces";
 import { useSyncPopoverStore } from "../../layout/SyncPopover";
+import { BusyIcon } from "../../ui/Loading";
 
 const ICONS: Record<SurfaceKind, LucideIcon> = {
   synced: CloudCheck, syncing: RefreshCw, offline: CloudOff, problem: CloudAlert, locked: LockKeyhole, off: Cloud,
@@ -23,12 +24,13 @@ export function SyncBadgeButton({ status, vaultExists, expanded, onOpen }: {
         type="button"
         className={`vt-icon-btn vt-sync-badge vt-sync-badge--${ind.kind}`}
         aria-label={`Vault sync: ${tip}`}
+        aria-busy={ind.busy || undefined}
         aria-haspopup="dialog"
         aria-expanded={expanded}
         data-sync-state={ind.kind}
         onClick={(e) => onOpen(e.currentTarget)}
       >
-        <Icon size={13} aria-hidden />
+        <BusyIcon icon={Icon} busy={ind.busy} spinSelf size={13} />
       </button>
     </Tooltip>
   );

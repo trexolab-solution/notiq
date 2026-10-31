@@ -173,7 +173,8 @@ export function relativeTime(then: number | null, now: number): string {
 }
 
 export type SyncIndicatorKind = "synced" | "syncing" | "offline" | "problem" | "locked";
-export interface SyncIndicator { kind: SyncIndicatorKind; label: string; tooltip: string }
+/** `busy`: a sync is running right now (spinner + aria-busy); "Waiting to sync" is not busy. */
+export interface SyncIndicator { kind: SyncIndicatorKind; label: string; tooltip: string; busy?: boolean }
 
 /** What the status bar shows for a status; null hides it (sync off, not connected or unknown). */
 export function syncIndicator(s: SyncStatus | null, now = Date.now()): SyncIndicator | null {
@@ -181,7 +182,7 @@ export function syncIndicator(s: SyncStatus | null, now = Date.now()): SyncIndic
   const last = `Last synced ${relativeTime(s.lastSyncedMs, now)}`;
   switch (s.state) {
     case "syncing":
-      return { kind: "syncing", label: "Syncing", tooltip: "Vault sync: syncing with Google Drive…" };
+      return { kind: "syncing", label: "Syncing…", tooltip: "Vault sync: syncing with Google Drive…", busy: true };
     case "offline":
       return { kind: "offline", label: "Offline", tooltip: `Vault sync: offline. Changes will sync when you're back online. ${last}.` };
     case "error":

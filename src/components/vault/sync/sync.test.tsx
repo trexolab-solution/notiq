@@ -56,7 +56,7 @@ describe("status bar sync indicator", () => {
 
   it.each([
     [{ state: "idle" }, "synced", "Synced"],
-    [{ state: "syncing" }, "syncing", "Syncing"],
+    [{ state: "syncing" }, "syncing", "Syncing…"],
     [{ state: "offline" }, "offline", "Offline"],
     [{ state: "error", lastError: "x" }, "problem", "Sync problem"],
     [{ state: "authNeeded" }, "problem", "Sync problem"],
