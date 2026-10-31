@@ -426,11 +426,41 @@
     return !!site && (h === site || h.endsWith(`.${site}`));
   }
 
+  // The https-or-localhost rule for a URL / origin: { host, origin } or null.
+  function secureOrigin(raw) {
+    let u;
+    try { u = new URL(String(raw)); } catch { return null; }
+    const host = u.hostname.toLowerCase();
+    if (!host) return null;
+    if (u.protocol !== "https:" && !(u.protocol === "http:" && (host === "localhost" || host === "127.0.0.1"))) return null;
+    return { host, origin: u.origin };
+  }
+
+  // Toolbar fill, phase 1: may the credentials go to a frame, given its secret-free probe result
+  // ({ origin, top, ancestors, fields }), its frameId and the tab's top origin? The top frame must be the
+  // tab's own origin; a subframe must be secure, same-site with the top host, and so must every ancestor,
+  // the outermost ancestor being the top origin itself. Frames without fillable fields never qualify.
+  function fillTargetOk(probe, frameId, topOrigin) {
+    if (!probe || typeof probe !== "object" || probe.fields !== true || typeof frameId !== "number") return false;
+    const top = secureOrigin(topOrigin);
+    const me = secureOrigin(probe.origin);
+    if (!top || !me || me.origin !== probe.origin) return false;
+    if (frameId === 0) return probe.top === true && me.origin === top.origin;
+    if (probe.top !== false || !sameSite(me.host, top.host)) return false;
+    const ao = probe.ancestors;
+    if (!Array.isArray(ao) || !ao.length || ao.length > 32) return false;
+    for (const a of ao) {
+      const o = secureOrigin(a);
+      if (!o || o.origin !== a || !sameSite(o.host, top.host)) return false;
+    }
+    return ao[ao.length - 1] === top.origin;
+  }
+
   const api = Object.freeze({
     COLOR_KEYS, CSS_VARS, DEFAULT_THEMES, validateTheme, resolveTheme, applyTheme, themeReplyAction, sameTheme,
     shouldSuggest, suggestPosition, rectsOverlap,
     cardFieldKind, validCardReply, cardFieldValue, pickOption,
-    normalizeHost, publicSuffix, registrableDomain, sameSite,
+    normalizeHost, publicSuffix, registrableDomain, sameSite, secureOrigin, fillTargetOk,
   });
   try {
     Object.defineProperty(g, "NotiqShared", { value: api, writable: false, configurable: false, enumerable: false });

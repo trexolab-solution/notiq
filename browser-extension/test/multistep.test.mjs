@@ -216,7 +216,7 @@ test("toolbar fill on a username-only tab: username now, password held for the n
     sw.chrome.tabs.query = async () => [{ id: 7, url: "https://accounts.example.com/signin", active: true }];
     sw.chrome.scripting.executeScript = async (o) => {
       if (o.func.name === "fillPage") { injected.push(JSON.parse(JSON.stringify(o.args))); return [{ frameId: 0, result: 1 }]; }
-      return [{ frameId: 0, result: hasPassword }]; // the password-field probe
+      return [{ frameId: 0, result: { origin: "https://accounts.example.com", top: true, ancestors: [], fields: true, password: hasPassword } }];
     };
     const r = await sw.ctx.fillActiveTab();
     assert.equal(r.ok, true);
@@ -230,4 +230,110 @@ test("toolbar fill on a username-only tab: username now, password held for the n
       assert.equal((await sw.send("stepFill")).password, "Step-Secret-1!");
     }
   }
+});
+
+// ---------- toolbar fill: secrets only to eligible frames ----------
+const TOP = "https://accounts.example.com";
+const probe = (origin, extra = {}) => ({ origin, top: false, ancestors: [TOP], fields: true, password: true, ...extra });
+const FRAMES = [
+  { frameId: 0, documentId: "D0", result: { origin: TOP, top: true, ancestors: [], fields: true, password: true } },
+  { frameId: 1, documentId: "D1", result: probe("https://login.example.com") }, // same site: yes
+  { frameId: 2, documentId: "D2", result: probe("https://evil.org") }, // other site: no
+  { frameId: 3, documentId: "D3", result: probe("https://cdn.example.com", { fields: false }) }, // no fields: no
+  { frameId: 4, documentId: "D4", result: probe("https://sso.example.com", { ancestors: ["https://evil.org", TOP] }) }, // cross-site parent: no
+  { frameId: 5, documentId: "D5", result: probe("http://login.example.com") }, // not https: no
+  { frameId: 6, documentId: "D6", result: probe("https://deep.example.com", { ancestors: ["https://login.example.com", TOP] }) }, // yes
+  { frameId: 7, documentId: "D7", result: probe("https://example.com.evil.org") }, // look-alike: no
+];
+
+function toolbarBoot(frames) {
+  const sw = boot();
+  const calls = [];
+  sw.chrome.tabs.query = async () => [{ id: 7, url: `${TOP}/signin`, active: true }];
+  sw.chrome.scripting.executeScript = async (o) => {
+    calls.push(JSON.parse(JSON.stringify({ target: o.target, func: o.func.name, args: o.args })));
+    if (o.func.name === "probeFrame") return frames;
+    const byDoc = !!o.target.documentIds;
+    const ids = byDoc ? o.target.documentIds : o.target.frameIds;
+    return frames.filter((f) => ids.includes(byDoc ? f.documentId : f.frameId)).map((f) => ({ frameId: f.frameId, documentId: f.documentId, result: 1 }));
+  };
+  return { sw, calls };
+}
+
+test("toolbar fill: the all-frames probe carries no secret; the login goes only to eligible documents", async () => {
+  const { sw, calls } = toolbarBoot(FRAMES);
+  const r = await sw.ctx.fillActiveTab();
+  assert.equal(r.ok, true);
+  assert.equal(calls.length, 2);
+  const [p, f] = calls;
+  assert.equal(p.func, "probeFrame");
+  assert.equal(p.target.allFrames, true);
+  assert.equal(p.args, undefined, "the probe gets no arguments at all");
+  assert.equal(f.func, "fillPage");
+  assert.equal(f.target.allFrames, undefined, "the fill is never injected into every frame");
+  assert.deepEqual(f.target.documentIds, ["D0", "D1", "D6"]);
+  assert.equal(f.args[1].password, "Step-Secret-1!");
+  assert.equal(f.args[2].top, TOP);
+  assert.deepEqual([...f.args[2].allowed].sort(), [TOP, "https://deep.example.com", "https://login.example.com"]);
+  for (const c of calls) if (c.target.allFrames) assert.ok(!JSON.stringify(c).includes("Step-Secret-1!"));
+});
+
+test("toolbar fill: frameIds when the browser reports no documentId (Firefox)", async () => {
+  const frames = FRAMES.map(({ documentId, ...f }) => f);
+  const { sw, calls } = toolbarBoot(frames);
+  assert.equal((await sw.ctx.fillActiveTab()).ok, true);
+  assert.deepEqual(calls[1].target.frameIds, [0, 1, 6]);
+  assert.equal(calls[1].target.documentIds, undefined);
+});
+
+test("toolbar fill: no eligible frame means no injection with the login", async () => {
+  const { sw, calls } = toolbarBoot([FRAMES[2], FRAMES[3], FRAMES[4]]);
+  assert.deepEqual(JSON.parse(JSON.stringify(await sw.ctx.fillActiveTab())), { error: "no_fields" });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].func, "probeFrame");
+  assert.deepEqual(sw.steps(), []);
+});
+
+test("toolbar fill: a cross-site frame's password field does not make it a one-step page", async () => {
+  const frames = [
+    { frameId: 0, result: { origin: TOP, top: true, ancestors: [], fields: true, password: false } },
+    { frameId: 2, result: probe("https://evil.org", { password: true }) },
+  ];
+  const { sw, calls } = toolbarBoot(frames);
+  assert.equal((await sw.ctx.fillActiveTab()).ok, true);
+  assert.equal(calls[1].args[1].password, "", "username-only: the password is held, not injected");
+  assert.deepEqual(calls[1].target.frameIds, [0]);
+  assert.deepEqual(sw.steps(), ["step:7"]);
+});
+
+// fillPage's own frame guard, run against a fake frame (no DOM needed: reaching the DOM means "allowed").
+function runFillPage(sw, { origin, hostname, top, ancestors }, scope, host = "accounts.example.com") {
+  const win = {};
+  win.top = top ? win : {};
+  const ctx = vm.createContext({
+    window: win,
+    location: { origin, hostname, ancestorOrigins: ancestors },
+    document: { querySelectorAll: () => { throw new Error("REACHED"); } },
+  });
+  try {
+    return vm.runInContext(`(${sw.ctx.fillPage.toString()})`, ctx)(host, { username: "u", password: "p" }, scope);
+  } catch (e) {
+    if (e.message === "REACHED") return "filled";
+    throw e;
+  }
+}
+
+test("fillPage re-checks the frame it lands in (it may have navigated since the probe)", () => {
+  const sw = boot();
+  const scope = { top: TOP, allowed: [TOP, "https://login.example.com"] };
+  const topFrame = { origin: TOP, hostname: "accounts.example.com", top: true };
+  assert.equal(runFillPage(sw, topFrame, scope), "filled");
+  assert.equal(runFillPage(sw, { ...topFrame, origin: "https://evil.org", hostname: "evil.org" }, scope), 0);
+  assert.equal(runFillPage(sw, topFrame, undefined), 0, "no scope, no fill");
+  const sub = { origin: "https://login.example.com", hostname: "login.example.com", top: false, ancestors: [TOP] };
+  assert.equal(runFillPage(sw, sub, scope), "filled");
+  assert.equal(runFillPage(sw, { ...sub, origin: "https://evil.org", hostname: "evil.org" }, scope), 0);
+  assert.equal(runFillPage(sw, { ...sub, ancestors: ["https://evil.org", TOP] }, scope), 0);
+  assert.equal(runFillPage(sw, { ...sub, ancestors: ["https://login.example.com"] }, scope), 0, "outermost must be the top origin");
+  assert.equal(runFillPage(sw, { ...sub, ancestors: undefined }, scope), 0, "no ancestorOrigins (Firefox): subframes are never filled");
 });

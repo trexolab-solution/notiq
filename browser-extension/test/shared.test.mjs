@@ -203,3 +203,28 @@ test("registrableDomain / publicSuffix follow the app's table", () => {
   }
 });
 
+test("fillTargetOk: top frame must be the tab's origin; subframes same-site all the way up", () => {
+  const TOP = "https://accounts.example.com";
+  const sub = (origin, extra = {}) => ({ origin, top: false, ancestors: [TOP], fields: true, ...extra });
+  assert.equal(NS.fillTargetOk({ origin: TOP, top: true, ancestors: [], fields: true }, 0, TOP), true);
+  assert.equal(NS.fillTargetOk({ origin: TOP, top: true, fields: false }, 0, TOP), false, "no fields");
+  assert.equal(NS.fillTargetOk({ origin: "https://evil.org", top: true, fields: true }, 0, TOP), false, "top navigated away");
+  assert.equal(NS.fillTargetOk({ origin: TOP, top: false, fields: true }, 0, TOP), false);
+  assert.equal(NS.fillTargetOk(sub("https://login.example.com"), 3, TOP), true);
+  assert.equal(NS.fillTargetOk(sub("https://a.b.example.com", { ancestors: ["https://login.example.com", TOP] }), 4, TOP), true);
+  assert.equal(NS.fillTargetOk(sub("https://evil.org"), 3, TOP), false);
+  assert.equal(NS.fillTargetOk(sub("https://login.example.com", { ancestors: ["https://evil.org", TOP] }), 3, TOP), false);
+  assert.equal(NS.fillTargetOk(sub("https://login.example.com", { ancestors: ["https://login.example.com"] }), 3, TOP), false);
+  assert.equal(NS.fillTargetOk(sub("https://login.example.com", { ancestors: null }), 3, TOP), false, "no ancestorOrigins");
+  assert.equal(NS.fillTargetOk(sub("https://login.example.com", { ancestors: [] }), 3, TOP), false);
+  assert.equal(NS.fillTargetOk(sub("http://login.example.com"), 3, TOP), false, "insecure frame");
+  assert.equal(NS.fillTargetOk(sub("https://login.example.com", { top: true }), 3, TOP), false);
+  assert.equal(NS.fillTargetOk(sub("null"), 3, TOP), false, "opaque origin");
+  assert.equal(NS.fillTargetOk(sub("https://login.example.com"), "3", TOP), false);
+  assert.equal(NS.fillTargetOk(null, 0, TOP), false);
+  const gh = "https://me.github.io";
+  assert.equal(NS.fillTargetOk({ origin: "https://evil.github.io", top: false, ancestors: [gh], fields: true }, 2, gh), false);
+  assert.equal(NS.fillTargetOk({ origin: "http://localhost:8000", top: true, fields: true }, 0, "http://localhost:8000"), true);
+  assert.equal(NS.fillTargetOk({ origin: "http://127.0.0.1:8000", top: false, ancestors: ["http://localhost:8000"], fields: true }, 1, "http://localhost:8000"), false);
+});
+

@@ -646,8 +646,15 @@ try {
     // Injection itself also needs that grant: record what would be injected instead.
     globalThis.__realExec = globalThis.__realExec || chrome.scripting.executeScript.bind(chrome.scripting);
     globalThis.__injected = [];
-    // The username-first probe (tabHasPassword) gets what this page has: a visible password field.
-    chrome.scripting.executeScript = async (o) => { if (o.func.name !== "fillPage") return [{ frameId: 0, result: true }]; globalThis.__injected.push({ allFrames: o.target.allFrames, func: o.func.name, args: o.args }); return [{ frameId: 0, result: 1 }]; };
+    // The secret-free frame probe (phase 1) gets what this page has: the top frame, with a visible password field.
+    chrome.scripting.executeScript = async (o) => {
+      if (o.func.name === "probeFrame") {
+        globalThis.__probes = (globalThis.__probes || 0) + 1;
+        return [{ frameId: 0, result: { origin: new URL(${JSON.stringify(PAGE)}).origin, top: true, ancestors: [], fields: true, password: true } }];
+      }
+      globalThis.__injected.push({ allFrames: o.target.allFrames, frameIds: o.target.frameIds, documentIds: o.target.documentIds, func: o.func.name, args: o.args });
+      return [{ frameId: 0, result: 1 }];
+    };
     return true;
   })()`);
   const t20 = await SW("fillActiveTab()");
@@ -656,7 +663,7 @@ try {
   const inj = await SW("globalThis.__injected");
   const c20 = await calls();
   check("toolbar re-send with account injects fillPage with that login for the tab host",
-    t20b && t20b.ok && c20.length === 2 && c20[1].account === "acc-work" && inj.length === 1 && inj[0].func === "fillPage" && inj[0].allFrames === true &&
+    t20b && t20b.ok && c20.length === 2 && c20[1].account === "acc-work" && inj.length === 1 && inj[0].func === "fillPage" && inj[0].allFrames === undefined && JSON.stringify(inj[0].frameIds) === "[0]" &&
     inj[0].args[0] === "localhost" && inj[0].args[1].password === "Work-Pw-8", JSON.stringify({ t20b, n: c20.length }));
   const t20c = await SW(`fillActiveTab("acc-work")`);
   check("an account can be used once per offer (replay refused)", t20c && t20c.error === "stale", JSON.stringify(t20c));
@@ -664,11 +671,11 @@ try {
   const FILLPAGE = await SW("fillPage.toString()");
   await load(EXTRA);
   await P(`document.getElementById("change").hidden = true`);
-  const fp = await P(`(${FILLPAGE})("localhost", { username: "u@example.com", password: "Tool-Pw-1", code: "135790" })`);
+  const fp = await P(`(${FILLPAGE})("localhost", { username: "u@example.com", password: "Tool-Pw-1", code: "135790" }, { top: location.origin, allowed: [location.origin] })`);
   const fpv = await P(`({ u: document.getElementById("m-user").value, p: document.getElementById("m-pass").value,
     code: [1,2,3,4,5,6].map((k) => document.getElementById("o" + k).value).join(""), active: document.activeElement.id })`);
   check("toolbar fillPage fills login + split OTP boxes", fp === 3 && fpv.u === "u@example.com" && fpv.p === "Tool-Pw-1" && fpv.code === "135790" && fpv.active === "o6", JSON.stringify({ fp, ...fpv, p: "<redacted>" }));
-  const fpOther = await P(`(${FILLPAGE})("example.com", { username: "x", password: "y" })`);
+  const fpOther = await P(`(${FILLPAGE})("example.com", { username: "x", password: "y" }, { top: location.origin, allowed: [location.origin] })`);
   check("toolbar fillPage refuses a top page whose host differs", fpOther === 0);
   await SW(`(chrome.tabs.query = globalThis.__realQuery, chrome.scripting.executeScript = globalThis.__realExec, true)`);
   // Popup UI (sendMessage stubbed in the popup page)
