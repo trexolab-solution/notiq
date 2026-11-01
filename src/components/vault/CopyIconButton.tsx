@@ -11,6 +11,8 @@ interface Props {
   value: string;
   /** Names the field in the tooltip / accessible label, e.g. "password". */
   label: string;
+  /** Extra button classes, e.g. the list editors' row-action size. */
+  className?: string;
 }
 
 /**
@@ -18,7 +20,7 @@ interface Props {
  * into a check mark for a moment once the value is on the clipboard (the clipboard
  * is still wiped after the "Clear copied secrets after" setting by `copySecret`).
  */
-export function CopyIconButton({ value, label }: Props) {
+export function CopyIconButton({ value, label, className }: Props) {
   const [copied, setCopied] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -38,6 +40,7 @@ export function CopyIconButton({ value, label }: Props) {
         aria-label={copied ? `${label} copied` : `Copy ${label}`}
         icon={copied ? <Check size={13} style={{ color: "var(--color-success)" }} /> : <Copy size={13} />}
         disabled={!value}
+        className={className}
         onClick={() => { void onClick(); }}
       />
     </Tooltip>
