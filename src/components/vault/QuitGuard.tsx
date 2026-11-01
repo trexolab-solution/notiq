@@ -5,6 +5,7 @@ import { useAppStore } from "../../store";
 import { dirtyVaultTabs } from "../../lib/closeGuard";
 import { isTauri } from "../../lib/tauriWindow";
 import { toast } from "../../lib/toast";
+import { flushVaultPendingOps } from "../../lib/vaultPendingOps";
 import { ConfirmDialog } from "../ui/ConfirmDialog";
 
 /**
@@ -13,6 +14,12 @@ import { ConfirmDialog } from "../ui/ConfirmDialog";
  * Save / Don't save / Cancel first. Plain notes keep their edits in the session
  * and need no question. See `quit_should_ask` in src-tauri/src/lib.rs.
  */
+
+/** Applies held-back vault changes (an attachment removal still in its Undo window), then exits. */
+const quitNow = async () => {
+  await flushVaultPendingOps();
+  void invoke("app_quit");
+};
 export function QuitGuard() {
   const [titles, setTitles] = useState<string[] | null>(null);
   const [saving, setSaving] = useState(false);
@@ -23,7 +30,7 @@ export function QuitGuard() {
     let cancelled = false;
     listen("app-quit-requested", () => {
       const dirty = dirtyVaultTabs(useAppStore.getState().tabs);
-      if (dirty.length === 0) { void invoke("app_quit"); return; }
+      if (dirty.length === 0) { void quitNow(); return; }
       void invoke("show_main_window");
       setTitles(dirty.map((t) => t.title));
     })
@@ -50,7 +57,7 @@ export function QuitGuard() {
         return;
       }
     }
-    void invoke("app_quit");
+    await quitNow();
   };
 
   const one = titles.length === 1;
@@ -66,7 +73,7 @@ export function QuitGuard() {
       discardLabel="Don't save"
       cancelLabel="Cancel"
       onConfirm={() => { if (!saving) void saveAndQuit(); }}
-      onDiscard={() => void invoke("app_quit")}
+      onDiscard={() => void quitNow()}
       onCancel={cancel}
     />
   );
