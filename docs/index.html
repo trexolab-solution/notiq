@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Notiq — local-first notes with a sealed vault</title>
-<meta name="description" content="Notiq is a fast desktop Markdown editor, whiteboard and knowledge graph. Passwords, SSH keys and private notes live in one encrypted file on your own machine. No account, no cloud, no telemetry.">
+<meta name="description" content="Notiq is a fast desktop Markdown editor, whiteboard and knowledge graph. Passwords, SSH keys and private notes live in one encrypted file on your own machine. No account, no telemetry; optional vault sync is encrypted before upload.">
 <link rel="icon" href="favicon.ico" sizes="any">
 <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
@@ -12,16 +12,16 @@
 <meta property="og:site_name" content="Notiq">
 <meta property="og:url" content="https://trexolab-solution.github.io/notiq/">
 <meta property="og:title" content="Notiq — local-first notes with a sealed vault">
-<meta property="og:description" content="A fast Markdown editor, whiteboard and knowledge graph for your desktop. Passwords, SSH keys and private notes are sealed in one encrypted file that never leaves your machine.">
+<meta property="og:description" content="A fast Markdown editor, whiteboard and knowledge graph for your desktop. Passwords, SSH keys and private notes are sealed in one encrypted file on your machine. Optional sync to your own Google Drive is encrypted first.">
 <meta property="og:image" content="https://trexolab-solution.github.io/notiq/og.png">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="color-scheme" content="dark light">
-<meta name="theme-color" content="#0f172a" media="(prefers-color-scheme: dark)">
-<meta name="theme-color" content="#f8fafc" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0a1222">
 <script>
 /* Apply the saved theme before first paint (no flash). */
 (function(){try{var t=localStorage.getItem('notiq-site-theme');if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t);}catch(e){}document.documentElement.classList.add('js');})();
 </script>
+<link rel="stylesheet" href="style.css">
 <link rel="stylesheet" href="site.css">
 </head>
 <body>
@@ -73,15 +73,30 @@
     <symbol id="i-cloud-off" viewBox="0 0 24 24"><path d="m2 2 20 20"/><path d="M5.782 5.782A7 7 0 0 0 9 19h8.5a4.5 4.5 0 0 0 1.307-.193"/><path d="M21.532 16.5A4.5 4.5 0 0 0 17.5 10h-1.79A7.008 7.008 0 0 0 10 5.07"/></symbol>
     <symbol id="i-minus" viewBox="0 0 24 24"><path d="M5 12h14"/></symbol>
     <symbol id="i-square" viewBox="0 0 24 24"><rect width="16" height="16" x="4" y="4" rx="1.5"/></symbol>
+    <symbol id="i-monitor" viewBox="0 0 24 24"><rect width="20" height="14" x="2" y="3" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/></symbol>
+    <symbol id="i-cloud" viewBox="0 0 24 24"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/></symbol>
+    <symbol id="i-pause" viewBox="0 0 24 24"><rect x="14" y="4" width="4" height="16" rx="1"/><rect x="6" y="4" width="4" height="16" rx="1"/></symbol>
+    <symbol id="i-history" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></symbol>
+    <symbol id="i-paperclip" viewBox="0 0 24 24"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/></symbol>
+    <symbol id="i-logout" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/></symbol>
+    <symbol id="i-idcard" viewBox="0 0 24 24"><rect width="20" height="14" x="2" y="5" rx="2"/><circle cx="8" cy="11" r="2"/><path d="M5 16a3 3 0 0 1 6 0"/><path d="M14 10h4"/><path d="M14 14h4"/></symbol>
+    <symbol id="i-list" viewBox="0 0 24 24"><path d="M3 5h.01"/><path d="M3 12h.01"/><path d="M3 19h.01"/><path d="M8 5h13"/><path d="M8 12h13"/><path d="M8 19h13"/></symbol>
+    <symbol id="i-pointer" viewBox="0 0 24 24"><path d="M12.586 12.586 19 19"/><path d="M3.688 3.037a.497.497 0 0 0-.651.651l6.5 15.999a.501.501 0 0 0 .947-.062l1.569-6.083a2 2 0 0 1 1.448-1.479l6.124-1.579a.5.5 0 0 0 .063-.947z"/></symbol>
+    <symbol id="i-puzzle" viewBox="0 0 24 24"><path d="M15.39 4.39a1 1 0 0 0 1.68-.474 2.5 2.5 0 1 1 3.014 3.015 1 1 0 0 0-.474 1.68l1.683 1.682a2.414 2.414 0 0 1 0 3.414L19.61 15.39a1 1 0 0 1-1.68-.474 2.5 2.5 0 1 0-3.014 3.015 1 1 0 0 1 .474 1.68l-1.683 1.682a2.414 2.414 0 0 1-3.414 0L8.61 19.61a1 1 0 0 0-1.68.474 2.5 2.5 0 1 1-3.014-3.015 1 1 0 0 0 .474-1.68l-1.683-1.682a2.414 2.414 0 0 1 0-3.414L4.39 8.61a1 1 0 0 1 1.68.474 2.5 2.5 0 1 0 3.014-3.015 1 1 0 0 1-.474-1.68l1.683-1.682a2.414 2.414 0 0 1 3.414 0z"/></symbol>
+    <symbol id="i-ban" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/></symbol>
+    <symbol id="i-save" viewBox="0 0 24 24"><path d="M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M17 21v-7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7"/><path d="M7 3v4a1 1 0 0 0 1 1h7"/></symbol>
+    <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></symbol>
   </defs>
 </svg>
 
-<header class="site-head" id="top">
+<header class="site-head sealed-field" id="top">
   <div class="head-in">
     <a class="brand" href="./" aria-label="Notiq home"><img src="logo.png" alt="" width="28" height="28"><span>Notiq</span></a>
     <nav class="nav" aria-label="Primary">
       <a href="#features">Features</a>
       <a href="#vault">Vault</a>
+      <a href="#sync">Sync</a>
+      <a href="#autofill">Autofill</a>
       <a href="#security">Security</a>
       <a href="#download">Download</a>
       <a href="privacy.html">Privacy</a>
@@ -99,20 +114,24 @@
 <main id="main">
 
 <!-- ═════════════ HERO ═════════════ -->
-<section class="hero" aria-labelledby="hero-title">
-  <div class="hero-glow" aria-hidden="true"></div>
+<section class="hero sealed-field" aria-labelledby="hero-title">
   <div class="container hero-grid">
-    <div class="hero-copy">
-      <h1 id="hero-title" class="reveal">Your notes and secrets, <span class="h1-quiet">kept on your own machine.</span></h1>
-      <p class="lead reveal">Notiq is a fast desktop Markdown editor, whiteboard and knowledge graph. Passwords, SSH keys and private notes go into a Secure Vault: one encrypted file that never leaves your machine.</p>
-      <div class="cta reveal">
+    <h1 id="hero-title">Your notes and secrets, kept on your own machine.</h1>
+    <div class="hero-side">
+      <p class="lead">Notiq is a fast desktop Markdown editor, whiteboard and knowledge graph. Passwords, SSH keys and private notes go into a Secure Vault: one encrypted file on your computer. It leaves your PC only if you turn on sync, and then only encrypted.</p>
+      <div class="cta">
         <a class="btn btn-gold btn-lg" id="heroDownload" href="https://github.com/trexolab-solution/notiq/releases/latest"><svg class="i"><use href="#i-download"/></svg><span id="heroDownloadLabel">Download Notiq</span></a>
-        <a class="btn btn-ghost btn-lg" href="https://github.com/trexolab-solution/notiq"><svg class="i"><use href="#i-github"/></svg>View source</a>
+        <a class="btn btn-line btn-lg" href="https://github.com/trexolab-solution/notiq"><svg class="i"><use href="#i-github"/></svg>View source</a>
       </div>
-      <p class="fine reveal" id="heroFine">Free and open source (MIT) for Windows, macOS and Linux. No account, no telemetry.</p>
+      <dl class="facts">
+        <div><dt>Runs on</dt><dd>Windows, macOS, Linux</dd></div>
+        <div><dt>License</dt><dd>MIT, open source</dd></div>
+        <div><dt>Account</dt><dd>None needed</dd></div>
+        <div><dt>Telemetry</dt><dd>None</dd></div>
+      </dl>
     </div>
 
-    <div class="hero-stage reveal" id="heroStage">
+    <div class="hero-stage" id="heroStage">
       <figure class="win hero-win" id="heroWin" aria-label="Animated preview: a note is written in Notiq, shown as rendered Markdown, then locked into the encrypted vault file.">
         <div class="win-bar" aria-hidden="true">
           <span class="win-brand"><img src="logo.png" alt="" width="14" height="14">Notiq</span>
@@ -160,9 +179,9 @@ Deploy with <span class="md-b">**zero downtime**</span>.
 </section>
 
 <!-- ═════════════ EDITOR ═════════════ -->
-<section class="band" id="features" aria-labelledby="editor-title">
+<section class="band band-editor" id="features" aria-labelledby="editor-title">
   <div class="container split-grid">
-    <div class="copy reveal">
+    <div class="copy">
       <h2 id="editor-title">A Markdown editor with VS Code’s engine underneath</h2>
       <p>Notiq’s editor is Monaco, tuned for Markdown. Write in Source, read in Preview, or keep both side by side in Split. Tables, task lists, Mermaid diagrams, LaTeX and <code>[[wiki links]]</code> all render as you type.</p>
       <ul class="ticks">
@@ -172,7 +191,7 @@ Deploy with <span class="md-b">**zero downtime**</span>.
       </ul>
       <p class="try">Try it: edit the note, then switch views.</p>
     </div>
-    <div class="reveal">
+    <div>
       <div class="win" id="editorDemo">
         <div class="win-bar" aria-hidden="true">
           <span class="win-brand"><img src="logo.png" alt="" width="14" height="14">Notiq</span>
@@ -215,15 +234,15 @@ Build a **reading tracker** that works offline.
 </section>
 
 <!-- ═════════════ VAULT EXPLORER ═════════════ -->
-<section class="band band-vault" id="vault" aria-labelledby="vault-title">
+<section class="band band-alt" id="vault" aria-labelledby="vault-title">
   <div class="container">
-    <div class="section-head reveal">
+    <div class="section-head">
       <h2 id="vault-title">Organize the vault like a file tree</h2>
       <p>Logins, servers, API keys and secure notes live in a proper tree. Fold folders, filter by tag, star what you reach for, drag things where they belong. Deleted items wait in the Recycle Bin for 30 days.</p>
     </div>
 
     <div class="vault-layout">
-      <div class="win vault-win reveal" id="vaultDemo">
+      <div class="win vault-win" id="vaultDemo">
         <div class="win-bar" aria-hidden="true">
           <span class="win-brand"><img src="logo.png" alt="" width="14" height="14">Notiq</span>
           <span class="win-title">Secure Vault</span>
@@ -257,7 +276,7 @@ Build a **reading tracker** that works offline.
         <p class="sr-only" id="vxAnnounce" aria-live="polite"></p>
       </div>
 
-      <ul class="vault-notes reveal" aria-label="Vault organizing features">
+      <ul class="notes-list" aria-label="Vault organizing features">
         <li><b>Folders and drag-and-drop</b><span>Drag a row onto a folder to move it, or use Move to in the details pane.</span></li>
         <li><b>Tags and tag filter</b><span>Click tags to narrow the tree. Several tags combine.</span></li>
         <li><b>Star and rename</b><span>Starred items float to the top. Double-click a name to rename.</span></li>
@@ -272,7 +291,7 @@ Build a **reading tracker** that works offline.
 <!-- ═════════════ CREDENTIALS ═════════════ -->
 <section class="band" id="credentials" aria-labelledby="cred-title">
   <div class="container split-grid flip">
-    <div class="copy reveal">
+    <div class="copy">
       <h2 id="cred-title">Forms built for logins, servers and keys</h2>
       <p>Each entry type has a form shaped around what you store in it, so a server keeps its host and key and a login keeps its 2-step secret.</p>
       <dl class="kinds">
@@ -280,12 +299,13 @@ Build a **reading tracker** that works offline.
         <div><dt><svg class="i k-ssh" aria-hidden="true"><use href="#i-ssh"/></svg>SSH / server</dt><dd>Checks the key you paste and builds the <code>ssh</code> command for you.</dd></div>
         <div><dt><svg class="i k-secret" aria-hidden="true"><use href="#i-secret"/></svg>API key / secret</dt><dd>Tokens and keys, hidden until you ask.</dd></div>
         <div><dt><svg class="i k-note" aria-hidden="true"><use href="#i-note"/></svg>Secure note</dt><dd>Full Markdown, sealed like everything else.</dd></div>
+        <div><dt><svg class="i k-id" aria-hidden="true"><use href="#i-idcard"/></svg>Identity, card, Wi-Fi, recovery codes</dt><dd>Name and address for checkout forms, cards, network passwords and one-time codes.</dd></div>
       </dl>
-      <p>Every copy button confirms with a check, then wipes the clipboard after 20 seconds.</p>
+      <p>Every copy button confirms with a check, then clears the clipboard after 30 seconds. You can pick 15 s, 1 min, 2 min or Never instead.</p>
       <p class="try">Try it: copy a field, generate a password, paste a sample key.</p>
     </div>
 
-    <div class="reveal">
+    <div>
       <div class="win cred-win" id="credDemo">
         <div class="win-bar" aria-hidden="true">
           <span class="win-brand"><img src="logo.png" alt="" width="14" height="14">Notiq</span>
@@ -346,7 +366,7 @@ Build a **reading tracker** that works offline.
                 <button type="button" class="cp" data-copy="#totpCode" data-label="2-step code"></button>
               </div>
             </div>
-            <p class="cred-foot" id="clipNote" aria-live="polite">Copied values are cleared from the clipboard after 20 seconds.</p>
+            <p class="cred-foot" id="clipNote" aria-live="polite">Copied values are cleared from the clipboard after 30 seconds.</p>
           </div>
 
           <!-- SSH -->
@@ -403,13 +423,13 @@ Build a **reading tracker** that works offline.
 </section>
 
 <!-- ═════════════ ONE FILE ═════════════ -->
-<section class="band band-file" aria-labelledby="file-title">
+<section class="band sealed-field band-file" id="one-file" aria-labelledby="file-title">
   <div class="container">
-    <div class="section-head reveal">
+    <div class="section-head">
       <h2 id="file-title">Everything private goes into one encrypted file</h2>
-      <p>Every locked note, login, server and key goes into <code>vault.nqdb</code>. So do their names, folders and tags. Look on your disk and you will find one file and nothing readable in it.</p>
+      <p>Every locked note, login, server and key goes into <code>vault.nqdb</code>. So do their names, folders, tags and attachments. Look on your disk and you will find one file and nothing readable in it.</p>
     </div>
-    <div class="flow reveal" id="flowDemo" role="img" aria-label="Diagram: notes, logins, SSH entries, API keys, folder names and tags all flow into one encrypted file, vault.nqdb, sealed with Argon2id and XChaCha20-Poly1305.">
+    <div class="flow" id="flowDemo" role="img" aria-label="Diagram: notes, logins, SSH entries, API keys, folder names and tags all flow into one encrypted file, vault.nqdb, sealed with Argon2id and XChaCha20-Poly1305.">
       <ul class="flow-in" aria-hidden="true">
         <li><svg class="i k-note"><use href="#i-note"/></svg>Recovery codes</li>
         <li><svg class="i k-login"><use href="#i-login"/></svg>GitHub</li>
@@ -444,23 +464,151 @@ f2 6e 0d 84 b7 19 c5 2a 70 eb 4f 13 9a d8 66 05
   </div>
 </section>
 
-<!-- ═════════════ SECURITY ═════════════ -->
-<section class="band" id="security" aria-labelledby="sec-title">
+<!-- ═════════════ SYNC ═════════════ -->
+<section class="band sealed-field band-sync" id="sync" aria-labelledby="sync-title">
   <div class="container">
-    <div class="section-head reveal">
-      <h2 id="sec-title">What the vault guarantees</h2>
-      <p>Notiq runs no server, so every protection lives on your machine. This is exactly what it does to keep a locked vault locked.</p>
+    <div class="section-head">
+      <h2 id="sync-title">Use one vault on all your PCs, sealed before it leaves</h2>
+      <p>Vault Sync, new in 0.9.0, keeps your vault in step through your own Google Drive. It is off until you turn it on, it syncs the vault only (never your plain notes), and everything is encrypted on your PC before upload.</p>
     </div>
-    <ul class="guarantees">
-      <li class="reveal"><svg class="i" aria-hidden="true"><use href="#i-database"/></svg><div><h3>One encrypted file</h3><p>Names, folders, tags and contents all sit inside <code>vault.nqdb</code>. The key comes from your master password through Argon2id; data is sealed with XChaCha20-Poly1305.</p></div></li>
-      <li class="reveal"><svg class="i" aria-hidden="true"><use href="#i-login"/></svg><div><h3>Recovery key, shown once</h3><p>At setup you get a recovery key. Keep it offline. There is no server and no one who can reset your password for you.</p></div></li>
-      <li class="reveal"><svg class="i" aria-hidden="true"><use href="#i-timer"/></svg><div><h3>Locks itself</h3><p>Auto-lock after inactivity, lock when the window closes, and a panic lock on <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>L</kbd>.</p></div></li>
-      <li class="reveal"><svg class="i" aria-hidden="true"><use href="#i-copy"/></svg><div><h3>Clipboard cleared</h3><p>Anything you copy from the vault is wiped from the clipboard after 20 seconds.</p></div></li>
-      <li class="reveal"><svg class="i" aria-hidden="true"><use href="#i-shield"/></svg><div><h3>Keys wiped from memory</h3><p>When the vault locks, the decrypted key material is zeroized rather than left for the garbage collector.</p></div></li>
-      <li class="reveal"><svg class="i" aria-hidden="true"><use href="#i-sparkles"/></svg><div><h3>Kept apart from everything else</h3><p>Vault items never appear in search, the knowledge graph or the AI assistant. AI is never given vault content.</p></div></li>
-      <li class="reveal"><svg class="i" aria-hidden="true"><use href="#i-cloud-off"/></svg><div><h3>Nothing leaves your device</h3><p>Notiq has no account system, keeps no cloud copy and sends no telemetry. Your vault exists only where you put it.</p></div></li>
+
+    <div class="sync-map" role="img" aria-label="Diagram: this PC and your other PC each upload an encrypted copy of the vault to Notiq's own app folder in your Google Drive. The folder holds vault metadata, one encrypted snapshot per device and encrypted attachments. Notiq cannot see the other files in your Drive.">
+      <div class="sm-pc" aria-hidden="true">
+        <svg class="i"><use href="#i-monitor"/></svg>
+        <b>This PC</b>
+        <span><svg class="i"><use href="#i-lock"/></svg>sealed with your vault key</span>
+      </div>
+      <div class="sm-link" aria-hidden="true"><i></i></div>
+      <div class="sm-drive" aria-hidden="true">
+        <div class="sm-drive-h"><svg class="i"><use href="#i-cloud"/></svg><b>Your Google Drive</b></div>
+        <div class="sm-folder">
+          <p class="sm-folder-h">Notiq app folder <code>drive.appdata</code></p>
+          <ul>
+            <li><svg class="i"><use href="#i-lock"/></svg>Vault metadata (wrapped keys)</li>
+            <li><svg class="i"><use href="#i-lock"/></svg>Encrypted snapshot · this PC</li>
+            <li><svg class="i"><use href="#i-lock"/></svg>Encrypted snapshot · other PC</li>
+            <li><svg class="i"><use href="#i-lock"/></svg>Encrypted attachments</li>
+          </ul>
+        </div>
+        <p class="sm-other"><svg class="i"><use href="#i-eye-off"/></svg>Your other Drive files: not visible to Notiq</p>
+      </div>
+      <div class="sm-link sm-link-r" aria-hidden="true"><i></i></div>
+      <div class="sm-pc" aria-hidden="true">
+        <svg class="i"><use href="#i-monitor"/></svg>
+        <b>Your other PC</b>
+        <span><svg class="i"><use href="#i-lock"/></svg>same master password</span>
+      </div>
+    </div>
+
+    <ul class="spec spec-2">
+      <li><svg class="i" aria-hidden="true"><use href="#i-cloud"/></svg><div><h3>Off until you turn it on</h3><p>Click the cloud button in the title bar, or choose <b>Use my vault from Google Drive</b> on the vault setup screen. If you never connect, Notiq sends nothing to Google.</p></div></li>
+      <li><svg class="i" aria-hidden="true"><use href="#i-lock"/></svg><div><h3>Encrypted on your PC first</h3><p>Google and the Notiq developer cannot read item names, contents or attachments. Only object sizes and timestamps are visible.</p></div></li>
+      <li><svg class="i" aria-hidden="true"><use href="#i-history"/></svg><div><h3>No lost edits</h3><p>If the same item changed on two PCs, the newer version is kept and the other is saved in its history. One notification tells you which items and devices.</p></div></li>
+      <li><svg class="i" aria-hidden="true"><use href="#i-pause"/></svg><div><h3>Pause and resume</h3><p><b>Pause</b> stops syncing on this PC; <b>Resume sync</b> starts again. A new master password works on every PC.</p></div></li>
+      <li><svg class="i" aria-hidden="true"><use href="#i-paperclip"/></svg><div><h3>Attachments sync too</h3><p>Up to 5 MB per file, 25 MB per vault and 20 files per item.</p></div></li>
+      <li><svg class="i" aria-hidden="true"><use href="#i-logout"/></svg><div><h3>Disconnect any time</h3><p>Your encrypted data stays in your Drive until you delete it (Google Drive → Settings → Manage apps). Details in the <a href="privacy.html#google-user-data">privacy policy</a>.</p></div></li>
     </ul>
-    <div class="honest reveal">
+  </div>
+</section>
+
+<!-- ═════════════ AUTOFILL ═════════════ -->
+<section class="band" id="autofill" aria-labelledby="af-title">
+  <div class="container">
+    <div class="section-head">
+      <h2 id="af-title">Fill logins in your browser, approved in Notiq</h2>
+      <p>Notiq Autofill 0.6.0 for Chrome, Edge, Brave and Firefox works with your vault through a local bridge on your computer. Passwords never leave it: the vault must be unlocked, and every fill and every save is approved in Notiq.</p>
+    </div>
+
+    <div class="af-layout">
+      <div class="af" id="afDemo">
+        <div class="seg af-tabs" role="group" aria-label="Show an autofill example">
+          <button type="button" data-scene="approve" aria-pressed="true">Fill with approval</button>
+          <button type="button" data-scene="menu" aria-pressed="false">Right-click menu</button>
+          <button type="button" data-scene="popup" aria-pressed="false">Toolbar popup</button>
+        </div>
+        <div class="win browser" data-scene="approve" id="afWin">
+          <div class="br-bar" aria-hidden="true">
+            <span class="br-dots"><i></i><i></i><i></i></span>
+            <span class="br-url"><svg class="i"><use href="#i-lock"/></svg>github.com/login</span>
+            <span class="br-ext" id="afExt"><img src="logo.png" alt="" width="16" height="16"></span>
+          </div>
+          <div class="br-page">
+            <form class="br-form" aria-label="Example sign-in form" onsubmit="return false">
+              <p class="br-title">Sign in to GitHub</p>
+              <label for="afUser">Username or email address</label>
+              <div class="br-field"><input id="afUser" autocomplete="off" spellcheck="false" tabindex="-1" readonly><span class="br-key" aria-hidden="true"><img src="logo.png" alt="" width="14" height="14"></span></div>
+              <label for="afPass">Password</label>
+              <div class="br-field"><input id="afPass" type="password" autocomplete="off" tabindex="-1" readonly><span class="br-key" aria-hidden="true"><img src="logo.png" alt="" width="14" height="14"></span></div>
+              <span class="br-submit" aria-hidden="true">Sign in</span>
+            </form>
+
+            <!-- approval window -->
+            <div class="af-ask" aria-hidden="true">
+              <div class="af-ask-bar"><img src="logo.png" alt="" width="12" height="12">Notiq</div>
+              <div class="af-ask-body">
+                <p class="af-ask-t">Fill a login on <b>github.com</b>?</p>
+                <div class="af-acct is-on"><svg class="i k-login"><use href="#i-login"/></svg><span><b>GitHub</b>octo-dev@example.com</span></div>
+                <div class="af-acct"><svg class="i k-login"><use href="#i-login"/></svg><span><b>GitHub (work)</b>ana@work.example</span></div>
+                <span class="af-check"><i></i>Allow this site for 5 minutes</span>
+                <div class="af-ask-btns"><span class="af-btn">Deny</span><span class="af-btn af-btn-gold" id="afAllow">Allow</span></div>
+              </div>
+            </div>
+
+            <!-- right-click menu -->
+            <div class="af-menu" aria-hidden="true">
+              <span class="af-mi is-dim">Cut</span><span class="af-mi is-dim">Copy</span><span class="af-mi is-dim">Paste</span>
+              <span class="af-sep"></span>
+              <span class="af-mi is-on"><img src="logo.png" alt="" width="12" height="12">Notiq<svg class="i af-chev"><use href="#i-chevron"/></svg></span>
+              <div class="af-sub">
+                <span class="af-mi">Fill login</span>
+                <span class="af-mi">Fill 2FA code</span>
+                <span class="af-mi">Fill identity<svg class="i af-chev"><use href="#i-chevron"/></svg></span>
+                <span class="af-mi">Generate password</span>
+              </div>
+            </div>
+
+            <!-- toolbar popup -->
+            <div class="af-pop" aria-hidden="true">
+              <p class="af-pop-h"><img src="logo.png" alt="" width="14" height="14">Logins for github.com</p>
+              <div class="af-row"><svg class="i k-login"><use href="#i-login"/></svg><span><b>GitHub</b>octo-dev@example.com</span><span class="af-cps"><span title="Copy username"><svg class="i"><use href="#i-copy"/></svg></span><span title="Copy password"><svg class="i"><use href="#i-secret"/></svg></span><span title="Copy 2FA code"><svg class="i"><use href="#i-timer"/></svg></span></span></div>
+              <div class="af-row"><svg class="i k-login"><use href="#i-login"/></svg><span><b>GitHub (work)</b>ana@work.example</span><span class="af-cps"><span><svg class="i"><use href="#i-copy"/></svg></span><span><svg class="i"><use href="#i-secret"/></svg></span><span><svg class="i"><use href="#i-timer"/></svg></span></span></div>
+              <p class="af-pop-f">Open in Notiq</p>
+            </div>
+          </div>
+        </div>
+        <p class="af-cap" id="afCap" aria-live="polite">Click the Notiq key in a field, press <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>L</kbd> or use the toolbar button, then allow it in Notiq.</p>
+      </div>
+
+      <ul class="spec">
+        <li><svg class="i" aria-hidden="true"><use href="#i-shield"/></svg><div><h3>Fill with approval</h3><p>A small Notiq window shows the site that asks. Pick the account and allow it; the current 2-step code is filled too.</p></div></li>
+        <li><svg class="i" aria-hidden="true"><use href="#i-save"/></svg><div><h3>Save and update logins</h3><p>After you sign in, Notiq offers to save the login. If several logins share a username, you choose which one to update, or save a new one.</p></div></li>
+        <li><svg class="i" aria-hidden="true"><use href="#i-puzzle"/></svg><div><h3>Toolbar popup</h3><p>This site’s logins, one click to fill. Copy a username, password or 2FA code: the app copies it and clears the clipboard after your setting.</p></div></li>
+        <li><svg class="i" aria-hidden="true"><use href="#i-pointer"/></svg><div><h3>Right-click menu</h3><p>Fill login · Fill 2FA code · Fill identity · Generate password.</p></div></li>
+        <li><svg class="i" aria-hidden="true"><use href="#i-idcard"/></svg><div><h3>Identities and custom fields</h3><p>Name, email, phone and address go into address and checkout forms. A login’s custom fields, like a bank’s Customer ID, fill fields with the same name.</p></div></li>
+        <li><svg class="i" aria-hidden="true"><use href="#i-ban"/></svg><div><h3>Look-alike sites refused</h3><p>A request from an address like <code>paypa1.com</code> is refused and reported inside Notiq.</p></div></li>
+      </ul>
+    </div>
+    <p class="af-more">The extension ships inside Notiq: open <b>Settings → Vault → Browser autofill</b> to install it. Read the <a href="extension-privacy.html">extension privacy policy</a>.</p>
+  </div>
+</section>
+
+<!-- ═════════════ SECURITY ═════════════ -->
+<section class="band sealed-field band-sec" id="security" aria-labelledby="sec-title">
+  <div class="container">
+    <div class="section-head">
+      <h2 id="sec-title">What the vault guarantees</h2>
+      <p>Notiq runs no server of its own, so every protection lives on your machine. This is exactly what it does to keep a locked vault locked.</p>
+    </div>
+    <ul class="spec spec-2 guarantees">
+      <li><svg class="i" aria-hidden="true"><use href="#i-database"/></svg><div><h3>One encrypted file</h3><p>Names, folders, tags and contents all sit inside <code>vault.nqdb</code>. The key comes from your master password through Argon2id; data is sealed with XChaCha20-Poly1305.</p></div></li>
+      <li><svg class="i" aria-hidden="true"><use href="#i-login"/></svg><div><h3>Recovery key, shown once</h3><p>At setup you get a recovery key. Keep it offline. There is no server and no one who can reset your password for you.</p></div></li>
+      <li><svg class="i" aria-hidden="true"><use href="#i-timer"/></svg><div><h3>Locks itself</h3><p>Auto-lock after inactivity, lock when the window closes, and a panic lock on <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>L</kbd>.</p></div></li>
+      <li><svg class="i" aria-hidden="true"><use href="#i-copy"/></svg><div><h3>Clipboard cleared</h3><p>Anything you copy from the vault is wiped from the clipboard after the time you choose: 15 s, 30 s (default), 1 min, 2 min or Never.</p></div></li>
+      <li><svg class="i" aria-hidden="true"><use href="#i-shield"/></svg><div><h3>Keys wiped from memory</h3><p>When the vault locks, the decrypted key material is zeroized rather than left for the garbage collector.</p></div></li>
+      <li><svg class="i" aria-hidden="true"><use href="#i-sparkles"/></svg><div><h3>Kept apart from everything else</h3><p>Vault items never appear in search, the knowledge graph or the AI assistant. AI is never given vault content.</p></div></li>
+      <li><svg class="i" aria-hidden="true"><use href="#i-cloud-off"/></svg><div><h3>Nothing leaves unencrypted</h3><p>No account system and no telemetry. Your vault leaves this PC only if you turn on Vault Sync, and then only encrypted, to your own Google Drive.</p></div></li>
+    </ul>
+    <div class="honest">
       <svg class="i" aria-hidden="true"><use href="#i-alert"/></svg>
       <p><b>The honest limit.</b> Anyone who gets a copy of <code>vault.nqdb</code> can try to guess your master password offline. Argon2id makes every guess slow and expensive, but it cannot save a short or reused password. Use a long, unique passphrase.</p>
     </div>
@@ -468,18 +616,18 @@ f2 6e 0d 84 b7 19 c5 2a 70 eb 4f 13 9a d8 66 05
 </section>
 
 <!-- ═════════════ MORE FEATURES ═════════════ -->
-<section class="band band-more" aria-labelledby="more-title">
+<section class="band band-alt" id="more" aria-labelledby="more-title">
   <div class="container">
-    <div class="section-head reveal">
+    <div class="section-head">
       <h2 id="more-title">Whiteboard, graph, terminal and AI in the same window</h2>
       <p>Sketch beside a note, follow its links, run a command under it or ask the assistant about it, without leaving the app or your disk.</p>
     </div>
     <div class="bento">
-      <article class="tile t-graph reveal">
+      <article class="tile t-graph">
         <div class="tile-copy"><h3><svg class="i" aria-hidden="true"><use href="#i-graph"/></svg>Knowledge graph</h3><p>Every <code>[[link]]</code> becomes an edge. Hover a note to see what it touches.</p></div>
         <div class="graph" id="graphDemo" aria-hidden="true"><svg viewBox="0 0 760 300" id="graphSvg"><g class="g-edges"></g><g class="g-nodes"></g></svg></div>
       </article>
-      <article class="tile t-board reveal">
+      <article class="tile t-board">
         <div class="tile-copy"><h3><svg class="i" aria-hidden="true"><use href="#i-pencil"/></svg>Whiteboard</h3><p>An Excalidraw canvas beside your notes, saved with the tab.</p></div>
         <div class="board" id="boardDemo" aria-hidden="true">
           <svg viewBox="0 0 320 180">
@@ -494,15 +642,15 @@ f2 6e 0d 84 b7 19 c5 2a 70 eb 4f 13 9a d8 66 05
           </svg>
         </div>
       </article>
-      <article class="tile t-ai reveal">
-        <div class="tile-copy"><h3><svg class="i" aria-hidden="true"><use href="#i-sparkles"/></svg>AI that stays home</h3><p>AI stays off until you switch it on. Run it locally with Ollama or use an OpenRouter key; vault content is never sent.</p></div>
+      <article class="tile t-ai">
+        <div class="tile-copy"><h3><svg class="i" aria-hidden="true"><use href="#i-sparkles"/></svg>AI that stays home</h3><p>AI stays off until you switch it on. Run it locally with Ollama, or use Ollama Cloud with your own API key. Vault content is never sent.</p></div>
         <div class="chat" id="chatDemo" aria-hidden="true">
           <div class="chat-head"><span class="dot-ok"></span>Ollama · llama3.2 · local</div>
           <div class="msg me">Summarize this week's meeting notes</div>
           <div class="msg ai"><span id="chatAi">Three decisions: ship the importer Friday, move standup to 10:00, and retire the old export script.</span><i class="caret"></i></div>
         </div>
       </article>
-      <article class="tile t-term reveal">
+      <article class="tile t-term">
         <div class="tile-copy"><h3><svg class="i" aria-hidden="true"><use href="#i-terminal"/></svg>Terminal built in</h3><p>A real shell runs under your notes; press <kbd>Ctrl</kbd>+<kbd>`</kbd> to toggle it.</p></div>
         <pre class="term" id="termDemo" aria-hidden="true"><span class="t-p">~/notes $</span> git status
 On branch main
@@ -510,7 +658,7 @@ nothing to commit, working tree clean
 <span class="t-p">~/notes $</span> <i class="caret"></i></pre>
       </article>
     </div>
-    <ul class="extras reveal" aria-label="Also included">
+    <ul class="extras" aria-label="Also included">
       <li><svg class="i" aria-hidden="true"><use href="#i-cmd"/></svg><span><b>Command palette</b> <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>P</kbd></span></li>
       <li><svg class="i" aria-hidden="true"><use href="#i-sticky"/></svg><span><b>Sticky notes</b> that float above other windows</span></li>
       <li><svg class="i" aria-hidden="true"><use href="#i-palette"/></svg><span><b>13 themes</b>, light and dark</span></li>
@@ -521,39 +669,40 @@ nothing to commit, working tree clean
 
 <!-- ═════════════ DOWNLOAD ═════════════ -->
 <section class="band band-dl" id="download" aria-labelledby="dl-title">
-  <div class="container">
-    <div class="section-head center reveal">
+  <div class="container dl-grid">
+    <div class="dl-copy">
       <h2 id="dl-title">Download Notiq</h2>
       <p>Free and open source (MIT). No account, no telemetry.</p>
+      <p class="dl-more">All builds and release notes are on <a href="https://github.com/trexolab-solution/notiq/releases/latest">GitHub Releases</a>. Notiq checks GitHub for a new release on launch and every hour, and updates itself in-app; you can turn that off in <b>Settings → Updates</b>.</p>
     </div>
-    <div class="os-grid">
-      <a class="os reveal" data-os="windows" href="https://github.com/trexolab-solution/notiq/releases/latest">
+    <ul class="os-list">
+      <li><a class="os" data-os="windows" href="https://github.com/trexolab-solution/notiq/releases/latest">
         <svg class="i os-ic" aria-hidden="true"><use href="#i-windows"/></svg>
         <span class="os-name">Windows</span><span class="os-sub">.exe and .msi installers</span>
-        <span class="os-go">Download <svg class="i" aria-hidden="true"><use href="#i-download"/></svg></span>
-      </a>
-      <a class="os reveal" data-os="macos" href="https://github.com/trexolab-solution/notiq/releases/latest">
+        <span class="os-go"><span class="os-you">Your system</span><svg class="i" aria-hidden="true"><use href="#i-download"/></svg></span>
+      </a></li>
+      <li><a class="os" data-os="macos" href="https://github.com/trexolab-solution/notiq/releases/latest">
         <svg class="i os-ic" aria-hidden="true"><use href="#i-command"/></svg>
         <span class="os-name">macOS</span><span class="os-sub">See the release page, or build from source</span>
-        <span class="os-go">Download <svg class="i" aria-hidden="true"><use href="#i-download"/></svg></span>
-      </a>
-      <a class="os reveal" data-os="linux" href="https://github.com/trexolab-solution/notiq/releases/latest">
+        <span class="os-go"><span class="os-you">Your system</span><svg class="i" aria-hidden="true"><use href="#i-download"/></svg></span>
+      </a></li>
+      <li><a class="os" data-os="linux" href="https://github.com/trexolab-solution/notiq/releases/latest">
         <svg class="i os-ic" aria-hidden="true"><use href="#i-terminal"/></svg>
         <span class="os-name">Linux</span><span class="os-sub">AppImage, .deb and .rpm</span>
-        <span class="os-go">Download <svg class="i" aria-hidden="true"><use href="#i-download"/></svg></span>
-      </a>
-    </div>
-    <p class="dl-more reveal">All builds and release notes are on <a href="https://github.com/trexolab-solution/notiq/releases/latest">GitHub Releases</a>. Notiq updates itself in-app when a new version ships.</p>
+        <span class="os-go"><span class="os-you">Your system</span><svg class="i" aria-hidden="true"><use href="#i-download"/></svg></span>
+      </a></li>
+    </ul>
   </div>
 </section>
 
 </main>
 
-<footer class="site-foot">
+<footer class="site-foot sealed-field">
   <div class="container foot-in">
-    <a class="brand" href="#top"><img src="logo.png" alt="" width="22" height="22"><span>Notiq</span></a>
+    <a class="brand" href="#top"><img src="logo.png" alt="" width="24" height="24"><span>Notiq</span></a>
     <nav aria-label="Footer">
       <a href="privacy.html">Privacy policy</a>
+      <a href="extension-privacy.html">Extension privacy policy</a>
       <a href="https://github.com/trexolab-solution/notiq">Source on GitHub</a>
       <a href="https://github.com/trexolab-solution/notiq/issues">Report an issue</a>
       <a href="https://github.com/trexolab-solution/notiq/blob/main/LICENSE">MIT license</a>
