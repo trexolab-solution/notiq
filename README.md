@@ -65,14 +65,14 @@ Most note-taking apps either lock you into a cloud ecosystem or sacrifice power 
 
 ### AI Assistant
 
-Optional, **opt-in and off by default**. Run your own local [Ollama](https://ollama.com/) instance for fully offline AI, or connect to Ollama Cloud with an API key. Works with any OpenAI-compatible Ollama model.
+Optional, **opt-in and off by default**. Run your own local [Ollama](https://ollama.com/) instance for fully offline AI, or connect to Ollama Cloud or [OpenRouter](https://openrouter.ai/) with an API key. Works with any OpenAI-compatible model they serve.
 
 - **Inline autocomplete** — Copilot-style grey ghost-text suggestions as you type; press `Tab` to accept, `Esc` to dismiss. Choose automatic (on pause) or manual (`Alt+\`) triggering, with a configurable debounce and context window
 - **AI actions** — continue writing, summarize the note, fix grammar, generate a title, and repair broken Mermaid diagrams — from the command palette (`Ctrl+Shift+P`) or the right-click menu
 - **Ask AI on a selection** — select text to explain it inline or replace it with an AI edit; replace-style edits get an inline **Accept / Reject / Retry** review before anything changes
 - **AI chat panel** — a dockable, resizable chat sidebar grounded in your current note, with streaming replies, conversation history, and per-message copy / insert / regenerate; code blocks add copy and "open as new file" actions
 - **Calm, cancellable feedback** — a subtle "Thinking…" indicator in the status bar that never flashes on quick replies; keep typing and the in-flight suggestion is cancelled instantly
-- **Secure key storage** — your Ollama Cloud API key lives in the OS keychain (Windows Credential Manager, macOS Keychain, Linux Secret Service), never in plain text and never exposed to the web layer
+- **Secure key storage** — your Ollama Cloud and OpenRouter API keys live in the OS keychain (Windows Credential Manager, macOS Keychain, Linux Secret Service), never in plain text and never exposed to the web layer
 - **Model picker** — list, select, and test models for the selected provider right from Settings
 
 ### Multi-Tab Workflow
@@ -162,7 +162,7 @@ Settings opens as a **tab**, like VS Code's Settings editor, and everything is o
 - **Modified marker and Reset** — a setting that differs from its default gets a dot and a one-click *Reset to default*; *Restore defaults* resets the editor and terminal settings at once
 - **Editor** — font size/family/spacing, word wrap, line numbers, minimap, bracket colorization, cursor style & animation, whitespace, folding, smooth scrolling, tab size, default view mode, auto-closing brackets, format on paste
 - **Terminal** — font size, cursor, scrollback, panel position
-- **AI** — enable/disable, provider (Ollama Cloud or Local, optional fallback), API keys, model picker and test, autocomplete tuning
+- **AI** — enable/disable, provider (Ollama Cloud, Local Ollama or OpenRouter, optional fallback), API keys, model picker and test, autocomplete tuning
 - **Vault** — locking, "Clear copied secrets after" (15 s, 30 s default, 1 min, 2 min or Never), storage folder, backup, Sync (Google Drive), quick unlock, quick search, password generator, master password, browser-autofill install and status
 
 ---
@@ -311,7 +311,7 @@ Spins up a Docker container (defined in `docker/Dockerfile.linux`) that produces
 | Whiteboard | [Excalidraw](https://excalidraw.com/) |
 | Knowledge graph | [3d-force-graph](https://github.com/vasturiano/3d-force-graph) (via [react-kapsule](https://github.com/vasturiano/react-kapsule)) + Three.js |
 | Terminal | [xterm.js](https://xtermjs.org/) + portable-pty (Rust) |
-| AI | [Ollama](https://ollama.com/) Cloud + Local (OpenAI-compatible) via Rust `reqwest` |
+| AI | [Ollama](https://ollama.com/) Cloud + Local and [OpenRouter](https://openrouter.ai/) (OpenAI-compatible) via Rust `reqwest` |
 | Secret storage | OS keychain via [keyring](https://crates.io/crates/keyring) (Rust) |
 | Drag & drop | [@dnd-kit](https://dndkit.com/) |
 | Session storage | IndexedDB via [idb](https://github.com/jakearchibald/idb) |
@@ -348,7 +348,7 @@ notiq/
 │   └── styles/                   # Theme CSS variables
 ├── src-tauri/                    # Tauri backend (Rust)
 │   ├── src/lib.rs                # Commands, file associations, PTY, tray, plugins
-│   ├── src/ai.rs                 # AI backend — Ollama proxy + secure key storage
+│   ├── src/ai.rs                 # AI backend — Ollama / OpenRouter proxy + secure key storage
 │   ├── src/vault*.rs             # Secure Vault — crypto core, encrypted database (vault.nqdb), commands
 │   ├── src/autofill.rs           # Browser autofill bridge (native messaging)
 │   ├── src/sync/                 # Vault Sync — Google Drive provider, merge engine, sealing
@@ -408,7 +408,7 @@ notiq/
 - **Session hydration before render** — the window stays hidden until IndexedDB restores the previous session, preventing visual flash
 - **Single instance** — Tauri enforces one running instance; opening a file externally sends it to the existing window
 - **Vault sync is encrypted client-side** — the vault is sealed on the PC before the Rust sync module uploads it to Drive's app-data folder; Google never sees plaintext
-- **AI proxied through Rust** — all Ollama requests go through the Rust backend, so the API key never touches the web layer and there are no CORS constraints; AI is disabled by default
+- **AI proxied through Rust** — all AI requests go through the Rust backend, so the API key never touches the web layer and there are no CORS constraints; AI is disabled by default
 
 ---
 
@@ -508,7 +508,7 @@ The `browser-extension/` folder holds a Chrome / Edge / Brave (and Firefox) exte
 - **No telemetry, ever** — no analytics, no crash reporting, no accounts
 - **Update checks** only download the public release file from GitHub (hourly; turn it off in **Settings → Updates**)
 - **Vault Sync is opt-in and off by default.** When you turn it on, only the encrypted vault goes to your own Google Drive (see [Vault Sync with Google Drive](#vault-sync-with-google-drive))
-- **AI is opt-in and off by default.** When you enable it, only the text needed for a request is sent to the Ollama endpoint you configure — your own machine with local Ollama (fully offline), or Ollama Cloud if you provide an API key. Nothing is sent anywhere else, and nothing is sent at all while AI is disabled. Your API key is kept in the OS keychain, never in a plain-text file
+- **AI is opt-in and off by default.** When you enable it, only the text needed for a request is sent to the AI service you configure — your own machine with local Ollama (fully offline), or Ollama Cloud or OpenRouter if you provide an API key. Nothing is sent anywhere else, and nothing is sent at all while AI is disabled. Your API key is kept in the OS keychain, never in a plain-text file
 
 ---
 
