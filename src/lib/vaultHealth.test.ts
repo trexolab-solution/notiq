@@ -41,7 +41,7 @@ describe("analyzeHealth", () => {
       inp("f.nqv", "Zx9!pL2#qW7$rT5", { url: "", urls: ["http://legacy.example.org"] }),
     ], NOW);
     expect(r.total).toBe(6);
-    expect(r.counts).toEqual({ weak: 1, reused: 2, old: 1, empty: 1, http: 2 });
+    expect(r.counts).toEqual({ weak: 1, reused: 2, old: 1, empty: 1, http: 2, breached: 0 });
     expect(r.reusedGroups).toEqual([["a.nqv", "b.nqv"]]);
     const by = Object.fromEntries(r.items.map((i) => [i.rel, i]));
     expect(by["a.nqv"].reusedWith).toBe(1);

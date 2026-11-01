@@ -3,6 +3,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::Manager;
 
 mod ai;
+mod breach; // 0.9.1 opt-in breached-password check (HIBP range API)
 mod clipboard;
 pub mod autofill;
 mod native_host_reg; // 0.7.0 autofill
@@ -669,6 +670,7 @@ pub fn run() {
         vault::vault_set_root,
         vault::vault_default_dir,
         vault::vault_list,
+        breach::breach_check_ranges,
         vault::vault_mkdir,
         vault::vault_list_trash,
         vault::vault_trash,
@@ -758,6 +760,7 @@ pub fn run() {
         vault::vault_set_root,
         vault::vault_default_dir,
         vault::vault_list,
+        breach::breach_check_ranges,
         vault::vault_mkdir,
         vault::vault_list_trash,
         vault::vault_trash,
