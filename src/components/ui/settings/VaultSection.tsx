@@ -19,12 +19,13 @@ import { toast } from "../../../lib/toast";
 import { useAppStore } from "../../../store";
 import { useVaultStore } from "../../../store/vaultStore";
 import { vaultChangePassword, vaultErrorMessage } from "../../../lib/vault";
+import { masterPasswordProblem } from "../../../lib/masterPassword";
+import { PasswordStrengthMeter } from "../../vault/PasswordStrengthMeter";
 import {
   IDLE_OPTIONS, DEFAULT_IDLE_MINUTES, getIdleMinutes, setIdleMinutes, getLockOnHide, setLockOnHide,
 } from "../../../lib/vaultPrefs";
 import type { SettingMeta } from "../../../lib/settingsIndex";
 
-const MIN_LEN = 8;
 
 const STATE_TEXT = {
   none: "The vault isn't set up yet. Lock individual notes with a master password (right-click a tab, then Lock with Vault).",
@@ -52,7 +53,8 @@ export const VaultSection = React.memo(function VaultSection() {
   const changePassword = async (e: React.FormEvent) => {
     e.preventDefault();
     if (busy) return;
-    if (newPw.length < MIN_LEN) { setError(`New password must be at least ${MIN_LEN} characters`); return; }
+    const weak = masterPasswordProblem(newPw);
+    if (weak) { setError(weak); return; }
     if (newPw !== confirmPw)    { setError("New passwords don't match"); return; }
     setBusy(true);
     setError(null);
@@ -170,6 +172,7 @@ export const VaultSection = React.memo(function VaultSection() {
                      value={oldPw} onChange={(e) => setOldPw(e.target.value)} />
               <PasswordInput placeholder="New password" autoComplete="new-password" aria-label="New password"
                      value={newPw} onChange={(e) => setNewPw(e.target.value)} />
+              <PasswordStrengthMeter password={newPw} />
               <PasswordInput placeholder="Confirm new password" autoComplete="new-password" aria-label="Confirm new password"
                      value={confirmPw} onChange={(e) => setConfirmPw(e.target.value)} />
               {error && <p role="alert" className="text-xs text-[var(--color-danger)]">{error}</p>}

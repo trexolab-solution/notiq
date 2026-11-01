@@ -23,7 +23,8 @@ import { vaultCreate, vaultUnlockWithRecovery, vaultErrorMessage } from "../../l
 import { useVaultUnlock } from "./unlock/useVaultUnlock";
 import { VaultUnlockActions, VaultUnlockBody } from "./unlock/VaultUnlockForm";
 
-const MIN_LEN = 8;
+import { masterPasswordProblem } from "../../lib/masterPassword";
+import { PasswordStrengthMeter } from "./PasswordStrengthMeter";
 
 /** Mounted once (AppOverlays). Renders the setup / unlock / recover dialog. */
 export function VaultDialog() {
@@ -102,7 +103,8 @@ function VaultDialogInner({ mode, onCreated }: { mode: SetupMode; onCreated?: ()
   const driveAvailable = syncStatus?.configured !== false && !forSync;
 
   const validate = (): string | null => {
-    if (password.length < MIN_LEN) return `Password must be at least ${MIN_LEN} characters`;
+    const weak = masterPasswordProblem(password);
+    if (weak) return weak;
     if (password !== confirm) return "Passwords don't match";
     if (mode === "recover" && !recoveryInput.trim()) return "Enter your recovery key";
     return null;
@@ -230,6 +232,7 @@ function VaultDialogInner({ mode, onCreated }: { mode: SetupMode; onCreated?: ()
             id="vault-password" autoFocus={mode !== "recover"} autoComplete="new-password"
             value={password} onChange={(e) => setPassword(e.target.value)}
           />
+          <PasswordStrengthMeter password={password} />
         </div>
 
         <div className="mb-3">
