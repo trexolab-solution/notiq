@@ -72,7 +72,9 @@ export function TitlebarMenuBar({
 
   async function handleSaveAll() {
     const dirtyNotes = tabs.filter((t) => t.kind === "note" && t.isDirty);
-    await Promise.all(dirtyNotes.map((t) => saveTabToFile(t.id)));
+    // One at a time: saving a vault entry can rename it, and two entries given the
+    // same Name must see each other's new name to pick "Name 2".
+    for (const t of dirtyNotes) await saveTabToFile(t.id);
   }
 
   // ── Menu definitions ─────────────────────────────────────────────────────

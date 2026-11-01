@@ -10,7 +10,9 @@ import { applyTheme } from "../lib/themes";
 import { saveSession } from "../lib/session";
 import { buildGraphData } from "../lib/graph";
 import { pickSavePath, writeFile, type FileEntry } from "../lib/fileOps";
-import { isVaultPath, extFromPath, vaultLock, vaultReadFile, vaultWriteFile, vaultErrorMessage, vaultFileExists } from "../lib/vault";
+import { isVaultPath, extFromPath, vaultLock, vaultReadFile, vaultRename, vaultWriteFile, vaultErrorMessage, vaultFileExists } from "../lib/vault";
+import { entryTitleOf, isStructuredExt, withEntryTitle } from "../lib/entryName";
+import { planEntryRename } from "../lib/entrySync";
 import { useVaultStore } from "./vaultStore";
 import { pickVaultDestination } from "../lib/vaultDest";
 import { scrubMonacoModels } from "../lib/vaultMemory";
@@ -267,6 +269,51 @@ export const useAppStore = create<AppState>((set, get) => {
     }));
   };
 
+  /**
+   * Saves a structured vault entry (login, secret kinds, recovery codes). Its Name
+   * is the item name: the entry is renamed to match (same entry id, so Vault Sync
+   * sees a rename, not a delete + create), and the stored title is set to the name
+   * it ended up with (sanitized, " 2" on a clash, the old name when left empty).
+   */
+  const saveStructuredEntry = async (
+    tab: Tab, path: string, ext: string, attachments: Tab["attachments"],
+  ): Promise<boolean> => {
+    let plan = { name: "", to: path };
+    try {
+      plan = (await planEntryRename(path, entryTitleOf(tab.content) ?? "")) ?? plan;
+    } catch (e) {
+      console.warn("save: couldn't work out the entry name", e);
+    }
+    const content = plan.name ? withEntryTitle(tab.content, plan.name) : tab.content;
+    try {
+      await vaultWriteFile(path, content, ext);
+    } catch (e) {
+      toast.error(`Couldn't save "${tab.title}": ${vaultErrorMessage(e)}`);
+      return false;
+    }
+    if (plan.to !== path) {
+      try {
+        await vaultRename(path, plan.to);
+        get().remapVaultTabs(path, plan.to);
+      } catch (e) {
+        toast.error(`Saved, but couldn't rename it to "${plan.name}": ${vaultErrorMessage(e)}`);
+      }
+    }
+    // Keystrokes typed while saving stay (and keep the tab dirty).
+    const cur = get().tabs.find((t) => t.id === tab.id);
+    if (!cur) return true;
+    const untouched = cur.content === tab.content;
+    updateTab(tab.id, {
+      vaultExt: ext,
+      attachments,
+      ...(untouched ? { content, isDirty: false } : {}),
+      updatedAt: Date.now(),
+    });
+    get().rebuildGraph();
+    persist();
+    return true;
+  };
+
   /** Shared save implementation — `forcePickPath` forces a Save-As dialog. */
   const saveTabImpl = async (id: string, forcePickPath: boolean): Promise<boolean> => {
     const tab = get().tabs.find((t) => t.id === id);
@@ -297,6 +344,7 @@ export const useAppStore = create<AppState>((set, get) => {
     if (isVaultPath(path)) {
       if (!(await useVaultStore.getState().ensureUnlocked())) return false;
       vaultExt = vaultExt ?? "md";
+      if (isStructuredExt(vaultExt)) return saveStructuredEntry(tab, path, vaultExt, migratedAttachments);
       try {
         await vaultWriteFile(path, tab.content, vaultExt);
       } catch (e) {
