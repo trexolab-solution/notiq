@@ -1,7 +1,14 @@
 import React, { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
-import { Ellipsis, Plus } from "lucide-react";
+import { Ellipsis, GripVertical, Plus } from "lucide-react";
+import {
+  closestCenter, DndContext, PointerSensor, useSensor, useSensors,
+  type DragCancelEvent, type DragEndEvent, type DragOverEvent, type DragStartEvent, type Modifier, type UniqueIdentifier,
+} from "@dnd-kit/core";
+import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { Button } from "../ui/Button";
 import { ContextMenu, type ContextMenuItem } from "../ui/ContextMenu";
+import { useReducedMotion } from "../ui/Loading";
 import { Tooltip } from "../ui/Tooltip";
 import { toast } from "../../lib/toast";
 
@@ -250,10 +257,192 @@ export function reinsert<T>(list: T[], index: number, item: T): T[] {
   return [...list.slice(0, i), item, ...list.slice(i)];
 }
 
-/** Swap the item at `from` with its neighbour at `to`; out-of-range moves return the list unchanged. */
-export function moveItem<T>(list: T[], from: number, to: number): T[] {
-  if (to < 0 || to >= list.length || from === to) return list;
+/**
+ * `list` with the item at `from` taken out and put back at `to`; the items between shift by one.
+ * Out-of-range or no-op moves return the list unchanged (same reference).
+ */
+export function moveTo<T>(list: T[], from: number, to: number): T[] {
+  const n = list.length;
+  if (from === to || from < 0 || to < 0 || from >= n || to >= n) return list;
   const next = [...list];
-  [next[from], next[to]] = [next[to], next[from]];
+  const [item] = next.splice(from, 1);
+  next.splice(to, 0, item);
   return next;
+}
+
+// ── Sortable rows ──────────────────────────────────────────────────────────────────────────────────────
+// Pointer dragging reuses @dnd-kit (already behind tab reordering): its PointerSensor runs on pointer
+// events, not HTML5 drag-and-drop, which the webview's native file drop would intercept on Windows, and it
+// auto-scrolls the form near its edges. Keyboard reordering is our own, so it can speak through the list's
+// useAnnouncer region and keep focus on the handle while the rows move.
+
+const lockToVerticalAxis: Modifier = ({ transform }) => ({ ...transform, x: 0 });
+const silent = () => undefined;
+/** dnd-kit's own live region stays quiet: the list announces through its useAnnouncer region instead. */
+const QUIET = { onDragStart: silent, onDragMove: silent, onDragOver: silent, onDragEnd: silent, onDragCancel: silent };
+const SORT_INSTRUCTIONS =
+  "Drag to reorder, or press Space to pick up, the arrow keys to move, Space to drop and Escape to cancel.";
+
+/**
+ * Reorderable list state: pointer drag (via {@link SortableRows}) and keyboard pick / move / drop / cancel on
+ * each row's {@link RowDragHandle}. Nothing is written until the drop, which calls `onReorder` once, so a
+ * whole move is one change. Render rows in `order` (indices into the list; it differs from 0..n-1 only while
+ * a keyboard move is in progress) and key them by `ids`, which must stay the same while sorting.
+ */
+export function useSortableList({ ids, nameOf, onReorder, announce, focusHandle }: {
+  ids: string[];
+  /** Row name for announcements ("Customer ID"). */
+  nameOf: (index: number) => string;
+  /** Commit: move the item at `from` to `to`. Called once per drop, never for a no-op. */
+  onReorder: (from: number, to: number) => void;
+  announce: (text: string) => void;
+  /** Focus the handle of the row now shown at `position` (after the next render). */
+  focusHandle: (position: number) => void;
+}) {
+  const [kb, setKb] = useState<{ from: number; to: number } | null>(null);
+  const [dragging, setDragging] = useState<number | null>(null);
+  const instructionsId = useId();
+  const n = ids.length;
+  const at = (p: number) => `position ${p + 1} of ${n}`;
+  const order = kb ? moveTo(ids.map((_, i) => i), kb.from, kb.to) : ids.map((_, i) => i);
+
+  const drop = (from: number, to: number) => {
+    if (to !== from) onReorder(from, to);
+    focusHandle(to);
+    announce(`Dropped ${nameOf(from)} at ${at(to)}`);
+  };
+  const cancel = (from: number) => {
+    focusHandle(from);
+    announce(`Reorder cancelled. ${nameOf(from)} is back at ${at(from)}`);
+  };
+
+  const handleKeyDown = (index: number) => (e: React.KeyboardEvent) => {
+    const pick = e.key === " " || e.key === "Enter";
+    if (!kb) {
+      if (!pick || dragging != null) return;
+      e.preventDefault();
+      setKb({ from: index, to: index });
+      announce(`Picked up ${nameOf(index)}, ${at(index)}`);
+      return;
+    }
+    if (kb.from !== index) return;
+    if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+      e.preventDefault();
+      const to = Math.max(0, Math.min(n - 1, kb.to + (e.key === "ArrowUp" ? -1 : 1)));
+      setKb({ from: index, to });
+      focusHandle(to);
+      announce(`${nameOf(index)}, ${at(to)}`);
+    } else if (pick) {
+      e.preventDefault();
+      setKb(null);
+      drop(kb.from, kb.to);
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      e.stopPropagation(); // don't also close a dialog behind the form
+      setKb(null);
+      cancel(kb.from);
+    } else if (e.key === "Tab") {
+      setKb(null); // leaving the handle puts the row back
+      announce(`Reorder cancelled. ${nameOf(kb.from)} is back at ${at(kb.from)}`);
+    }
+  };
+
+  const indexOf = (id: UniqueIdentifier) => ids.indexOf(String(id));
+  // The slot last announced during a pointer drag: dnd-kit also reports "over" for the row's own slot.
+  const overSlot = useRef<UniqueIdentifier | null>(null);
+  const dnd = {
+    onDragStart: ({ active }: DragStartEvent) => {
+      const i = indexOf(active.id);
+      overSlot.current = active.id;
+      setDragging(i);
+      announce(`Picked up ${nameOf(i)}, ${at(i)}`);
+    },
+    onDragOver: ({ active, over }: DragOverEvent) => {
+      if (!over || over.id === overSlot.current) return;
+      overSlot.current = over.id;
+      announce(`${nameOf(indexOf(active.id))}, ${at(indexOf(over.id))}`);
+    },
+    onDragEnd: ({ active, over }: DragEndEvent) => {
+      const from = indexOf(active.id);
+      setDragging(null);
+      drop(from, over ? indexOf(over.id) : from);
+    },
+    onDragCancel: ({ active }: DragCancelEvent) => {
+      setDragging(null);
+      cancel(indexOf(active.id));
+    },
+  };
+
+  return {
+    order,
+    /** Display order as ids, for the SortableContext. */
+    items: order.map((i) => ids[i]),
+    /** Index of the row lifted by keyboard or pointer, or null. */
+    lifted: kb?.from ?? dragging,
+    handleKeyDown,
+    instructionsId,
+    instructions: <span id={instructionsId} className="sr-only">{SORT_INSTRUCTIONS}</span>,
+    dnd,
+  };
+}
+
+/** The drag context for a {@link useSortableList} list: wrap its `<ul>` (rows use {@link useSortableRow}). */
+export function SortableRows({ sort, children }: { sort: ReturnType<typeof useSortableList>; children: React.ReactNode }) {
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
+  return (
+    <DndContext sensors={sensors} collisionDetection={closestCenter} modifiers={[lockToVerticalAxis]}
+                accessibility={{ announcements: QUIET, restoreFocus: false }} {...sort.dnd}>
+      <SortableContext items={sort.items} strategy={verticalListSortingStrategy}>{children}</SortableContext>
+    </DndContext>
+  );
+}
+
+const SORT_TRANSITION = { duration: 160, easing: "cubic-bezier(0.2, 0, 0, 1)" };
+
+/** One row of a {@link SortableRows} list: spread `rowProps` on the row and `handleProps` on its {@link RowDragHandle}. */
+export function useSortableRow(id: string) {
+  const reduced = useReducedMotion();
+  const { setNodeRef, setActivatorNodeRef, listeners, transform, transition, isDragging } = useSortable({
+    id,
+    transition: reduced ? null : SORT_TRANSITION,
+    // Also slide rows into place when a keyboard move or a removal changes their position.
+    animateLayoutChanges: () => !reduced,
+  });
+  return {
+    isDragging,
+    rowProps: {
+      ref: setNodeRef,
+      style: { transform: CSS.Translate.toString(transform), transition: reduced ? undefined : transition },
+    },
+    handleProps: { ref: setActivatorNodeRef, ...listeners },
+  };
+}
+
+/** Classes for a lifted row (pointer drag or keyboard pick): raised above its neighbours. */
+export const liftedRowClass =
+  "relative z-10 !bg-[var(--color-bg-secondary)] shadow-lg ring-1 ring-[var(--color-primary)]/60 rounded-md";
+
+/**
+ * Grip at the start of a sortable row: drag it with the pointer, or focus it and use Space / arrows / Space
+ * (Escape cancels). Faint at rest, clear on row hover or focus — the row needs the `group` class.
+ */
+export function RowDragHandle({ label, lifted, describedBy, onKeyDown, handleProps }: {
+  label: string; lifted: boolean; describedBy: string;
+  onKeyDown: (e: React.KeyboardEvent<HTMLButtonElement>) => void;
+  handleProps: ReturnType<typeof useSortableRow>["handleProps"];
+}) {
+  const { ref, ...listeners } = handleProps;
+  return (
+    <Tooltip content="Drag to reorder">
+      <button type="button" ref={ref} data-row-handle="" aria-label={label} aria-describedby={describedBy}
+              aria-pressed={lifted} onKeyDown={onKeyDown} {...listeners}
+              className={"inline-flex items-center justify-center h-7 w-6 shrink-0 rounded-md touch-none select-none " +
+                "cursor-grab active:cursor-grabbing text-[var(--color-text-muted)] opacity-40 transition-opacity " +
+                "group-hover:opacity-100 group-focus-within:opacity-100 hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text)] " +
+                "aria-pressed:opacity-100 aria-pressed:text-[var(--color-primary)] " +
+                "focus-visible:outline-none focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-[var(--color-primary)]/50"}>
+        <GripVertical size={14} aria-hidden />
+      </button>
+    </Tooltip>
+  );
 }

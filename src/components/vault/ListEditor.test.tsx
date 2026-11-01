@@ -10,7 +10,7 @@ vi.mock("../../lib/toast", () => ({ toast: { info: (...a: unknown[]) => toastInf
 
 import { LoginSitesEditor } from "./LoginSitesEditor";
 import { CustomFieldsEditor, fieldNameError } from "./CustomFieldsEditor";
-import { moveItem, reinsert } from "./ListEditor";
+import { moveTo, reinsert } from "./ListEditor";
 import { emptyLogin, MAX_LOGIN_URLS, type LoginEntry } from "../../lib/loginEntry";
 import { MAX_CUSTOM_FIELDS, type CustomField } from "../../lib/customFields";
 
@@ -50,12 +50,13 @@ function Sites({ initial }: { initial: string[] }) {
   const [entry, setEntry] = useState<LoginEntry>({ ...emptyLogin("Bank"), url: "https://bank.example", urls: initial });
   return <LoginSitesEditor entry={entry} onChange={(urls) => setEntry((e) => ({ ...e, urls }))} />;
 }
-function Fields({ initial }: { initial: CustomField[] }) {
+function Fields({ initial, spy }: { initial: CustomField[]; spy?: (next: CustomField[]) => void }) {
   const [value, setValue] = useState(initial);
-  return <CustomFieldsEditor value={value} onChange={setValue} />;
+  return <CustomFieldsEditor value={value} onChange={(next) => { spy?.(next); setValue(next); }} />;
 }
 const renderSites = (urls: string[]) => act(() => { root.render(<Sites initial={urls} />); });
-const renderFields = (f: CustomField[]) => act(() => { root.render(<Fields initial={f} />); });
+const renderFields = (f: CustomField[], spy?: (next: CustomField[]) => void) =>
+  act(() => { root.render(<Fields initial={f} spy={spy} />); });
 
 describe("Other websites (LoginSitesEditor)", () => {
   it("is a semantic list whose row buttons name the site", () => {
@@ -177,35 +178,111 @@ describe("Custom fields (CustomFieldsEditor)", () => {
     expect(document.activeElement).toBe(byText("Add field"));
   });
 
-  it("move up/down reorders and keeps focus on the moved row's menu button", () => {
-    renderFields([f("A"), f("B")]);
-    pick("B", "Move up");
-    const names = [...host.querySelectorAll<HTMLInputElement>("input[data-row-focus]")].map((i) => i.value);
-    expect(names).toEqual(["B", "A"]);
-    expect(document.activeElement).toBe(btn("More actions for B"));
-    flush();
-    expect(live().textContent).toBe("B moved to position 1 of 2");
+  describe("reordering", () => {
+    const names = () => [...host.querySelectorAll<HTMLInputElement>("input[data-row-focus]")].map((i) => i.value);
+
+    it("each row has a labelled drag handle with instructions; the menu has no Move items", () => {
+      renderFields([f("A"), f("B")]);
+      const handle = btn("Reorder A")!;
+      expect(handle.hasAttribute("data-row-handle")).toBe(true);
+      expect(document.getElementById(handle.getAttribute("aria-describedby")!.split(" ")[0])?.textContent).toMatch(/Space to pick up/);
+      click(btn("More actions for A")!);
+      expect(document.querySelector('[role="menu"]')!.textContent).not.toMatch(/Move/);
+    });
+
+    it("keyboard: Space picks up, arrows move, Enter drops — one change, focus stays on the handle", () => {
+      const spy = vi.fn();
+      renderFields([f("A"), f("B"), f("C")], spy);
+      const h = btn("Reorder A")!;
+      h.focus();
+      key(h, " ");
+      flush();
+      expect(live().textContent).toBe("Picked up A, position 1 of 3");
+      expect(btn("Reorder A")!.getAttribute("aria-pressed")).toBe("true");
+      key(document.activeElement as HTMLElement, "ArrowDown");
+      flush();
+      expect(live().textContent).toBe("A, position 2 of 3");
+      expect(document.activeElement).toBe(btn("Reorder A"));
+      key(document.activeElement as HTMLElement, "ArrowDown");
+      flush();
+      expect(live().textContent).toBe("A, position 3 of 3");
+      expect(names()).toEqual(["B", "C", "A"]); // previewed in place…
+      expect(spy).not.toHaveBeenCalled();       // …but nothing written yet
+      key(document.activeElement as HTMLElement, "Enter");
+      flush();
+      expect(live().textContent).toBe("Dropped A at position 3 of 3");
+      expect(names()).toEqual(["B", "C", "A"]);
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(document.activeElement).toBe(btn("Reorder A"));
+      expect(btn("Reorder A")!.getAttribute("aria-pressed")).toBe("false");
+    });
+
+    it("keyboard: Escape cancels back to the original position", () => {
+      const spy = vi.fn();
+      renderFields([f("A"), f("B"), f("C")], spy);
+      const h = btn("Reorder B")!;
+      h.focus();
+      key(h, "Enter");
+      key(document.activeElement as HTMLElement, "ArrowUp");
+      expect(names()).toEqual(["B", "A", "C"]);
+      key(document.activeElement as HTMLElement, "Escape");
+      flush();
+      expect(names()).toEqual(["A", "B", "C"]);
+      expect(live().textContent).toBe("Reorder cancelled. B is back at position 2 of 3");
+      expect(spy).not.toHaveBeenCalled();
+      expect(document.activeElement).toBe(btn("Reorder B"));
+    });
+
+    it("pointer: dragging a handle down past the next rows reorders on release", () => {
+      const spy = vi.fn();
+      renderFields([f("A"), f("B"), f("C")], spy);
+      // Rows 50px tall, 60px apart; everything inside a row shares its row's box.
+      const rect = vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
+        const row = this.closest("li[data-list-row]");
+        const i = row ? [...row.parentElement!.children].indexOf(row) : -1;
+        const top = i < 0 ? 0 : i * 60;
+        const height = i < 0 ? 0 : 50;
+        return { top, bottom: top + height, left: 0, right: 300, width: 300, height, x: 0, y: top, toJSON() {} } as DOMRect;
+      });
+      const ptr = (type: string, y: number, target: EventTarget) => act(() => {
+        target.dispatchEvent(new PointerEvent(type, { bubbles: true, isPrimary: true, button: 0, pointerId: 1, clientX: 10, clientY: y }));
+        vi.advanceTimersByTime(20);
+      });
+      try {
+        ptr("pointerdown", 25, btn("Reorder A")!);
+        ptr("pointermove", 32, document); // past the 4px activation distance
+        flush();
+        expect(live().textContent).toBe("Picked up A, position 1 of 3");
+        ptr("pointermove", 100, document);
+        flush();
+        expect(live().textContent).toBe("A, position 2 of 3");
+        ptr("pointermove", 152, document); // A's centre is now over C's
+        expect(spy).not.toHaveBeenCalled();
+        ptr("pointerup", 152, document);
+        flush();
+      } finally {
+        rect.mockRestore();
+      }
+      expect(names()).toEqual(["B", "C", "A"]);
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(live().textContent).toBe("Dropped A at position 3 of 3");
+      expect(document.activeElement).toBe(btn("Reorder A"));
+    });
   });
 
   describe("⋯ menu", () => {
-    it("opens from the keyboard on the first enabled item; Move up is disabled on the first row", () => {
+    it("opens from the keyboard on its first item, with arrow navigation that wraps", () => {
       renderFields([f("A", "1"), f("B", "2")]);
       const more = btn("More actions for A")!;
       more.focus();
       key(more, "ArrowDown");
       expect(more.getAttribute("aria-expanded")).toBe("true");
-      const menu = document.querySelector('[role="menu"]')!;
-      expect(menu.getAttribute("aria-label")).toBe("Actions for A");
-      expect(menuItem("Move up").disabled).toBe(true);
-      expect(menuItem("Move up").getAttribute("aria-disabled")).toBe("true");
-      expect(document.activeElement).toBe(menuItem("Move down"));
-      // Arrows skip the disabled item and wrap.
-      winKey("ArrowDown");
+      expect(document.querySelector('[role="menu"]')!.getAttribute("aria-label")).toBe("Actions for A");
       expect(document.activeElement).toBe(menuItem("Hide value"));
       winKey("ArrowDown");
       expect(document.activeElement).toBe(menuItem("Remove field"));
       winKey("ArrowDown");
-      expect(document.activeElement).toBe(menuItem("Move down"));
+      expect(document.activeElement).toBe(menuItem("Hide value"));
     });
 
     it("Escape closes it and returns focus to the button", () => {
@@ -219,15 +296,15 @@ describe("Custom fields (CustomFieldsEditor)", () => {
       expect(document.activeElement).toBe(more);
     });
 
-    it("Enter on Move down moves the row", () => {
-      renderFields([f("A"), f("B")]);
+    it("Enter on Remove field removes the row", () => {
+      renderFields([f("A", "1"), f("B", "2")]);
       const more = btn("More actions for A")!;
       more.focus();
       key(more, "ArrowDown");
+      winKey("ArrowDown");
       winKey("Enter");
-      const names = [...host.querySelectorAll<HTMLInputElement>("input[data-row-focus]")].map((i) => i.value);
-      expect(names).toEqual(["B", "A"]);
-      expect(document.activeElement).toBe(btn("More actions for A"));
+      expect(host.querySelectorAll("li[data-list-row]")).toHaveLength(1);
+      expect(document.activeElement).toBe(input("Field name 1"));
     });
 
     it("Hide value / Show as text toggles the field's type", () => {
@@ -270,10 +347,22 @@ describe("Custom fields (CustomFieldsEditor)", () => {
 });
 
 describe("list helpers", () => {
-  it("reinsert / moveItem", () => {
+  it("reinsert", () => {
     expect(reinsert(["a", "c"], 1, "b")).toEqual(["a", "b", "c"]);
     expect(reinsert(["a"], 9, "b")).toEqual(["a", "b"]);
-    expect(moveItem(["a", "b", "c"], 2, 1)).toEqual(["a", "c", "b"]);
-    expect(moveItem(["a"], 0, -1)).toEqual(["a"]);
+  });
+
+  it("moveTo shifts the items in between, both ways", () => {
+    expect(moveTo(["a", "b", "c", "d"], 0, 2)).toEqual(["b", "c", "a", "d"]);
+    expect(moveTo(["a", "b", "c", "d"], 3, 1)).toEqual(["a", "d", "b", "c"]);
+    expect(moveTo(["a", "b", "c"], 2, 1)).toEqual(["a", "c", "b"]);
+  });
+
+  it("moveTo leaves the list alone for no-op or out-of-range moves", () => {
+    const list = ["a", "b"];
+    expect(moveTo(list, 1, 1)).toBe(list);
+    expect(moveTo(list, 0, -1)).toBe(list);
+    expect(moveTo(list, 2, 0)).toBe(list);
+    expect(moveTo(["x", "y", "z"], 0, 2)).not.toBe(list);
   });
 });
