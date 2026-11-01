@@ -15,7 +15,7 @@ import { formatBytes } from "../../lib/vaultBackup";
 import { resolveVaultDir } from "../../lib/vaultDir";
 import { entryTitleOf } from "../../lib/entryName";
 import { previewMode } from "../../lib/attachmentKinds";
-import { registerDropTarget } from "../../lib/dropTargets";
+import { DropHighlight, useDropTarget } from "../ui/DropZone";
 import { registerVaultFlush } from "../../lib/vaultPendingOps";
 import { attachmentLimitError, fileNameOf, vaultAttachmentsUsed } from "../../lib/attachmentLimits";
 import {
@@ -78,7 +78,6 @@ function AttachmentsPanelInner({ tab }: { tab: Tab }) {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
-  const [hover, setHover] = useState(false);
   const [preview, setPreview] = useState<{ path: string; a: VaultAttachment } | null>(null);
   const [exportWarn, setExportWarn] = useState<VaultAttachment | null>(null);
   /** Removed but still undoable: hidden here, applied to the vault when the Undo window ends. */
@@ -96,7 +95,6 @@ function AttachmentsPanelInner({ tab }: { tab: Tab }) {
   const unlocked = useVaultStore((s) => s.unlocked);
   const active = useAppStore((s) => s.activeTabId === tab.id);
   const canDrop = unlocked && active && !tab.vaultLocked && isVaultPath(path);
-  const canDropRef = useLatest(canDrop);
 
   const reload = useCallback(async (): Promise<VaultAttachment[]> => {
     const p = pathOf(tab.id);
@@ -225,7 +223,6 @@ function AttachmentsPanelInner({ tab }: { tab: Tab }) {
     announce(parts.join(" "));
     if (added) toast.success(added === 1 ? "Attachment added" : `${added} attachments added`);
   };
-  const attachRef = useLatest(attach);
 
   const pick = async () => {
     if (busyRef.current) { announce("Still adding files. Try again when that finishes."); return; }
@@ -240,16 +237,15 @@ function AttachmentsPanelInner({ tab }: { tab: Tab }) {
     setDropHost(sectionRef.current?.closest<HTMLElement>("[data-entry-drop]") ?? null);
   }, []);
 
-  useEffect(() => registerDropTarget({
+  const hover = useDropTarget({
     id: `vault-attachments-${tab.id}`,
     element: () => dropHost ?? sectionRef.current,
-    enabled: () => canDropRef.current,
-    onHover: setHover,
+    enabled: canDrop,
     onDrop: (paths) => {
       sectionRef.current?.scrollIntoView?.({ block: "nearest" });
-      void attachRef.current(paths);
+      void attach(paths);
     },
-  }), [tab.id, dropHost, canDropRef, attachRef]);
+  });
 
   // Focus the row that was just added or restored, once it has rendered.
   useLayoutEffect(() => {
@@ -390,13 +386,9 @@ function AttachmentsPanelInner({ tab }: { tab: Tab }) {
       {region}
 
       {showDrop && createPortal(
-        <div data-drop-highlight=""
-             className="pointer-events-none absolute inset-2 z-30 flex items-center justify-center rounded-lg border-2 border-dashed border-[var(--color-primary)] bg-[var(--color-primary)]/10">
-          <div className="flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium shadow-md bg-[var(--color-bg-secondary)] text-[var(--color-text)] border border-[var(--color-border)]">
-            <Paperclip size={14} aria-hidden className="text-[var(--color-primary)]" />
-            {busy ? "Still adding files…" : `Drop to attach to ${name}`}
-          </div>
-        </div>,
+        <DropHighlight icon={<Paperclip size={14} />}>
+          {busy ? "Still adding files…" : `Drop to attach to ${name}`}
+        </DropHighlight>,
         dropHost,
       )}
 

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  clearDropTargets, dragLeave, dragMove, dropAt, findDropTarget, pickTarget, rectContains, registerDropTarget, toCssPoint,
+  clearDropTargets, dragLeave, dragMove, dropAt, findDropTarget, modalDropActive, pickTarget, rectContains, registerDropTarget, toCssPoint,
   type DropTarget, type RectLike,
 } from "./dropTargets";
 
@@ -105,5 +105,53 @@ describe("registry", () => {
     registerDropTarget(t);
     expect(dropAt(["C:/a.md"], { x: 300, y: 300 }, 1)).toBe(false);
     expect(t.onDrop).not.toHaveBeenCalled();
+  });
+});
+
+describe("modal targets", () => {
+  it("beat every non-modal target, even a smaller one under the same point", () => {
+    const small = target("att", rect(100, 100, 20, 20));
+    const dialog = target("restore", rect(50, 50, 300, 200), { modal: true });
+    registerDropTarget(small);
+    registerDropTarget(dialog);
+    expect(findDropTarget({ x: 110, y: 110 }, 1)).toBe(dialog);
+    expect(dropAt(["C:/x.nqbackup"], { x: 110, y: 110 }, 1)).toBe(true);
+    expect(dialog.onDrop).toHaveBeenCalledWith(["C:/x.nqbackup"]);
+    expect(small.onDrop).not.toHaveBeenCalled();
+  });
+
+  it("swallow drags and drops outside them, so nothing opens as a tab behind the dialog", () => {
+    const behind = target("att", rect(0, 0, 40, 40));
+    const dialog = target("restore", rect(100, 100, 100, 100), { modal: true });
+    registerDropTarget(behind);
+    registerDropTarget(dialog);
+    expect(modalDropActive()).toBe(true);
+    expect(dragMove({ x: 10, y: 10 }, 1)).toBe(true); // hides the "drop to open" overlay
+    expect(behind.onHover).not.toHaveBeenCalled();
+    expect(dropAt(["C:/a.md"], { x: 10, y: 10 }, 1)).toBe(true);
+    expect(behind.onDrop).not.toHaveBeenCalled();
+    expect(dialog.onDrop).not.toHaveBeenCalled();
+  });
+
+  it("stop applying once disabled, hidden or unregistered", () => {
+    const behind = target("att", rect(0, 0, 40, 40));
+    let on = true;
+    let shown = true;
+    const r = rect(100, 100, 100, 100);
+    const dialog = target("restore", r, {
+      modal: true, enabled: () => on, element: () => (shown ? el(r) : null),
+    });
+    registerDropTarget(behind);
+    const off = registerDropTarget(dialog);
+    on = false;
+    expect(modalDropActive()).toBe(false);
+    expect(findDropTarget({ x: 10, y: 10 }, 1)).toBe(behind);
+    on = true; shown = false;
+    expect(dropAt(["C:/a.md"], { x: 300, y: 300 }, 1)).toBe(false);
+    shown = true;
+    expect(modalDropActive()).toBe(true);
+    off();
+    expect(modalDropActive()).toBe(false);
+    expect(dropAt(["C:/a.md"], { x: 300, y: 300 }, 1)).toBe(false);
   });
 });

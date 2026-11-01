@@ -9,6 +9,10 @@
  *
  * Tauri reports `position` in physical pixels relative to the webview; DOM rects are CSS pixels, so the
  * point is divided by `devicePixelRatio` (which also folds in the webview's zoom level) before testing.
+ *
+ * A modal dialog registers its target with `modal: true`. While such a target is enabled and on screen,
+ * only modal targets are hit-tested (so nothing behind the dialog receives the drop), and a drag or drop
+ * anywhere else in the window is swallowed: it never falls through to "open as tabs".
  */
 
 export interface Point { x: number; y: number }
@@ -24,6 +28,8 @@ export interface DropTarget {
   onHover?: (over: boolean) => void;
   /** The dropped paths (files and folders, as the OS gave them). */
   onDrop: (paths: string[]) => void;
+  /** Belongs to a modal dialog: while it is live, it beats every non-modal target and drops elsewhere are ignored. */
+  modal?: boolean;
 }
 
 /** Physical (device) pixels → CSS pixels. A missing or nonsensical scale counts as 1. */
@@ -64,16 +70,25 @@ export function registerDropTarget(t: DropTarget): () => void {
 
 const defaultScale = () => (typeof window !== "undefined" ? window.devicePixelRatio : 1);
 
+/** Enabled targets that are on screen; when a modal one is among them, only the modal ones. */
+function liveTargets(): { target: DropTarget; el: Element }[] {
+  const live: { target: DropTarget; el: Element }[] = [];
+  for (const t of targets.values()) {
+    const el = t.element();
+    if (el && t.enabled()) live.push({ target: t, el });
+  }
+  return live.some((c) => c.target.modal) ? live.filter((c) => c.target.modal) : live;
+}
+
+/** True while a modal dialog's drop target is live (drops outside it are then swallowed). */
+export function modalDropActive(): boolean {
+  return liveTargets().some((c) => c.target.modal);
+}
+
 /** The enabled, registered target under a physical-pixel `position`, or null. */
 export function findDropTarget(position: Point, scale = defaultScale()): DropTarget | null {
   const p = toCssPoint(position, scale);
-  const candidates: { target: DropTarget; rect: RectLike }[] = [];
-  for (const t of targets.values()) {
-    const el = t.element();
-    if (!el || !t.enabled()) continue;
-    candidates.push({ target: t, rect: el.getBoundingClientRect() });
-  }
-  return pickTarget(candidates, p);
+  return pickTarget(liveTargets().map(({ target, el }) => ({ target, rect: el.getBoundingClientRect() })), p);
 }
 
 /** Tracks which target the drag is over, so targets get enter/leave callbacks. */
@@ -88,10 +103,13 @@ const router = {
   },
 };
 
-/** Drag entered the window or moved: returns true while it is over a registered target. */
+/**
+ * Drag entered the window or moved: returns true while it is over a registered target, or anywhere
+ * while a modal target is live (the caller then hides its "drop to open" overlay).
+ */
 export function dragMove(position: Point, scale = defaultScale()): boolean {
   router.setHovered(findDropTarget(position, scale));
-  return router.hovered !== null;
+  return router.hovered !== null || modalDropActive();
 }
 
 /** Drag left the window or was cancelled. */
@@ -101,12 +119,13 @@ export function dragLeave(): void {
 
 /**
  * Drop: delivers `paths` to the target under `position` and returns true, or returns false when no
- * target is there (the caller then does its default thing).
+ * target is there (the caller then does its default thing). While a modal target is live, a drop that
+ * misses it is swallowed (returns true without delivering).
  */
 export function dropAt(paths: string[], position: Point, scale = defaultScale()): boolean {
   const t = findDropTarget(position, scale);
   router.setHovered(null);
-  if (!t) return false;
+  if (!t) return modalDropActive();
   t.onDrop(paths);
   return true;
 }
