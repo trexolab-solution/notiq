@@ -513,6 +513,7 @@ pub async fn hello_unlock(app: AppHandle, window: tauri::Window, state: State<'_
         let _ = atomic_write(&hello_path(&app)?, file.to_json().as_bytes());
     }
     state.install_key(key, vault_id);
+    crate::vault::note_successful_unlock(&app, &state);
     crate::vault::notify_state(&app, true, window.label());
     crate::sync::commands::on_unlocked(&app);
     Ok(())

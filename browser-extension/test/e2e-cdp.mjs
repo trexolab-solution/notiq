@@ -93,8 +93,10 @@ const allCalls = () => SW("globalThis.__calls || []");
 // Every request carries the extension's version and protocol (handshake); `bare` strips them for contract checks.
 const bare = (c) => { const { ext, protocol, ...rest } = c; return rest; };
 const tagged = (c) => typeof c.ext === "string" && c.ext.length > 0 && c.protocol === 2;
-// Vault requests only (theme and the lock-state ping are not).
-const calls = async () => (await allCalls()).filter((c) => c.op !== "theme" && c.op !== "ping");
+// Vault requests only (theme, the lock-state ping and the password-reuse check, which carries no secret, are not).
+const REUSE_OPS = ["reuse_salt", "reuse_check"];
+const calls = async () => (await allCalls()).filter((c) => c.op !== "theme" && c.op !== "ping" && !REUSE_OPS.includes(c.op));
+const reuseCalls = async () => (await allCalls()).filter((c) => REUSE_OPS.includes(c.op));
 const pings = async () => (await allCalls()).filter((c) => c.op === "ping");
 const resetCalls = () => SW("(globalThis.__calls = [], true)");
 const session = () => SW("chrome.storage.session.get(null)");
@@ -236,8 +238,8 @@ try {
   ({ sessionId: sw } = await cdp("Target.attachToTarget", { targetId: swTarget.targetId, flatten: true }));
   await cdp("Runtime.enable", {}, sw);
   const manifest = await SW("chrome.runtime.getManifest()");
-  check("manifest version 0.6.0 with storage permission and all-frames content script (same-site gated)",
-    manifest.version === "0.6.0" && manifest.permissions.includes("storage") && manifest.content_scripts[0].all_frames === true &&
+  check("manifest version 0.7.0 with storage permission and all-frames content script (same-site gated)",
+    manifest.version === "0.7.0" && manifest.permissions.includes("storage") && manifest.content_scripts[0].all_frames === true &&
     typeof manifest.key === "string" && manifest.key.length > 100);
 
   const { targetId } = await cdp("Target.createTarget", { url: "about:blank" });
@@ -849,8 +851,8 @@ try {
   await sleep(300);
   const popInfo = await evalIn(pop2, `({ ver: document.getElementById("version").textContent, sw: [...document.querySelectorAll('input[type=checkbox]')].map((i) => i.getAttribute("role") + ":" + i.id + ":" + i.checked),
     status: document.getElementById("status").dataset.state, bg: getComputedStyle(document.body).backgroundColor })`);
-  check("popup: version footer, three role=switch toggles incl. 'Suggest on field focus', status dot",
-    popInfo.ver === "Notiq Autofill v0.6.0" && popInfo.sw.join() === "switch:offerSave:true,switch:showIcon:true,switch:suggestOnFocus:false" &&
+  check("popup: version footer, role=switch toggles incl. 'Suggest on field focus', 'Hide Notiq on this site' and the experimental passkeys (off), status dot",
+    popInfo.ver === "Notiq Autofill v0.7.0" && popInfo.sw.join() === "switch:siteHide:false,switch:showIcon:true,switch:suggestOnFocus:false,switch:offerSave:true,switch:passkeys:false" &&
     ["on", "off"].includes(popInfo.status) && popInfo.bg === "rgb(46, 52, 64)", JSON.stringify(popInfo));
   await evalIn(pop2, `document.getElementById("suggestOnFocus").click(), true`);
   check("popup toggle writes suggestOnFocus", await waitFor(async () => (await local()).suggestOnFocus === true, 1500));
@@ -1006,11 +1008,11 @@ try {
     for (const [name, theme] of [["dark", DEFAULT_DARK], ["light", LIGHT], ["nord", THEME]]) {
       await cdp("Target.activateTarget", { targetId: pop2Target });
       await SW(`chrome.storage.local.set({ theme: ${JSON.stringify(theme)}, neverSave: ["accounts.example.com", "old-bank.example"] }).then(() => true)`);
-      await evalIn(pop2, `(() => { document.getElementById("never").open = true; return true; })()`);
+      await evalIn(pop2, `(() => { showView("never"); return true; })()`);
       await sleep(300);
       const h = await evalIn(pop2, `Math.ceil(document.documentElement.getBoundingClientRect().height)`);
       await shoot(pop2, `popup-${name}.png`, { x: 0, y: 0, width: 320, height: h });
-      await evalIn(pop2, `(() => { const m = document.getElementById("msg"); m.className = ""; m.textContent = "Several logins match. Pick one:";
+      await evalIn(pop2, `(() => { showView("settings"); showView("main"); const m = document.getElementById("msg"); m.className = ""; m.textContent = "Several logins match. Pick one:";
         const c = document.getElementById("choose"); c.hidden = false; c.textContent = "";
         for (const [t, u] of [["Work", "alice@work.com"], ["Home", "alice@home.example"]]) { const li = document.createElement("li"); const b = document.createElement("button");
           b.className = "choice"; const a = document.createElement("span"); a.className = "t"; a.textContent = t; const d = document.createElement("span"); d.className = "u"; d.textContent = u;
@@ -1273,11 +1275,11 @@ try {
     await P3(`(document.activeElement && document.activeElement.blur && document.activeElement.blur(), setStatus("on", "Notiq unlocked"), loadSite("on"), true)`);
     const rows3 = () => P3(`({ rows: [...document.querySelectorAll("#accList li")].map((li) => ({ t: li.querySelector(".t").textContent, u: li.querySelector(".u").textContent,
       labels: [...li.querySelectorAll("button")].map((b) => b.getAttribute("aria-label")), code: li.querySelector('[data-action="code"]').disabled })),
-      imgs: document.querySelectorAll("#accList img").length, title: document.getElementById("siteTitle").textContent,
+      imgs: document.querySelectorAll("#accList img").length, title: document.getElementById("siteHost").textContent,
       filterShown: !document.getElementById("filter").hidden, focus: document.activeElement && document.activeElement.id, state: document.getElementById("siteState").textContent })`);
     const r3 = await waitFor(async () => { const s = await rows3(); return s.rows.length === 2 && s; }, 3000) || await rows3();
-    check("popup list: two rows (title + username as text), filter box shown and focused, host in the heading",
-      r3.rows.length === 2 && r3.rows[0].t === "Work" && r3.rows[1].t.startsWith("<img") && r3.imgs === 0 && r3.filterShown && r3.focus === "filter" && r3.title === "Logins for localhost",
+    check("popup list: two rows (title + username as text), filter box shown and focused, host in the site chip",
+      r3.rows.length === 2 && r3.rows[0].t === "Work" && r3.rows[1].t.startsWith("<img") && r3.imgs === 0 && r3.filterShown && r3.focus === "filter" && r3.title === "localhost",
       JSON.stringify(r3));
     check("popup list: every control has an accessible name; 2FA copy disabled without a code",
       r3.rows[0].labels.join("|") === "Fill Work (alice@work.com)|Copy username of Work|Copy password of Work|Copy 2FA code of Work|Open Work in Notiq" &&
@@ -1496,6 +1498,120 @@ try {
     await menuClick("nq-login", { frameId: 3, frameUrl: "https://evil.example/" });
     await sleep(600);
     check("menu: a click from another site's frame is ignored", (await calls()).length === 0);
+  }
+
+  // 31. Password-reuse warning, "Hide Notiq on this site", toolbar fill into open shadow roots (own block scope)
+  {
+    const SALT = "07".repeat(32);
+    const warnInfo = () => inShadow(`function () {
+      const b = this.querySelector(".nq-warn:not(.out)");
+      if (!b) return null;
+      return { text: b.textContent, role: b.getAttribute("role"),
+        buttons: [...b.querySelectorAll("button")].map((x) => { const r = x.getBoundingClientRect(); return { label: x.textContent, x: r.x + r.width / 2, y: r.y + r.height / 2 }; }) };
+    }`);
+    await resetState();
+    await mockNative({ ...NATIVE, reuse_salt: { ok: true, salt: SALT }, reuse_check: { ok: true, site: "paypal.com" } });
+    await load();
+    check("reuse: nothing asked on page load", (await reuseCalls()).length === 0);
+    await typeInto("s-pass", "short7!");
+    await clickId("s-user"); // blur
+    await sleep(800);
+    check("reuse: a password under 8 characters is never checked", (await reuseCalls()).length === 0);
+    await typeInto("s-pass", "PayPal-Secret-1");
+    await sleep(300);
+    check("reuse: nothing is checked while typing (only on blur / submit)", (await reuseCalls()).length === 0);
+    await clickId("s-user"); // blur
+    const w31 = await waitFor(warnInfo, 3000);
+    const rc = await reuseCalls();
+    const chk = rc.find((c) => c.op === "reuse_check");
+    const hmac = await P(`(async () => { const k = await crypto.subtle.importKey("raw", new Uint8Array(32).fill(7), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+      const m = new Uint8Array(await crypto.subtle.sign("HMAC", k, new TextEncoder().encode("PayPal-Secret-1")));
+      return [...m.slice(0, 16)].map((b) => b.toString(16).padStart(2, "0")).join(""); })()`);
+    check("reuse: on blur the app gets the host and a 16-byte salted HMAC tag, never the password",
+      chk && chk.host === "localhost" && chk.salt === SALT && chk.tag === hmac && JSON.stringify(rc).indexOf("PayPal-Secret-1") < 0 &&
+      Object.keys(bare(chk)).sort().join() === "host,op,salt,tag", JSON.stringify(rc.map(bare)));
+    check("reuse: the warning card names both sites, in the closed overlay",
+      w31 && w31.role === "alertdialog" && w31.text.includes("This is your password for paypal.com. This site is localhost. Check the address before you continue.") &&
+      w31.buttons.map((b) => b.label).join("|") === "Leave this site|It's OK, I trust this site", JSON.stringify(w31));
+    await clickId("s-pass");
+    await clickId("s-user");
+    await sleep(600);
+    check("reuse: the same password is checked once per page", (await reuseCalls()).filter((c) => c.op === "reuse_check").length === 1);
+    await inShadow(`function () { const b = [...this.querySelectorAll(".nq-warn button")].pop(); b.click(); }`);
+    await sleep(500);
+    check("reuse: a synthetic click on the card's buttons is ignored", !!(await warnInfo()) && !(await local()).reuseTrusted);
+    const trustBtn = w31 && w31.buttons[1];
+    if (trustBtn) await mouseClick(trustBtn.x, trustBtn.y);
+    const trusted = await waitFor(async () => { const l = await local(); return Array.isArray(l.reuseTrusted) && l.reuseTrusted.includes("localhost"); }, 2000);
+    check("reuse: 'It's OK, I trust this site' remembers the site and closes the card", trusted && !!(await waitFor(async () => !(await warnInfo()), 1000)), JSON.stringify(await local()));
+    await resetCalls();
+    await typeInto("s-pass", "Another-Secret-2");
+    await clickId("s-user");
+    await sleep(800);
+    check("reuse: a trusted site is never checked again", (await reuseCalls()).length === 0);
+    // A locked vault (the background may still hold this app run's salt): Notiq answers locked, nothing is shown.
+    await resetState();
+    await mockNative({ ...NATIVE, reuse_salt: { error: "locked" }, reuse_check: { error: "locked" } });
+    await load();
+    await typeInto("s-pass", "PayPal-Secret-1");
+    await clickId("s-user");
+    await sleep(900);
+    check("reuse: a locked vault shows nothing", !(await warnInfo()) && (await reuseCalls()).length >= 1, JSON.stringify((await reuseCalls()).map(bare)));
+    // Submit (Enter) checks too; "Leave this site" navigates the tab away.
+    await resetState();
+    await mockNative({ ...NATIVE, reuse_salt: { ok: true, salt: SALT }, reuse_check: { ok: true, site: "paypal.com" } });
+    await load();
+    await typeInto("s-pass", "PayPal-Secret-1");
+    await pressEnter();
+    const w31b = await waitFor(warnInfo, 3000);
+    check("reuse: submitting the form checks too", !!w31b);
+    if (w31b) await mouseClick(w31b.buttons[0].x, w31b.buttons[0].y);
+    const left = await waitFor(async () => (await P("location.href").catch(() => "")) === "about:blank", 3000);
+    check("reuse: 'Leave this site' leaves the page", left);
+
+    // "Hide Notiq on this site": the icon's own menu (right-click on the icon).
+    await resetState();
+    await mockNative(NATIVE);
+    await load();
+    check("hide: 6 icons before", ((await icons()) || []).length === 6);
+    const hi = await iconFor("s-pass");
+    await cdp("Input.dispatchMouseEvent", { type: "mouseMoved", x: hi.x, y: hi.y }, page);
+    await cdp("Input.dispatchMouseEvent", { type: "mousePressed", x: hi.x, y: hi.y, button: "right", clickCount: 1 }, page);
+    await cdp("Input.dispatchMouseEvent", { type: "mouseReleased", x: hi.x, y: hi.y, button: "right", clickCount: 1 }, page);
+    const hm = await waitFor(menuInfo, 1500);
+    check("hide: right-click on the icon opens its menu (fill, hide)",
+      hm && hm.items.map((i) => i.label).join("|") === "Fill with Notiq|Hide Notiq on this site", JSON.stringify(hm && hm.items));
+    check("hide: opening the icon menu sends nothing to Notiq", (await calls()).length === 0);
+    if (hm) await mouseClick(hm.items[1].x, hm.items[1].y);
+    const hidden = await waitFor(async () => { const l = await local(); return Array.isArray(l.hiddenSites) && l.hiddenSites.join() === "localhost"; }, 2000);
+    check("hide: the top host is stored in hiddenSites", hidden, JSON.stringify(await local()));
+    check("hide: every icon goes away", await waitFor(async () => ((await icons()) || []).length === 0, 2000));
+    await load();
+    check("hide: still hidden after a reload", ((await icons()) || []).length === 0);
+    // Alt+Shift+L (the command sends fillShortcut) still fills there.
+    await clickId("s-pass");
+    await SW(`chrome.tabs.query({}).then((tabs) => { const t = tabs.find((x) => (x.url || "").includes("/test-pages/login.html")) || tabs.find((x) => x.active);
+      return chrome.tabs.sendMessage(t.id, { type: "fillShortcut" }).catch(() => null).then(() => true); })`);
+    await waitFor(async () => (await P(`document.getElementById("s-pass").value`)) !== "", 3000);
+    const hv = await P(`({ u: document.getElementById("s-user").value, p: document.getElementById("s-pass").value })`);
+    const hc = await calls();
+    check("hide: Alt+Shift+L still fills on a hidden site", hv.u === "alice@example.com" && hv.p === "Notiq-Filled-1!" && hc.length === 1 && hc[0].op === "fill", JSON.stringify({ hv, hc }));
+    await sleep(6000); // the temporary progress icon goes away
+    check("hide: the shortcut's temporary icon goes away", ((await icons()) || []).length === 0);
+    await SW(`chrome.storage.local.set({ hiddenSites: [] }).then(() => true)`);
+    check("hide: removing the site (popup ×) brings the icons back", await waitFor(async () => ((await icons()) || []).length === 6, 2500));
+
+    // Toolbar fill (probeFrame + fillPage) into open shadow roots, run as the injection runs them.
+    const PROBE = await SW("probeFrame.toString()");
+    const FILLPAGE2 = await SW("fillPage.toString()");
+    await load(SHADOW);
+    await sleep(1500);
+    const pr = await P(`(${PROBE})()`);
+    check("toolbar probe: fields inside open shadow roots count", pr && pr.fields === true && pr.password === true, JSON.stringify(pr));
+    const nf = await P(`(${FILLPAGE2})("localhost", { username: "tool@example.com", password: "Tool-Shadow-1" }, { top: location.origin, allowed: [location.origin] })`);
+    check("toolbar fill: username and password go into the first open-root form",
+      nf >= 2 && (await shadowVal(["#c1", "#c1-user"])) === "tool@example.com" && (await shadowVal(["#c1", "#c1-pass"])) === "Tool-Shadow-1", String(nf));
+    check("toolbar fill: the closed root stays closed", await P(`document.getElementById("c4").shadowRoot === null`));
   }
 
   exitCode = results.every((r) => r.ok) ? 0 : 1;

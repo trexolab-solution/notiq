@@ -410,6 +410,27 @@ mod tests {
     }
 
     #[test]
+    fn firefox_manifest_is_strict_and_complete() {
+        let m = build_manifest(Kind::Firefox, "C:\\Notiq\\notiq.exe", &ids(), autofill::FIREFOX_EXTENSION_IDS);
+        assert_eq!(m["name"], HOST_NAME);
+        assert_eq!(m["type"], "stdio");
+        assert_eq!(m["path"], "C:\\Notiq\\notiq.exe");
+        assert_eq!(m["allowed_extensions"], json!(["autofill@notiq.app"]));
+        assert!(m.get("allowed_origins").is_none(), "Firefox manifests use allowed_extensions only");
+        // The gecko id must match what build.mjs writes into the Firefox manifest.
+        let build = include_str!("../../browser-extension/build.mjs");
+        assert!(build.contains(&format!("FIREFOX_ID = \"{}\"", autofill::FIREFOX_EXTENSION_IDS[0])));
+    }
+
+    #[test]
+    fn firefox_registry_key_is_per_user_mozilla() {
+        if cfg!(windows) {
+            let ff = BROWSERS.iter().find(|b| b.kind == Kind::Firefox).expect("firefox listed on Windows");
+            assert_eq!(ff.reg_base, "Software\\Mozilla\\NativeMessagingHosts");
+        }
+    }
+
+    #[test]
     fn path_comparison() {
         assert!(same_path("/opt/notiq/notiq", "/opt/notiq/notiq"));
         assert!(!same_path("/opt/notiq/notiq", "/opt/other/notiq"));
@@ -529,6 +550,7 @@ fn browser_launch_spec(browser: &str) -> Option<(&'static str, &'static str)> {
         "edge" => Some((exe("msedge", "microsoft-edge"), "edge://extensions")),
         "chrome" => Some((exe("chrome", "google-chrome"), "chrome://extensions")),
         "brave" => Some((exe("brave", "brave-browser"), "brave://extensions")),
+        "firefox" => Some(("firefox", "about:debugging#/runtime/this-firefox")),
         _ => None,
     }
 }
@@ -571,7 +593,8 @@ mod extension_install_tests {
             let (prog, page) = browser_launch_spec(b).expect("known browser");
             assert!(!prog.is_empty() && page.ends_with("://extensions"));
         }
-        for bad in ["", "firefox", "cmd", "edge --evil", "../edge"] {
+        assert_eq!(browser_launch_spec("firefox"), Some(("firefox", "about:debugging#/runtime/this-firefox")));
+        for bad in ["", "Firefox", "cmd", "edge --evil", "../edge"] {
             assert!(browser_launch_spec(bad).is_none(), "{bad} must be refused");
         }
     }

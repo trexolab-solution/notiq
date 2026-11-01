@@ -8,9 +8,11 @@ import { PasswordInput } from "../PasswordInput";
 import { PanicShortcutRow, PasswordGeneratorRow, StorageFolderRow } from "./VaultPrefRows";
 import { SessionLockRow } from "./SessionLockRow";
 import { QuickSearchRow } from "./QuickSearchRow";
+import { CaptureShieldRow } from "./CaptureShieldRow";
 import { BackupSection } from "../../vault/BackupSection";
 import { AutofillSection } from "./AutofillSection";
 import { HelloRow } from "./HelloRow";
+import { RecoveryKeyRow } from "./RecoveryKeyRow";
 import { SyncSection } from "./SyncSection";
 import { SYNC_INDEX } from "./syncIndex";
 import { useSyncStatus } from "../../../lib/vaultSync";
@@ -19,12 +21,13 @@ import { toast } from "../../../lib/toast";
 import { useAppStore } from "../../../store";
 import { useVaultStore } from "../../../store/vaultStore";
 import { vaultChangePassword, vaultErrorMessage } from "../../../lib/vault";
+import { masterPasswordProblem } from "../../../lib/masterPassword";
+import { PasswordStrengthMeter } from "../../vault/PasswordStrengthMeter";
 import {
   IDLE_OPTIONS, DEFAULT_IDLE_MINUTES, getIdleMinutes, setIdleMinutes, getLockOnHide, setLockOnHide,
 } from "../../../lib/vaultPrefs";
 import type { SettingMeta } from "../../../lib/settingsIndex";
 
-const MIN_LEN = 8;
 
 const STATE_TEXT = {
   none: "The vault isn't set up yet. Lock individual notes with a master password (right-click a tab, then Lock with Vault).",
@@ -52,7 +55,8 @@ export const VaultSection = React.memo(function VaultSection() {
   const changePassword = async (e: React.FormEvent) => {
     e.preventDefault();
     if (busy) return;
-    if (newPw.length < MIN_LEN) { setError(`New password must be at least ${MIN_LEN} characters`); return; }
+    const weak = masterPasswordProblem(newPw);
+    if (weak) { setError(weak); return; }
     if (newPw !== confirmPw)    { setError("New passwords don't match"); return; }
     setBusy(true);
     setError(null);
@@ -124,6 +128,7 @@ export const VaultSection = React.memo(function VaultSection() {
 
         <PanicShortcutRow />
         <SessionLockRow />
+        <CaptureShieldRow />
       </SettingsGroup>
 
       <SettingsGroup title="Storage" description="Where the encrypted vault file lives on this computer.">
@@ -170,6 +175,7 @@ export const VaultSection = React.memo(function VaultSection() {
                      value={oldPw} onChange={(e) => setOldPw(e.target.value)} />
               <PasswordInput placeholder="New password" autoComplete="new-password" aria-label="New password"
                      value={newPw} onChange={(e) => setNewPw(e.target.value)} />
+              <PasswordStrengthMeter password={newPw} />
               <PasswordInput placeholder="Confirm new password" autoComplete="new-password" aria-label="Confirm new password"
                      value={confirmPw} onChange={(e) => setConfirmPw(e.target.value)} />
               {error && <p role="alert" className="text-xs text-[var(--color-danger)]">{error}</p>}
@@ -186,6 +192,7 @@ export const VaultSection = React.memo(function VaultSection() {
             <p className="text-sm text-[var(--color-text-muted)]">Set up the vault first to have a master password to change.</p>
           )}
         </SettingsBlock>
+        <RecoveryKeyRow />
       </SettingsGroup>
 
       <SettingsGroup title="Browser autofill" description="Fill logins from your vault in Edge, Chrome or Brave.">
@@ -235,6 +242,9 @@ export const SETTINGS_INDEX: SettingMeta[] = [
   { id: "vault.locking.clipboard-clear", section: "vault", group: "Locking", label: "Clear copied secrets after",
     description: "Empties the clipboard this long after you copy a password, code or key (in Notiq or from the browser extension), unless you have copied something else since.",
     keywords: ["clipboard", "copy", "clear", "wipe", "password", "timeout", "extension"] },
+  { id: "vault.locking.capture-shield", section: "vault", group: "Locking", label: "Hide from screenshots and screen sharing",
+    description: "Keeps Notiq out of screenshots, screen recordings and screen sharing. While it is on, your own screen share or recording shows a black window.",
+    keywords: ["screenshot", "screen share", "screen recording", "capture", "privacy", "black window", "hide window", "teams", "zoom", "obs"] },
   { id: "vault.storage.folder", section: "vault", group: "Storage", label: "Vault storage folder",
     description: "Where your encrypted vault file (vault.nqdb) is kept. Warns if the folder is synced by a cloud service.",
     keywords: ["folder", "directory", "location", "path", "vault.nqdb", "cloud", "onedrive", "dropbox", "sync", "move"] },
@@ -266,6 +276,9 @@ export const SETTINGS_INDEX: SettingMeta[] = [
   { id: "vault.password.change", section: "vault", group: "Master password", label: "Change master password",
     description: "Your locked notes don't need re-encrypting, and your recovery key keeps working.",
     keywords: ["password", "change", "new password", "recovery key", "credentials"] },
+  { id: "vault.password.recovery-key", section: "vault", group: "Master password", label: "Recovery key",
+    description: "Create a new recovery key. The old key stops working for this vault; older backup files still open with it.",
+    keywords: ["recovery key", "new recovery key", "rotate", "replace", "lost", "reset", "forgot password"] },
   { id: "vault.autofill.install", section: "vault", group: "Browser autofill", label: "Install the browser extension",
     description: "Load the Notiq extension into Edge, Chrome or Brave to fill logins from your vault.",
     keywords: ["extension", "chrome", "edge", "brave", "firefox", "developer mode", "load unpacked", "autofill", "browser"] },

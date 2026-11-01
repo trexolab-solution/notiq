@@ -5,7 +5,8 @@ import { hostOf, LOGIN_EXT, loginUrls, parseLogin, type LoginEntry } from "./log
 import { COMMON_PASSWORDS } from "./commonPasswords";
 
 /**
- * Password health — runs entirely on this device. Nothing here touches the network,
+ * Password health — runs on this device. The only network use is the optional, off-by-default breach check
+ * in vaultBreach.ts (merged in via `applyBreaches`); this file never touches the network,
  * and no report field ever contains a password (reuse is found by comparing SHA-256
  * digests that live only inside `analyzeHealth`).
  */
@@ -84,8 +85,8 @@ export function isWeak(pw: string): boolean {
 
 // ─── Report ───────────────────────────────────────────────────────────────────
 
-export type HealthIssue = "weak" | "reused" | "old" | "empty" | "http";
-export const HEALTH_ISSUES: HealthIssue[] = ["weak", "reused", "old", "empty", "http"];
+export type HealthIssue = "weak" | "reused" | "old" | "empty" | "http" | "breached";
+export const HEALTH_ISSUES: HealthIssue[] = ["breached", "weak", "reused", "old", "empty", "http"];
 
 export const OLD_AFTER_DAYS = 365;
 const DAY = 86_400_000;
@@ -113,6 +114,8 @@ export interface HealthItem {
   /** Index into `reusedGroups`, or -1. */
   reuseGroup: number;
   ageDays: number;
+  /** Times the password was seen in known breaches (0 = not found or not checked). */
+  breachedCount: number;
 }
 
 export interface HealthReport {
@@ -126,7 +129,7 @@ export interface HealthReport {
   checkedAt: number;
 }
 
-const WEIGHT: Record<HealthIssue, number> = { empty: 1, weak: 1, reused: 0.8, http: 0.4, old: 0.2 };
+const WEIGHT: Record<HealthIssue, number> = { breached: 1.5, empty: 1, weak: 1, reused: 0.8, http: 0.4, old: 0.2 };
 
 async function sha256Hex(s: string): Promise<string> {
   const d = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));
@@ -155,7 +158,7 @@ export async function analyzeHealth(inputs: HealthInput[], now = Date.now()): Pr
   }
   byHash.clear();
 
-  const counts: Record<HealthIssue, number> = { weak: 0, reused: 0, old: 0, empty: 0, http: 0 };
+  const counts: Record<HealthIssue, number> = { weak: 0, reused: 0, old: 0, empty: 0, http: 0, breached: 0 };
   let penalty = 0;
   const items = inputs.map((inp, i): HealthItem => {
     const { entry } = inp;
@@ -181,10 +184,30 @@ export async function analyzeHealth(inputs: HealthInput[], now = Date.now()): Pr
       reusedWith: g >= 0 ? reusedGroups[g].length - 1 : 0,
       reuseGroup: g,
       ageDays,
+      breachedCount: 0,
     };
   });
   const score = inputs.length ? Math.round(100 * (1 - penalty / inputs.length)) : 100;
   return { total: inputs.length, items, counts, reusedGroups, score, checkedAt: now };
+}
+
+/**
+ * Merges the optional breach check (`rel → times seen`, see vaultBreach.ts) into a report, returning a new one.
+ * Pure: a report without breach data is simply re-derived from its own items, so turning the check off or
+ * re-running it never stacks results. Holds no passwords.
+ */
+export function applyBreaches(report: HealthReport, breaches: ReadonlyMap<string, number> | null): HealthReport {
+  const counts: Record<HealthIssue, number> = { ...report.counts, breached: 0 };
+  let penalty = 0;
+  const items = report.items.map((it): HealthItem => {
+    const n = breaches?.get(it.rel) ?? 0;
+    const issues: HealthIssue[] = it.issues.filter((k) => k !== "breached");
+    if (n > 0) { issues.unshift("breached"); counts.breached++; }
+    penalty += Math.min(1, issues.reduce((a, k) => a + WEIGHT[k], 0));
+    return { ...it, issues, breachedCount: n };
+  });
+  const score = items.length ? Math.round(100 * (1 - penalty / items.length)) : 100;
+  return { ...report, items, counts, score };
 }
 
 /** Items that have `issue` (or any issue when null), worst first. */

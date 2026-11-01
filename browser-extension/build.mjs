@@ -18,7 +18,10 @@ export const FIREFOX_MIN = "121.0";
 // (background.scripts, no importScripts) gets it listed before background.js instead.
 export const BACKGROUND_SHARED = "shared.js";
 // The identity helpers (reply validation) are loaded the same way, after shared.js.
-export const BACKGROUND_EXTRA = ["identity.js"];
+export const BACKGROUND_EXTRA = ["identity.js", "passkeys.js"];
+// Content scripts the background registers at run time (scripting.registerContentScripts), so the manifest
+// does not name them: the passkey page script (MAIN world) and its bridge, only while passkeys are turned on.
+export const DYNAMIC_SCRIPTS = ["passkey-page.js", "passkey-bridge.js"];
 // Fixed timestamp so identical input gives byte-identical zips: 2026-01-01 00:00:00 (DOS format).
 const DOS_TIME = 0;
 const DOS_DATE = ((2026 - 1980) << 9) | (1 << 5) | 1;
@@ -96,7 +99,7 @@ export function validateBuild(manifest, files, version, { store = false, firefox
     if (!manifest.permissions?.includes(p)) throw new Error(`permission missing: ${p}`);
   }
   if (!manifest.content_scripts?.length) throw new Error("content_scripts missing");
-  for (const f of [BACKGROUND_SHARED, ...BACKGROUND_EXTRA]) if (!files.has(f)) throw new Error(`runtime file missing: ${f}`);
+  for (const f of [BACKGROUND_SHARED, ...BACKGROUND_EXTRA, ...DYNAMIC_SCRIPTS]) if (!files.has(f)) throw new Error(`runtime file missing: ${f}`);
   JSON.parse(files.get("manifest.json").toString("utf8"));
 }
 
@@ -261,7 +264,7 @@ function main() {
 
   const base = JSON.parse(readFileSync(join(here, "manifest.json"), "utf8"));
   const version = base.version;
-  const runtime = new Set(["manifest.json", ...referencedFiles(base)]);
+  const runtime = new Set(["manifest.json", ...referencedFiles(base), ...BACKGROUND_EXTRA, ...DYNAMIC_SCRIPTS]);
   // Files the popup page loads (e.g. popup.js) are not in the manifest; pick them up from its HTML.
   if (base.action?.default_popup) {
     const html = readFileSync(join(here, base.action.default_popup), "utf8");

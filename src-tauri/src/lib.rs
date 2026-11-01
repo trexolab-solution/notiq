@@ -3,9 +3,12 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::Manager;
 
 mod ai;
+mod breach; // 0.9.1 opt-in breached-password check (HIBP range API)
 mod clipboard;
 pub mod autofill;
+mod autofill_reuse; // password-reuse / phishing warning (reuse_salt, reuse_check)
 mod native_host_reg; // 0.7.0 autofill
+mod passkey; // experimental: passkeys (WebAuthn) in the vault, see autofill.rs "Passkeys"
 mod vault;
 mod vault_backup;
 mod vault_core;
@@ -15,6 +18,7 @@ mod vault_merge; // 0.9.0 sync: pure merge engine (P1)
 mod profile;
 mod session_lock;
 mod hello; // 0.7.0 hello
+mod capture_shield; // 0.9.1 hide from screen capture
 // 0.7.0 quick search
 mod quick_search;
 // 0.9.0 vault sync: storage providers (P2) + orchestrator (P3)
@@ -717,12 +721,15 @@ pub fn run() {
         vault::vault_unlock,
         vault::vault_unlock_with_recovery,
         vault::vault_change_password,
+        vault::vault_rotate_recovery_key,
+        vault::vault_take_failed_attempts,
         vault::vault_lock,
         vault::vault_write_file,
         vault::vault_read_file,
         vault::vault_set_root,
         vault::vault_default_dir,
         vault::vault_list,
+        breach::breach_check_ranges,
         vault::vault_mkdir,
         vault::vault_list_trash,
         vault::vault_trash,
@@ -769,6 +776,8 @@ pub fn run() {
         hello::hello_disable,
         hello::hello_unlock,
         // 0.7.0 quick search
+        capture_shield::capture_shield_get,
+        capture_shield::capture_shield_set,
         quick_search::quick_search_get,
         quick_search::quick_search_set,
         quick_search::quick_search_hide,
@@ -806,12 +815,15 @@ pub fn run() {
         vault::vault_unlock,
         vault::vault_unlock_with_recovery,
         vault::vault_change_password,
+        vault::vault_rotate_recovery_key,
+        vault::vault_take_failed_attempts,
         vault::vault_lock,
         vault::vault_write_file,
         vault::vault_read_file,
         vault::vault_set_root,
         vault::vault_default_dir,
         vault::vault_list,
+        breach::breach_check_ranges,
         vault::vault_mkdir,
         vault::vault_list_trash,
         vault::vault_trash,
@@ -858,6 +870,8 @@ pub fn run() {
         hello::hello_disable,
         hello::hello_unlock,
         // 0.7.0 quick search
+        capture_shield::capture_shield_get,
+        capture_shield::capture_shield_set,
         quick_search::quick_search_get,
         quick_search::quick_search_set,
         quick_search::quick_search_hide,
@@ -919,6 +933,9 @@ pub fn run() {
             #[cfg(desktop)]
             session_lock::start(app.handle());
             // end 0.7.0 session lock
+
+            // 0.9.1 capture shield
+            capture_shield::start(app.handle());
 
             // 0.7.0 quick search
             quick_search::start(app.handle());

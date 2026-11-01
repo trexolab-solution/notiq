@@ -89,7 +89,11 @@
   const NEW_HINT = /new.?pass|confirm|repeat|retype|re-?enter|verify|pass(word)?.?2/i;
   const MAX_CHOICES = 20;
 
-  const settings = { offerSave: true, showIcon: true, suggestOnFocus: false, neverSave: [] };
+  const settings = { offerSave: true, showIcon: true, suggestOnFocus: false, neverSave: [], hiddenSites: [], reuseTrusted: [] };
+  // The in-field UI (icons, focus suggestion) is on: the setting, and this site isn't in "Hide Notiq on this site".
+  // The toolbar button, Alt+Shift+L and the right-click menu keep working on a hidden site.
+  const siteHidden = () => settings.hiddenSites.includes(topHost());
+  const iconsOn = () => settings.showIcon && !siteHidden();
   let cachedTheme = null; // validated theme from the Notiq app (chrome.storage.local `theme`), or null
   let filled = null;   // { username, password } that Notiq just put on this page (memory only)
   let lastUser = null; // { host, value, at } last username typed here (multi-step flows)
@@ -356,6 +360,12 @@
 .nq-slabel { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .nq-kbd { flex: none; padding: 3px 6px; border-radius: 5px; border: 1px solid var(--nq-border); background: var(--nq-bg2);
   color: var(--nq-muted); font: 500 11px/1 var(--nq-font); white-space: nowrap; }
+.nq-warn { border-color: color-mix(in srgb, var(--nq-danger) 65%, var(--nq-border)); }
+.nq-warn .nq-logo { background: color-mix(in srgb, var(--nq-danger) 16%, transparent); color: var(--nq-danger); }
+.nq-body { margin-top: 10px; font-size: 13px; line-height: 1.45; overflow-wrap: anywhere; }
+.nq-body b { font-weight: 650; }
+.nq-btn.nq-danger { background: var(--nq-danger); border-color: var(--nq-danger); color: var(--nq-bg); }
+.nq-btn.nq-danger:hover { background: color-mix(in srgb, var(--nq-danger) 86%, var(--nq-text)); border-color: transparent; }
 @keyframes nq-rot { to { transform: rotate(360deg); } }
 @keyframes nq-in { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) {
@@ -460,6 +470,13 @@
       if (e.isTrusted !== true) return;
       onIconClick(field);
     });
+    // Right-click on the icon: its menu (fill, "Hide Notiq on this site").
+    btn.addEventListener("contextmenu", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.isTrusted !== true) return;
+      openIconMenu(field);
+    });
     layer.appendChild(wrap);
     icons.set(field, { wrap, btn, tip, timer: 0 });
     if (ro) ro.observe(field);
@@ -533,7 +550,14 @@
     refreshShadows();
     cardFields = detectCards();
     maybeStepFill(); // after detectCards: a masked CVC field is never a password step
-    if (!settings.showIcon) { codeFields = new Map(); identityFields = new Map(); clearIcons(); noteScanResult(cardFields.size > 0 || anyVisiblePassword()); return; }
+    if (!iconsOn()) {
+      codeFields = new Map(); identityFields = new Map();
+      // A right-click menu / shortcut action still running keeps its progress icon.
+      for (const f of Array.from(icons.keys())) if (!(menuIcons.has(f) && f.isConnected)) removeIcon(f);
+      noteScanResult(cardFields.size > 0 || anyVisiblePassword());
+      schedulePosition();
+      return;
+    }
     const found = detect();
     identityFields = detectIdentities(found);
     for (const f of cardIconFields(cardFields)) found.add(f);
@@ -570,7 +594,7 @@
   function maybeSuggest(field) {
     if (quiet || !isInput(field)) return;
     const ok = NS.shouldSuggest({
-      showIcon: settings.showIcon, suggestOnFocus: settings.suggestOnFocus, detected: icons.has(field) && !codeFields.has(field),
+      showIcon: iconsOn(), suggestOnFocus: settings.suggestOnFocus, detected: icons.has(field) && !codeFields.has(field),
       dismissed: dismissedFields.has(field), menuOpen: !!menu, filling, typed: typedField === field,
       rect: field.getBoundingClientRect(), viewport: viewport(),
     });
@@ -623,7 +647,7 @@
   function positionSuggest() {
     if (!suggest) return;
     const { node, field } = suggest;
-    if (!field.isConnected || !icons.has(field) || !settings.showIcon || !settings.suggestOnFocus) { hideSuggest(); return; }
+    if (!field.isConnected || !icons.has(field) || !iconsOn() || !settings.suggestOnFocus) { hideSuggest(); return; }
     node.style.display = "block";
     const r = field.getBoundingClientRect();
     const pos = NS.suggestPosition(r, node.offsetHeight || 40, viewport());
@@ -657,6 +681,7 @@
     const t = realTarget(e);
     if (!isInput(t)) return;
     typedField = t; // typing means the user isn't after the suggestion
+    if (isPassword(t)) typedPasswords.add(t);
     if (suggest && suggest.field === t) hideSuggest();
   }
 
@@ -752,6 +777,25 @@
         const cur = info.current;
         node.appendChild(menuItem("Fill saved login", "Asks Notiq for approval", () => { closeMenu(false); doFill(cur, field); }));
       }
+    });
+  }
+
+  // ---------- the icon's own menu (right-click on the icon): fill, "Hide Notiq on this site" ----------
+  // "Hide" stores the top page's host in chrome.storage.local `hiddenSites` (the background takes it from the
+  // tab's URL, never from this message); the icons and the focus suggestion then stay away from this site. The
+  // toolbar button, Alt+Shift+L and the right-click menu still work here; the popup can undo it.
+  function addHideItem(node) {
+    if (!iconsOn()) return;
+    node.appendChild(menuItem("Hide Notiq on this site", "The toolbar button and Alt+Shift+L still work",
+      () => { closeMenu(true); send({ type: "hideSite" }); }));
+  }
+  function openIconMenu(field) {
+    if (filling) return;
+    hideSuggest();
+    nudgeTheme();
+    openMenu(field, "Notiq", (node) => {
+      node.appendChild(menuItem(iconLabel(field), "Asks Notiq for approval", () => { closeMenu(false); onIconClick(field); }));
+      addHideItem(node);
     });
   }
   // `only`: the fields to fill instead of the field's form (the right-click menu's "Generate password").
@@ -1404,7 +1448,7 @@
   function onSubmit(e) {
     if (e.isTrusted !== true) return;
     const form = e.target;
-    if (form && form.tagName === "FORM") capture(form);
+    if (form && form.tagName === "FORM") { capture(form); reuseCheckScope(form); }
   }
   function onKeydown(e) {
     if (e.isTrusted !== true) return;
@@ -1427,9 +1471,10 @@
     }
     if (e.key === "Escape" && menu) { closeMenu(true); return; }
     if (e.key === "Escape" && bar) { closeBar(true); return; }
+    if (e.key === "Escape" && warn && realTarget(e) === shadowHost) { closeWarn(); return; }
     if (e.key !== "Enter") return;
     const t = realTarget(e);
-    if (isPassword(t)) capture(scopeOf(t));
+    if (isPassword(t)) { capture(scopeOf(t)); reuseCheck(t); }
     else if (isUserLike(t) && t.value) rememberUser(t.value);
   }
   function nearbyPassword(node) {
@@ -1473,11 +1518,11 @@
     pendingTimer = setTimeout(checkPending, delay);
   }
   async function checkPending() {
-    if (!IS_TOP || bar || !settings.offerSave || anyVisiblePassword()) return;
+    if (!IS_TOP || bar || warn || !settings.offerSave || anyVisiblePassword()) return;
     const res = await send({ type: "pending" });
     const p = res && res.pending;
     if (!p || typeof p.host !== "string" || typeof p.username !== "string") return;
-    if (bar || !settings.offerSave || settings.neverSave.includes(p.host.toLowerCase()) || anyVisiblePassword()) return;
+    if (bar || warn || !settings.offerSave || settings.neverSave.includes(p.host.toLowerCase()) || anyVisiblePassword()) return;
     showBar({ host: clean(p.host, 253).toLowerCase(), username: clean(p.username, MAX_USER), change: p.change === true });
   }
 
@@ -1567,6 +1612,129 @@
     armIdle();
   }
 
+  // Alt+Shift+L on a site where Notiq is hidden: the focused login (or 2FA code) field, else the first one,
+  // gets a temporary icon for the request's progress, as for a right-click menu action.
+  function shortcutOnHiddenSite() {
+    if (filling) return;
+    const logins = Array.from(detect());
+    const codes = Array.from(detectCodeFields().keys());
+    const active = activeField();
+    const field = logins.includes(active) || codes.includes(active) ? active
+      : logins.find((f) => f.isConnected && shown(f)) || codes.find((f) => f.isConnected && shown(f));
+    if (!field || !(active === field || document.hasFocus())) return;
+    hideSuggest();
+    nudgeTheme();
+    closeMenu(false);
+    withIcon(field);
+    const info = codes.includes(field) ? null : newPasswordInfo(field);
+    const run = codes.includes(field) ? doCodeFill(field) : info ? openNewPasswordMenu(field, info) : doFill(field, field);
+    Promise.resolve(run).catch(() => {}).finally(() => menuDone(field));
+  }
+
+  // ---------- password-reuse / phishing warning ----------
+  // When the user leaves a password field they typed into (blur), or submits its form, and the password has
+  // 8+ characters: the background hands out this app run's salt, the tag HMAC-SHA256(salt, password) cut to 16
+  // bytes is computed HERE (NotiqFill.reuseTag, WebCrypto), and only the tag goes to the background and Notiq.
+  // The password never leaves this content script. Notiq compares it with the unlocked vault's logins and
+  // answers with only the site of a login saved for ANOTHER site, or nothing (locked vault, no match, same
+  // site, "other sites" of that login). Each tag is checked once per page; nothing is asked on page load, for
+  // a password Notiq itself just filled here, or on a site the user trusted from this card.
+  const typedPasswords = new WeakSet(); // password fields that got trusted input
+  const reuseSeen = new Set();          // salt:tag already checked on this page
+  let reuseBusy = false, warn = null;
+  function reuseCandidate(field) {
+    if (!isPassword(field) || !typedPasswords.has(field) || !field.isConnected || cardKindOf(field)) return null;
+    const pw = String(field.value || "");
+    if (!FK.reuseEligible(pw) || (filled && pw === filled.password)) return null;
+    if (settings.reuseTrusted.includes(topHost())) return null;
+    return pw;
+  }
+  async function reuseCheck(field) {
+    if (reuseBusy || reuseCandidate(field) === null) return;
+    reuseBusy = true;
+    try {
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const s = await send({ type: "reuseSalt" });
+        if (!s || s.ok !== true || typeof s.salt !== "string") return;
+        const pw = reuseCandidate(field); // read again: the value may have changed while we waited
+        if (pw === null) return;
+        let tag = null;
+        try { tag = await FK.reuseTag(globalThis.crypto && globalThis.crypto.subtle, s.salt, pw); } catch { tag = null; }
+        if (!tag) return;
+        const key = `${s.salt}:${tag}`;
+        if (reuseSeen.has(key)) return;
+        const r = await send({ type: "reuseCheck", salt: s.salt, tag });
+        if (r && r.error === "stale_salt") continue; // Notiq restarted meanwhile: once more with the new salt
+        if (r && r.ok === true) reuseSeen.add(key);
+        if (r && r.ok === true && typeof r.site === "string" && r.site && !sameSite(topHost(), r.site) &&
+          !settings.reuseTrusted.includes(topHost())) showWarn(clean(r.site, 253).toLowerCase());
+        return;
+      }
+    } finally {
+      reuseBusy = false;
+    }
+  }
+  function reuseCheckScope(scope) {
+    for (const i of inputsIn(scope)) if (isPassword(i) && typedPasswords.has(i) && i.value) { reuseCheck(i); return; }
+  }
+
+  function closeWarn() {
+    if (!warn) return;
+    const w = warn.node;
+    warn = null;
+    w.classList.add("out");
+    setTimeout(() => w.remove(), 200);
+  }
+  function showWarn(site) {
+    if (warn) return;
+    ensureRoot();
+    if (bar) closeBar(false); // no save offer next to a "check the address" warning
+    const host = topHost();
+    const node = el("div", "nq-bar nq-warn");
+    node.setAttribute("role", "alertdialog");
+    node.setAttribute("aria-live", "assertive");
+    node.setAttribute("aria-label", "Notiq: password for another site");
+    const head = el("div", "nq-head");
+    const logo = el("div", "nq-logo");
+    logo.appendChild(svg("", ["M12 3l9.5 17h-19z", "M12 10v4", "M12 17v.5"]));
+    const text = el("div", "nq-text");
+    text.appendChild(el("div", "nq-title", "Password for another site"));
+    head.appendChild(logo);
+    head.appendChild(text);
+    const body = el("div", "nq-body");
+    body.appendChild(document.createTextNode("This is your password for "));
+    body.appendChild(el("b", "", site));
+    body.appendChild(document.createTextNode(". This site is "));
+    body.appendChild(el("b", "", host));
+    body.appendChild(document.createTextNode(". Check the address before you continue."));
+    const actions = el("div", "nq-actions");
+    const mk = (label, cls, fn) => {
+      const b = el("button", `nq-btn ${cls}`, label);
+      b.type = "button";
+      b.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (e.isTrusted !== true) return;
+        fn();
+      });
+      return b;
+    };
+    actions.appendChild(mk("Leave this site", "nq-danger", () => { send({ type: "reuseLeave" }); closeWarn(); }));
+    actions.appendChild(mk("It's OK, I trust this site", "nq-quiet", () => { send({ type: "reuseTrust" }); closeWarn(); }));
+    node.appendChild(head);
+    node.appendChild(body);
+    node.appendChild(actions);
+    layer.appendChild(node);
+    warn = { node };
+    hideSuggest();
+    nudgeTheme();
+  }
+  function onFocusOut(e) {
+    if (e.isTrusted !== true) return;
+    const t = realTarget(e);
+    if (isPassword(t)) reuseCheck(t);
+  }
+
   // ---------- messages from the extension (never from the page) ----------
   chrome.runtime.onMessage.addListener((msg, sender) => {
     if (!sender || sender.id !== chrome.runtime.id || sender.tab) return false;
@@ -1577,6 +1745,7 @@
     if (msg && msg.type === "checkPending" && IS_TOP) schedulePending(1200);
     // Alt+Shift+L (background): same as clicking the icon of the focused login field, else the first visible one.
     if (msg && msg.type === "fillShortcut") {
+      if (!iconsOn()) { if (siteHidden()) shortcutOnHiddenSite(); return false; }
       const active = activeField();
       const field = icons.has(active) ? active : [...icons.keys()].find((f) => f.isConnected && shown(f));
       if (field && (active === field || document.hasFocus())) onIconClick(field);
@@ -1595,15 +1764,19 @@
         ? s.neverSave.filter((h) => typeof h === "string").map((h) => h.toLowerCase()).slice(0, 1000)
         : [];
     }
+    for (const k of ["hiddenSites", "reuseTrusted"]) {
+      if (k in s) settings[k] = NS.hostList(s[k]);
+    }
   }
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== "local") return;
     const s = {};
-    for (const k of ["offerSave", "showIcon", "suggestOnFocus", "neverSave", "theme"]) if (changes[k]) s[k] = changes[k].newValue;
+    for (const k of ["offerSave", "showIcon", "suggestOnFocus", "neverSave", "hiddenSites", "reuseTrusted", "theme"]) if (changes[k]) s[k] = changes[k].newValue;
     applySettings(s);
     scan();
-    if (!settings.showIcon) closeMenu(false);
-    if (!settings.showIcon || !settings.suggestOnFocus) hideSuggest();
+    if (!iconsOn() && !(menu && menuIcons.has(menu.field))) closeMenu(false);
+    if (!iconsOn() || !settings.suggestOnFocus) hideSuggest();
+    if (warn && settings.reuseTrusted.includes(topHost())) closeWarn();
     if (bar && !settings.offerSave) closeBar(false);
   });
 
@@ -1660,6 +1833,7 @@
   document.addEventListener("change", onChange, true);
   document.addEventListener("focusin", onFocusIn, true);
   document.addEventListener("input", onInput, true);
+  document.addEventListener("focusout", onFocusOut, true);
   window.addEventListener("blur", () => hideSuggest());
   window.addEventListener("scroll", schedulePosition, { capture: true, passive: true });
   window.addEventListener("resize", schedulePosition, { passive: true });
@@ -1668,7 +1842,7 @@
     window.navigation.addEventListener("navigatesuccess", onUrlMaybeChanged);
   }
 
-  chrome.storage.local.get({ offerSave: true, showIcon: true, suggestOnFocus: false, neverSave: [], theme: null }, (s) => {
+  chrome.storage.local.get({ offerSave: true, showIcon: true, suggestOnFocus: false, neverSave: [], hiddenSites: [], reuseTrusted: [], theme: null }, (s) => {
     applySettings(s || {});
     scan();
     schedulePending(300);

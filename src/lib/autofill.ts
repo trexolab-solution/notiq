@@ -38,7 +38,7 @@ export function entryMatches(pageHost: string, entry: Pick<LoginEntry, "url" | "
  */
 let rootResolver: () => Promise<string> = ensureVaultDir;
 export function setVaultRootResolver(f: () => Promise<string>): void { rootResolver = f; }
-const vaultRoot = async () => (await rootResolver()).replace(/\\/g, "/").replace(/\/+$/, "");
+export const vaultRoot = async () => (await rootResolver()).replace(/\\/g, "/").replace(/\/+$/, "");
 
 /**
  * Requests are routed to the small autofill prompt window. The main window only handles the ones Rust
@@ -49,7 +49,7 @@ export function isFallbackRequest(payload: unknown): boolean {
   return !!payload && typeof payload === "object" && (payload as { fallback?: unknown }).fallback === true;
 }
 
-async function listVaultFiles(): Promise<{ path: string; rel: string; updated: number }[]> {
+export async function listVaultFiles(): Promise<{ path: string; rel: string; updated: number }[]> {
   const root = await vaultRoot();
   return (await vaultList())
     .filter((i) => !i.dir && /\.nqv$/i.test(i.rel))
@@ -455,7 +455,7 @@ export const autofillRepair = () => invoke<AutofillStatus>("autofill_repair");
 /** Folder with the extension files that ships with Notiq (what "Load unpacked" should point at), or null. */
 export const autofillExtensionDir = () => invoke<string | null>("autofill_extension_dir");
 export const autofillOpenExtensionDir = () => invoke<void>("autofill_open_extension_dir");
-export type ExtensionBrowser = "edge" | "chrome" | "brave";
+export type ExtensionBrowser = "edge" | "chrome" | "brave" | "firefox";
 /** Opens the browser's extensions page (edge://extensions, chrome://extensions, …). */
 export const autofillOpenBrowserExtensions = (browser: ExtensionBrowser) =>
   invoke<void>("autofill_open_browser_extensions", { browser });

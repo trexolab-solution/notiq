@@ -513,12 +513,26 @@
     return { state: "on", text: "Notiq running", detail: appVersion ? `Notiq ${appVersion}` : "", appVersion };
   }
 
+  // ---------- per-site lists in chrome.storage.local (hiddenSites, reuseTrusted) ----------
+  // Lower-case hosts (letters, digits, dots, dashes; at most 253 chars), de-duplicated, at most 500, in order.
+  const MAX_SITE_LIST = 500;
+  function hostList(v) {
+    if (!Array.isArray(v)) return [];
+    const out = [];
+    for (const h of v) {
+      if (typeof h !== "string") continue;
+      const x = h.toLowerCase();
+      if (x && x.length <= 253 && /^[a-z0-9.-]+$/.test(x) && !out.includes(x)) out.push(x);
+    }
+    return out.slice(-MAX_SITE_LIST);
+  }
+
   const api = Object.freeze({
     COLOR_KEYS, CSS_VARS, DEFAULT_THEMES, validateTheme, resolveTheme, applyTheme, themeReplyAction, sameTheme,
     shouldSuggest, suggestPosition, rectsOverlap,
     cardFieldKind, validCardReply, cardFieldValue, pickOption,
     normalizeHost, publicSuffix, registrableDomain, sameSite, secureOrigin, fillTargetOk,
-    validCustomFields,
+    validCustomFields, hostList, MAX_SITE_LIST,
     PROTOCOL, MIN_APP_PROTOCOL, APP_VERSION_FOR_PROTOCOL, appStatus,
   });
   try {

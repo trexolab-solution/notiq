@@ -90,3 +90,11 @@ export const getClipboardClearSeconds = (): number => parseClipboardClearSeconds
 export const setClipboardClearSeconds = (n: number) => write(KEY_CLIP_CLEAR, String(n));
 /** "15 s", "1 min", "2 min", "Never". */
 export const clipboardClearLabel = (n: number): string => (n <= 0 ? "Never" : n < 60 ? `${n} s` : `${n / 60} min`);
+
+/**
+ * 0.9.1: check login passwords against known data breaches (Have I Been Pwned, k-anonymity) in Vault Health.
+ * OFF by default; the only vault feature that talks to a third party.
+ */
+const KEY_BREACH = "pref:vaultBreachCheck";
+export const getBreachCheck = (): boolean => read(KEY_BREACH) === "true";
+export const setBreachCheck = (v: boolean) => write(KEY_BREACH, String(v));

@@ -1106,3 +1106,55 @@ fn conflict_notices_name_the_device_even_after_its_name_was_forgotten() {
     let o = ok(b.sync(&p));
     assert_eq!(o.result.conflicts, vec![SyncConflict { path: "n.nqv".into(), from_device: "Laptop A".into() }]);
 }
+
+// ─── 0.9.1: a KDF auto-upgrade syncs, but never beats a real password change ─────────────────
+
+impl Device {
+    /// What `vault_unlock` does after unlocking a vault with weaker Argon2 settings: same password,
+    /// stronger KDF, stamped with the lowest stamp after the meta it replaces.
+    fn upgrade_kdf(&mut self) -> VaultMeta {
+        let target = KdfParams { m_kib: FAST.m_kib * 2, t: FAST.t + 1, p: 1 };
+        let mut m = vc::upgrade_kdf(&self.v.meta().unwrap(), &self.v.key, PW, &target).unwrap();
+        m.stamp_change(0, Some(self.id));
+        *self.v.meta.lock().unwrap() = m.clone();
+        *self.v.prev.lock().unwrap() = None;
+        let ours = self.st.vault_id.as_deref() == Some(seal::vault_id_hex(&self.v.vault_id).as_str());
+        self.st.note_local_meta_change(ours);
+        m
+    }
+}
+
+#[test]
+fn kdf_upgrade_reaches_the_other_device_and_the_password_still_works() {
+    let p = InMemoryProvider::new();
+    let (mut laptop, mut office) = laptop_and_office(&p);
+    let up = office.upgrade_kdf();
+    ok(office.sync(&p));
+    assert!(ok(laptop.sync(&p)).meta_adopted);
+    assert_eq!(laptop.v.meta().unwrap(), up);
+    assert_eq!((laptop.unlock(PW), office.unlock(PW)), (Ok(()), Ok(())));
+}
+
+#[test]
+fn a_concurrent_password_change_beats_a_kdf_upgrade_in_both_orders() {
+    for upgrade_first in [true, false] {
+        let p = InMemoryProvider::new();
+        let (mut laptop, mut office) = laptop_and_office(&p);
+        // The Laptop changes the password at 10:00; the offline Office, still on the old password,
+        // upgrades its KDF later (its clock is later, but the upgrade's stamp is not).
+        let aam = laptop.change_password(AAM, T10);
+        office.upgrade_kdf();
+        if upgrade_first {
+            ok(office.sync(&p));
+            assert!(!ok(laptop.sync(&p)).meta_adopted, "the password change is kept");
+            assert!(ok(office.sync(&p)).meta_adopted);
+        } else {
+            ok(laptop.sync(&p));
+            assert!(ok(office.sync(&p)).meta_adopted);
+        }
+        ok(laptop.sync(&p));
+        assert_eq!(office.v.meta().unwrap(), aam);
+        assert_eq!(laptop.v.meta().unwrap(), aam);
+        assert_eq!(office.unlock(AAM), Ok(()));
+    }
+}

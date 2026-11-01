@@ -5,6 +5,7 @@ import type { SortMode } from "../../../lib/vaultTree";
 const KEY_EXPANDED = "vault:sidebar:expanded";
 const KEY_SORT = "vault:sidebar:sort";
 const KEY_STARRED_OPEN = "vault:sidebar:starredOpen";
+const KEY_GROUP_SITES = "vault:sidebar:groupBySite";
 
 function read<T>(key: string, fallback: T): T {
   try {
@@ -51,4 +52,11 @@ export function useStarredOpen() {
   const [open, setOpen] = useState<boolean>(() => read<boolean>(KEY_STARRED_OPEN, true));
   const set = useCallback((v: boolean) => { setOpen(v); write(KEY_STARRED_OPEN, v); }, []);
   return [open, set] as const;
+}
+
+/** "Group logins by website": logins of one site share a collapsible row. On by default. */
+export function useGroupBySite() {
+  const [on, setOn] = useState<boolean>(() => read<boolean>(KEY_GROUP_SITES, true) !== false);
+  const set = useCallback((v: boolean) => { setOn(v); write(KEY_GROUP_SITES, v); }, []);
+  return [on, set] as const;
 }

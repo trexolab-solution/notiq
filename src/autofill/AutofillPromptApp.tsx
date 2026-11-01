@@ -5,7 +5,7 @@ import { flushSync } from "react-dom";
 import { invoke } from "@tauri-apps/api/core";
 import { emitTo, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
-import { CreditCard, IdCard, KeyRound, Lock, TriangleAlert, X } from "lucide-react";
+import { CreditCard, FingerprintPattern, IdCard, KeyRound, Lock, TriangleAlert, X } from "lucide-react";
 import { DialogButton, DialogFooter, DialogIcon } from "../components/ui/DialogParts";
 import { CardChoice, FillChoice, IdentityChoice, SaveFields } from "../components/vault/autofillBodies";
 import { useVaultUnlock } from "../components/vault/unlock/useVaultUnlock";
@@ -23,6 +23,10 @@ import {
 } from "../lib/autofill";
 import { identityReply, scanIdentities, validAccount } from "../lib/autofill";
 import { answerList, answerUsernameCopy, copyForExtension, COPY_LABEL, validCopyWhat, type PopupDeps } from "../lib/autofillPopup";
+import {
+  hasExcludedPasskey, passkeyReply, savePasskey, scanPasskeys, toCreateReq, toGetReq,
+} from "../lib/passkeys";
+import { PasskeyChoice, PasskeyTargetChoice } from "./PasskeyChoices";
 import { fitWindowSize, sizeChanged } from "./fitWindowSize";
 import { splitHost } from "./hostParts";
 import {
@@ -169,6 +173,36 @@ export default function AutofillPromptApp() {
         }
         dispatch({ type: "answered" });
         return;
+      // ── passkeys (experimental): Rust makes the key and signs; this window asks and stores ──
+      case "scanPasskeyTargets":
+        try {
+          const [{ matches }, excluded] = await Promise.all([scanLogins(e.host), hasExcludedPasskey(e.rpId, e.exclude)]);
+          dispatch({ type: "passkeyTargetsScanned", logins: matches, excluded });
+        } catch (err) {
+          dispatch(err === ERR_LOCKED ? { type: "vaultLocked" } : { type: "failed" });
+        }
+        return;
+      case "scanPasskeys":
+        try {
+          dispatch({ type: "passkeysScanned", passkeys: await scanPasskeys(e.rpId, e.allow) });
+        } catch (err) {
+          dispatch(err === ERR_LOCKED ? { type: "vaultLocked" } : { type: "failed" });
+        }
+        return;
+      case "savePasskey":
+        try {
+          await savePasskey(e.target, e.req);
+          await reply(e.id, { ok: true });
+          await emitTo("main", "vault:entries-changed", {}).catch(() => {});
+        } catch {
+          await reply(e.id, { error: "failed" });
+        }
+        dispatch({ type: "answered" });
+        return;
+      case "releasePasskey":
+        await reply(e.id, passkeyReply(e.match));
+        dispatch({ type: "answered" });
+        return;
       case "save":
         try {
           const status = await saveLogin(e.plan, e.req, e.name, { refreshTabs: false });
@@ -258,6 +292,17 @@ export default function AutofillPromptApp() {
         if (what === "username") { void answerUsernameCopy(popupDeps, host, account).then((r) => reply(id, r)); return; }
         accept({ kind: "fill", req: { id, host, account, copy: what, ...(what === "code" ? { intent: "code" as const } : {}) } });
       }),
+      // Passkeys (experimental): prompt window only, always asked (Rust never routes them to the main window).
+      listen<Record<string, unknown>>("autofill:passkey-create", (e) => {
+        const req = toCreateReq(e.payload);
+        if (!req) { if (typeof e.payload.id === "string") void reply(e.payload.id, { error: "bad_request" }); return; }
+        accept({ kind: "passkeyCreate", req });
+      }),
+      listen<Record<string, unknown>>("autofill:passkey-get", (e) => {
+        const req = toGetReq(e.payload);
+        if (!req) { if (typeof e.payload.id === "string") void reply(e.payload.id, { error: "bad_request" }); return; }
+        accept({ kind: "passkeyGet", req });
+      }),
       listen<{ id: string }>("autofill:cancel", (e) => {
         queue.current = dropFromQueue(queue.current, e.payload.id);
         dispatch({ type: "cancel", id: e.payload.id });
@@ -305,7 +350,8 @@ export default function AutofillPromptApp() {
                sub="Vault unlocked." footer={<DialogButton cancel onClick={deny}>Cancel</DialogButton>}>
           <p className="af-detail" role="status">
             {state.job.kind === "card" ? "Looking for saved cards…"
-              : state.job.kind === "identity" ? "Looking for saved identities…" : "Looking for saved logins for this site…"}
+              : state.job.kind === "identity" ? "Looking for saved identities…"
+              : state.job.kind === "passkeyGet" ? "Looking for saved passkeys…" : "Looking for saved logins for this site…"}
           </p>
         </Panel>
       );
@@ -390,6 +436,53 @@ export default function AutofillPromptApp() {
                       onTarget={(index) => dispatch({ type: "saveTarget", index })}
                       onSaveAsNew={(on) => dispatch({ type: "saveAsNew", on })}
                       onEnter={confirm} />
+        </Panel>
+      );
+    }
+    case "passkeyCreate": {
+      const { job, logins, pick, excluded, busy } = state;
+      const who = job.req.userName || job.req.displayName;
+      if (excluded) {
+        return (
+          <Panel key={`passkey-create-${job.req.id}`} refs={refs} host={job.req.host} icon={<FingerprintPattern size={16} />}
+                 sub={`Save a passkey for ${job.req.rpId}?`} onClose={deny} defaultFocus="cancel"
+                 footer={<>
+                   <DialogButton cancel onClick={deny}>Cancel</DialogButton>
+                   <DialogButton variant="primary" onClick={() => dispatch({ type: "allow" })}>OK</DialogButton>
+                 </>}>
+            <p className="af-detail">
+              Notiq already has a passkey for {who ? <strong>{who}</strong> : "this account"} on {job.req.rpId}. Nothing new
+              is saved. Press OK to tell the site, or Cancel to use another passkey from your browser instead.
+            </p>
+          </Panel>
+        );
+      }
+      return (
+        <Panel key={`passkey-create-${job.req.id}`} refs={refs} host={job.req.host} icon={<FingerprintPattern size={16} />}
+               sub={`Save a passkey for ${job.req.rpId}?`} onClose={deny} defaultFocus="cancel"
+               footer={<>
+                 <DialogButton cancel onClick={deny} disabled={busy}>Not now</DialogButton>
+                 <DialogButton variant="primary" loading={busy} loadingText="Saving…" onClick={() => dispatch({ type: "allow" })}>Save passkey</DialogButton>
+               </>}>
+          <p className="af-detail">
+            The Notiq extension wants to save a new passkey{who ? <> for <strong>{who}</strong></> : null} in your vault
+            (experimental). Only save it if you just chose to create a passkey on this site.
+          </p>
+          <PasskeyTargetChoice logins={logins} pick={pick} disabled={busy} onPick={(index) => dispatch({ type: "pick", index })} />
+        </Panel>
+      );
+    }
+    case "passkeyGet": {
+      const { job, passkeys, pick, busy } = state;
+      return (
+        <Panel key={`passkey-get-${job.req.id}`} refs={refs} host={job.req.host} icon={<FingerprintPattern size={16} />}
+               sub={`Sign in to ${job.req.rpId} with a passkey?`} onClose={deny} defaultFocus="cancel"
+               footer={<>
+                 <DialogButton cancel onClick={deny} disabled={busy}>Deny</DialogButton>
+                 <DialogButton variant="primary" loading={busy} loadingText="Signing in…" onClick={() => dispatch({ type: "allow" })}>Sign in</DialogButton>
+               </>}>
+          <p className="af-detail">Only allow this if you just chose to sign in with a passkey on this site.</p>
+          <PasskeyChoice passkeys={passkeys} pick={pick} disabled={busy} onPick={(index) => dispatch({ type: "pick", index })} />
         </Panel>
       );
     }
@@ -495,11 +588,15 @@ function LockedStage({ refs, job, dispatch, onDeny }: LockedProps) {
   const copy = job.kind === "fill" ? job.req.copy : undefined;
   const what = copy ? `copy the ${COPY_LABEL[copy]} of a saved login`
     : job.kind === "fill" ? (job.req.intent === "code" ? "fill a 2FA code" : "fill a saved login")
-    : job.kind === "card" ? "fill a payment card" : job.kind === "identity" ? "fill your details (identity)" : "save a login";
+    : job.kind === "card" ? "fill a payment card" : job.kind === "identity" ? "fill your details (identity)"
+    : job.kind === "passkeyCreate" ? `save a passkey for ${job.req.rpId}`
+    : job.kind === "passkeyGet" ? `sign in to ${job.req.rpId} with a passkey` : "save a login";
   const submitLabel = copy ? "Unlock & copy" : job.kind === "fill" ? "Unlock & fill" : job.kind === "card" ? "Unlock & pick card"
-    : job.kind === "identity" ? "Unlock & pick identity" : "Unlock & save";
+    : job.kind === "identity" ? "Unlock & pick identity" : job.kind === "passkeyGet" ? "Unlock & continue"
+    : job.kind === "passkeyCreate" ? "Unlock & continue" : "Unlock & save";
   const purpose = copy ? "unlock and copy it" : job.kind === "fill" ? "unlock and fill it" : job.kind === "card" ? "unlock and pick a card"
-    : job.kind === "identity" ? "unlock and pick an identity" : "unlock and save it";
+    : job.kind === "identity" ? "unlock and pick an identity" : job.kind === "passkeyGet" ? "unlock and pick a passkey"
+    : job.kind === "passkeyCreate" ? "unlock and save the passkey" : "unlock and save it";
   return (
     <Panel refs={refs} host={job.req.host} icon={<Lock size={16} />} onClose={onDeny} onSubmit={u.submit}
            sub={`The Notiq extension wants to ${what}.`}

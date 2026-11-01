@@ -101,6 +101,9 @@
     <h2 id="optional-ai-features">Optional AI features</h2>
     <p>AI is off by default. When you turn it on, only the text needed for a request is sent to the AI service you choose: Ollama on your own machine, or Ollama Cloud or OpenRouter if you add an API key for it. Nothing is sent while AI is off, and locked vault notes are never sent.</p>
 
+    <h2 id="optional-breach-check">Optional breached-password check</h2>
+    <p>Vault Health can check whether your saved passwords appear in known data breaches. It is off by default and is the only network request Vault Health ever makes. When you turn it on, Notiq computes a SHA-1 hash of each password on your device and sends only the first 5 characters of that hash to the Have I Been Pwned Pwned Passwords service (<code>api.pwnedpasswords.com</code>). The service returns a list of matching hash endings and Notiq compares them locally, so neither your passwords nor their full hashes ever leave your device. Nothing is sent while the check is off.</p>
+
     <h2 id="what-we-can-see">What we can see</h2>
     <p>Nothing. The developers have no access to your notes, your vault or your Google Drive.</p>
 
