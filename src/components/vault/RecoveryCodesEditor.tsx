@@ -7,7 +7,7 @@ import { useAppStore } from "../../store";
 import { useAutoHide } from "../../hooks/useAutoHide";
 import { CopyIconButton } from "./CopyIconButton";
 import { AttachmentsPanel } from "./AttachmentsPanel";
-import { EntryHeader, SaveHint, Section, fieldLabel, textArea } from "./EntryParts";
+import { EntryHeader, EntryLayout, SaveHint, Section, fieldLabel, textArea } from "./EntryParts";
 import { copySecret } from "../../lib/secureCopy";
 import { toast } from "../../lib/toast";
 import {
@@ -35,7 +35,7 @@ export function RecoveryCodesEditor({ tab }: { tab: Tab }) {
   };
 
   return (
-    <div data-tour="editor" className="flex-1 min-h-0 overflow-y-auto bg-[var(--color-editor-bg)]">
+    <EntryLayout tab={tab}>
       <div className="max-w-xl mx-auto px-6 py-8 flex flex-col gap-4 text-[var(--color-text)]">
         <EntryHeader icon={ListChecks} title="Recovery codes" tab={tab} />
         <div>
@@ -112,6 +112,6 @@ export function RecoveryCodesEditor({ tab }: { tab: Tab }) {
         <AttachmentsPanel tab={tab} />
         <SaveHint />
       </div>
-    </div>
+    </EntryLayout>
   );
 }

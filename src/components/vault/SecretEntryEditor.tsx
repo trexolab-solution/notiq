@@ -8,7 +8,7 @@ import { useAutoHide } from "../../hooks/useAutoHide";
 import { CopyIconButton } from "./CopyIconButton";
 import { CustomFieldsEditor } from "./CustomFieldsEditor";
 import { AttachmentsPanel } from "./AttachmentsPanel";
-import { EntryHeader, SaveHint, fieldLabel, textArea } from "./EntryParts";
+import { EntryHeader, EntryLayout, SaveHint, fieldLabel, textArea } from "./EntryParts";
 import { isChecked, parseSecret, serializeSecret, SECRET_KINDS, type FieldDef, type SecretEntry } from "../../lib/secretEntry";
 import { cardBrand, cardNumberHint, digitsOnly, expiryError, formatCardNumber, formatExpiry } from "../../lib/cardEntry";
 import { wifiQrText } from "../../lib/wifiEntry";
@@ -107,7 +107,7 @@ export function SecretEntryEditor({ tab, kind }: { tab: Tab; kind: string }) {
   const qr = kind === "wifi" ? wifiQrText(entry.fields) : null;
 
   return (
-    <div data-tour="editor" className="flex-1 min-h-0 overflow-y-auto bg-[var(--color-editor-bg)]">
+    <EntryLayout tab={tab}>
       <div className="max-w-xl mx-auto px-6 py-8 flex flex-col gap-4 text-[var(--color-text)]">
         <EntryHeader icon={Icon} title={def.label} tab={tab} badge={brand} />
         <div>
@@ -132,6 +132,6 @@ export function SecretEntryEditor({ tab, kind }: { tab: Tab; kind: string }) {
         <AttachmentsPanel tab={tab} />
         <SaveHint />
       </div>
-    </div>
+    </EntryLayout>
   );
 }

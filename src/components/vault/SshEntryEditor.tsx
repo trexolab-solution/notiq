@@ -11,7 +11,7 @@ import { useAutoHide } from "../../hooks/useAutoHide";
 import { CopyIconButton } from "./CopyIconButton";
 import { CustomFieldsEditor } from "./CustomFieldsEditor";
 import { AttachmentsPanel } from "./AttachmentsPanel";
-import { EntryHeader, SaveHint } from "./EntryParts";
+import { EntryHeader, EntryLayout, SaveHint } from "./EntryParts";
 import { toast } from "../../lib/toast";
 import { parseSecret, serializeSecret } from "../../lib/secretEntry";
 import { analyzeKey, inferAuth, normalizeKey, portError, sshCommand, type SshAuth } from "../../lib/sshEntry";
@@ -121,7 +121,7 @@ export function SshEntryEditor({ tab }: { tab: Tab }) {
   const KeyIcon = key.state === "ok" ? ShieldCheck : key.state === "encrypted" ? KeyRound : TriangleAlert;
 
   return (
-    <div data-tour="editor" className="flex-1 min-h-0 overflow-y-auto bg-[var(--color-editor-bg)]">
+    <EntryLayout tab={tab}>
       <div className="max-w-xl mx-auto px-6 py-8 flex flex-col gap-6 text-[var(--color-text)]">
         <EntryHeader icon={Terminal} title="SSH / server" tab={tab} />
 
@@ -240,6 +240,6 @@ export function SshEntryEditor({ tab }: { tab: Tab }) {
         <AttachmentsPanel tab={tab} />
         <SaveHint />
       </div>
-    </div>
+    </EntryLayout>
   );
 }
