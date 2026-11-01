@@ -46,7 +46,7 @@ jobs:
       # with the installers + the matching latest.json (the updater endpoint).
       # Publish the draft once all platforms have uploaded — only then does the
       # `releases/latest/download/latest.json` endpoint resolve for auto-update.
-      - uses: tauri-apps/tauri-action@v0
+      - uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
