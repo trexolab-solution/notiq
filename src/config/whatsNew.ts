@@ -15,27 +15,31 @@ export const WHATS_NEW = `# What's New in Notiq ${APP_VERSION}
 
 Thanks for updating! Here's what's new in this release.
 
-## 🛡️ Stronger vault security
+## 🔐 Vault forms, easier to use
 
-- **Hidden from screenshots and screen sharing** — while the vault is unlocked, Notiq's windows show up black in screenshots, recordings and screen shares. Change it in **Settings → Vault → Locking** (While unlocked, Always, Off).
-- **Create a new recovery key** — in **Settings → Vault**, after confirming your master password. The old key stops working for this vault (older backup files still open with it).
-- **Master password strength** — a strength meter when you choose a new master password; very weak and common passwords are refused.
-- **Breached password check** — **Vault Health** can check your logins against known data breaches (Have I Been Pwned). Off by default; only the first 5 characters of each password's hash are sent.
-- **Failed unlock attempts** — after you unlock, Notiq tells you if someone typed a wrong password since your last unlock.
-- **Stronger encryption settings, automatically** — older vaults are upgraded to today's settings the next time you unlock with your password.
+- **Save button** — structured entries (logins, cards, SSH, recovery codes…) have a Save button next to History, and Notiq asks before closing a tab or quitting with unsaved changes.
+- **The Name is the item name** — saving renames the item in the sidebar to match, and renaming in the sidebar updates the Name.
+- **History beside the form** — History opens as a resizable panel on the right instead of a pop-up.
+- **Header stays in view** — the title, Save and History stay at the top while you scroll a long entry.
+- **Custom fields, redesigned** — clearer label and value, copy and reveal on every field, drag a field by its handle to reorder (or use the keyboard), and the ⋯ menu to hide a value or remove it.
+- **Websites, recovery codes and passkeys** — tidier list controls with Undo after removing.
+- **Generate asks first** — generating a password on a login that already has one asks before replacing it.
 
-## 🗂️ Easier to find logins
+## 📎 Attachments
 
-- **Search by website** — the vault search now also matches sites and usernames.
-- **Grouped by site** — several logins for the same website are grouped under one row, with the usernames shown. Turn it off from the sidebar's right-click menu.
+- **Drag and drop** — drop files from your computer onto an entry to attach them.
+- **Preview** — open images and text files inside Notiq without saving them to disk; Undo after removing a file.
 
-## 🔑 Notiq Autofill 0.7.0
+## 💾 Backup and restore
 
-- **Phishing warning** — if you type a saved password on a site it doesn't belong to, Notiq warns you. The password never leaves the extension.
-- **Hide Notiq on a site** — from the key icon's right-click menu or the toolbar popup.
-- **Toolbar fill inside web components** — the toolbar button and Alt+Shift+L now reach login fields inside web components.
-- **Passkeys (experimental)** — turn on *Save and use passkeys with Notiq* in the toolbar popup to keep passkeys in your vault. Notiq asks before saving or using one.
-- **Firefox** — install steps for Firefox are in **Settings → Vault → Browser autofill**.
+- **Merge a backup** — restoring a backup can now **merge** it into your current vault instead of replacing it. Nothing is removed and your master password stays the same.
+- **Step by step** — restore is now a short guided flow (file, method, confirm), and you can drop the backup file onto it.
+- **Sync fix** — a restored backup is no longer emptied by the first Vault Sync afterwards.
+
+## ⚡ Faster 2-step codes
+
+- **Quick search** (Ctrl+Alt+K) shows live 2-step codes for your logins; press **Shift+Enter** to copy one without opening the main window.
+- **Autofill window** — a details button on each login shows its fields with copy buttons, and can open it in Notiq.
 
 ---
 
