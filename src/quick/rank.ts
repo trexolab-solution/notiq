@@ -19,6 +19,8 @@ export interface IndexItem {
   host: string;
   /** Every site / host string the entry can be found by. */
   urls: string[];
+  /** A login with a 2FA secret (only the flag; the code comes from `quick_search_totp`). */
+  totp?: boolean;
 }
 
 export interface QuickResult extends IndexItem {

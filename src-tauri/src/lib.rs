@@ -825,6 +825,7 @@ pub fn run() {
         quick_search::quick_search_show_main,
         quick_search::quick_search_reopen,
         quick_search::quick_search_index,
+        quick_search::quick_search_totp,
         quick_search::vault_fingerprint,
         // 0.9.0 vault sync (P3)
         sync::commands::sync_status,
@@ -924,6 +925,7 @@ pub fn run() {
         quick_search::quick_search_show_main,
         quick_search::quick_search_reopen,
         quick_search::quick_search_index,
+        quick_search::quick_search_totp,
         quick_search::vault_fingerprint,
         // 0.9.0 vault sync (P3)
         sync::commands::sync_status,
