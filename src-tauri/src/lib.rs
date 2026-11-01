@@ -6,6 +6,7 @@ mod ai;
 mod clipboard;
 pub mod autofill;
 mod native_host_reg; // 0.7.0 autofill
+mod passkey; // experimental: passkeys (WebAuthn) in the vault, see autofill.rs "Passkeys"
 mod vault;
 mod vault_backup;
 mod vault_core;

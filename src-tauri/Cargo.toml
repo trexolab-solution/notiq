@@ -37,6 +37,9 @@ zeroize = "1"
 # 0.7.0 hello: HKDF-SHA256 for the Windows Hello KEK (already in the dependency tree)
 hkdf = "0.12"
 sha2 = "0.10"
+# Passkeys (experimental, src/passkey.rs): ES256 key generation, signing and verification.
+# Already in the dependency tree through rustls; no new crate is downloaded.
+ring = "0.17"
 
 
 [target.'cfg(any(target_os = "macos", windows, target_os = "linux"))'.dependencies]
