@@ -1,8 +1,7 @@
 import { useState } from "react";
 import { FingerprintPattern, X } from "lucide-react";
-import { Button } from "../ui/Button";
 import { ConfirmDialog } from "../ui/ConfirmDialog";
-import { Tooltip } from "../ui/Tooltip";
+import { RowIconButton, useAnnouncer, useListFocus } from "./ListEditor";
 import { passkeyLabel, withoutPasskey, type StoredPasskey } from "../../lib/passkeyEntry";
 
 const fmtDate = (ms: number) => (ms > 0 ? new Date(ms).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" }) : "");
@@ -14,13 +13,17 @@ const fmtDate = (ms: number) => (ms > 0 ? new Date(ms).toLocaleDateString(undefi
  */
 export function PasskeysList({ value, onChange }: { value: StoredPasskey[]; onChange: (next: StoredPasskey[]) => void }) {
   const [doomed, setDoomed] = useState<StoredPasskey | null>(null);
-  if (!value.length) return null;
+  const { rootRef, focusAfter } = useListFocus();
+  const { announce, region } = useAnnouncer();
+  // The live region stays mounted so "Passkey deleted" is still read when the last one goes.
+  if (!value.length) return region;
   return (
-    <div>
+    <div ref={rootRef}>
+      {region}
       <span className="block text-xs mb-1 text-[var(--color-text-muted)]">Passkeys (experimental)</span>
       <ul className="flex flex-col gap-1" aria-label="Passkeys">
         {value.map((p) => (
-          <li key={`${p.rpId} ${p.credentialId}`}
+          <li key={`${p.rpId} ${p.credentialId}`} data-list-row
               className="flex items-center gap-2 rounded-md px-2.5 py-1.5 text-sm bg-[var(--color-bg-tertiary)] border border-[var(--color-border)]">
             <FingerprintPattern size={14} className="shrink-0 text-[var(--color-text-muted)]" aria-hidden />
             <span className="flex-1 min-w-0 flex flex-col">
@@ -29,10 +32,8 @@ export function PasskeysList({ value, onChange }: { value: StoredPasskey[]; onCh
                 {[passkeyLabel(p), fmtDate(p.created) && `added ${fmtDate(p.created)}`].filter(Boolean).join(" · ")}
               </span>
             </span>
-            <Tooltip content="Delete this passkey">
-              <Button size="sm" variant="danger" aria-label={`Delete the passkey for ${passkeyLabel(p)} on ${p.rpId}`}
-                      icon={<X size={12} />} onClick={() => setDoomed(p)} />
-            </Tooltip>
+            <RowIconButton danger label={`Delete the passkey for ${passkeyLabel(p)} on ${p.rpId}`} tooltip="Delete this passkey"
+                           icon={<X size={13} />} onClick={() => setDoomed(p)} />
           </li>
         ))}
       </ul>
@@ -42,7 +43,13 @@ export function PasskeysList({ value, onChange }: { value: StoredPasskey[]; onCh
           message={`You won't be able to sign in to ${doomed.rpId} as ${passkeyLabel(doomed)} with this passkey any more. Remove it from the site's security settings too.`}
           confirmLabel="Delete"
           danger
-          onConfirm={() => { onChange(withoutPasskey(value, doomed.rpId, doomed.credentialId)); setDoomed(null); }}
+          onConfirm={() => {
+            const i = value.indexOf(doomed);
+            onChange(withoutPasskey(value, doomed.rpId, doomed.credentialId));
+            setDoomed(null);
+            focusAfter({ index: Math.max(0, i), selector: "button" });
+            announce(`Passkey for ${doomed.rpId} deleted`);
+          }}
           onCancel={() => setDoomed(null)}
         />
       )}
