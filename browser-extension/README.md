@@ -1,4 +1,4 @@
-# Notiq Autofill (Chrome / Edge / Brave)
+# Notiq Autofill (Chrome / Edge / Brave / Firefox)
 
 Fills and saves logins with your Notiq vault. Passwords never leave your computer: the extension talks to the
 running Notiq app through a local native-messaging bridge, and **every fill and every save needs your approval
@@ -11,10 +11,16 @@ confirm a save. Esc / **Deny** / **Not now** refuses. When you answer, the windo
 the focus back. A site you allowed for 5 minutes fills without any window appearing.
 
 ## Install (developer mode)
-1. Start Notiq once (it registers the bridge for Chrome, Edge and Brave).
+1. Start Notiq once (it registers the bridge for Chrome, Edge, Brave and Firefox).
 2. Open `chrome://extensions` (or `edge://extensions`, `brave://extensions`), turn on **Developer mode**, click
    **Load unpacked**, pick this `browser-extension` folder.
 3. Restart the browser once so it picks up the bridge.
+
+Firefox (Windows, 121+): unzip `notiq-autofill-<ver>-firefox.zip`, open `about:debugging#/runtime/this-firefox`,
+**Load Temporary Add-on...** and pick its `manifest.json` (it is removed when Firefox restarts, until a signed
+build is installed). Notiq registers `HKCU\Software\Mozilla\NativeMessagingHosts\<host name>` with its own manifest
+that allows only the add-on id `autofill@notiq.app` (`allowed_extensions`). Firefox has no `documentId`, so the
+toolbar fill pins frames by `frameId` instead.
 
 Updating from 0.1: click the reload button on the extension's card. The browser will ask you to accept the new
 "Read and change all your data on all websites" permission (see below) before the new version runs.
@@ -224,7 +230,7 @@ default dark or light colours, following your system setting.
 - Login forms in iframes from another site get no icon and aren't captured (anti-phishing). The toolbar button
   fills a frame only when it has the top page's host or is a same-site subframe.
 - `https` pages only (plus `http://localhost` and `127.0.0.1` for testing).
-- Windows only for now, and developer-mode install only. The extension ID is fixed by the `key` in `manifest.json`;
+- Windows only for now, and developer-mode / temporary-add-on install only (no signed Firefox build yet). The extension ID is fixed by the `key` in `manifest.json`;
   the app only accepts that ID.
 - In a username-first sign-in that reloads the page between steps, the username typed in step 1 is only remembered
   within the same page (for 5 minutes); if it isn't on the final step, the offer shows "no username".

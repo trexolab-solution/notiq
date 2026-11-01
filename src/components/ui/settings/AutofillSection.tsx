@@ -84,7 +84,7 @@ export const AutofillSection = React.memo(function AutofillSection() {
       <SettingsBlock
         id="vault.autofill.install"
         label="Install the browser extension"
-        description="Load the Notiq extension into Edge, Chrome or Brave to fill logins from your vault."
+        description="Load the Notiq extension into Edge, Chrome, Brave or Firefox to fill logins from your vault."
         keywords={["extension", "chrome", "edge", "brave", "firefox", "developer mode", "load unpacked", "autofill", "browser"]}
       >
         <div className="rounded-lg border border-[var(--color-border)] p-3 flex flex-col gap-2 bg-[var(--color-bg-tertiary)]">
@@ -111,10 +111,13 @@ export const AutofillSection = React.memo(function AutofillSection() {
             <Button className="settings-btn" size="sm" icon={<Globe size={12} />} onClick={() => void openBrowser("edge")}>Edge extensions</Button>
             <Button className="settings-btn" size="sm" icon={<Globe size={12} />} onClick={() => void openBrowser("chrome")}>Chrome extensions</Button>
             <Button className="settings-btn" size="sm" icon={<Globe size={12} />} onClick={() => void openBrowser("brave")}>Brave extensions</Button>
+            <Button className="settings-btn" size="sm" icon={<Globe size={12} />} onClick={() => void openBrowser("firefox")}>Firefox debugging page</Button>
           </div>
           <p className="text-[11px] text-[var(--color-text-muted)]">
             After a Notiq update the files in this folder are refreshed; press the reload button on the extension's card in the
-            browser to pick them up. Firefox isn't covered by this folder (use the Firefox package from the release page).
+            browser to pick them up. <b className="text-[var(--color-text)]">Firefox:</b> this folder is the Chrome-style package. Download <code>notiq-autofill-…-firefox.zip</code> from
+            the Notiq release page and unzip it, press the Firefox button above (<code>about:debugging</code>), choose <b className="text-[var(--color-text)]">Load Temporary Add-on…</b> and pick the
+            <code> manifest.json</code> inside. It lasts until Firefox restarts; a signed add-on can be installed permanently once published. Restart Firefox once after installing.
           </p>
         </div>
       </SettingsBlock>
