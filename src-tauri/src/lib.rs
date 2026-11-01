@@ -40,6 +40,37 @@ fn show_main_window(webview_window: tauri::WebviewWindow) {
     let _ = webview_window.show();
 }
 
+// ─── Quit guard ──────────────────────────────────────────────────────────────
+// Tray "Quit" asks the main window first, so unsaved vault entries (which are never
+// persisted as plaintext) can be saved or knowingly dropped. The frontend opts in
+// with `quit_guard_ready`; until then, or when Quit is chosen again while the
+// question is still open, the app exits straight away.
+
+static QUIT_GUARD_READY: AtomicBool = AtomicBool::new(false);
+static QUIT_PENDING: AtomicBool = AtomicBool::new(false);
+
+/// What the tray's Quit should do: `true` = ask the main window, `false` = exit now.
+/// Marks a question as pending when it returns `true`.
+fn quit_should_ask(ready: &AtomicBool, pending: &AtomicBool) -> bool {
+    ready.load(Ordering::Acquire) && !pending.swap(true, Ordering::AcqRel)
+}
+
+#[tauri::command]
+fn quit_guard_ready() {
+    QUIT_GUARD_READY.store(true, Ordering::Release);
+}
+
+/// The main window decided not to quit after all (Cancel, or a save failed).
+#[tauri::command]
+fn quit_cancelled() {
+    QUIT_PENDING.store(false, Ordering::Release);
+}
+
+#[tauri::command]
+fn app_quit(app: tauri::AppHandle) {
+    app.exit(0);
+}
+
 /// Returns the first non-flag CLI argument, i.e. a file path passed via
 /// double-click / file-association open. Returns None when launched normally.
 #[tauri::command]
@@ -611,7 +642,12 @@ fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
                 let _ = app.emit("open-sticky-notes-list", ());
             }
             "quit" => {
-                app.exit(0);
+                let asked = quit_should_ask(&QUIT_GUARD_READY, &QUIT_PENDING)
+                    && app.get_webview_window("main").is_some()
+                    && app.emit_to("main", "app-quit-requested", ()).is_ok();
+                if !asked {
+                    app.exit(0);
+                }
             }
             _ => {}
         })
@@ -704,6 +740,9 @@ pub fn run() {
     #[cfg(desktop)]
     let builder = builder.invoke_handler(tauri::generate_handler![
         show_main_window,
+        quit_guard_ready,
+        quit_cancelled,
+        app_quit,
         get_open_file,
         pdf::export_pdf,
         term::terminal_create,
@@ -803,6 +842,9 @@ pub fn run() {
     #[cfg(not(desktop))]
     let builder = builder.invoke_handler(tauri::generate_handler![
         show_main_window,
+        quit_guard_ready,
+        quit_cancelled,
+        app_quit,
         get_open_file,
         ai::set_ai_api_key,
         ai::has_ai_api_key,
@@ -974,4 +1016,20 @@ pub fn run() {
             eprintln!("Fatal: failed to run Tauri application: {}", e);
             std::process::exit(1);
         });
+}
+
+#[cfg(test)]
+mod quit_guard_tests {
+    use super::*;
+
+    #[test]
+    fn quit_asks_once_only_when_the_frontend_is_ready() {
+        let (ready, pending) = (AtomicBool::new(false), AtomicBool::new(false));
+        assert!(!quit_should_ask(&ready, &pending), "no guard yet: exit straight away");
+        ready.store(true, Ordering::Release);
+        assert!(quit_should_ask(&ready, &pending), "first Quit asks the window");
+        assert!(!quit_should_ask(&ready, &pending), "Quit again while asking: force exit");
+        pending.store(false, Ordering::Release); // quit_cancelled
+        assert!(quit_should_ask(&ready, &pending), "after Cancel, Quit asks again");
+    }
 }

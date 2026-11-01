@@ -1,18 +1,19 @@
 import { useCallback, useState } from "react";
 import { useAppStore } from "../store";
 import type { Tab } from "../types";
+import { closeDecision } from "../lib/closeGuard";
 
 export interface CloseTabControls {
   /** The tab currently awaiting close-confirmation (null = no dialog). */
   pendingTab: Tab | null;
   /**
    * Request to close a tab.
-   * - Note with unsaved content → confirmation dialog.
+   * - Note or vault entry with unsaved content → confirmation dialog.
    * - Whiteboard with drawn elements → confirmation dialog.
    * - Otherwise → close immediately.
    */
   requestClose: (id: string) => void;
-  /** User chose Save → save the file, then close. (notes only) */
+  /** User chose Save → save the file (or vault entry), then close. */
   handleSaveAndClose: () => Promise<void>;
   /** User chose Discard → close without saving. */
   handleDiscardAndClose: () => void;
@@ -47,25 +48,9 @@ export function useCloseTab(): CloseTabControls {
   const requestClose = useCallback((id: string) => {
     const tab = tabs.find((t) => t.id === id);
     if (!tab) return;
-
-    // Pinned tabs cannot be closed — unpin first
-    if (tab.isPinned) return;
-
-    // Settings has nothing to lose — close straight away.
-    if (tab.kind === "settings") { removeTab(id); return; }
-
-    if (tab.kind === "whiteboard") {
-      // Only ask if the canvas has drawn elements worth losing
-      if (whiteboardHasContent(id)) { setPendingTab(tab); return; }
-      removeTab(id);
-      return;
-    }
-
-    // Note: dirty OR has content but was never saved to disk
-    const hasUnsaved = tab.isDirty || (!tab.filePath && tab.content.trim().length > 0);
-    if (hasUnsaved) { setPendingTab(tab); return; }
-
-    removeTab(id);
+    const decision = closeDecision(tab, whiteboardHasContent);
+    if (decision === "confirm") setPendingTab(tab);
+    else if (decision === "close") removeTab(id);
   }, [tabs, removeTab]);
 
   const handleSaveAndClose = useCallback(async () => {
