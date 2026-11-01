@@ -61,7 +61,7 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "Notiq ${{ github.ref_name }}"
-          releaseBody: "Download the installer for your platform below. See the commit history for changes."
+          releaseBody: "Download the installer for your platform below: Windows (.exe or .msi) or Linux (AppImage, .deb or .rpm). There is no macOS installer yet; build from source. The notiq-autofill zips are the browser extension, which Notiq can also install for you from Settings → Vault → Browser autofill. Website: https://trexolab-solution.github.io/notiq/"
           releaseDraft: true
           prerelease: false
           includeUpdaterJson: true

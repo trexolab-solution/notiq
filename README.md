@@ -5,7 +5,7 @@
 <h1 align="center">Notiq</h1>
 
 <p align="center">
-  A fast, local-first Markdown editor, whiteboard, and knowledge graph for your desktop.<br/>
+  A fast, local-first Markdown editor with an encrypted vault, whiteboard, and knowledge graph for your desktop.<br/>
   Built with <strong>Tauri v2</strong>, <strong>React 18</strong>, and <strong>Monaco</strong>.
 </p>
 
@@ -14,12 +14,17 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.9.0-orange" alt="Version" />
-  <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue" alt="Platform" />
+  <a href="https://github.com/trexolab-solution/notiq/releases/latest"><img src="https://img.shields.io/github/v/release/trexolab-solution/notiq?color=orange" alt="Latest release" /></a>
+  <img src="https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS%20(source)-blue" alt="Platform" />
   <img src="https://img.shields.io/badge/Tauri-v2-24C8DB?logo=tauri&logoColor=white" alt="Tauri v2" />
   <img src="https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black" alt="React 18" />
   <img src="https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white" alt="TypeScript" />
   <img src="https://img.shields.io/badge/license-MIT-green" alt="License: MIT" />
+</p>
+
+<p align="center">
+  <a href="https://trexolab-solution.github.io/notiq/"><strong>Website</strong></a> ·
+  <a href="https://github.com/trexolab-solution/notiq/releases/latest"><strong>Download</strong></a> (Windows <code>.exe</code>/<code>.msi</code>, Linux AppImage/<code>.deb</code>/<code>.rpm</code>; macOS: <a href="#build-for-production">build from source</a>)
 </p>
 
 ---

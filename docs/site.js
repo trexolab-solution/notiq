@@ -51,7 +51,13 @@
     else if (/mac/.test(s)) os = "macos";
     else if (/linux|x11|cros/.test(s)) os = "linux";
     var names = { windows: "Windows", macos: "macOS", linux: "Linux" };
-    if (names[os]) {
+    if (os === "macos") {
+      /* No macOS installer is published yet, so point at the build steps instead of the release. */
+      $("#heroDownload").setAttribute("href", "#download");
+      $("#heroDownloadLabel").textContent = "Build for macOS";
+      var macCard = $('.os[data-os="macos"]');
+      if (macCard) macCard.classList.add("is-you");
+    } else if (names[os]) {
       $("#heroDownloadLabel").textContent = "Download for " + names[os];
       var card = $('.os[data-os="' + os + '"]');
       if (card) card.classList.add("is-you");

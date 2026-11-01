@@ -3,8 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Notiq — local-first notes with a sealed vault</title>
-<meta name="description" content="Notiq is a fast desktop Markdown editor, whiteboard and knowledge graph. Passwords, SSH keys and private notes live in one encrypted file on your own machine. No account, no telemetry; optional vault sync is encrypted before upload.">
+<title>Notiq: Markdown Editor with Encrypted Vault | Offline, Open Source</title>
+<meta name="description" content="Free, open-source desktop Markdown editor with a whiteboard, knowledge graph and an encrypted vault for passwords and SSH keys. No account, no telemetry.">
+<link rel="canonical" href="https://trexolab-solution.github.io/notiq/">
 <link rel="icon" href="favicon.ico" sizes="any">
 <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
@@ -17,6 +18,24 @@
 <meta name="twitter:card" content="summary_large_image">
 <meta name="color-scheme" content="dark light">
 <meta name="theme-color" content="#0a1222">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "Notiq",
+  "description": "Local-first desktop Markdown editor with a whiteboard, knowledge graph, embedded terminal and an encrypted vault for passwords, SSH keys and private notes.",
+  "url": "https://trexolab-solution.github.io/notiq/",
+  "image": "https://trexolab-solution.github.io/notiq/og.png",
+  "applicationCategory": "ProductivityApplication",
+  "operatingSystem": "Windows, Linux",
+  "softwareVersion": "0.9.1",
+  "license": "https://opensource.org/licenses/MIT",
+  "downloadUrl": "https://github.com/trexolab-solution/notiq/releases/latest",
+  "codeRepository": "https://github.com/trexolab-solution/notiq",
+  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+  "publisher": { "@type": "Organization", "name": "TrexoLab" }
+}
+</script>
 <script>
 /* Apply the saved theme before first paint (no flash). */
 (function(){try{var t=localStorage.getItem('notiq-site-theme');if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t);}catch(e){}document.documentElement.classList.add('js');})();
@@ -124,7 +143,7 @@
         <a class="btn btn-line btn-lg" href="https://github.com/trexolab-solution/notiq"><svg class="i"><use href="#i-github"/></svg>View source</a>
       </div>
       <dl class="facts">
-        <div><dt>Runs on</dt><dd>Windows, macOS, Linux</dd></div>
+        <div><dt>Runs on</dt><dd>Windows, Linux; macOS from source</dd></div>
         <div><dt>License</dt><dd>MIT, open source</dd></div>
         <div><dt>Account</dt><dd>None needed</dd></div>
         <div><dt>Telemetry</dt><dd>None</dd></div>
@@ -516,7 +535,7 @@ f2 6e 0d 84 b7 19 c5 2a 70 eb 4f 13 9a d8 66 05
   <div class="container">
     <div class="section-head">
       <h2 id="af-title">Fill logins in your browser, approved in Notiq</h2>
-      <p>Notiq Autofill 0.6.0 for Chrome, Edge, Brave and Firefox works with your vault through a local bridge on your computer. Passwords never leave it: the vault must be unlocked, and every fill and every save is approved in Notiq.</p>
+      <p>Notiq Autofill 0.7.0 for Chrome, Edge, Brave and Firefox works with your vault through a local bridge on your computer. Passwords never leave it: the vault must be unlocked, and every fill and every save is approved in Notiq.</p>
     </div>
 
     <div class="af-layout">
@@ -681,9 +700,9 @@ nothing to commit, working tree clean
         <span class="os-name">Windows</span><span class="os-sub">.exe and .msi installers</span>
         <span class="os-go"><span class="os-you">Your system</span><svg class="i" aria-hidden="true"><use href="#i-download"/></svg></span>
       </a></li>
-      <li><a class="os" data-os="macos" href="https://github.com/trexolab-solution/notiq/releases/latest">
+      <li><a class="os" data-os="macos" href="https://github.com/trexolab-solution/notiq#build-for-production">
         <svg class="i os-ic" aria-hidden="true"><use href="#i-command"/></svg>
-        <span class="os-name">macOS</span><span class="os-sub">See the release page, or build from source</span>
+        <span class="os-name">macOS</span><span class="os-sub">No installer yet: build from source</span>
         <span class="os-go"><span class="os-you">Your system</span><svg class="i" aria-hidden="true"><use href="#i-download"/></svg></span>
       </a></li>
       <li><a class="os" data-os="linux" href="https://github.com/trexolab-solution/notiq/releases/latest">
