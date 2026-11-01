@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import {
   transformChrome, transformStore, transformFirefox, referencedFiles, validateBuild, crc32, createZip, FIREFOX_ID,
-  parsePslData, pslBlock, syncPsl, PSL_SOURCE, DYNAMIC_SCRIPTS,
+  parsePslData, pslBlock, syncPsl, PSL_SOURCE, DYNAMIC_SCRIPTS, BACKGROUND_EXTRA,
 } from "../build.mjs";
 
 const manifest = JSON.parse(readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "manifest.json"), "utf8"));
@@ -103,7 +103,11 @@ test("every file the extension needs ships in the installer resources", () => {
   const dir = dirname(fileURLToPath(import.meta.url));
   const conf = JSON.parse(readFileSync(join(dir, "..", "..", "src-tauri", "tauri.conf.json"), "utf8"));
   const shipped = new Set(Object.values(conf.bundle.resources).filter((v) => v.startsWith("browser-extension/")).map((v) => v.slice("browser-extension/".length)));
-  for (const f of ["manifest.json", ...referencedFiles(manifest)]) assert.ok(shipped.has(f), `${f} missing from tauri.conf.json bundle.resources`);
+  // Same set as the build's `runtime`: manifest files, importScripts / registered scripts, and the popup page's own.
+  const need = new Set(["manifest.json", ...referencedFiles(manifest), ...BACKGROUND_EXTRA, ...DYNAMIC_SCRIPTS]);
+  const popup = readFileSync(join(dir, "..", manifest.action.default_popup), "utf8");
+  for (const m of popup.matchAll(/(?:src|href)="([^"#?:]+)"/g)) need.add(m[1]);
+  for (const f of need) assert.ok(shipped.has(f), `${f} missing from tauri.conf.json bundle.resources`);
 });
 
 // ---------- Public Suffix List snapshot in shared.js ----------
