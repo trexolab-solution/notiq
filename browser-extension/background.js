@@ -1081,3 +1081,88 @@ chrome.runtime.onMessage.addListener((msg, sender, send) => {
   POPUP_SITE_HANDLERS[msg.type](msg).then(send, () => send({ error: "failed" }));
   return true;
 });
+// ---------- passkeys (experimental) ----------
+// Off by default; the popup's "Save and use passkeys with Notiq (experimental)" turns it on and asks for the
+// optional host access that scripting.registerContentScripts needs (content_scripts matches alone are not enough;
+// turning the switch off gives it back). Only with both are passkey-page.js (MAIN world: wraps navigator.credentials) and passkey-bridge.js (isolated world) registered,
+// for https pages and http://localhost, at document_start in every frame. Requests from the bridge are checked
+// here: the setting is still on, the tab is active, the frame is the top page or a same-origin subframe (all
+// ancestors that origin), the origin is https (or http://localhost) on a domain, and the RP ID is that host or a
+// registrable parent of it (Public Suffix List). The client data is built here from the frame's real origin.
+// Notiq always asks the user; any refusal or failure makes the page use the browser's own passkey dialog.
+// Pure helpers: passkeys.js (Firefox: listed in background.scripts).
+if (typeof importScripts === "function" && !globalThis.NotiqPasskeys) importScripts("passkeys.js");
+const NPK = globalThis.NotiqPasskeys;
+const PASSKEY_SETTING = "passkeys";
+const PASSKEY_SCRIPT_IDS = ["notiq-passkey-page", "notiq-passkey-bridge"];
+const PASSKEY_MATCHES = ["https://*/*", "http://localhost/*"];
+const PASSKEY_MAX_MESSAGE = 40 * 1024;
+const passkeysInFlight = new Set();
+
+async function passkeysOn() {
+  try { return (await chrome.storage.local.get({ [PASSKEY_SETTING]: false }))[PASSKEY_SETTING] === true; } catch { return false; }
+}
+
+// Registers or removes the two page scripts to match the setting (serialized: settings can flip quickly).
+let passkeySync = Promise.resolve();
+function syncPasskeyScripts() {
+  passkeySync = passkeySync.then(async () => {
+    const S = chrome.scripting;
+    if (!S || typeof S.registerContentScripts !== "function") return;
+    // Registered scripts need host access (optional_host_permissions, asked for when the switch is turned on).
+    let granted = false;
+    try { granted = await chrome.permissions.contains({ origins: PASSKEY_MATCHES }); } catch { granted = false; }
+    const on = granted && await passkeysOn();
+    let have = [];
+    try { have = (await S.getRegisteredContentScripts({ ids: PASSKEY_SCRIPT_IDS })).map((s) => s.id); } catch { have = []; }
+    if (on && have.length === PASSKEY_SCRIPT_IDS.length) return;
+    if (have.length) await S.unregisterContentScripts({ ids: have }).catch(() => {});
+    if (!on) return;
+    const common = { matches: PASSKEY_MATCHES, runAt: "document_start", allFrames: true, persistAcrossSessions: true };
+    await S.registerContentScripts([
+      { ...common, id: PASSKEY_SCRIPT_IDS[0], js: ["passkey-page.js"], world: "MAIN" },
+      { ...common, id: PASSKEY_SCRIPT_IDS[1], js: ["passkey-bridge.js"] },
+    ]).catch(() => {}); // e.g. a browser without MAIN-world registration: passkeys stay with the browser
+  }).catch(() => {});
+  return passkeySync;
+}
+
+async function passkeyForSender(sender, msg) {
+  const fallback = { fallback: true };
+  if (!NPK || !(await passkeysOn())) return fallback;
+  if (sender.tab.active === false) return fallback;
+  const top = NPK.passkeyOrigin(sender.tab.url);
+  const frame = NPK.passkeyOrigin(sender.url);
+  if (!top || !frame) return fallback;
+  if (typeof sender.origin === "string" && sender.origin !== frame.origin) return fallback;
+  if (!NPK.frameOk(sender.frameId, frame.origin, top.origin, msg.ancestors)) return fallback;
+  const tabId = sender.tab.id;
+  if (passkeysInFlight.has(tabId)) return fallback;
+  const sent = NPK.appRequest(msg.kind, msg.options, frame);
+  if (sent.error) return fallback;
+  passkeysInFlight.add(tabId);
+  try {
+    return NPK.pageResult(msg.kind, await ask(sent.req), sent);
+  } finally {
+    passkeysInFlight.delete(tabId);
+  }
+}
+
+chrome.runtime.onMessage.addListener((msg, sender, send) => {
+  if (!sender || sender.id !== chrome.runtime.id || !sender.tab) return false;
+  if (!msg || typeof msg !== "object" || msg.type !== "passkey") return false;
+  if (typeof sender.tab.id !== "number" || sender.tab.id < 0 || typeof sender.url !== "string" || typeof sender.frameId !== "number") return false;
+  let len;
+  try { len = JSON.stringify(msg).length; } catch { len = Infinity; }
+  if ((msg.kind !== "create" && msg.kind !== "get") || len > PASSKEY_MAX_MESSAGE) { send({ fallback: true }); return false; }
+  passkeyForSender(sender, msg).then(send, () => send({ fallback: true }));
+  return true;
+});
+if (chrome.storage && chrome.storage.onChanged) chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === "local" && Object.prototype.hasOwnProperty.call(changes, PASSKEY_SETTING)) syncPasskeyScripts();
+});
+if (chrome.permissions && chrome.permissions.onAdded) {
+  chrome.permissions.onAdded.addListener(() => { syncPasskeyScripts(); });
+  chrome.permissions.onRemoved.addListener(() => { syncPasskeyScripts(); });
+}
+syncPasskeyScripts();

@@ -160,6 +160,7 @@ Updating from 0.1: click the reload button on the extension's card. The browser 
   the icon there again.
 - **No password warning on these sites:** the sites you answered "It's OK, I trust this site" on; × turns the
   warning back on there.
+- **Save and use passkeys with Notiq (experimental)** (off by default): see [Passkeys (experimental)](#passkeys-experimental).
 
 All three lists are kept in `chrome.storage.local` (`neverSave`, `hiddenSites`, `reuseTrusted`; lower-case hosts,
 at most 500 each).
@@ -179,6 +180,10 @@ default dark or light colours, following your system setting.
   storage, never on disk) a just-submitted login for at most 90 seconds while the save offer is open.
 - `activeTab`, `scripting` — the toolbar button fills the tab you clicked it on.
 - `contextMenus` — the **Notiq** entry in the right-click menu of editable fields (Firefox: `menus`, same API).
+- Optional host access to `https://*/*` and `http://localhost/*` — asked for only when you turn on **Save and use
+  passkeys with Notiq (experimental)**, and given back when you turn it off. The browser needs it to register the
+  passkey page scripts (`scripting.registerContentScripts`); it covers the same sites the content script already
+  runs on.
 - **Content script on all `https://` sites (plus `http://localhost` / `127.0.0.1`)** — this is what makes the browser
   show "Read and change all your data on all websites". It is needed to spot login fields and notice a submitted
   login on any site you visit. The script only looks at login forms, keeps everything in its own isolated, closed
@@ -271,10 +276,70 @@ default dark or light colours, following your system setting.
     `{ok:true, site:"paypal.com"}` (a login with that password saved for another site; its registrable domain), or
     `{error:"locked"|"stale_salt"|"rate_limited"|"bad_request"|"bad_host"}`. At most 12 checks a minute. The
     extension drops any `site` that isn't a plain host or is on the page's own site.
+- Passkeys (experimental; only while the setting is on; never start Notiq; an older app answers `unknown_op` and the
+  browser handles the request):
+  - `{op:"passkey_create", origin, rpId, rpName, user:{id, name, displayName}, clientDataJSON, algs, exclude}` →
+    `{ok:true, credentialId, attestationObject, authenticatorData, publicKey, alg:-7}` or `{error}` (`excluded`,
+    `denied`, `locked`, `bad_rp_id`, …). Ids and binary values are base64url without padding.
+  - `{op:"passkey_get", origin, rpId, clientDataJSON, allow}` → `{ok:true, credentialId, authenticatorData,
+    signature, userHandle}` or `{error}` (`no_passkey`, `denied`, …).
 - `{op:"theme"}` → `{ok:true, theme:{id, mode:"dark"|"light", bg, bgSecondary, bgTertiary, text, textMuted, border,
   primary, primaryText, danger, success}}` (colours `#rrggbb`), or `{ok:true, theme:null}` when the app has none.
   Never launches the app. `{error:"unknown_op"}` from an older app is treated as no theme; when the app is
   unreachable the cached theme is kept.
+
+## Passkeys (experimental)
+Off by default. Turn on **Save and use passkeys with Notiq (experimental)** in the popup (the browser asks for the
+optional host access above), then reload open pages. Passkeys are then saved in, and used from, your Notiq vault:
+
+- **Creating a passkey** (`navigator.credentials.create`) on a site: Notiq asks **Save a passkey for github.com?**,
+  with the account name and a choice of the site's saved login to keep it on (the one with the same user name is
+  pre-selected) or **New login** (made in the `Logins` folder, without a password). **Not now** lets the browser
+  handle it instead. If the site lists a passkey Notiq already holds for that account, Notiq says so and the site
+  gets `InvalidStateError` (nothing new is saved).
+- **Signing in with a passkey** (`navigator.credentials.get`): Notiq asks **Sign in to github.com with a passkey?**
+  and lists only the passkeys saved for exactly that RP ID (and, when the site names the credentials it accepts,
+  only those). With none, Notiq shows nothing and the browser's own passkey dialog opens.
+- Every create and sign-in needs that approval in Notiq; there is no "allow for 5 minutes". A locked vault is
+  unlocked in the same window first. Unlocking / pressing Allow is the user verification.
+- **Deny, Notiq closed or locked and left locked, no matching passkey, an error:** the page's request goes to the
+  browser's own implementation with the original options, so Windows Hello, a phone or a security key still work.
+- Notiq is asked only right after a real click or key press on the page (transient user activation), never on
+  page load; passkey autofill requests (`mediation: "conditional"`) and requests for a roaming authenticator
+  (`authenticatorAttachment: "cross-platform"`) always go to the browser.
+- In Notiq, a login's passkeys are listed on the login (site, user name, date) with a delete button. The private
+  key is never shown. Deleting one there doesn't remove it from the site; remove it in the site's security
+  settings too.
+
+How it works and what is checked:
+- `passkey-page.js` runs in the page's main world (only while the setting is on) and wraps
+  `navigator.credentials.create` / `get` for `publicKey` requests. It posts the request as plain data to
+  `passkey-bridge.js` (the extension's isolated world, same window only: `event.source` is the window itself and
+  `event.origin` its own origin), which checks the user gesture and the message shape and hands it to the
+  background.
+- The background takes the origin from the frame's real URL, never from the page: https on a domain or
+  `http://localhost` (no IP addresses), the active tab only, the top frame or a **same-origin** subframe whose every
+  ancestor has that origin (other frames, including same-site cross-origin ones, use the browser's dialog). The RP
+  ID must be the page's host or a registrable parent domain of it, never a public suffix (`github.com` for
+  `www.github.com`; never `com`, `co.uk` or `github.io`; Public Suffix List). The background builds
+  `clientDataJSON` (`type`, `challenge`, `origin`, `crossOrigin:false`) itself. One request per tab at a time.
+- The app checks it all again (`src-tauri/src/passkey.rs`): the origin, the RP ID rule with its own copy of the PSL
+  table, and that `clientDataJSON` names this origin and ceremony. It makes the key pair (ES256 / P-256), keeps the
+  private key in the vault only (PKCS#8, on the Login entry's `passkeys` list), and signs `authenticatorData ‖
+  SHA-256(clientDataJSON)` itself. The extension only ever sees public keys, attestation objects and signatures.
+- Encodings: attestation format `none` (canonical CBOR `{fmt, attStmt:{}, authData}`), COSE EC2 key, AAGUID all
+  zeros, `signCount` always 0, flags UP + UV, plus **BE + BS** (backup eligible and backed up: the key lives in your
+  vault file, which you may back up or sync; there is no counter to keep in step across devices because it stays 0).
+  `getTransports()` answers `["hybrid", "internal"]`, `authenticatorAttachment` is `platform`, `credProps` answers
+  `{rk: true}` when asked; other extensions (PRF, large blob, …) are ignored.
+
+Limits (experimental): verified with unit tests and a headless-Chromium run (`node browser-extension/test/e2e-passkeys.mjs`,
+which mocks the Notiq app) only; **not yet tried against real sites** such as webauthn.io, GitHub or Google. Only
+ES256 (a site that doesn't accept `-7` gets the browser's dialog). No attestation other than `none` (a site that
+demands `direct` attestation still gets `none`). Aborting a request (`AbortSignal`) rejects it on the page but does
+not close Notiq's window. Firefox: needs main-world content script registration (Firefox 128+) and has no
+`location.ancestorOrigins`, so only top frames are served there; not tested. Passkeys are kept with the vault's
+other data, so the vault's backups and sync carry them too.
 
 ## Known limits
 - Login forms in iframes from another site get no icon and aren't captured (anti-phishing). The toolbar button
@@ -331,7 +396,9 @@ node browser-extension/build.mjs --check          # validate only, write nothing
 node --test browser-extension/test/*.test.mjs    # unit tests: transforms, zip writer, shared.js (theme, suggestion, same-site, handshake), fillkit.js (generator rules, shadow roots), multi-step hand-off, toolbar fill, code-only fills, identity.js (field classification incl. Indian checkout forms, values), password warning tag + background, hidden sites, toolbar fill through open shadow roots
 node browser-extension/build.mjs --psl            # refresh the Public Suffix List copy in shared.js from src/lib/publicSuffixData.ts
 ```
-Only runtime files are packaged (manifest, `shared.js`, `fillkit.js`, `identity.js`, `content.js`, `background.js`, popup, icons).
+Only runtime files are packaged (manifest, `shared.js`, `fillkit.js`, `identity.js`, `content.js`, `background.js`, popup, icons,
+and the experimental passkey files: `passkeys.js` (background helpers, loaded like `identity.js`), `passkey-page.js` and
+`passkey-bridge.js` (registered at run time, so the manifest doesn't name them; `DYNAMIC_SCRIPTS` in `build.mjs`)).
 `fillkit.js` holds the content script's pure fill helpers (the site-aware password generator, the open-shadow-root walk)
 and loads between `shared.js` and `content.js`. `identity.js` holds the identity helpers (field classification, form
 detection, reply validation, value mapping); it loads before `content.js`, and the background loads it after

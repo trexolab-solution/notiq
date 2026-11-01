@@ -10,6 +10,7 @@ import { GeneratePasswordButton } from "./GeneratePasswordButton";
 import { Tooltip } from "../ui/Tooltip";
 import { CustomFieldsEditor } from "./CustomFieldsEditor";
 import { AttachmentsPanel } from "./AttachmentsPanel";
+import { PasskeysList } from "./PasskeysList";
 import { EntryHeader, SaveHint } from "./EntryParts";
 import {
   extraUrlError, hostOf, MAX_LOGIN_URLS, parseLogin, serializeLogin, totpCode, totpRemaining, type LoginEntry,
@@ -111,6 +112,7 @@ export function LoginEntryEditor({ tab }: { tab: Tab }) {
         </div>
 
         <CustomFieldsEditor value={entry.custom ?? []} onChange={(custom) => set({ custom })} />
+        <PasskeysList value={entry.passkeys ?? []} onChange={(passkeys) => set({ passkeys })} />
         <AttachmentsPanel tab={tab} />
         <SaveHint />
       </div>

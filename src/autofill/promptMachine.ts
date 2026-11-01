@@ -4,6 +4,7 @@ import {
   type CardMatch, type FillIntent, type IdentityMatch, type LoginMatch, type SavePlan, type SaveRequest,
 } from "../lib/autofill";
 import { copyTargets, type ApprovedCopy } from "../lib/autofillPopup";
+import { defaultPasskeyTarget, type PasskeyCreateReq, type PasskeyGetReq, type PasskeyMatch } from "../lib/passkeys";
 
 /**
  * The autofill prompt window's state machine, kept pure so every transition is unit-tested.
@@ -21,6 +22,12 @@ import { copyTargets, type ApprovedCopy } from "../lib/autofillPopup";
  * Identity fills (`fill_identity`) likewise: never trusted, always picked (the request's `account` only
  * pre-selects one), and the window names the site that gets it:
  *   idle ─start─▶ (locked ─unlocked─▶) checking ─identitiesScanned─▶ identity ─allow/deny─▶ idle
+ *
+ * Passkeys (experimental) likewise are never trusted and always need an Allow:
+ *   idle ─start─▶ (locked ─unlocked─▶) checking ─passkeyTargetsScanned─▶ passkeyCreate ─allow/deny─▶ idle
+ *   idle ─start─▶ (locked ─unlocked─▶) checking ─passkeysScanned─▶ passkeyGet ─allow/deny─▶ idle
+ * A sign-in with no usable passkey is answered `no_passkey` without showing anything (the browser then uses its
+ * own passkey dialog).
  */
 
 /** `account`: optional vault-relative path the extension asks for (from an earlier `choose` reply).
@@ -38,7 +45,9 @@ export type FillJob = { kind: "fill"; req: FillReq };
 export type SaveJob = { kind: "save"; req: SaveRequest };
 export type CardJob = { kind: "card"; req: CardReq };
 export type IdentityJob = { kind: "identity"; req: IdentityReq };
-export type Job = FillJob | SaveJob | CardJob | IdentityJob;
+export type PasskeyCreateJob = { kind: "passkeyCreate"; req: PasskeyCreateReq };
+export type PasskeyGetJob = { kind: "passkeyGet"; req: PasskeyGetReq };
+export type Job = FillJob | SaveJob | CardJob | IdentityJob | PasskeyCreateJob | PasskeyGetJob;
 
 export type PromptState =
   | { stage: "idle" }
@@ -52,6 +61,11 @@ export type PromptState =
   | { stage: "card"; job: CardJob; cards: CardMatch[]; pick: number; busy: boolean }
   /** Pick one of the vault's identities for an address / contact form. */
   | { stage: "identity"; job: IdentityJob; identities: IdentityMatch[]; pick: number; busy: boolean }
+  /** Save a new passkey: on login `pick` of `logins` (this site's logins), or a new login when `pick` is -1.
+   *  `excluded`: the vault already holds a passkey the site listed for this account (nothing is saved). */
+  | { stage: "passkeyCreate"; job: PasskeyCreateJob; logins: LoginMatch[]; pick: number; excluded: boolean; busy: boolean }
+  /** Sign in with one of this RP's saved passkeys. */
+  | { stage: "passkeyGet"; job: PasskeyGetJob; passkeys: PasskeyMatch[]; pick: number; busy: boolean }
   /** A fill from a page that imitates a saved site. Already answered `no_match`; only informs the user. */
   | { stage: "warning"; host: string; lookalike: Lookalike };
 
@@ -63,6 +77,8 @@ export type PromptEvent =
   | { type: "scanned"; matches: LoginMatch[]; lookalike: Lookalike | null }
   | { type: "cardsScanned"; cards: CardMatch[] }
   | { type: "identitiesScanned"; identities: IdentityMatch[] }
+  | { type: "passkeyTargetsScanned"; logins: LoginMatch[]; excluded: boolean }
+  | { type: "passkeysScanned"; passkeys: PasskeyMatch[] }
   | { type: "failed" }
   | { type: "pick"; index: number }
   | { type: "trust"; on: boolean }
@@ -96,7 +112,15 @@ export type Effect =
   /** Reply with the picked identity's fill data, then dispatch `answered`. */
   | { kind: "releaseIdentity"; id: string; identity: IdentityMatch }
   /** Write the login, reply `{ok, status}`, then dispatch `answered`. */
-  | { kind: "save"; id: string; plan: SavePlan; req: SaveRequest; name: string };
+  | { kind: "save"; id: string; plan: SavePlan; req: SaveRequest; name: string }
+  /** This site's logins (host-matched) and whether an excluded passkey exists, then `passkeyTargetsScanned`. */
+  | { kind: "scanPasskeyTargets"; host: string; rpId: string; exclude: string[] }
+  /** The RP's usable passkeys, then `passkeysScanned`. */
+  | { kind: "scanPasskeys"; rpId: string; allow: string[] }
+  /** Store the passkey on `target` (null = a new login), reply `{ok}`, then dispatch `answered`. */
+  | { kind: "savePasskey"; id: string; target: LoginMatch | null; req: PasskeyCreateReq }
+  /** Reply `{ok, account, credentialId}` (Rust signs), then dispatch `answered`. */
+  | { kind: "releasePasskey"; id: string; match: PasskeyMatch };
 
 export interface Step { state: PromptState; effects: Effect[] }
 
@@ -105,8 +129,15 @@ export const IDLE: PromptState = { stage: "idle" };
 const same = (state: PromptState): Step => ({ state, effects: [] });
 const end = (...effects: Effect[]): Step => ({ state: IDLE, effects: [...effects, { kind: "finish" }] });
 const reply = (id: string, payload: unknown): Effect => ({ kind: "reply", id, payload });
-const scanFor = (job: Job): Effect =>
-  job.kind === "card" ? { kind: "scanCards" } : job.kind === "identity" ? { kind: "scanIdentities" } : { kind: "scan", host: job.req.host };
+const scanFor = (job: Job): Effect => {
+  switch (job.kind) {
+    case "card": return { kind: "scanCards" };
+    case "identity": return { kind: "scanIdentities" };
+    case "passkeyCreate": return { kind: "scanPasskeyTargets", host: job.req.host, rpId: job.req.rpId, exclude: job.req.exclude };
+    case "passkeyGet": return { kind: "scanPasskeys", rpId: job.req.rpId, allow: job.req.allow };
+    default: return { kind: "scan", host: job.req.host };
+  }
+};
 const release = (job: FillJob, match: LoginMatch, trustHost: string | null): Effect => ({
   kind: "release", id: job.req.id, match, trustHost, ...(job.req.intent ? { intent: job.req.intent } : {}),
   ...(job.req.copy ? { copy: job.req.copy } : {}),
@@ -157,8 +188,25 @@ export function step(state: PromptState, ev: PromptEvent): Step {
       return { state: { stage: "identity", job, identities: ev.identities, pick, busy: false }, effects: [{ kind: "show" }] };
     }
 
+    case "passkeyTargetsScanned": {
+      if (state.stage !== "checking" || state.job.kind !== "passkeyCreate") return same(state);
+      const job = state.job;
+      const pick = defaultPasskeyTarget(ev.logins, job.req.userName);
+      return {
+        state: { stage: "passkeyCreate", job, logins: ev.logins, pick, excluded: ev.excluded, busy: false },
+        effects: [{ kind: "show" }],
+      };
+    }
+
+    case "passkeysScanned": {
+      if (state.stage !== "checking" || state.job.kind !== "passkeyGet") return same(state);
+      const job = state.job;
+      if (!ev.passkeys.length) return end(reply(job.req.id, { error: "no_passkey" }));
+      return { state: { stage: "passkeyGet", job, passkeys: ev.passkeys, pick: 0, busy: false }, effects: [{ kind: "show" }] };
+    }
+
     case "scanned": {
-      if (state.stage !== "checking" || state.job.kind === "card" || state.job.kind === "identity") return same(state);
+      if (state.stage !== "checking" || (state.job.kind !== "fill" && state.job.kind !== "save")) return same(state);
       const job = state.job;
       const id = job.req.id;
       if (job.kind === "save") {
@@ -205,6 +253,13 @@ export function step(state: PromptState, ev: PromptEvent): Step {
       return state.stage === "idle" || state.stage === "warning" ? same(state) : end(reply(state.job.req.id, { error: "failed" }));
 
     case "pick": {
+      // A passkey's login: -1 is "New login".
+      if (state.stage === "passkeyCreate") {
+        return state.busy || state.excluded ? same(state) : same({ ...state, pick: Math.min(Math.max(-1, ev.index), state.logins.length - 1) });
+      }
+      if (state.stage === "passkeyGet") {
+        return state.busy ? same(state) : same({ ...state, pick: Math.min(Math.max(0, ev.index), state.passkeys.length - 1) });
+      }
       if ((state.stage !== "request" && state.stage !== "card" && state.stage !== "identity") || state.busy) return same(state);
       const n = state.stage === "card" ? state.cards.length : state.stage === "identity" ? state.identities.length : state.matches.length;
       return same({ ...state, pick: Math.min(Math.max(0, ev.index), n - 1) });
@@ -221,6 +276,17 @@ export function step(state: PromptState, ev: PromptEvent): Step {
       return state.stage === "save" ? same({ ...state, reveal: !state.reveal }) : same(state);
 
     case "allow": {
+      if (state.stage === "passkeyCreate" && !state.busy) {
+        // The site already has this account's passkey from Notiq: say so (the user has seen why) and save nothing.
+        if (state.excluded) return end(reply(state.job.req.id, { error: "excluded" }));
+        const target = state.pick >= 0 ? state.logins[state.pick] ?? null : null;
+        return { state: { ...state, busy: true }, effects: [{ kind: "savePasskey", id: state.job.req.id, target, req: state.job.req }] };
+      }
+      if (state.stage === "passkeyGet" && !state.busy) {
+        const match = state.passkeys[state.pick];
+        if (!match) return same(state);
+        return { state: { ...state, busy: true }, effects: [{ kind: "releasePasskey", id: state.job.req.id, match }] };
+      }
       if (state.stage === "card" && !state.busy) {
         const card = state.cards[state.pick];
         if (!card) return same(state);
@@ -254,14 +320,16 @@ export function step(state: PromptState, ev: PromptEvent): Step {
         case "warning": return end();
         // Esc / × while still locked: the vault stays locked, which is what the extension is told.
         case "locked": return state.busy ? same(state) : end(reply(state.job.req.id, { error: "locked" }));
-        case "request": case "save": case "card": case "identity": return state.busy ? same(state) : end(reply(state.job.req.id, { error: "denied" }));
+        case "request": case "save": case "card": case "identity": case "passkeyCreate": case "passkeyGet":
+          return state.busy ? same(state) : end(reply(state.job.req.id, { error: "denied" }));
         case "checking": return end(reply(state.job.req.id, { error: "denied" }));
       }
       return same(state);
 
     case "vaultLocked":
       // Locking cancels an open request (nothing may be released from a locked vault).
-      if (state.stage === "checking" || state.stage === "request" || state.stage === "save" || state.stage === "card" || state.stage === "identity") {
+      if (state.stage === "checking" || state.stage === "request" || state.stage === "save" || state.stage === "card" || state.stage === "identity"
+        || state.stage === "passkeyCreate" || state.stage === "passkeyGet") {
         return end(reply(state.job.req.id, { error: "locked" }));
       }
       return same(state);

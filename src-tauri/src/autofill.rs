@@ -41,6 +41,13 @@
 //!   `{ok:true, site:null|"paypal.com"}` | `{error}` (no window, never starts the app, rate-limited; the password
 //!   never leaves the extension, only a salted truncated HMAC of it). See `autofill_reuse.rs`.
 //!
+//! * Passkeys (experimental; see the "Passkeys" block below and `passkey.rs`). Never start the app, never use
+//!   the main-window fallback, always need the prompt's approval (no trust window):
+//!   * `{op:"passkey_create", origin, rpId, rpName, user:{id,name,displayName}, clientDataJSON, algs, exclude}` →
+//!     `{ok:true, credentialId, attestationObject, authenticatorData, publicKey, alg}` | `{error}`.
+//!   * `{op:"passkey_get", origin, rpId, clientDataJSON, allow}` →
+//!     `{ok:true, credentialId, authenticatorData, signature, userHandle}` | `{error}`.
+//!
 //! Every request from protocol-2 extensions also carries `ext` (the extension's version) and `protocol`
 //! (its [`PROTOCOL`] number; missing = 1). Compatibility: the app serves extensions with
 //! `protocol >= MIN_EXTENSION_PROTOCOL` (others get `{error:"extension_outdated", appVersion, minProtocol}`), and
@@ -495,6 +502,10 @@ fn handle(app: &AppHandle, req: Value) -> Value {
     // Password-reuse warning (`reuse_salt`, `reuse_check`): no window, never starts the app (see autofill_reuse.rs).
     if let Some(reply) = crate::autofill_reuse::handle_op(app, op, &req) {
         touch_extension();
+        return reply;
+    }
+    // Passkeys (`passkey_create`, `passkey_get`): see the "Passkeys" block below.
+    if let Some(reply) = handle_passkey(app, op, &req) {
         return reply;
     }
     // Card and identity requests are only ever answered by the prompt window (see `await_ui`).
@@ -1837,5 +1848,149 @@ mod popup_tests {
         for op in ["list", "copy", "open"] {
             assert!(!may_launch(op), "{op}");
         }
+    }
+}
+
+// ─── Passkeys (experimental) ─────────────────────────────────────────────────
+//
+// `passkey_create` / `passkey_get` come from the extension's passkey bridge, which runs only when the user turned
+// on "Save and use passkeys with Notiq (experimental)" in the extension. The pure part (RP ID rule, client data
+// checks, keys, encodings) is `passkey.rs`. Here:
+// * The request is validated again (origin https / localhost, RP ID valid for the origin's host per the PSL,
+//   clientDataJSON built for that origin and ceremony). Nothing is shown for a bad request.
+// * Every create / get goes to the prompt window (never the main-window fallback, never a trust window), which
+//   unlocks the vault if needed and asks "Save a passkey for <site>?" / "Sign in to <site> with a passkey?".
+//   Unlocking and pressing Allow there is the user verification (UV).
+// * create: the key pair is generated here; the prompt window stores the record (private key included) on the
+//   Login entry the user picked, or a new one, and replies `{ok}`. The attestation is released only after the
+//   record is found in the vault.
+// * get: the prompt window lists only this RP ID's passkeys (and only `allow`ed ones when the RP names them) and
+//   replies `{ok, account, credentialId}`. The key is read and used here, and only when that entry holds a passkey
+//   with exactly this RP ID and credential id; the private key never reaches the extension.
+
+/// Emitted to the prompt window: `{id, host, rpId, rpName, userName, displayName, exclude, passkey}` → `{ok}`.
+const PASSKEY_CREATE_EVENT: &str = "autofill:passkey-create";
+/// Emitted to the prompt window: `{id, host, rpId, allow}` → `{ok, account, credentialId}`.
+const PASSKEY_GET_EVENT: &str = "autofill:passkey-get";
+
+/// The passkey ops; `None` for every other op.
+fn handle_passkey(app: &AppHandle, op: &str, req: &Value) -> Option<Value> {
+    if !matches!(op, "passkey_create" | "passkey_get") {
+        return None;
+    }
+    touch_extension();
+    let (host, reply) = if op == "passkey_create" { passkey_create(app, req) } else { passkey_get(app, req) };
+    if !host.is_empty() {
+        record_request(&host, &reply);
+    }
+    Some(reply)
+}
+
+/// The UI's answer reduced to `Ok(reply)` when it is `{ok:true, …}`, else the short error to send.
+fn passkey_ui_ok(ui: Value) -> Result<Value, Value> {
+    if let Some(e) = error_reply(&ui) {
+        return Err(e);
+    }
+    if ui.get("ok") != Some(&json!(true)) {
+        return Err(json!({ "error": "failed" }));
+    }
+    Ok(ui)
+}
+
+fn passkey_create(app: &AppHandle, req: &Value) -> (String, Value) {
+    let r = match crate::passkey::validate_create(req) {
+        Ok(r) => r,
+        Err(e) => return (String::new(), json!({ "error": e })),
+    };
+    let cred = match crate::passkey::generate() {
+        Ok(c) => c,
+        Err(e) => return (r.host, json!({ "error": e })),
+    };
+    let payload = json!({
+        "host": r.host, "rpId": r.rp_id, "rpName": r.rp_name, "userName": r.user_name,
+        "displayName": r.display_name, "exclude": r.exclude, "passkey": cred.record(&r, now_ms()),
+    });
+    if let Err(e) = passkey_ui_ok(await_ui(app, PASSKEY_CREATE_EVENT, payload, false)) {
+        return (r.host, e);
+    }
+    // Only tell the site about a passkey that really is in the vault.
+    let id = crate::passkey::b64u(&cred.credential_id);
+    let stored = app.state::<crate::vault::VaultState>().with_db(|db, _, _, _| {
+        let found = db.entries.values().any(|e| {
+            e.is_live()
+                && e.ext == "login"
+                && crate::passkey::find_in_login(&e.content, &r.rp_id, &id).is_some_and(|s| *s.pkcs8 == *cred.pkcs8)
+        });
+        Ok((found, false))
+    });
+    if stored != Ok(true) {
+        return (r.host, json!({ "error": "failed" }));
+    }
+    let reply = cred.reply(&r.rp_id);
+    (r.host, reply)
+}
+
+fn passkey_get(app: &AppHandle, req: &Value) -> (String, Value) {
+    let r = match crate::passkey::validate_get(req) {
+        Ok(r) => r,
+        Err(e) => return (String::new(), json!({ "error": e })),
+    };
+    let payload = json!({ "host": r.host, "rpId": r.rp_id, "allow": r.allow });
+    let ui = match passkey_ui_ok(await_ui(app, PASSKEY_GET_EVENT, payload, false)) {
+        Ok(ui) => ui,
+        Err(e) => return (r.host, e),
+    };
+    let (Ok(Some(account)), Some(cred_id)) =
+        (validate_account(ui.get("account")), crate::passkey::valid_credential_id(ui.get("credentialId")))
+    else {
+        return (r.host, json!({ "error": "failed" }));
+    };
+    if !passkey_allowed(&r.allow, &cred_id) {
+        return (r.host, json!({ "error": "denied" }));
+    }
+    let rel = account.replace('\\', "/");
+    let found = app.state::<crate::vault::VaultState>().with_db(|db, _, _, _| {
+        let found = db
+            .get(&rel)
+            .filter(|e| e.ext == "login")
+            .and_then(|e| crate::passkey::find_in_login(&e.content, &r.rp_id, &cred_id));
+        Ok((found, false))
+    });
+    let reply = match found {
+        Ok(Some(stored)) => crate::passkey::assertion_reply(&stored, &r.rp_id, &r.client_data_hash)
+            .unwrap_or_else(|e| json!({ "error": e })),
+        Ok(None) => json!({ "error": "no_passkey" }),
+        Err(_) => json!({ "error": "locked" }),
+    };
+    (r.host, reply)
+}
+
+/// May the credential the user picked answer a request that named `allow` (empty = any of the RP's passkeys)?
+pub fn passkey_allowed(allow: &[String], cred_id: &str) -> bool {
+    allow.is_empty() || allow.iter().any(|a| a == cred_id)
+}
+
+#[cfg(test)]
+mod passkey_tests {
+    use super::*;
+
+    #[test]
+    fn passkey_ops_never_start_the_app() {
+        assert!(!may_launch("passkey_create") && !may_launch("passkey_get"));
+    }
+
+    #[test]
+    fn allow_list_is_honoured() {
+        assert!(passkey_allowed(&[], "abc"));
+        assert!(passkey_allowed(&["x".into(), "abc".into()], "abc"));
+        assert!(!passkey_allowed(&["x".into()], "abc"));
+    }
+
+    #[test]
+    fn ui_errors_are_short_words() {
+        assert_eq!(passkey_ui_ok(json!({ "error": "denied" })).unwrap_err(), json!({ "error": "denied" }));
+        assert_eq!(passkey_ui_ok(json!({ "error": "no such <b>" })).unwrap_err(), json!({ "error": "nosuchb" }));
+        assert_eq!(passkey_ui_ok(json!({ "ok": "yes" })).unwrap_err(), json!({ "error": "failed" }));
+        assert!(passkey_ui_ok(json!({ "ok": true, "account": "Logins/a.nqv" })).is_ok());
     }
 }
