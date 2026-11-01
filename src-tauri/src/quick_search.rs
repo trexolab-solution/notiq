@@ -9,6 +9,10 @@
 //! * The window never shows secrets: `quick_search_index` returns names, kinds, tags and hosts
 //!   only. Copying reads the one entry on demand through the normal vault commands.
 //! * After a copy the window hides and the previously active window gets the focus back.
+//! * 2-step codes (TOTP): the index only says *whether* a login has a 2FA secret (`totp: bool`).
+//!   `quick_search_totp` returns the current 6-digit code and its seconds left for one entry; the
+//!   secret itself never reaches the quick window. Only answered for the quick window, only while
+//!   the vault is unlocked.
 
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -26,6 +30,8 @@ const SHOWN_EVENT: &str = "quick-search:shown";
 /// Emitted to the main window: open an entry (`{ rel }`) / open the unlock dialog.
 const OPEN_EVENT: &str = "quick-search:open";
 const UNLOCK_EVENT: &str = "quick-search:unlock";
+/// Emitted to the quick-search window whenever Rust hides it (stop the 2FA timers, drop codes).
+const HIDDEN_EVENT: &str = "quick-search:hidden";
 
 // ─── config (pure) ───────────────────────────────────────────────────────────
 
@@ -154,6 +160,8 @@ pub struct IndexItem {
     pub host: String,
     /// Every site / host string the entry can be found by.
     pub urls: Vec<String>,
+    /// A login with a usable 2FA (TOTP) secret. Only the flag: the secret stays in the vault.
+    pub totp: bool,
 }
 
 /// Host of a URL or bare domain: `https://user@Accounts.Google.com:443/x` → `accounts.google.com`.
@@ -229,6 +237,84 @@ pub fn index_fields(ext: &str, content: &str) -> (String, Vec<String>) {
         }
         _ => (String::new(), vec![]),
     }
+}
+
+// ─── 2-step codes (pure) ─────────────────────────────────────────────────────
+
+/// TOTP step in seconds (RFC 6238 default; the same as `totpCode` in src/lib/loginEntry.ts).
+pub const TOTP_PERIOD: u64 = 30;
+const TOTP_DIGITS: u32 = 6;
+
+/// RFC 4648 base32, case-insensitive; whitespace, `-` and `=` are ignored (same rules as the
+/// frontend's `base32Decode`). `None` for an empty or invalid secret.
+fn base32_decode(s: &str) -> Option<zeroize::Zeroizing<Vec<u8>>> {
+    const A: &[u8; 32] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+    let mut out = zeroize::Zeroizing::new(Vec::with_capacity(s.len() * 5 / 8));
+    let (mut bits, mut val) = (0u32, 0u32);
+    for ch in s.chars().filter(|c| !c.is_whitespace() && *c != '-' && *c != '=') {
+        let up = ch.to_ascii_uppercase();
+        let i = A.iter().position(|&a| a as char == up)? as u32;
+        val = ((val << 5) | i) & 0xffff;
+        bits += 5;
+        if bits >= 8 {
+            out.push(((val >> (bits - 8)) & 0xff) as u8);
+            bits -= 8;
+        }
+    }
+    if out.is_empty() { None } else { Some(out) }
+}
+
+/// RFC 6238 code (HMAC-SHA1, 6 digits, 30 s) for `secret` at `unix_secs`. `None` if the secret is invalid.
+pub fn totp_at(secret: &str, unix_secs: u64) -> Option<String> {
+    let key = base32_decode(secret)?;
+    let counter = unix_secs / TOTP_PERIOD;
+    let k = ring::hmac::Key::new(ring::hmac::HMAC_SHA1_FOR_LEGACY_USE_ONLY, &key);
+    let tag = ring::hmac::sign(&k, &counter.to_be_bytes());
+    let h = tag.as_ref();
+    let o = (h[h.len() - 1] & 15) as usize;
+    let bin = u32::from_be_bytes([h[o] & 0x7f, h[o + 1], h[o + 2], h[o + 3]]);
+    Some(format!("{:0width$}", bin % 10u32.pow(TOTP_DIGITS), width = TOTP_DIGITS as usize))
+}
+
+/// Whole seconds left in the TOTP step that contains `unix_secs` (1..=30).
+pub fn totp_remaining(unix_secs: u64) -> u64 {
+    TOTP_PERIOD - unix_secs % TOTP_PERIOD
+}
+
+/// Reads only the `totp` field of a login's JSON (password, notes, … are skipped by serde).
+fn login_totp_secret(content: &str) -> Option<zeroize::Zeroizing<String>> {
+    #[derive(Deserialize, Default)]
+    struct Login {
+        #[serde(default)]
+        totp: String,
+    }
+    let l: Login = serde_json::from_str(content).ok()?;
+    let s = zeroize::Zeroizing::new(l.totp);
+    if s.trim().is_empty() { None } else { Some(s) }
+}
+
+/// Does this entry have a usable 2FA secret? (For the index flag; never returns the secret.)
+pub fn has_totp(ext: &str, content: &str) -> bool {
+    ext == "login" && login_totp_secret(content).is_some_and(|s| base32_decode(&s).is_some())
+}
+
+/// The current code of one login: what `quick_search_totp` returns.
+#[derive(Serialize, Debug, Clone, PartialEq)]
+pub struct TotpNow {
+    pub code: String,
+    /// Seconds the code is still valid (1..=30).
+    pub remaining: u64,
+    pub period: u64,
+}
+
+/// The code of a login's 2FA secret at `unix_ms`, or `None` (not a login / no or bad secret).
+pub fn totp_now(ext: &str, content: &str, unix_ms: u64) -> Option<TotpNow> {
+    if ext != "login" {
+        return None;
+    }
+    let secs = unix_ms / 1000;
+    let code = totp_at(&login_totp_secret(content)?, secs)?;
+    Some(TotpNow { code, remaining: totp_remaining(secs), period: TOTP_PERIOD })
 }
 
 // ─── runtime state ───────────────────────────────────────────────────────────
@@ -364,11 +450,19 @@ fn restore_foreground() {}
 
 // ─── window ──────────────────────────────────────────────────────────────────
 
+/// Hides the quick window and tells it so (it stops its 2FA timers and forgets the codes).
+fn hide_quick(app: &AppHandle) {
+    if let Some(w) = app.get_webview_window(WINDOW_LABEL) {
+        let _ = w.hide();
+        let _ = app.emit_to(WINDOW_LABEL, HIDDEN_EVENT, ());
+    }
+}
+
 #[cfg(desktop)]
 fn on_hotkey(app: &AppHandle) {
     if let Some(w) = app.get_webview_window(WINDOW_LABEL) {
         if w.is_visible().unwrap_or(false) && w.is_focused().unwrap_or(false) {
-            let _ = w.hide();
+            hide_quick(app);
             restore_foreground();
             return;
         }
@@ -458,9 +552,7 @@ pub fn quick_search_set(app: AppHandle, enabled: bool, combo: String) -> Result<
     save_config(&app, &next)?;
     set_error(None);
     if !enabled {
-        if let Some(w) = app.get_webview_window(WINDOW_LABEL) {
-            let _ = w.hide();
-        }
+        hide_quick(&app);
     }
     Ok(status(next))
 }
@@ -468,9 +560,7 @@ pub fn quick_search_set(app: AppHandle, enabled: bool, combo: String) -> Result<
 /// Hides the quick window; `restore` hands the focus back to the window that was active before.
 #[tauri::command]
 pub fn quick_search_hide(app: AppHandle, restore: bool) {
-    if let Some(w) = app.get_webview_window(WINDOW_LABEL) {
-        let _ = w.hide();
-    }
+    hide_quick(&app);
     if restore {
         restore_foreground();
     } else {
@@ -482,9 +572,7 @@ pub fn quick_search_hide(app: AppHandle, restore: bool) {
 /// Brings the main window forward and asks it to open an entry (`rel`) or the unlock dialog.
 #[tauri::command]
 pub fn quick_search_show_main(app: AppHandle, action: String, rel: Option<String>) -> Result<(), String> {
-    if let Some(w) = app.get_webview_window(WINDOW_LABEL) {
-        let _ = w.hide();
-    }
+    hide_quick(&app);
     // After an unlock the popup comes back (`quick_search_reopen`) and a copy should still return
     // the focus to the original app; opening an entry ends the quick-search session.
     #[cfg(windows)]
@@ -527,11 +615,29 @@ pub fn quick_search_index(state: State<'_, VaultState>) -> Result<Vec<IndexItem>
                 let (host, urls) = index_fields(&e.ext, &e.content);
                 IndexItem {
                     rel: e.path.clone(), ext: e.ext.clone(), tags: e.tags.clone(), starred: e.starred,
-                    updated: e.updated, host, urls,
+                    updated: e.updated, host, urls, totp: has_totp(&e.ext, &e.content),
                 }
             })
             .collect();
         Ok((items, false))
+    })
+}
+
+/// The current 2FA code + seconds left of one login (`rel` from `quick_search_index`). Only the code
+/// crosses to the WebView, never the secret. Refused for every window but the quick window, and
+/// with `VAULT_LOCKED` while the vault is locked.
+#[tauri::command]
+pub fn quick_search_totp(window: tauri::Window, state: State<'_, VaultState>, rel: String) -> Result<TotpNow, String> {
+    if window.label() != WINDOW_LABEL {
+        return Err("Not allowed".into());
+    }
+    if rel.is_empty() || rel.len() > 4096 {
+        return Err("Missing entry".into());
+    }
+    state.with_db(|db, _, _, _| {
+        let e = db.get(&rel).ok_or("Entry not found")?;
+        let now = totp_now(&e.ext, &e.content, crate::vault_db::now_ms()).ok_or("This login has no 2FA code")?;
+        Ok((now, false))
     })
 }
 
@@ -623,6 +729,68 @@ mod tests {
         for secret in ["hunter2", "ABC\"", "pw\"", "KEY", "sk-123", "\"me\"", "wifipass", "abcd-1234"] {
             assert!(!all.contains(secret), "index leaked {secret}");
         }
+    }
+
+    #[test]
+    fn totp_matches_rfc6238_vectors() {
+        // RFC 6238 appendix B (SHA-1 seed "12345678901234567890"), last 6 digits.
+        let secret = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ";
+        for (t, code) in [(59u64, "287082"), (1111111109, "081804"), (1111111111, "050471"),
+                          (1234567890, "005924"), (2000000000, "279037"), (20000000000, "353130")] {
+            assert_eq!(totp_at(secret, t).as_deref(), Some(code), "t={t}");
+        }
+        // Spaces, dashes, padding and lower case are tolerated, like the frontend's decoder.
+        assert_eq!(totp_at("gezd gnbv-gy3t qojq gezd gnbv gy3t qojq==", 59).as_deref(), Some("287082"));
+        assert_eq!(totp_at("", 59), None);
+        assert_eq!(totp_at("not base32!", 59), None);
+        assert_eq!(totp_at("1", 59), None); // '1' isn't in the alphabet
+    }
+
+    #[test]
+    fn totp_remaining_counts_down_per_step() {
+        assert_eq!(totp_remaining(0), 30);
+        assert_eq!(totp_remaining(1), 29);
+        assert_eq!(totp_remaining(29), 1);
+        assert_eq!(totp_remaining(30), 30);
+    }
+
+    #[test]
+    fn totp_now_returns_only_the_code() {
+        let login = r#"{"v":1,"kind":"login","title":"G","username":"me","password":"hunter2","totp":"GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ"}"#;
+        let now = totp_now("login", login, 59_000).unwrap();
+        assert_eq!(now, TotpNow { code: "287082".into(), remaining: 1, period: 30 });
+        let json = serde_json::to_string(&now).unwrap();
+        for leak in ["hunter2", "GEZDGNBV", "\"me\""] {
+            assert!(!json.contains(leak), "totp reply leaked {leak}");
+        }
+        // Next step: a new code with the full window left.
+        let next = totp_now("login", login, 60_000).unwrap();
+        assert_eq!(next.remaining, 30);
+        assert_ne!(next.code, now.code);
+        // No / blank / broken secret, other kinds, broken JSON.
+        assert_eq!(totp_now("login", r#"{"totp":""}"#, 0), None);
+        assert_eq!(totp_now("login", r#"{"totp":"   "}"#, 0), None);
+        assert_eq!(totp_now("login", r#"{"totp":"!!"}"#, 0), None);
+        assert_eq!(totp_now("login", r#"{"password":"x"}"#, 0), None);
+        assert_eq!(totp_now("login", "{broken", 0), None);
+        assert_eq!(totp_now("secret", r#"{"totp":"GEZDGNBVGY3TQOJQ"}"#, 0), None);
+    }
+
+    #[test]
+    fn index_flags_totp_without_the_secret() {
+        let with = r#"{"kind":"login","url":"https://google.com","totp":"JBSWY3DPEHPK3PXP"}"#;
+        assert!(has_totp("login", with));
+        assert!(!has_totp("login", r#"{"kind":"login","totp":""}"#));
+        assert!(!has_totp("login", r#"{"kind":"login","totp":"??"}"#));
+        assert!(!has_totp("login", r#"{"kind":"login"}"#));
+        assert!(!has_totp("md", with));
+        let item = IndexItem {
+            rel: "G.nqv".into(), ext: "login".into(), tags: vec![], starred: false, updated: 0,
+            host: "google.com".into(), urls: vec![], totp: has_totp("login", with),
+        };
+        let json = serde_json::to_string(&item).unwrap();
+        assert!(json.contains("\"totp\":true"));
+        assert!(!json.contains("JBSWY3DP"));
     }
 
     #[test]
