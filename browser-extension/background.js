@@ -44,14 +44,31 @@ async function appUnlocked() {
 // own origin, its ancestors' origins and whether it shows fillable / password inputs; the background decides
 // (NotiqShared.fillTargetOk, Public Suffix List rule) which frames may receive the login. Self-contained:
 // executeScript serializes it, so it may not use anything outside its body.
+// Inputs inside the page's OPEN shadow roots count too: the same search as the in-page icon (NotiqFill.deepQuery
+// from fillkit.js, already loaded as a content script; else the same walk inline: at most 6 nested roots and
+// 200 roots in all; closed roots are never entered).
 function probeFrame() {
   const visible = (el) => {
     const r = el.getBoundingClientRect();
     const cs = getComputedStyle(el);
     return r.width > 0 && r.height > 0 && cs.visibility !== "hidden" && cs.display !== "none" && !el.disabled && !el.readOnly;
   };
+  const FKq = globalThis.NotiqFill;
+  const deep = (root, sel) => {
+    if (FKq && typeof FKq.deepQuery === "function") return FKq.deepQuery(root, sel);
+    const out = [];
+    let roots = 0;
+    const walk = (scope, depth) => {
+      for (const n of scope.querySelectorAll("*")) {
+        if (n.matches(sel)) out.push(n);
+        if (n.shadowRoot && depth < 6 && roots < 200) { roots++; walk(n.shadowRoot, depth + 1); }
+      }
+    };
+    walk(root, 0);
+    return out;
+  };
   const kinds = ["text", "email", "tel", "password", "number", ""];
-  const inputs = [...document.querySelectorAll("input")].filter((i) => kinds.includes(i.type) && visible(i));
+  const inputs = deep(document, "input").filter((i) => kinds.includes(i.type) && visible(i));
   let ancestors = null;
   try { if (location.ancestorOrigins) ancestors = [...location.ancestorOrigins]; } catch { ancestors = null; }
   return {
@@ -85,10 +102,26 @@ function fillPage(host, cred, scope) {
     const setter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
     el.focus();
     if (setter) setter.call(el, value); else el.value = value;
-    el.dispatchEvent(new Event("input", { bubbles: true }));
+    // composed: listeners outside an open shadow root hear them too (as with the in-page fill).
+    el.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
     el.dispatchEvent(new Event("change", { bubbles: true }));
   };
-  const all = [...document.querySelectorAll("input")].filter(visible);
+  // Open shadow roots are searched like the in-page icon does (see probeFrame); lists are in tree order.
+  const FKq = globalThis.NotiqFill;
+  const deep = (root, sel) => {
+    if (FKq && typeof FKq.deepQuery === "function") return FKq.deepQuery(root, sel);
+    const out = [];
+    let roots = 0;
+    const walk = (scope, depth) => {
+      for (const n of scope.querySelectorAll("*")) {
+        if (n.matches(sel)) out.push(n);
+        if (n.shadowRoot && depth < 6 && roots < 200) { roots++; walk(n.shadowRoot, depth + 1); }
+      }
+    };
+    walk(root, 0);
+    return out;
+  };
+  const all = deep(document, "input").filter(visible);
   const pw = all.find((i) => i.type === "password");
   const textual = (i) => ["text", "email", "tel", ""].includes(i.type) || !i.type;
   let n = 0;
@@ -99,7 +132,7 @@ function fillPage(host, cred, scope) {
   {
     const runs = [];
     let run = [];
-    for (const i of document.querySelectorAll("input")) {
+    for (const i of deep(document, "input")) {
       if (i.type === "hidden") continue;
       if (["text", "tel", "number"].includes(i.type) && i.maxLength === 1 && visible(i)) { run.push(i); continue; }
       if (run.length) runs.push(run);
@@ -115,8 +148,10 @@ function fillPage(host, cred, scope) {
   if (boxes) used.push(...boxes);
   if (pw) {
     const form = pw.form || document;
-    const candidates = [...form.querySelectorAll("input")].filter((i) => visible(i) && textual(i) && i !== otp && !(boxes && boxes.includes(i)));
-    const before = candidates.filter((i) => pw.compareDocumentPosition(i) & Node.DOCUMENT_POSITION_PRECEDING);
+    const order = deep(form, "input"); // tree order across shadow roots (compareDocumentPosition can't order those)
+    const at = order.indexOf(pw);
+    const candidates = order.filter((i) => visible(i) && textual(i) && i !== otp && !(boxes && boxes.includes(i)));
+    const before = candidates.filter((i) => order.indexOf(i) < at);
     const user = before.length ? before[before.length - 1] : null;
     if (user && cred.username) { set(user, cred.username); n++; used.push(user); }
     set(pw, cred.password); n++; used.push(pw);
@@ -146,7 +181,7 @@ function fillPage(host, cred, scope) {
   const fields = Array.isArray(cred.fields) ? cred.fields : [];
   if (fields.length && FK && typeof FK.matchCustomFields === "function") {
     const root = (pw && pw.form) || (used.find((el) => el.form) || {}).form || document; // the login's form, else the frame
-    const els = [...root.querySelectorAll("input, textarea")].filter((el) => FK.customFillable(el) && visible(el) &&
+    const els = deep(root, "input, textarea").filter((el) => FK.customFillable(el) && visible(el) &&
       !used.includes(el) && el.maxLength !== 1 && !otpLike(el) &&
       !/(^|\s)(one-time-code|new-password|cc-[a-z-]+)(\s|$)/i.test(el.getAttribute("autocomplete") || ""));
     const active = document.activeElement;
@@ -932,3 +967,117 @@ if (MENUS) {
   }
   buildMenus().catch(() => {});
 }
+
+// ---------- "Hide Notiq on this site" and the password-reuse warning ----------
+// Per-site lists in chrome.storage.local (validated with NotiqShared.hostList, at most 500 each):
+//   hiddenSites  — "Hide Notiq on this site": no icon / focus suggestion there (the toolbar button, Alt+Shift+L
+//                  and the right-click menu still work). Set from an icon menu or the popup; the popup lists them.
+//   reuseTrusted — "It's OK, I trust this site" on the reuse warning: no warning there any more.
+// The host is always the top page's, taken from the tab's URL, never from a message.
+//
+// Reuse check (see autofill_reuse.rs): a content script asks `reuseSalt` (this app run's random salt, cached
+// here in memory), computes HMAC-SHA256(salt, password) cut to 16 bytes itself, and sends only that tag with
+// `reuseCheck`. The password never reaches this service worker or Notiq. Notiq answers with the site of a login
+// saved for another site, or null; it shows no window, never starts and rate-limits the check. A locked vault,
+// an older Notiq or any error means no warning.
+const SITE_LISTS = Object.freeze({ hidden: "hiddenSites", trusted: "reuseTrusted" });
+const REUSE_SALT_TTL = 10 * 60 * 1000;
+const SALT_RE = /^[0-9a-f]{64}$/;
+const TAG_RE = /^[0-9a-f]{32}$/;
+let reuseSaltCache = null; // { salt, at }
+
+async function siteList(key) {
+  return NotiqShared.hostList((await chrome.storage.local.get({ [key]: [] }))[key]);
+}
+async function setSiteListed(key, host, on) {
+  const list = await siteList(key);
+  const next = on ? (list.includes(host) ? list : [...list, host]) : list.filter((h) => h !== host);
+  if (next.length !== list.length) await chrome.storage.local.set({ [key]: NotiqShared.hostList(next) });
+  return { ok: true, host, listed: next.includes(host) };
+}
+
+async function reuseSaltFor(sender) {
+  const info = topInfo(sender);
+  if (info.error) return { error: info.error };
+  if ((await siteList(SITE_LISTS.trusted)).includes(info.host)) return { error: "trusted" };
+  const now = Date.now();
+  const c = reuseSaltCache;
+  if (c && now - c.at < REUSE_SALT_TTL && now >= c.at) return { ok: true, salt: c.salt };
+  const res = await ask({ op: "reuse_salt" });
+  if (!res || res.ok !== true || typeof res.salt !== "string" || !SALT_RE.test(res.salt)) {
+    reuseSaltCache = null;
+    return { error: errorOf(res) };
+  }
+  reuseSaltCache = { salt: res.salt, at: now };
+  return { ok: true, salt: res.salt };
+}
+
+async function reuseCheckFor(sender, msg) {
+  if (typeof msg.salt !== "string" || !SALT_RE.test(msg.salt) || typeof msg.tag !== "string" || !TAG_RE.test(msg.tag)) {
+    return { error: "bad_request" };
+  }
+  const info = topInfo(sender);
+  if (info.error) return { error: info.error };
+  if ((await siteList(SITE_LISTS.trusted)).includes(info.host)) return { ok: true, site: null };
+  const res = await ask({ op: "reuse_check", host: info.host, salt: msg.salt, tag: msg.tag });
+  if (res && res.error === "stale_salt") { reuseSaltCache = null; return { error: "stale_salt" }; }
+  if (!res || res.ok !== true) return { error: errorOf(res) };
+  const site = typeof res.site === "string" ? res.site.toLowerCase() : "";
+  // Only a plain host, never the page's own site (the app checks that too).
+  if (!site || site.length > 253 || !/^[a-z0-9.-]+$/.test(site) || sameSite(site, info.host) || sameSite(info.host, site)) {
+    return { ok: true, site: null };
+  }
+  return { ok: true, site };
+}
+
+// "Leave this site" on the warning (a trusted click in the page's closed UI): the TAB leaves, whichever frame asked.
+async function reuseLeave(sender) {
+  try { await chrome.tabs.update(sender.tab.id, { url: "about:blank" }); } catch { return { error: "failed" }; }
+  return { ok: true };
+}
+
+const SITE_HANDLERS = {
+  reuseSalt: (_m, s) => reuseSaltFor(s),
+  reuseCheck: (m, s) => reuseCheckFor(s, m),
+  reuseTrust: async (_m, s) => {
+    const info = topInfo(s);
+    return info.error ? { error: info.error } : setSiteListed(SITE_LISTS.trusted, info.host, true);
+  },
+  reuseLeave: (_m, s) => reuseLeave(s),
+  hideSite: async (_m, s) => {
+    const info = topInfo(s);
+    return info.error ? { error: info.error } : setSiteListed(SITE_LISTS.hidden, info.host, true);
+  },
+};
+// The popup: is Notiq hidden on the active tab's site, and change it.
+const POPUP_SITE_HANDLERS = {
+  siteHidden: async () => {
+    const t = await popupTab();
+    if (t.error) return { error: t.error };
+    return { ok: true, host: t.host, hidden: (await siteList(SITE_LISTS.hidden)).includes(t.host) };
+  },
+  setSiteHidden: async (msg) => {
+    if (typeof msg.hidden !== "boolean") return { error: "bad_request" };
+    const t = await popupTab();
+    if (t.error) return { error: t.error };
+    const r = await setSiteListed(SITE_LISTS.hidden, t.host, msg.hidden);
+    return { ok: true, host: t.host, hidden: r.listed };
+  },
+};
+chrome.runtime.onMessage.addListener((msg, sender, send) => {
+  if (!sender || sender.id !== chrome.runtime.id) return false;
+  if (!msg || typeof msg !== "object" || typeof msg.type !== "string" || messageTooBig(msg)) return false;
+  if (sender.tab) {
+    // Content scripts: the top frame, or a same-site subframe (checked against the tab's real URL).
+    if (!Object.prototype.hasOwnProperty.call(SITE_HANDLERS, msg.type)) return false;
+    if (typeof sender.tab.id !== "number" || sender.tab.id < 0 || typeof sender.url !== "string" || typeof sender.frameId !== "number") return false;
+    if (sender.frameId !== 0 && !frameAllowed(sender)) return false;
+    SITE_HANDLERS[msg.type](msg, sender).then(send, () => send({ error: "failed" }));
+    return true;
+  }
+  // Extension pages (the popup).
+  if (!Object.prototype.hasOwnProperty.call(POPUP_SITE_HANDLERS, msg.type)) return false;
+  if (typeof sender.url === "string" && !sender.url.startsWith(chrome.runtime.getURL(""))) return false;
+  POPUP_SITE_HANDLERS[msg.type](msg).then(send, () => send({ error: "failed" }));
+  return true;
+});

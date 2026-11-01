@@ -6,6 +6,7 @@ mod ai;
 mod breach; // 0.9.1 opt-in breached-password check (HIBP range API)
 mod clipboard;
 pub mod autofill;
+mod autofill_reuse; // password-reuse / phishing warning (reuse_salt, reuse_check)
 mod native_host_reg; // 0.7.0 autofill
 mod vault;
 mod vault_backup;

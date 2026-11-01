@@ -37,6 +37,9 @@
 //!     the APP copies the value (kept out of clipboard history, cleared after the user's setting); the value never
 //!     reaches the extension. Password / code: approved like a fill (prompt, or the site's trust window).
 //!   * `{op:"open", host, account}` → `{ok:true}`: brings Notiq forward and opens that entry.
+//! * Password-reuse warning: `{op:"reuse_salt"}` → `{ok:true, salt}` and `{op:"reuse_check", host, salt, tag}` →
+//!   `{ok:true, site:null|"paypal.com"}` | `{error}` (no window, never starts the app, rate-limited; the password
+//!   never leaves the extension, only a salted truncated HMAC of it). See `autofill_reuse.rs`.
 //!
 //! Every request from protocol-2 extensions also carries `ext` (the extension's version) and `protocol`
 //! (its [`PROTOCOL`] number; missing = 1). Compatibility: the app serves extensions with
@@ -487,6 +490,11 @@ fn handle(app: &AppHandle, req: Value) -> Value {
         }
     }
     if let Some(reply) = handle_popup(app, op, &req) {
+        return reply;
+    }
+    // Password-reuse warning (`reuse_salt`, `reuse_check`): no window, never starts the app (see autofill_reuse.rs).
+    if let Some(reply) = crate::autofill_reuse::handle_op(app, op, &req) {
+        touch_extension();
         return reply;
     }
     // Card and identity requests are only ever answered by the prompt window (see `await_ui`).

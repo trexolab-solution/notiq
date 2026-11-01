@@ -367,11 +367,31 @@
     return out;
   }
 
+  // ---------- password-reuse warning: the tag sent instead of the password ----------
+  // Only passwords of 8+ characters (code points) up to 1024 are checked.
+  const REUSE_MIN = 8, REUSE_MAX = 1024;
+  const reuseEligible = (pw) => typeof pw === "string" && pw.length <= REUSE_MAX && Array.from(pw).length >= REUSE_MIN;
+  // HMAC-SHA256(salt, UTF-8 password), first 16 bytes as lower-case hex (32 chars); `saltHex` is the app's
+  // 32-byte salt (64 hex chars). `subtle`: crypto.subtle. Resolves to null for bad input. The password stays in
+  // this function: only the tag is returned.
+  async function reuseTag(subtle, saltHex, pw) {
+    if (!subtle || typeof saltHex !== "string" || !/^[0-9a-f]{64}$/.test(saltHex) || !reuseEligible(pw)) return null;
+    const salt = new Uint8Array(32);
+    for (let i = 0; i < 32; i++) salt[i] = parseInt(saltHex.slice(i * 2, i * 2 + 2), 16);
+    const key = await subtle.importKey("raw", salt, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+    const mac = new Uint8Array(await subtle.sign("HMAC", key, new TextEncoder().encode(pw)));
+    let out = "";
+    for (let i = 0; i < 16; i++) out += mac[i].toString(16).padStart(2, "0");
+    mac.fill(0);
+    return out;
+  }
+
   const api = Object.freeze({
     DEFAULT_LEN, MIN_LEN, DEFAULT_CLASSES,
     parsePasswordRules, simplePattern, planPassword, drawPassword, generateFor, mergeConstraints,
     deepQuery, shadowRoots, deepActive, parentAcross,
     nameTokens, nameKey, customFillable, describeField, matchCustomFields,
+    reuseEligible, reuseTag,
   });
   try {
     Object.defineProperty(g, "NotiqFill", { value: api, writable: false, configurable: false, enumerable: false });
