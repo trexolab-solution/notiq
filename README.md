@@ -505,7 +505,9 @@ The `browser-extension/` folder holds a Chrome / Edge / Brave (and Firefox) exte
 - All note content is stored **locally** in IndexedDB inside the Tauri WebView
 - Whiteboard drawings are stored in **localStorage** keyed by tab ID
 - File saves write directly to your filesystem — allowed paths are `$HOME`, `$DESKTOP`, `$DOCUMENT`, and `$DOWNLOAD`
-- **No telemetry, ever** — no analytics, no crash reporting, no update checks, no accounts
+- **No telemetry, ever** — no analytics, no crash reporting, no accounts
+- **Update checks** only download the public release file from GitHub (hourly; turn it off in **Settings → Updates**)
+- **Vault Sync is opt-in and off by default.** When you turn it on, only the encrypted vault goes to your own Google Drive (see [Vault Sync with Google Drive](#vault-sync-with-google-drive))
 - **AI is opt-in and off by default.** When you enable it, only the text needed for a request is sent to the Ollama endpoint you configure — your own machine with local Ollama (fully offline), or Ollama Cloud if you provide an API key. Nothing is sent anywhere else, and nothing is sent at all while AI is disabled. Your API key is kept in the OS keychain, never in a plain-text file
 
 ---
