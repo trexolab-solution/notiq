@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
-import { Plus } from "lucide-react";
+import { Ellipsis, Plus } from "lucide-react";
 import { Button } from "../ui/Button";
+import { ContextMenu, type ContextMenuItem } from "../ui/ContextMenu";
 import { Tooltip } from "../ui/Tooltip";
 import { toast } from "../../lib/toast";
 
@@ -44,11 +45,95 @@ export function RowActions({ children, className = "" }: { children: React.React
 }
 
 /**
+ * Empty slot the size of a {@link RowIconButton}. Rows whose action column has an optional action (reveal
+ * only on hidden values) render this in its place, so inputs end at the same x in every row.
+ */
+export function RowIconSpacer() {
+  return <span aria-hidden className="h-7 w-7 shrink-0" />;
+}
+
+/** The outlined, divided box a list's rows sit in ("Also used on", custom fields): one light frame, no card per row. */
+export const listBoxClass =
+  "flex flex-col rounded-md border border-[var(--color-border)] divide-y divide-[var(--color-border)]";
+/** Row hover inside {@link listBoxClass}: a faint tint, light enough that inputs in the row keep their edge. */
+export const listRowHoverClass =
+  "transition-colors hover:bg-[color-mix(in_srgb,var(--color-bg-tertiary)_55%,transparent)] " +
+  "focus-within:bg-[color-mix(in_srgb,var(--color-bg-tertiary)_55%,transparent)]";
+
+/**
+ * "⋯" button that opens the app's {@link ContextMenu} as a dropdown under it, for a row's secondary actions.
+ * A menu button in the ARIA sense: `aria-haspopup` / `aria-expanded`; Enter, Space or ↓ open it with the
+ * first enabled item focused; disabled items are skipped; Escape, Tab or an outside click return focus here.
+ */
+export function RowMenuButton({ label, menuLabel, items, tooltip = "More actions", className = "", ...rest }:
+  Omit<RowIconButtonProps, "icon" | "onClick" | "pressed" | "danger" | "tooltip"> & {
+    /** Accessible name of the menu itself; defaults to `label`. */
+    menuLabel?: string;
+    items: ContextMenuItem[];
+    tooltip?: string;
+  }) {
+  const btn = useRef<HTMLButtonElement | null>(null);
+  const [at, setAt] = useState<{ x: number; y: number } | null>(null);
+  // The outside press that closes the menu can land on this button: its click must not re-open it.
+  const closingByPress = useRef(false);
+
+  const open = (el: HTMLButtonElement) => {
+    btn.current = el;
+    const r = el.getBoundingClientRect();
+    setAt({ x: r.right, y: r.bottom + 4 });
+  };
+  const close = () => {
+    setAt(null);
+    // Back to the button, unless the user has already moved on to another control.
+    const a = document.activeElement;
+    if (!a || a === document.body || a.closest('[role="menu"]')) btn.current?.focus({ preventScroll: true });
+  };
+
+  return (
+    <>
+      <RowIconButton label={label} tooltip={tooltip} icon={<Ellipsis size={14} />} aria-haspopup="menu"
+                     aria-expanded={!!at}
+                     className={`aria-expanded:bg-[var(--color-bg-tertiary)] aria-expanded:text-[var(--color-text)] ${className}`}
+                     {...rest}
+                     onMouseDown={() => { closingByPress.current = !!at; }}
+                     onClick={(e) => {
+                       if (closingByPress.current) { closingByPress.current = false; return; }
+                       open(e.currentTarget);
+                     }}
+                     onKeyDown={(e) => { if (e.key === "ArrowDown" && !at) { e.preventDefault(); open(e.currentTarget); } }} />
+      {at && <ContextMenu x={at.x} y={at.y} align="end" autoFocusFirst label={menuLabel ?? label} items={items} onClose={close} />}
+    </>
+  );
+}
+
+/**
+ * Text input that reads as a field label: small muted text at rest, an input outline on hover and a full
+ * input look on focus. For user-named rows (a custom field's name), so they match the built-in labels.
+ * While empty it keeps a dashed outline, so it is plainly something to fill in.
+ */
+export const InlineLabelInput = React.memo(function InlineLabelInput(
+  { className = "", ...props }: React.InputHTMLAttributes<HTMLInputElement>,
+) {
+  return (
+    <input type="text" {...props}
+           className={"h-6 -ml-1.5 px-1.5 min-w-[9rem] max-w-full [field-sizing:content] rounded text-xs " +
+             "bg-transparent border border-transparent text-[var(--color-text-muted)] " +
+             "placeholder:text-[var(--color-text-muted)] placeholder:opacity-70 " +
+             "placeholder-shown:border-dashed placeholder-shown:border-[var(--color-border)] " +
+             "outline-none transition-colors cursor-text hover:border-[var(--color-border)] hover:text-[var(--color-text)] " +
+             "focus:border-solid focus:border-[var(--color-primary)] focus:bg-[var(--color-bg-tertiary)] focus:text-[var(--color-text)] " +
+             `focus-visible:ring-2 focus-visible:ring-[var(--color-primary)]/40 ${className}`} />
+  );
+});
+
+/**
  * "+ Add …" control. At the limit it stays focusable (aria-disabled) so its tooltip can explain why,
  * and clicks do nothing. Marked `data-list-add` so {@link useListFocus} can return focus to it.
  */
-export function AddRowButton({ children, onAdd, atLimit, limitText, tooltip }: {
+export function AddRowButton({ children, onAdd, atLimit, limitText, tooltip, block }: {
   children: React.ReactNode; onAdd: () => void; atLimit?: boolean; limitText?: string; tooltip?: string;
+  /** Full-width dashed button under a list ("+ Add website", "+ Add field"). */
+  block?: boolean;
 }) {
   const hintId = useId();
   return (
@@ -56,7 +141,7 @@ export function AddRowButton({ children, onAdd, atLimit, limitText, tooltip }: {
       <Tooltip content={atLimit ? limitText : tooltip}>
         <Button size="sm" icon={<Plus size={12} />} data-list-add="" aria-disabled={atLimit || undefined}
                 aria-describedby={atLimit && limitText ? hintId : undefined}
-                className={`min-h-7 ${atLimit ? "!opacity-40 !cursor-not-allowed hover:!bg-transparent" : ""}`}
+                className={`min-h-7 ${block ? ADD_BLOCK : ""} ${atLimit ? "!opacity-40 !cursor-not-allowed hover:!bg-transparent hover:!border-[var(--color-border)] hover:!text-[var(--color-text)]" : ""}`}
                 onClick={() => { if (!atLimit) onAdd(); }}>
           {children}
         </Button>
@@ -65,6 +150,11 @@ export function AddRowButton({ children, onAdd, atLimit, limitText, tooltip }: {
     </>
   );
 }
+
+const ADD_BLOCK =
+  "w-full justify-center min-h-8 border border-dashed border-[var(--color-border)] !text-[var(--color-text)] " +
+  "hover:border-[var(--color-primary)] hover:!text-[var(--color-primary)] " +
+  "hover:!bg-[color-mix(in_srgb,var(--color-primary)_6%,transparent)]";
 
 /** Polite live region. `announce` replaces its text; repeating the same message still gets read. */
 export function useAnnouncer() {

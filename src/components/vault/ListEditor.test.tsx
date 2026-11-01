@@ -39,6 +39,12 @@ function type(el: HTMLInputElement, value: string) {
 }
 const key = (el: HTMLElement, k: string) =>
   act(() => { el.dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true })); });
+/** A key while a menu is open: ContextMenu listens on window (capture), wherever focus is. */
+const winKey = (k: string) => key(document.activeElement as HTMLElement ?? document.body, k);
+const menuItem = (label: string) =>
+  [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((b) => b.textContent?.trim() === label)!;
+/** Opens a custom field's ⋯ menu and clicks one of its items. */
+const pick = (field: string, item: string) => { click(btn(`More actions for ${field}`)!); click(menuItem(item)); };
 
 function Sites({ initial }: { initial: string[] }) {
   const [entry, setEntry] = useState<LoginEntry>({ ...emptyLogin("Bank"), url: "https://bank.example", urls: initial });
@@ -127,51 +133,117 @@ describe("Custom fields (CustomFieldsEditor)", () => {
   it("Add field focuses the new row's name input", () => {
     renderFields([f("PIN", "1234")]);
     click(byText("Add field"));
-    expect(document.activeElement).toBe(input("Name of custom field 2"));
+    expect(document.activeElement).toBe(input("Field name 2"));
     flush();
     expect(live().textContent).toBe("Custom field 2 added");
   });
 
   it("Enter in the last value adds a row; Enter in a name jumps to its value", () => {
     renderFields([f("PIN", "1234")]);
-    key(input("Name of custom field 1"), "Enter");
+    key(input("Field name 1"), "Enter");
     expect(document.activeElement).toBe(input("Value of PIN"));
     key(input("Value of PIN"), "Enter");
     expect(host.querySelectorAll("li[data-list-row]")).toHaveLength(2);
-    expect(document.activeElement).toBe(input("Name of custom field 2"));
+    expect(document.activeElement).toBe(input("Field name 2"));
   });
 
-  it("row actions carry the field's name", () => {
+  it("row actions carry the field's name; a hidden field shows its badge and masks the value", () => {
     renderFields([f("Customer ID", "C-1", true)]);
     expect(btn("Copy value of Customer ID")).toBeTruthy();
     expect(btn("Show value of Customer ID")).toBeTruthy();
-    expect(btn("Remove Customer ID")).toBeTruthy();
-    expect(btn("Move Customer ID up")!.disabled).toBe(true);
-    expect(host.querySelector('button[aria-label="Type of Customer ID"]')?.textContent).toContain("Hidden");
+    expect(btn("More actions for Customer ID")!.getAttribute("aria-haspopup")).toBe("menu");
+    expect(host.querySelector("li[data-list-row]")!.textContent).toContain("Hidden");
     expect(input("Value of Customer ID").type).toBe("password");
     click(btn("Show value of Customer ID")!);
     expect(input("Value of Customer ID").type).toBe("text");
   });
 
+  it("every row has the same action slots, so value inputs line up", () => {
+    renderFields([f("A", "1"), f("B", "2", true)]);
+    const slots = [...host.querySelectorAll("li[data-list-row]")]
+      .map((li) => li.querySelector("[data-field-value]")!.nextElementSibling!.children.length);
+    expect(slots).toEqual([3, 3]);
+  });
+
   it("remove moves focus to the next row, then to Add field; an empty row has no Undo", () => {
     renderFields([f("A", "1"), f(""), f("C", "3")]);
-    click(btn("Remove field 2")!);
-    expect(document.activeElement).toBe(input("Name of custom field 2"));
+    pick("field 2", "Remove field");
+    expect(document.activeElement).toBe(input("Field name 2"));
     expect(toastInfo).not.toHaveBeenCalled();
-    click(btn("Remove C")!);
-    expect(document.activeElement).toBe(input("Name of custom field 1"));
+    pick("C", "Remove field");
+    expect(document.activeElement).toBe(input("Field name 1"));
     expect(toastInfo).toHaveBeenCalledTimes(1);
-    click(btn("Remove A")!);
+    pick("A", "Remove field");
     expect(document.activeElement).toBe(byText("Add field"));
   });
 
-  it("move up/down reorders and keeps focus on the moved row", () => {
+  it("move up/down reorders and keeps focus on the moved row's menu button", () => {
     renderFields([f("A"), f("B")]);
-    click(btn("Move B up")!);
+    pick("B", "Move up");
     const names = [...host.querySelectorAll<HTMLInputElement>("input[data-row-focus]")].map((i) => i.value);
     expect(names).toEqual(["B", "A"]);
-    // "Up" is now disabled on the top row, so focus lands on its "down" button.
-    expect(document.activeElement).toBe(btn("Move B down"));
+    expect(document.activeElement).toBe(btn("More actions for B"));
+    flush();
+    expect(live().textContent).toBe("B moved to position 1 of 2");
+  });
+
+  describe("⋯ menu", () => {
+    it("opens from the keyboard on the first enabled item; Move up is disabled on the first row", () => {
+      renderFields([f("A", "1"), f("B", "2")]);
+      const more = btn("More actions for A")!;
+      more.focus();
+      key(more, "ArrowDown");
+      expect(more.getAttribute("aria-expanded")).toBe("true");
+      const menu = document.querySelector('[role="menu"]')!;
+      expect(menu.getAttribute("aria-label")).toBe("Actions for A");
+      expect(menuItem("Move up").disabled).toBe(true);
+      expect(menuItem("Move up").getAttribute("aria-disabled")).toBe("true");
+      expect(document.activeElement).toBe(menuItem("Move down"));
+      // Arrows skip the disabled item and wrap.
+      winKey("ArrowDown");
+      expect(document.activeElement).toBe(menuItem("Hide value"));
+      winKey("ArrowDown");
+      expect(document.activeElement).toBe(menuItem("Remove field"));
+      winKey("ArrowDown");
+      expect(document.activeElement).toBe(menuItem("Move down"));
+    });
+
+    it("Escape closes it and returns focus to the button", () => {
+      renderFields([f("A", "1")]);
+      const more = btn("More actions for A")!;
+      click(more);
+      expect(document.querySelector('[role="menu"]')).toBeTruthy();
+      winKey("Escape");
+      expect(document.querySelector('[role="menu"]')).toBeNull();
+      expect(more.getAttribute("aria-expanded")).toBe("false");
+      expect(document.activeElement).toBe(more);
+    });
+
+    it("Enter on Move down moves the row", () => {
+      renderFields([f("A"), f("B")]);
+      const more = btn("More actions for A")!;
+      more.focus();
+      key(more, "ArrowDown");
+      winKey("Enter");
+      const names = [...host.querySelectorAll<HTMLInputElement>("input[data-row-focus]")].map((i) => i.value);
+      expect(names).toEqual(["B", "A"]);
+      expect(document.activeElement).toBe(btn("More actions for A"));
+    });
+
+    it("Hide value / Show as text toggles the field's type", () => {
+      renderFields([f("PIN", "1234")]);
+      expect(input("Value of PIN").type).toBe("text");
+      expect(btn("Show value of PIN")).toBeNull();
+      pick("PIN", "Hide value");
+      expect(input("Value of PIN").type).toBe("password");
+      expect(btn("Show value of PIN")).toBeTruthy();
+      expect(host.querySelector("li[data-list-row]")!.textContent).toContain("Hidden");
+      flush();
+      expect(live().textContent).toBe("PIN is now hidden");
+      pick("PIN", "Show as text");
+      expect(input("Value of PIN").type).toBe("text");
+      expect(host.querySelector("li[data-list-row]")!.textContent).not.toContain("Hidden");
+    });
   });
 
   it("at the limit Add field is aria-disabled with the reason", () => {
@@ -185,10 +257,10 @@ describe("Custom fields (CustomFieldsEditor)", () => {
 
   it("duplicate names are flagged inline with aria-invalid / aria-describedby", () => {
     renderFields([f("PIN", "1"), f("pin", "2")]);
-    const dup = input("Name of custom field 2");
+    const dup = input("Field name 2");
     expect(dup.getAttribute("aria-invalid")).toBe("true");
     expect(document.getElementById(dup.getAttribute("aria-describedby")!)?.textContent).toMatch(/already uses this name/);
-    expect(input("Name of custom field 1").getAttribute("aria-invalid")).toBeNull();
+    expect(input("Field name 1").getAttribute("aria-invalid")).toBeNull();
   });
 
   it("fieldNameError: a missing name only matters once there is a value", () => {
