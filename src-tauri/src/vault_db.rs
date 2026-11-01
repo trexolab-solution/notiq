@@ -28,6 +28,9 @@ const BAK_EVERY_SECS: u64 = 10 * 60;
 /// One-time copy of a format-1 database, made before the first save that upgrades it
 /// (later formats get `vault.nqdb.v{N}.bak`, see [`upgrade_bak_path`]).
 const V1_BAK: &str = "vault.nqdb.v1.bak";
+/// Left next to `vault.nqdb` by a backup restore; the first load after it re-stamps the restored
+/// entries (see [`Db::restamp_restored`]) and removes it.
+const RESTORED_MARKER: &str = "vault.nqdb.restored";
 const NQV: &str = ".nqv";
 
 /// Current on-disk format. 1 = 0.6.0 (notes, folders, tags, stars, trash);
@@ -624,6 +627,28 @@ impl Db {
         self.entomb_where(|e| e.trashed_at.is_some_and(|t| now.saturating_sub(t) > TRASH_KEEP_MS))
     }
 
+    /// After a backup restore: gives every live entry (and its live attachments) a fresh stamp, as
+    /// one new local change. A restored backup is older than the synced copy of the same vault, so
+    /// without this the deletions and trash made there after the backup apply to its entries
+    /// again on the next sync and the restored items vanish. With fresh stamps the restore counts
+    /// as an edit those removals never saw, and an unseen edit beats a delete; a newer remote edit
+    /// of the same note is kept in its history as a conflict. Trashed entries stay trashed and
+    /// history is left as it is. Needs `device` set. Returns how many entries were re-stamped.
+    pub fn restamp_restored(&mut self) -> usize {
+        let ids: Vec<String> = self.entries.values().filter(|e| e.is_live()).map(|e| e.id.clone()).collect();
+        if ids.is_empty() { return 0; }
+        // One stamp per operation; attachments first, so a delete that saw this version covers them.
+        let att = self.tick();
+        let stamp = self.tick();
+        for id in &ids {
+            let e = self.entries.get_mut(id).expect("listed above");
+            for a in e.attachments.iter_mut().filter(|a| a.is_live()) { a.stamp = att.clone(); }
+            e.stamp = stamp.clone();
+            e.meta_stamp = stamp.clone();
+        }
+        ids.len()
+    }
+
     /// Forgets tombstones and removed attachments whose removal is older than
     /// [`TOMBSTONE_KEEP_MS`]. Returns how many records were dropped.
     pub fn drop_expired_tombstones(&mut self, now: u64) -> usize {
@@ -923,6 +948,11 @@ pub fn db_path(root: &Path) -> PathBuf {
     root.join(DB_FILE)
 }
 
+/// The "this database was just restored from a backup" marker (see [`Db::restamp_restored`]).
+pub fn restored_marker_path(root: &Path) -> PathBuf {
+    root.join(RESTORED_MARKER)
+}
+
 pub fn v1_bak_path(root: &Path) -> PathBuf {
     root.join(V1_BAK)
 }
@@ -1015,6 +1045,21 @@ mod tests {
     fn keys() -> (VaultKey, [u8; VAULT_ID_LEN]) {
         let (meta, key, _) = create_vault("a-long-test-password-1", KdfParams::default()).unwrap();
         (key, meta.vault_id_bytes().unwrap())
+    }
+
+    #[test]
+    fn restamp_restored_makes_live_entries_newer_and_keeps_the_trash() {
+        let mut db = Db::new();
+        db.device = "d".into();
+        db.put("a.nqv", "md", "x").unwrap();
+        db.put("b.nqv", "md", "y").unwrap();
+        db.trash("b.nqv").unwrap();
+        let before = db.clock.clone();
+        assert_eq!(db.restamp_restored(), 1);
+        let a = db.get("a.nqv").unwrap();
+        assert!(a.stamp > before && a.meta_stamp == a.stamp);
+        assert!(db.list_trash().iter().any(|i| i.rel == "b.nqv"), "a trashed entry stays in the bin");
+        assert_eq!(Db::new().restamp_restored(), 0);
     }
 
     #[test]

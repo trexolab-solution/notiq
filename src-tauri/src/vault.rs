@@ -101,22 +101,28 @@ impl VaultState {
         &self,
         f: impl FnOnce(&mut Db, &Path, &VaultKey, &[u8; VAULT_ID_LEN]) -> Result<(T, bool), String>,
     ) -> Result<T, String> {
-        let (out, dirty) = self.with_db_inner(f)?;
-        if dirty {
-            // After the locks are released: the hook takes the sync manager's own locks.
-            self.change_seq.fetch_add(1, Ordering::SeqCst);
-            if let Some(h) = self.change_hook.get() { h(); }
-        }
+        let (out, dirty, restamped) = self.with_db_inner(f)?;
+        if dirty || restamped { self.local_change(); }
         Ok(out)
     }
 
     /// Like [`with_db`](Self::with_db) for the sync engine's own merges: saved the same way, but
-    /// not counted as a local change (that would schedule another upload of itself).
+    /// not counted as a local change (that would schedule another upload of itself). Re-stamping a
+    /// just-restored database on load still is one: it has to reach the other devices.
     pub(crate) fn with_db_quiet<T>(
         &self,
         f: impl FnOnce(&mut Db, &Path, &VaultKey, &[u8; VAULT_ID_LEN]) -> Result<(T, bool), String>,
     ) -> Result<T, String> {
-        self.with_db_inner(f).map(|(out, _)| out)
+        let (out, _, restamped) = self.with_db_inner(f)?;
+        if restamped { self.local_change(); }
+        Ok(out)
+    }
+
+    /// Counts a saved local change and tells the hook. Call after the locks are released: the
+    /// hook takes the sync manager's own locks.
+    fn local_change(&self) {
+        self.change_seq.fetch_add(1, Ordering::SeqCst);
+        if let Some(h) = self.change_hook.get() { h(); }
     }
 
     pub(crate) fn change_seq(&self) -> u64 {
@@ -140,13 +146,14 @@ impl VaultState {
     fn with_db_inner<T>(
         &self,
         f: impl FnOnce(&mut Db, &Path, &VaultKey, &[u8; VAULT_ID_LEN]) -> Result<(T, bool), String>,
-    ) -> Result<(T, bool), String> {
+    ) -> Result<(T, bool, bool), String> {
         let kg = self.guard();
         let u = kg.as_ref().ok_or(ERR_LOCKED)?;
         let mut st = self.store.lock().unwrap_or_else(|e| e.into_inner());
         let root = st.root.clone().ok_or("The vault folder isn't set yet")?;
         let on_disk = fs::metadata(vdb::db_path(&root)).and_then(|m| m.modified()).ok();
-        if st.db.is_none() || st.stamp != on_disk {
+        let loaded = st.db.is_none() || st.stamp != on_disk;
+        if loaded {
             st.db = Some(vdb::load(&root, &u.key, &u.vault_id)?);
             st.stamp = on_disk;
         }
@@ -154,19 +161,28 @@ impl VaultState {
         let device = st.device.get_or_insert_with(crate::vault_hlc::new_device_id).clone();
         let db = st.db.as_mut().expect("loaded above");
         if db.device.is_empty() { db.device = device; }
+        // Just restored from a backup: the restore is a new change, so the synced copy's later
+        // deletions can't remove the restored entries again (Db::restamp_restored).
+        let marker = vdb::restored_marker_path(&root);
+        let restore = loaded && marker.exists();
+        let restamped = restore && db.restamp_restored() > 0;
         let purged = db.purge_expired(vdb::now_ms()) > 0; // recycle-bin items older than 30 days
         let (out, dirty) = match f(db, &root, &u.key, &u.vault_id) {
             Ok(r) => r,
             Err(e) => { st.db = None; return Err(e); } // never keep a half-applied change in memory
         };
-        let dirty = dirty || purged;
+        let dirty = dirty || purged || restamped;
         if dirty {
             // save_db keeps a one-time vault.nqdb.v{N}.bak when this save upgrades an older format.
             let saved = vdb::save_db(&root, st.db.as_mut().expect("still loaded"), &u.key, &u.vault_id);
             if let Err(e) = saved { st.db = None; return Err(e); }
             st.stamp = fs::metadata(vdb::db_path(&root)).and_then(|m| m.modified()).ok();
         }
-        Ok((out, dirty))
+        if restore {
+            // Only once the re-stamped database is on disk; a failed save above re-stamps next time.
+            let _ = fs::remove_file(&marker);
+        }
+        Ok((out, dirty, restamped))
     }
 
     /// Records the folder that holds vault.nqdb; a different folder drops the cached DB.

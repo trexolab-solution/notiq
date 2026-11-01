@@ -128,7 +128,7 @@ fn now_secs() -> u64 {
 
 /// Writes the backup's files into `meta_file` / `db_file`. An existing vault is refused unless
 /// `replace`; then its files are first copied into `<data_dir>/before-restore-<ts>/`.
-fn install(data_dir: &Path, meta_file: &Path, db_file: &Path, data: &[u8], replace: bool, ts: u64) -> Result<ImportResult, String> {
+pub(crate) fn install(data_dir: &Path, meta_file: &Path, db_file: &Path, data: &[u8], replace: bool, ts: u64) -> Result<ImportResult, String> {
     let p = parse_container(data)?;
     let exists = meta_file.exists();
     if exists && !replace {
@@ -146,6 +146,10 @@ fn install(data_dir: &Path, meta_file: &Path, db_file: &Path, data: &[u8], repla
         }
         saved = Some(dir.to_string_lossy().into_owned());
     }
+    // The marker first: a restored database must never sync without being re-stamped (on the
+    // first load after unlock, see vault_db::Db::restamp_restored).
+    let marker = vdb::restored_marker_path(db_file.parent().ok_or("Invalid vault folder")?);
+    atomic_write(&marker, p.meta.vault_id.as_bytes())?;
     atomic_write(db_file, p.db_bytes)?;
     atomic_write(meta_file, p.meta_bytes)?;
     Ok(ImportResult {
@@ -247,6 +251,7 @@ mod tests {
         assert_eq!(r.vault_id_hex, meta.vault_id);
         assert_eq!(fs::read(&mf).unwrap(), m);
         assert_eq!(fs::read(&df).unwrap(), d);
+        assert!(vdb::restored_marker_path(df.parent().unwrap()).exists(), "the first load re-stamps it");
         let _ = fs::remove_dir_all(dir);
     }
 
