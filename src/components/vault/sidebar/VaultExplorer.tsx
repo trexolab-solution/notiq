@@ -1,23 +1,26 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ArrowDownAZ, Clock, FolderPlus, Lock, Search, Trash2, X } from "lucide-react";
 import { useAppStore } from "../../../store";
+import { useVaultStore } from "../../../store/vaultStore";
 import { isVaultPath, type VaultItem } from "../../../lib/vault";
 import { DEFAULT_ENTRY_NAME, type NewEntryKind } from "../../../lib/vaultCreate";
 import {
-  allFolders, ancestorsOf, buildTree, childNames, displayName, entryKind, filterItems, flattenTree, isFiltering,
+  allFolders, ancestorsOf, buildTree, childNames, displayName, entryKind, filterItems, isFiltering, normRel,
   isSameOrUnder, matchesFilter, nameError, nameTaken, parentRel, starredNodes, tagCounts, toRel, trashRoots, uniqueName,
   type TreeNode,
 } from "../../../lib/vaultTree";
+import { flattenGrouped, isGroupRow, searchTextOf, siteMatchReason } from "../../../lib/vaultSites";
 import { ContextMenu } from "../../ui/ContextMenu";
 import { ConfirmDialog } from "../../ui/ConfirmDialog";
 import { Tooltip } from "../../ui/Tooltip";
 import { InlineLoading } from "../../ui/Loading";
 import * as A from "./actions";
-import { useExpanded, useSortMode, useStarredOpen } from "./prefs";
+import { useExpanded, useGroupBySite, useSortMode, useStarredOpen } from "./prefs";
+import { useLoginSites } from "./useLoginSites";
 import { PanelHeader } from "./PanelHeader";
 import { NewEntryMenu } from "./NewEntryMenu";
 import { TagBar } from "./TagBar";
-import { CreateRow, VaultTree, starKey, treeKey } from "./VaultTree";
+import { CreateRow, VaultTree, groupKey, starKey, treeKey } from "./VaultTree";
 import { InlineNameInput } from "./InlineNameInput";
 import { TagEditor } from "./TagEditor";
 import { MoveDialog } from "./MoveDialog";
@@ -38,13 +41,15 @@ interface Props {
 type Creating = { parent: string; kind: NewEntryKind | "folder"; suggested: string };
 type Menu = { x: number; y: number; node: TreeNode | null };
 
-const relOfKey = (key: string | null) => (key ? key.slice(2) : null);
+/** The entry/folder rel behind a row key; null for none and for virtual site-group rows ("g:"). */
+const relOfKey = (key: string | null) => (key && !key.startsWith("g:") ? key.slice(2) : null);
 
 /** The unlocked vault: toolbar, search, tag filter, tree, trash, and every entry action. */
 export function VaultExplorer({ root, items, trash, loading, error, reload, footer }: Props) {
   const { expanded, toggle, expandAll, remap } = useExpanded();
   const [sort, setSort] = useSortMode();
   const [starredOpen, setStarredOpen] = useStarredOpen();
+  const [groupBySite, setGroupBySite] = useGroupBySite();
 
   const [query, setQuery] = useState("");
   const [selTags, setSelTags] = useState<string[]>([]);
@@ -72,12 +77,38 @@ export function VaultExplorer({ root, items, trash, loading, error, reload, foot
   }, [openPathsKey, root]);
 
   // ── derived tree ───────────────────────────────────────────────────────────
-  const filter = useMemo(() => ({ query, tags: selTags }), [query, selTags]);
+  // Sites and usernames of logins (read while unlocked; hosts only, never passwords).
+  const unlocked = useVaultStore((s) => s.unlocked);
+  const sites = useLoginSites(root, items, unlocked);
+  const siteExtra = useCallback((i: VaultItem) => searchTextOf(sites.get(normRel(i.rel).toLowerCase())), [sites]);
+  const filter = useMemo(() => ({ query, tags: selTags, extra: siteExtra }), [query, selTags, siteExtra]);
   const filtering = isFiltering(filter);
   const filtered = useMemo(() => filterItems(items, filter), [items, filter]);
   const tree = useMemo(() => buildTree(filtered, sort), [filtered, sort]);
+  // Searching shows everything open, groups included.
   const isExpanded = useCallback((rel: string) => filtering || expanded.has(rel), [filtering, expanded]);
-  const rows = useMemo(() => flattenTree(tree, isExpanded), [tree, isExpanded]);
+  const siteOf = useMemo(
+    () => (groupBySite ? (n: TreeNode) => sites.get(n.rel.toLowerCase())?.domain ?? null : null),
+    [groupBySite, sites],
+  );
+  const rows = useMemo(() => flattenGrouped(tree, isExpanded, siteOf), [tree, isExpanded, siteOf]);
+  // Muted text after a login: the username inside a site group; otherwise, when a search matched
+  // only by site or username, what matched.
+  const subtitles = useMemo(() => {
+    const m = new Map<string, string>();
+    const q = query.trim();
+    for (const r of rows) {
+      if (isGroupRow(r) || r.node.dir) continue;
+      const key = r.node.rel.toLowerCase();
+      const site = sites.get(key);
+      if (r.inGroup) { if (site?.username) m.set(key, site.username); continue; }
+      const byNameOrTag = r.node.name.toLowerCase().includes(q.toLowerCase())
+        || r.node.tags.some((t) => t.toLowerCase().includes(q.toLowerCase()));
+      const why = q && !byNameOrTag ? siteMatchReason(site, q) : null;
+      if (why) m.set(key, why);
+    }
+    return m;
+  }, [rows, sites, query]);
   const starred = useMemo(
     () => starredNodes(filtering ? items.filter((i) => matchesFilter(i, filter)) : items, sort),
     [filtering, filter, items, sort],
@@ -107,7 +138,8 @@ export function VaultExplorer({ root, items, trash, loading, error, reload, foot
   const selectedItem = selectedRel ? byRel.get(selectedRel.toLowerCase()) : undefined;
   const selectedIsDir = selectedRel ? (selectedItem ? selectedItem.dir : folders.includes(selectedRel)) : false;
   /** Folder new things go into: the selected folder, or the selected note's folder. */
-  const targetFolder = selectedRel ? (selectedIsDir ? selectedRel : parentRel(selectedRel)) : "";
+  const targetFolder = selectedRel ? (selectedIsDir ? selectedRel : parentRel(selectedRel))
+    : selectedKey?.startsWith("g:") ? parentRel(selectedKey.slice(2)) : "";
 
   // ── helpers ────────────────────────────────────────────────────────────────
   const reveal = useCallback((rel: string, select = true) => {
@@ -182,6 +214,8 @@ export function VaultExplorer({ root, items, trash, loading, error, reload, foot
     sort: setSort,
     expandAll: () => expandAll(folders),
     collapseAll: () => { for (const f of expanded) toggle(f, false); },
+    groupBySite,
+    setGroupBySite,
   };
 
   const renderEditor = (node: TreeNode) => (
@@ -241,7 +275,7 @@ export function VaultExplorer({ root, items, trash, loading, error, reload, foot
   ) : filtering ? (
     <div className="vt-empty">
       <div className="vt-empty-title">No matches</div>
-      Only names and tags are searched — contents stay encrypted.
+      Only names, websites, usernames and tags are searched — everything else stays encrypted.
       <div className="mt-2">
         <button type="button" className="vt-link" onClick={() => { setQuery(""); setSelTags([]); }}>Clear search and tags</button>
       </div>
@@ -315,16 +349,18 @@ export function VaultExplorer({ root, items, trash, loading, error, reload, foot
               ref={searchRef}
               type="search"
               value={query}
-              placeholder="Search names and tags"
-              aria-label="Search vault by name or tag"
+              placeholder="Search names, sites and tags"
+              aria-label="Search vault by name, website, username or tag"
               spellCheck={false}
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === "Escape" && query) { e.preventDefault(); e.stopPropagation(); setQuery(""); }
                 else if (e.key === "ArrowDown") {
                   e.preventDefault();
-                  const first = rows[0]?.node ?? starred[0];
-                  if (first) { setSelectedKey(rows[0] ? treeKey(first.rel) : starKey(first.rel)); focusTreeSoon(); }
+                  const r0 = rows[0];
+                  if (r0) setSelectedKey(isGroupRow(r0) ? groupKey(r0.group.rel) : treeKey(r0.node.rel));
+                  else if (starred[0]) setSelectedKey(starKey(starred[0].rel));
+                  if (r0 || starred[0]) focusTreeSoon();
                 }
               }}
             />
@@ -347,6 +383,7 @@ export function VaultExplorer({ root, items, trash, loading, error, reload, foot
           <div ref={treeWrapRef} className="flex flex-col flex-1 min-h-0">
             <VaultTree
               rows={rows}
+              subtitles={subtitles}
               starred={starred}
               starredOpen={starredOpen}
               onStarredOpen={setStarredOpen}

@@ -101,6 +101,7 @@
 .vt-row-icon.k-codes  { color: color-mix(in srgb, var(--color-accent) 50%, var(--color-warning) 50%); }
 .vt-row-icon.k-identity { color: color-mix(in srgb, var(--color-primary) 55%, var(--color-accent) 45%); }
 .vt-row-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; }
+.vt-row-sub { margin-left: 6px; font-size: 11px; color: var(--color-text-muted); font-weight: 400; }
 .vt-row-tags { display: flex; gap: 3px; flex-shrink: 1; min-width: 0; max-width: 45%; overflow: hidden; }
 .vt-row-tag {
   height: 15px; padding: 0 5px; border-radius: 999px; font-size: 10px; line-height: 15px;

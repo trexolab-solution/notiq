@@ -175,7 +175,12 @@ export function tagCounts(items: VaultItem[]): { tag: string; count: number }[] 
 
 // ── filtering ────────────────────────────────────────────────────────────────
 
-export interface Filter { query: string; tags: string[] }
+export interface Filter {
+  query: string;
+  tags: string[];
+  /** Extra lower-case text a note can match by besides name and tags (a login's sites and username). */
+  extra?: (item: VaultItem) => string[];
+}
 export const isFiltering = (f: Filter) => f.query.trim() !== "" || f.tags.length > 0;
 
 /** Does a single note match? (names and tags only — contents are never searched). */
@@ -184,7 +189,8 @@ export function matchesFilter(item: VaultItem, f: Filter): boolean {
   if (f.tags.length && (item.dir || !f.tags.every((t) => itemTags.includes(t.toLowerCase())))) return false;
   const q = f.query.trim().toLowerCase();
   if (!q) return true;
-  return displayName(item.rel).toLowerCase().includes(q) || itemTags.some((t) => t.includes(q));
+  return displayName(item.rel).toLowerCase().includes(q) || itemTags.some((t) => t.includes(q))
+    || (!item.dir && !!f.extra && f.extra(item).some((s) => s.includes(q)));
 }
 
 /**

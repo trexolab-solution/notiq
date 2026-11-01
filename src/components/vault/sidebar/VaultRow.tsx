@@ -25,6 +25,8 @@ interface Props {
   dropFolder: string | null;
   /** Show the full rel path as context (Starred group). */
   showPath?: boolean;
+  /** Muted text after the name (a login's username, or the site a search matched). */
+  subtitle?: string;
   /** Replaces the name with an inline editor. */
   editor?: ReactNode;
   onSelect: (key: string, node: TreeNode, e: MouseEvent) => void;
@@ -35,7 +37,7 @@ interface Props {
 
 /** One file-tree row: chevron, type icon, name, compact tags, star and a "more" button. */
 export const VaultRow = memo(function VaultRow({
-  rowKey, node, depth, expanded, selected, isOpen, isDrop, dropFolder, showPath, editor,
+  rowKey, node, depth, expanded, selected, isOpen, isDrop, dropFolder, showPath, subtitle, editor,
   onSelect, onToggle, onMenu, setRef,
 }: Props) {
   const drag = useDraggable({
@@ -61,6 +63,7 @@ export const VaultRow = memo(function VaultRow({
   const tooltip = [
     node.dir ? node.rel : node.rel.replace(/\.nqv$/i, ""),
     kindLabel(node.kind),
+    subtitle ?? "",
     node.tags.length ? `Tags: ${node.tags.join(", ")}` : "",
   ].filter(Boolean).join("\n");
 
@@ -105,6 +108,7 @@ export const VaultRow = memo(function VaultRow({
           <span className="vt-row-name">
             {node.name}
             {where && <span className="text-[11px] text-[var(--color-text-muted)]"> · {where}</span>}
+            {subtitle && <span className="vt-row-sub">{subtitle}</span>}
           </span>
           {shownTags.length > 0 && (
             <span className="vt-row-tags" aria-hidden>

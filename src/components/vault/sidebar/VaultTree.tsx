@@ -4,20 +4,29 @@ import {
   type DragEndEvent, type DragOverEvent, type DragStartEvent,
 } from "@dnd-kit/core";
 import { ChevronRight, Star } from "lucide-react";
-import { canMoveTo, parentRel, type FlatRow, type TreeNode } from "../../../lib/vaultTree";
+import { canMoveTo, parentRel, type TreeNode } from "../../../lib/vaultTree";
+import { isGroupRow, type ListRow, type SiteGroup } from "../../../lib/vaultSites";
 import { isTextFieldTarget } from "../../../lib/contextMenu/target";
 import { EntryIcon } from "./EntryIcon";
 import { INDENT, VaultRow, rowDomId, type DragData, type DropData } from "./VaultRow";
+import { SiteGroupRow } from "./SiteGroupRow";
 
-/** A visible, focusable row (Starred group rows and tree rows share one keyboard order). */
-export interface VisibleRow { key: string; node: TreeNode; depth: number; starred: boolean }
+/**
+ * A visible, focusable row (Starred group rows and tree rows share one keyboard order). Either a real
+ * entry (`node`) or a virtual site group (`group`); `inGroup` is the group's rel for entries listed under one.
+ */
+export interface VisibleRow { key: string; node: TreeNode | null; group?: SiteGroup; inGroup?: string; depth: number; starred: boolean }
 
 export const treeKey = (rel: string) => `t:${rel}`;
 export const starKey = (rel: string) => `s:${rel}`;
+/** Key of a virtual site-group row (its rel is `<folder>/@site:<domain>`). */
+export const groupKey = (rel: string) => `g:${rel}`;
 
 interface Props {
-  rows: FlatRow[];
+  rows: ListRow[];
   starred: TreeNode[];
+  /** Muted text per entry (lower-cased rel): a grouped login's username, or the site a search matched. */
+  subtitles?: Map<string, string>;
   starredOpen: boolean;
   onStarredOpen: (open: boolean) => void;
   isExpanded: (rel: string) => boolean;
@@ -47,7 +56,9 @@ export function VaultTree(p: Props) {
 
   const visible: VisibleRow[] = useMemo(() => [
     ...(starredOpen ? starred.map((n) => ({ key: starKey(n.rel), node: n, depth: 0, starred: true })) : []),
-    ...rows.map((r) => ({ key: treeKey(r.node.rel), node: r.node, depth: r.depth, starred: false })),
+    ...rows.map((r): VisibleRow => isGroupRow(r)
+      ? { key: groupKey(r.group.rel), node: null, group: r.group, depth: r.depth, starred: false }
+      : { key: treeKey(r.node.rel), node: r.node, inGroup: r.inGroup, depth: r.depth, starred: false }),
   ], [rows, starred, starredOpen]);
 
   // â”€â”€ focus management â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -81,7 +92,34 @@ export function VaultTree(p: Props) {
       case "End": e.preventDefault(); go(visible.length - 1); return;
     }
     if (!cur) return;
-    const { node } = cur;
+    if (cur.group) {
+      // A virtual site row: expand/collapse and the background menu only.
+      const open = isExpanded(cur.group.rel);
+      switch (e.key) {
+        case "ArrowRight":
+          e.preventDefault();
+          if (!open) p.onToggle(cur.group.rel, true); else go(idx + 1);
+          return;
+        case "ArrowLeft":
+          e.preventDefault();
+          if (open) p.onToggle(cur.group.rel, false);
+          else if (cur.group.folder) selectAndFocus(treeKey(cur.group.folder));
+          return;
+        case "Enter":
+          e.preventDefault();
+          p.onToggle(cur.group.rel);
+          return;
+        case "ContextMenu":
+        case "F10": {
+          if (e.key === "F10" && !e.shiftKey) return;
+          e.preventDefault();
+          const r = refs.current.get(cur.key)?.getBoundingClientRect();
+          p.onMenu(cur.key, null, r ? r.left + 24 : 0, r ? r.bottom : 0);
+        }
+      }
+      return;
+    }
+    const node = cur.node!;
     switch (e.key) {
       case "ArrowRight":
         e.preventDefault();
@@ -94,6 +132,7 @@ export function VaultTree(p: Props) {
         e.preventDefault();
         if (node.dir && !cur.starred && isExpanded(node.rel)) { p.onToggle(node.rel, false); return; }
         if (cur.starred) return;
+        if (cur.inGroup) { selectAndFocus(groupKey(cur.inGroup)); return; }
         const parent = parentRel(node.rel);
         if (parent) selectAndFocus(treeKey(parent));
         return;
@@ -159,10 +198,35 @@ export function VaultTree(p: Props) {
     p.onMenu(key, node, x, y);
   }, [onSelectKey, p.onMenu]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const renderRow = (r: VisibleRow) => (
+  const onGroupSelect = useCallback((key: string, group: SiteGroup, e: MouseEvent) => {
+    onSelectKey(key);
+    (e.currentTarget as HTMLElement).focus({ preventScroll: true });
+    p.onToggle(group.rel);
+  }, [onSelectKey, p.onToggle]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const onGroupMenu = useCallback((key: string, x: number, y: number) => {
+    onSelectKey(key);
+    p.onMenu(key, null, x, y);
+  }, [onSelectKey, p.onMenu]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const renderRow = (r: VisibleRow) => r.group ? (
+    <SiteGroupRow
+      key={r.key}
+      rowKey={r.key}
+      group={r.group}
+      depth={r.depth}
+      expanded={isExpanded(r.group.rel)}
+      selected={selectedKey === r.key}
+      onToggle={p.onToggle}
+      onSelect={onGroupSelect}
+      onMenu={onGroupMenu}
+      setRef={setRef}
+    />
+  ) : r.node && (
     <VaultRow
       key={r.key}
       rowKey={r.key}
+      subtitle={p.subtitles?.get(r.node.rel.toLowerCase())}
       node={r.node}
       depth={r.depth}
       expanded={r.node.dir && !r.starred && isExpanded(r.node.rel)}
@@ -183,7 +247,7 @@ export function VaultTree(p: Props) {
   const treeRows = visible.filter((r) => !r.starred);
   const starRows = visible.filter((r) => r.starred);
   const createAt = p.creating
-    ? (p.creating.parent ? treeRows.findIndex((r) => r.node.dir && r.node.rel === p.creating!.parent) : -1)
+    ? (p.creating.parent ? treeRows.findIndex((r) => r.node?.dir && r.node.rel === p.creating!.parent) : -1)
     : -2;
 
   return (

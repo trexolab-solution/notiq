@@ -1,6 +1,6 @@
 import {
   ArrowDownAZ, ChevronsDownUp, ChevronsUpDown, Clock, Copy, ExternalLink, FolderInput, FolderPlus, Pencil, Star,
-  StarOff, Tags, Trash2,
+  StarOff, Tags, Trash2, Globe,
 } from "lucide-react";
 import type { ContextMenuItem } from "../../ui/ContextMenu";
 import { NEW_ENTRY_OPTIONS, type NewEntryKind } from "../../../lib/vaultCreate";
@@ -19,6 +19,8 @@ export interface MenuHandlers {
   sort: (m: SortMode) => void;
   expandAll: () => void;
   collapseAll: () => void;
+  groupBySite: boolean;
+  setGroupBySite: (v: boolean) => void;
 }
 
 const icon = (el: JSX.Element) => <span className="inline-flex">{el}</span>;
@@ -45,6 +47,9 @@ export function buildMenu(node: TreeNode | null, sort: SortMode, h: MenuHandlers
       { type: "separator" },
       { type: "item", label: "Expand all folders", icon: icon(<ChevronsUpDown size={14} />), onClick: h.expandAll },
       { type: "item", label: "Collapse all folders", icon: icon(<ChevronsDownUp size={14} />), onClick: h.collapseAll },
+      { type: "separator" },
+      { type: "item", label: h.groupBySite ? "Group logins by website  ✓" : "Group logins by website", icon: icon(<Globe size={14} />),
+        onClick: () => h.setGroupBySite(!h.groupBySite) },
     ];
   }
   const star: ContextMenuItem = node.starred
