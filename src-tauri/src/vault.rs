@@ -34,7 +34,7 @@ const ATTEMPTS_FILE: &str = "vault-attempts.json";
 const NQV_EXT: &str = "nqv";
 
 const ERR_NO_VAULT: &str = "NO_VAULT";
-const ERR_LOCKED: &str = "VAULT_LOCKED";
+pub(crate) const ERR_LOCKED: &str = "VAULT_LOCKED";
 
 struct Unlocked {
     key: VaultKey,

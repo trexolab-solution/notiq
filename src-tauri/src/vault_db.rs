@@ -276,6 +276,40 @@ impl Entry {
     }
 }
 
+/// Keeps `v`'s (ext, content) in `e`'s history as a conflict revision (the version that lost a
+/// backup merge, as a sync merge keeps it), newest first and capped. False when there is nothing
+/// to keep (a folder, empty, already current or in the history) or the cap dropped it again.
+fn keep_version(e: &mut Entry, v: &Entry) -> bool {
+    if e.dir || v.dir || v.content.is_empty() { return false; }
+    let same = |ext: &str, content: &str| ext == v.ext && content == v.content;
+    if same(&e.ext, &e.content) || e.history.iter().any(|r| same(&r.ext, &r.content)) { return false; }
+    e.history.push(Revision {
+        updated: v.updated, ext: v.ext.clone(), content: v.content.clone(),
+        stamp: Some(v.stamp.clone()), conflict_from: Some(v.stamp.device.clone()),
+    });
+    let key = |r: &Revision| (r.stamp.clone().unwrap_or_else(|| Hlc::legacy(r.updated)), r.updated);
+    e.history.sort_by_key(|r| std::cmp::Reverse(key(r)));
+    cap_history(&mut e.history);
+    e.history.iter().any(|r| same(&r.ext, &r.content))
+}
+
+/// What [`Db::merge_backup`] did, counted in notes (folders are merged but not counted).
+#[derive(Serialize, Debug, Default, Clone, PartialEq, Eq)]
+pub struct BackupMerge {
+    /// Notes only in the backup (or deleted here), now added.
+    pub added: u32,
+    /// Notes in both whose content changed to the backup's newer version (the current one is kept
+    /// in history), or that gained tags / attachments from the backup.
+    pub updated: u32,
+    /// Notes the backup holds exactly as they are here.
+    pub unchanged: u32,
+    /// Notes whose current version is newer: the backup's version was added to their history.
+    pub kept_in_history: u32,
+    /// The database changed (needs saving). Not sent to the UI.
+    #[serde(skip)]
+    pub changed: bool,
+}
+
 /// Keeps at most [`MAX_HISTORY`] revisions, dropping the oldest normal revision first and
 /// conflict revisions only when nothing else is left. Dropped revisions zeroise themselves.
 pub fn cap_history(h: &mut Vec<Revision>) {
@@ -636,17 +670,120 @@ impl Db {
     /// history is left as it is. Needs `device` set. Returns how many entries were re-stamped.
     pub fn restamp_restored(&mut self) -> usize {
         let ids: Vec<String> = self.entries.values().filter(|e| e.is_live()).map(|e| e.id.clone()).collect();
+        self.restamp(&ids)
+    }
+
+    /// Gives the (non-tombstone) entries `ids` and their live attachments a fresh stamp, as one new
+    /// local change (see [`restamp_restored`](Self::restamp_restored) for why). An entry in the
+    /// recycle bin stays there: it gets a new trash register over its new version. Needs `device`.
+    fn restamp(&mut self, ids: &[String]) -> usize {
+        let ids: Vec<&String> = ids.iter().filter(|id| self.entries.get(*id).is_some_and(|e| !e.deleted)).collect();
         if ids.is_empty() { return 0; }
         // One stamp per operation; attachments first, so a delete that saw this version covers them.
         let att = self.tick();
         let stamp = self.tick();
+        let any_trashed = ids.iter().any(|id| self.entries[*id].is_trashed());
+        let trash_at = any_trashed.then(|| self.tick());
         for id in &ids {
-            let e = self.entries.get_mut(id).expect("listed above");
+            let e = self.entries.get_mut(*id).expect("listed above");
+            let trashed = e.is_trashed();
             for a in e.attachments.iter_mut().filter(|a| a.is_live()) { a.stamp = att.clone(); }
             e.stamp = stamp.clone();
             e.meta_stamp = stamp.clone();
+            if trashed {
+                e.trash = Some(Removal { over: stamp.clone(), at: trash_at.clone().expect("set when any is trashed") });
+            }
+            e.fix_flags();
         }
         ids.len()
+    }
+
+    /// Merges the entries of a decrypted backup into this database (the "Merge" restore). Never
+    /// removes anything here:
+    ///
+    /// - an entry only in the backup (or a tombstone here) is added, with its history and
+    ///   attachments; one in the backup's recycle bin goes to the bin here (its 30 days start now).
+    ///   A note whose path is taken by something live comes in as "<name> (from backup)"; a folder
+    ///   whose path is already a live folder is the same folder (folders are unioned);
+    /// - the same entry in both: the newer content (by stamp, then modified time) is current and
+    ///   the other version goes into its history (as a conflict revision, like a sync merge, so the
+    ///   history cap drops it last); tags are unioned, attachments only in the backup are added,
+    ///   and where it lives (path, recycle bin) stays as it is here. Identical content: no-op;
+    /// - tombstones in the backup are ignored.
+    ///
+    /// Every added or changed entry is re-stamped as one new local change (see [`restamp`]), so the
+    /// next sync uploads it and older deletions on other devices can't remove it. Notes are
+    /// counted; folders are merged but not counted.
+    ///
+    /// [`restamp`]: Self::restamp
+    pub fn merge_backup(&mut self, backup: &Db) -> BackupMerge {
+        let mut out = BackupMerge::default();
+        let now = now_ms();
+        let mut touched: Vec<String> = vec![];
+        // Folders first, then by path, so a note's folder is in place before it.
+        let mut src: Vec<&Entry> = backup.entries.values().filter(|e| !e.deleted).collect();
+        src.sort_by(|a, b| (!a.dir, &a.path, &a.id).cmp(&(!b.dir, &b.path, &b.id)));
+        for be in src {
+            let count = |n: &mut u32| if !be.dir { *n += 1 };
+            let cur = self.entries.get(&be.id).filter(|e| !e.deleted);
+            let Some(ce) = cur else {
+                // Added (also over a tombstone here: merge brings the backup's copy back).
+                let mut e = be.clone();
+                e.tomb = self.entries.get(&be.id).and_then(|t| t.tomb.clone()); // re-stamped above it below
+                if e.is_trashed() {
+                    e.trashed_at = Some(now);
+                } else {
+                    e.trash = None;
+                    let taken = |db: &Db, p: &str| db.entries.values().any(|x| x.is_live() && x.path == p);
+                    if e.dir && self.live_id(&e.path, true).is_some() {
+                        count(&mut out.unchanged);
+                        continue;
+                    }
+                    if taken(self, &e.path) {
+                        e.path = (1u64..).map(|n| variant_path(&be.path, "from backup", n, !e.dir))
+                            .find(|c| !taken(self, c) && !self.occupied(c)).expect("unbounded");
+                    }
+                }
+                touched.push(e.id.clone());
+                self.entries.insert(e.id.clone(), e);
+                count(&mut out.added);
+                continue;
+            };
+            let mut e = ce.clone();
+            let mut changed = false;
+            let tags = normalize_tags(ce.tags.iter().chain(&be.tags).cloned().collect());
+            if tags != e.tags { e.tags = tags; changed = true; }
+            for a in be.live_attachments() {
+                if !e.attachments.iter().any(|x| x.id == a.id) { e.attachments.push(a.clone()); changed = true; }
+            }
+            let same = ce.dir == be.dir && ce.ext == be.ext && ce.content == be.content;
+            if same || e.dir || be.dir {
+                if changed { count(&mut out.updated); } else { count(&mut out.unchanged); }
+            } else {
+                let backup_newer = (&be.stamp, be.updated) > (&ce.stamp, ce.updated);
+                let (win, lose) = if backup_newer { (be, ce) } else { (ce, be) };
+                if backup_newer {
+                    e.ext = win.ext.clone();
+                    e.content.zeroize();
+                    e.content = win.content.clone();
+                    e.updated = win.updated;
+                }
+                let kept = keep_version(&mut e, lose);
+                if backup_newer { count(&mut out.updated); changed = true; }
+                else if kept { count(&mut out.kept_in_history); changed = true; }
+                else if changed { count(&mut out.updated); }
+                else { count(&mut out.unchanged); }
+            }
+            if changed {
+                touched.push(e.id.clone());
+                self.entries.insert(e.id.clone(), e);
+            }
+        }
+        // The backup's stamps may be ahead of this clock; the re-stamp must beat them all.
+        self.clock.observe(&backup.clock);
+        for e in self.entries.values() { self.clock.observe(e.version()); }
+        out.changed = self.restamp(&touched) > 0;
+        out
     }
 
     /// Forgets tombstones and removed attachments whose removal is older than
@@ -1060,6 +1197,181 @@ mod tests {
         assert!(a.stamp > before && a.meta_stamp == a.stamp);
         assert!(db.list_trash().iter().any(|i| i.rel == "b.nqv"), "a trashed entry stays in the bin");
         assert_eq!(Db::new().restamp_restored(), 0);
+    }
+
+    // ─── merge_backup ────────────────────────────────────────────────────────
+
+    fn dev(name: &str) -> Db {
+        let mut db = Db::new();
+        db.device = name.into();
+        db
+    }
+
+    /// `db` as another vault's copy of it (a backup): same entries, its own device.
+    fn copy_of(db: &Db, name: &str) -> Db {
+        let mut c = db.clone();
+        c.device = name.into();
+        c
+    }
+
+    fn counts(added: u32, updated: u32, unchanged: u32, kept_in_history: u32) -> (u32, u32, u32, u32) {
+        (added, updated, unchanged, kept_in_history)
+    }
+
+    fn of(m: &BackupMerge) -> (u32, u32, u32, u32) {
+        (m.added, m.updated, m.unchanged, m.kept_in_history)
+    }
+
+    #[test]
+    fn merge_backup_adds_what_only_the_backup_has_and_restamps_it() {
+        let mut cur = dev("here");
+        cur.put("mine.nqv", "md", "here").unwrap();
+        let mut bak = dev("there");
+        bak.mkdir("Work").unwrap();
+        bak.put("Work/a.nqv", "md", "one").unwrap();
+        bak.put("b.nqv", "md", "two").unwrap();
+        bak.attach_add("b.nqv", "f.txt", &b64_encode(b"file")).unwrap();
+        bak.put("b.nqv", "md", "two v2").unwrap(); // with history
+        let before = cur.clock.clone().max(bak.clock.clone());
+        let m = cur.merge_backup(&bak);
+        assert_eq!(of(&m), counts(2, 0, 0, 0));
+        assert!(m.changed);
+        assert_eq!(cur.get("mine.nqv").unwrap().content, "here", "nothing here is touched");
+        assert_eq!(cur.get("Work/a.nqv").unwrap().content, "one");
+        let b = cur.get("b.nqv").unwrap();
+        assert_eq!((b.content.as_str(), b.history.len(), b.live_attachments().count()), ("two v2", 1, 1));
+        assert!(b.stamp > before && b.meta_stamp == b.stamp && b.stamp.device == "here", "a new local change");
+        assert!(b.attachments[0].stamp > before);
+        assert!(cur.list().iter().any(|i| i.dir && i.rel == "Work"));
+        // Merging again changes nothing.
+        let again = cur.merge_backup(&bak);
+        assert_eq!(of(&again), counts(0, 0, 2, 0));
+        assert!(!again.changed);
+    }
+
+    #[test]
+    fn merge_backup_newer_version_wins_and_the_older_goes_into_history() {
+        let mut cur = dev("here");
+        cur.put("a.nqv", "md", "base").unwrap();
+        cur.put("b.nqv", "md", "base").unwrap();
+        let mut bak = copy_of(&cur, "there");
+        // a: the backup's edit is newer; b: this vault's edit is newer.
+        cur.put("b.nqv", "md", "b here").unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(3));
+        bak.put("a.nqv", "md", "a there").unwrap();
+        bak.put("b.nqv", "md", "b there (old)").unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(3));
+        cur.put("b.nqv", "md", "b here v2").unwrap();
+        let m = cur.merge_backup(&bak);
+        assert_eq!(of(&m), counts(0, 1, 0, 1));
+
+        let a = cur.get("a.nqv").unwrap();
+        assert_eq!(a.content, "a there");
+        assert_eq!(a.history[0].content, "base", "the replaced current version is kept");
+        assert_eq!(a.history[0].conflict_from.as_deref(), Some("here"));
+
+        let b = cur.get("b.nqv").unwrap();
+        assert_eq!(b.content, "b here v2", "this vault's newer version stays current");
+        let texts: Vec<&str> = b.history.iter().map(|r| r.content.as_str()).collect();
+        assert!(texts.contains(&"b there (old)"), "the backup's version is in history: {texts:?}");
+        assert!(texts.contains(&"b here") && texts.contains(&"base"), "existing history stays: {texts:?}");
+    }
+
+    #[test]
+    fn merge_backup_respects_the_history_cap() {
+        let mut cur = dev("here");
+        cur.put("a.nqv", "md", "v0").unwrap();
+        let bak = copy_of(&cur, "there");
+        for i in 1..=MAX_HISTORY + 3 { cur.put("a.nqv", "md", &format!("v{i}")).unwrap(); }
+        assert_eq!(cur.get("a.nqv").unwrap().history.len(), MAX_HISTORY);
+        // "v0" fell out of the history here; the backup still has it as its current version.
+        let m = cur.merge_backup(&bak);
+        assert_eq!(of(&m), counts(0, 0, 0, 1));
+        let h = &cur.get("a.nqv").unwrap().history;
+        assert_eq!(h.len(), MAX_HISTORY);
+        assert!(h.iter().any(|r| r.content == "v0" && r.conflict_from.is_some()));
+    }
+
+    #[test]
+    fn merge_backup_identical_entry_is_a_no_op() {
+        let mut cur = dev("here");
+        cur.put("a.nqv", "md", "same").unwrap();
+        cur.set_tags("a.nqv", vec!["x".into()]).unwrap();
+        let bak = copy_of(&cur, "there");
+        let before = cur.entries.clone();
+        let m = cur.merge_backup(&bak);
+        assert_eq!(of(&m), counts(0, 0, 1, 0));
+        assert!(!m.changed);
+        assert_eq!(cur.entries, before, "not even re-stamped");
+    }
+
+    #[test]
+    fn merge_backup_unions_tags_and_folders() {
+        let mut cur = dev("here");
+        cur.mkdir("Work").unwrap();
+        cur.put("a.nqv", "md", "same").unwrap();
+        cur.set_tags("a.nqv", vec!["mine".into()]).unwrap();
+        let mut bak = copy_of(&cur, "there");
+        bak.set_tags("a.nqv", vec!["theirs".into()]).unwrap();
+        // The same folder name created separately on both sides (different ids) is one folder.
+        let mut other = dev("there");
+        other.mkdir("Work").unwrap();
+        other.mkdir("Personal").unwrap();
+        for e in other.entries.values() { bak.entries.insert(e.id.clone(), e.clone()); }
+        let m = cur.merge_backup(&bak);
+        assert_eq!(of(&m), counts(0, 1, 0, 0));
+        assert_eq!(cur.get("a.nqv").unwrap().tags, vec!["mine", "theirs"]);
+        let dirs: Vec<String> = cur.list().into_iter().filter(|i| i.dir).map(|i| i.rel).collect();
+        assert_eq!(dirs, vec!["Personal", "Work"]);
+        assert_eq!(cur.entries.values().filter(|e| e.dir && e.path == "Work").count(), 1);
+    }
+
+    #[test]
+    fn merge_backup_keeps_the_trash_and_never_deletes() {
+        let mut cur = dev("here");
+        cur.put("live-here.nqv", "md", "keep me").unwrap();
+        let mut bak = copy_of(&cur, "there");
+        bak.trash("live-here.nqv").unwrap();
+        bak.put("old.nqv", "md", "binned").unwrap();
+        bak.trash_at("old.nqv", 1).unwrap(); // trashed long ago: would be purged at once
+        bak.put("gone.nqv", "md", "x").unwrap();
+        bak.delete("gone.nqv").unwrap(); // a tombstone in the backup
+        let m = cur.merge_backup(&bak);
+        assert_eq!(of(&m), counts(1, 0, 1, 0));
+        assert_eq!(cur.get("live-here.nqv").unwrap().content, "keep me", "live here stays live");
+        assert!(cur.get("old.nqv").is_none());
+        let t = cur.list_trash();
+        assert_eq!(t.iter().map(|i| i.rel.as_str()).collect::<Vec<_>>(), vec!["old.nqv"], "stays trashed");
+        let e = cur.entries.values().find(|e| e.path == "old.nqv").unwrap();
+        assert!(e.trash_applies() && e.stamp.device == "here");
+        assert_eq!(cur.purge_expired(now_ms()), 0, "its 30 days start now");
+        assert!(!cur.entries.values().any(|e| e.path == "gone.nqv"), "a tombstone isn't merged");
+    }
+
+    #[test]
+    fn merge_backup_brings_back_what_was_deleted_here() {
+        let mut cur = dev("here");
+        cur.put("a.nqv", "md", "keep").unwrap();
+        let bak = copy_of(&cur, "there");
+        cur.trash("a.nqv").unwrap();
+        cur.empty_trash();
+        assert!(cur.get("a.nqv").is_none());
+        let m = cur.merge_backup(&bak);
+        assert_eq!(of(&m), counts(1, 0, 0, 0));
+        let a = cur.get("a.nqv").unwrap();
+        assert!(!a.tomb_applies() && a.content == "keep");
+    }
+
+    #[test]
+    fn merge_backup_renames_an_added_note_whose_name_is_taken() {
+        let mut cur = dev("here");
+        cur.put("Bank.nqv", "login", "mine").unwrap();
+        let mut bak = dev("there");
+        bak.put("Bank.nqv", "login", "theirs").unwrap();
+        let m = cur.merge_backup(&bak);
+        assert_eq!(of(&m), counts(1, 0, 0, 0));
+        assert_eq!(cur.get("Bank.nqv").unwrap().content, "mine");
+        assert_eq!(cur.get("Bank (from backup).nqv").unwrap().content, "theirs");
     }
 
     #[test]

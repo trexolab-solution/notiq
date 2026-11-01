@@ -748,6 +748,7 @@ pub fn run() {
         vault_backup::vault_backup_export,
         vault_backup::vault_backup_inspect,
         vault_backup::vault_backup_import,
+        vault_backup::vault_backup_merge,
         // 0.7.0 db v2
         vault::vault_history_list,
         vault::vault_history_get,
@@ -842,6 +843,7 @@ pub fn run() {
         vault_backup::vault_backup_export,
         vault_backup::vault_backup_inspect,
         vault_backup::vault_backup_import,
+        vault_backup::vault_backup_merge,
         // 0.7.0 db v2
         vault::vault_history_list,
         vault::vault_history_get,

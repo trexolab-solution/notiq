@@ -1292,3 +1292,63 @@ fn a_restored_backup_survives_deletions_the_synced_copy_made_after_it() {
     let att = &db.get("c.nqv").unwrap().attachments;
     assert!(att.len() == 1 && !att[0].data.is_empty(), "the attachment comes back too");
 }
+
+// ─── merging a backup into a synced vault ────────────────────────────────────
+
+impl DiskVault {
+    /// A PC that already has this vault (holding `db`) on disk and unlocked.
+    fn open(db: &Db, meta: &VaultMeta, key: &VaultKey, st: SyncState) -> DiskVault {
+        let dir = tmp();
+        let vault_id = meta.vault_id_bytes().unwrap();
+        std::fs::write(dir.join("vault.json"), meta.to_json()).unwrap();
+        std::fs::write(crate::vault_db::db_path(&dir), db.seal(key, &vault_id).unwrap()).unwrap();
+        let vs = crate::vault::VaultState::default();
+        vs.ensure_device(&dir);
+        vs.set_root(dir);
+        vs.install_key(key.clone(), vault_id);
+        DiskVault { vs, meta: meta.clone(), key: key.clone(), vault_id, st }
+    }
+}
+
+#[test]
+fn a_merged_backup_survives_deletions_the_synced_copy_made_after_it() {
+    // Exported, then everything was deleted (and synced): the store holds only tombstones for it.
+    let (mut a, backup) = exported_vault();
+    let meta = a.v.meta.lock().unwrap().clone();
+    let p = InMemoryProvider::new();
+    ok(a.sync(&p));
+    a.edit(|db| {
+        for path in ["a.nqv", "Folder", "c.nqv"] { db.trash(path).unwrap(); }
+        db.empty_trash();
+    });
+    ok(a.sync(&p));
+
+    // A second PC on the same vault, with a note of its own, has synced those deletions.
+    let mut own = Db::new();
+    own.device = C.into();
+    own.put("pc.nqv", "md", "mine").unwrap();
+    let mut pc = DiskVault::open(&own, &meta, &a.v.key, sync_on(&meta));
+    pc.sync(&p);
+    assert_eq!(pc.live(), vec!["pc.nqv"]);
+
+    // Merge the old backup into it: every entry it adds is a new local change.
+    let root = pc.vs.root().unwrap();
+    let key = crate::vault_backup::backup_key(&backup, PW).unwrap();
+    let seq = pc.change_seq();
+    let r = crate::vault_backup::merge_into_vault(&pc.vs, &root, &root.join("vault.json"), &backup, &key, 1).unwrap();
+    assert!(pc.change_seq() > seq, "counted as a local change, so it is uploaded");
+    assert!(format!("{r:?}").contains("added: 3"), "{r:?}");
+    pc.st.pending = true; // what the change hook does in the app (sync::commands::on_local_change)
+    for _ in 0..2 {
+        pc.sync(&p);
+        assert_eq!(pc.live(), vec!["a.nqv", "c.nqv", "Folder/b.nqv", "pc.nqv"], "the older deletions don't remove it");
+    }
+
+    // And it comes back on the device that deleted it.
+    ok(a.sync(&p));
+    assert_eq!(a.text("Folder/b.nqv").as_deref(), Some("two"));
+    assert_eq!(a.text("pc.nqv").as_deref(), Some("mine"));
+    let db = a.v.db.lock().unwrap();
+    let att = &db.get("c.nqv").unwrap().attachments;
+    assert!(att.len() == 1 && !att[0].data.is_empty(), "the attachment comes back too");
+}
