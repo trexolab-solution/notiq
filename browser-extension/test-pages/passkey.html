@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Notiq passkey test page</title>
+<style>
+  body { font: 15px/1.5 system-ui, sans-serif; max-width: 640px; margin: 40px auto; padding: 0 16px; }
+  button { font: inherit; padding: 8px 14px; margin: 4px 8px 4px 0; }
+  pre { background: #f3f3f3; padding: 10px; white-space: pre-wrap; word-break: break-all; }
+</style>
+</head>
+<body>
+<h1>Passkey test page</h1>
+<p>With "Save and use passkeys with Notiq (experimental)" turned on in the extension popup, <b>Create passkey</b>
+asks Notiq to save a passkey for this page (RP ID = this host) and <b>Sign in with passkey</b> asks Notiq to use
+it. Declining in Notiq falls back to the browser's own passkey dialog. Nothing is sent to a server: the result is
+only shown below.</p>
+<p><label>User name <input id="user" value="tester@example.com"></label></p>
+<button id="create" type="button">Create passkey</button>
+<button id="get" type="button">Sign in with passkey</button>
+<button id="getAllowed" type="button">Sign in (last credential only)</button>
+<pre id="out">No result yet.</pre>
+<script>
+  const b64u = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  const fromB64u = (s) => Uint8Array.from(atob(s.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0));
+  const rand = (n) => crypto.getRandomValues(new Uint8Array(n));
+  let lastId = null;
+  function show(r) { window.__result = r; document.getElementById("out").textContent = JSON.stringify(r, null, 2); }
+  function describe(c) {
+    return {
+      id: c.id, type: c.type, attachment: c.authenticatorAttachment, isPkc: c instanceof PublicKeyCredential,
+      clientData: new TextDecoder().decode(c.response.clientDataJSON),
+      attestationObject: c.response.attestationObject ? b64u(c.response.attestationObject) : undefined,
+      signature: c.response.signature ? b64u(c.response.signature) : undefined,
+      userHandle: c.response.userHandle ? b64u(c.response.userHandle) : undefined,
+      publicKeyAlgorithm: typeof c.response.getPublicKeyAlgorithm === "function" ? c.response.getPublicKeyAlgorithm() : undefined,
+    };
+  }
+  async function create() {
+    try {
+      const name = document.getElementById("user").value;
+      const c = await navigator.credentials.create({ publicKey: {
+        challenge: rand(32), rp: { name: "Notiq test" },
+        user: { id: new TextEncoder().encode(name), name, displayName: name },
+        pubKeyCredParams: [{ type: "public-key", alg: -7 }, { type: "public-key", alg: -257 }],
+        authenticatorSelection: { residentKey: "required", userVerification: "preferred" },
+        timeout: 60000,
+      } });
+      lastId = c.id;
+      show(describe(c));
+    } catch (e) { show({ error: e.name, message: e.message }); }
+  }
+  async function get(onlyLast) {
+    try {
+      const c = await navigator.credentials.get({ publicKey: {
+        challenge: rand(32), userVerification: "preferred", timeout: 60000,
+        ...(onlyLast && lastId ? { allowCredentials: [{ type: "public-key", id: fromB64u(lastId) }] } : {}),
+      } });
+      show(describe(c));
+    } catch (e) { show({ error: e.name, message: e.message }); }
+  }
+  window.__create = create;
+  window.__get = get;
+  document.getElementById("create").addEventListener("click", create);
+  document.getElementById("get").addEventListener("click", () => get(false));
+  document.getElementById("getAllowed").addEventListener("click", () => get(true));
+</script>
+</body>
+</html>

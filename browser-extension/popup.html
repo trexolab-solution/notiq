@@ -184,6 +184,7 @@
     <label class="row"><span class="txt">Offer to save new logins</span><input type="checkbox" role="switch" id="offerSave"></label>
     <label class="row"><span class="txt">Show Notiq icon on login fields</span><input type="checkbox" role="switch" id="showIcon"></label>
     <label class="row" id="suggestRow"><span class="txt">Suggest on field focus<span class="sub">“Fill with Notiq” under login fields</span></span><input type="checkbox" role="switch" id="suggestOnFocus"></label>
+    <label class="row" id="passkeysRow"><span class="txt">Save and use passkeys with Notiq (experimental)<span class="sub">Notiq asks before saving or using one; reload open pages after changing this</span></span><input type="checkbox" role="switch" id="passkeys"></label>
     <details id="never">
       <summary>Never save for these sites <span class="count" id="neverCount"></span>
         <svg class="caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
@@ -196,4 +197,5 @@
 <script src="shared.js"></script>
 <script src="popupkit.js"></script>
 <script src="popup.js"></script>
+<script src="popup-passkeys.js"></script>
 </html>

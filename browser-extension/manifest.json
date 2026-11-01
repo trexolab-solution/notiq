@@ -11,6 +11,10 @@
     "storage",
     "contextMenus"
   ],
+  "optional_host_permissions": [
+    "https://*/*",
+    "http://localhost/*"
+  ],
   "action": {
     "default_title": "Fill with Notiq",
     "default_popup": "popup.html"
