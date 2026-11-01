@@ -108,14 +108,16 @@
   summary .count { font-size: 11px; font-weight: 600; padding: 0 6px; border-radius: 9px; line-height: 16px;
     background: color-mix(in srgb, var(--nq-text) 10%, transparent); color: var(--nq-muted); }
   summary .count:empty { display: none; }
-  #neverList { list-style: none; margin: 0; padding: 0 8px 8px; max-height: 140px; overflow-y: auto; }
-  #neverList li { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 2px 4px 2px 8px; border-radius: 6px; }
-  #neverList li:hover { background: var(--hover); }
-  #neverList li span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  #neverList li button { width: 24px; height: 24px; padding: 0; flex: none; border: 0; border-radius: 6px; background: transparent;
+  .sites { list-style: none; margin: 0; padding: 0 8px 8px; max-height: 140px; overflow-y: auto; }
+  .sites li { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 2px 4px 2px 8px; border-radius: 6px; }
+  .sites li:hover { background: var(--hover); }
+  .sites li span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sites li button { width: 24px; height: 24px; padding: 0; flex: none; border: 0; border-radius: 6px; background: transparent;
     color: var(--nq-muted); font-size: 16px; line-height: 1; cursor: pointer; }
-  #neverList li button:hover { background: color-mix(in srgb, var(--nq-danger) 15%, transparent); color: var(--nq-danger); }
-  #neverList .empty { color: var(--nq-muted); padding: 4px 8px; }
+  .sites li button:hover { background: color-mix(in srgb, var(--nq-danger) 15%, transparent); color: var(--nq-danger); }
+  .sites .empty { color: var(--nq-muted); padding: 4px 8px; }
+  #siteHideRow[hidden] { display: none; }
+  #siteHideHost { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
   /* this site's logins (titles + usernames from the app; copies happen in the app) */
   #site { margin-top: 12px; }
@@ -184,11 +186,24 @@
     <label class="row"><span class="txt">Offer to save new logins</span><input type="checkbox" role="switch" id="offerSave"></label>
     <label class="row"><span class="txt">Show Notiq icon on login fields</span><input type="checkbox" role="switch" id="showIcon"></label>
     <label class="row" id="suggestRow"><span class="txt">Suggest on field focus<span class="sub">“Fill with Notiq” under login fields</span></span><input type="checkbox" role="switch" id="suggestOnFocus"></label>
+    <label class="row" id="siteHideRow" hidden><span class="txt">Hide Notiq on this site<span class="sub" id="siteHideHost"></span></span><input type="checkbox" role="switch" id="siteHide"></label>
     <details id="never">
       <summary>Never save for these sites <span class="count" id="neverCount"></span>
         <svg class="caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
       </summary>
-      <ul id="neverList"></ul>
+      <ul id="neverList" class="sites"></ul>
+    </details>
+    <details id="hiddenSites">
+      <summary>Notiq hidden on these sites <span class="count" id="hiddenCount"></span>
+        <svg class="caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
+      </summary>
+      <ul id="hiddenList" class="sites"></ul>
+    </details>
+    <details id="trustedSites">
+      <summary>No password warning on these sites <span class="count" id="trustedCount"></span>
+        <svg class="caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
+      </summary>
+      <ul id="trustedList" class="sites"></ul>
     </details>
   </section>
 </main>

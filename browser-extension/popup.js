@@ -121,15 +121,20 @@ function fill(account) {
 btn.addEventListener("click", () => fill());
 
 // ---------- settings (chrome.storage.local; content.js reacts to changes) ----------
-const DEFAULTS = { offerSave: true, showIcon: true, suggestOnFocus: false, neverSave: [], theme: null };
+const DEFAULTS = { offerSave: true, showIcon: true, suggestOnFocus: false, neverSave: [], hiddenSites: [], reuseTrusted: [], theme: null };
 const offerSave = document.getElementById("offerSave");
 const showIcon = document.getElementById("showIcon");
 const suggestOnFocus = document.getElementById("suggestOnFocus");
 const suggestRow = document.getElementById("suggestRow");
-const list = document.getElementById("neverList");
-const count = document.getElementById("neverCount");
-
-function renderNever(hosts) {
+// Per-site lists: × removes the site (the content scripts follow the storage change).
+const SITE_LISTS = [
+  { key: "neverSave", list: "neverList", count: "neverCount", undo: (h) => `Offer to save logins for ${h} again` },
+  { key: "hiddenSites", list: "hiddenList", count: "hiddenCount", undo: (h) => `Show Notiq on ${h} again` },
+  { key: "reuseTrusted", list: "trustedList", count: "trustedCount", undo: (h) => `Warn about passwords of other sites on ${h} again` },
+];
+function renderSites({ key, list: listId, count: countId, undo }, hosts) {
+  const list = document.getElementById(listId);
+  const count = document.getElementById(countId);
   list.textContent = "";
   count.textContent = hosts.length ? String(hosts.length) : "";
   if (!hosts.length) {
@@ -147,17 +152,39 @@ function renderNever(hosts) {
     const rm = document.createElement("button");
     rm.type = "button";
     rm.textContent = "×";
-    rm.title = `Offer to save logins for ${host} again`;
+    rm.title = undo(host);
     rm.setAttribute("aria-label", `Remove ${host}`);
     rm.addEventListener("click", async () => {
-      const { neverSave } = await chrome.storage.local.get(DEFAULTS);
-      const next = (Array.isArray(neverSave) ? neverSave : []).filter((h) => h !== host);
-      await chrome.storage.local.set({ neverSave: next });
+      const cur = (await chrome.storage.local.get(DEFAULTS))[key];
+      const next = (Array.isArray(cur) ? cur : []).filter((h) => h !== host);
+      await chrome.storage.local.set({ [key]: next });
     });
     li.append(name, rm);
     list.appendChild(li);
   }
 }
+const hostsOf = (v) => (NS ? NS.hostList(v) : Array.isArray(v) ? v.filter((h) => typeof h === "string") : []);
+
+// "Hide Notiq on this site" for the active tab (the background takes the host from the tab's URL).
+const siteHideRow = document.getElementById("siteHideRow");
+const siteHide = document.getElementById("siteHide");
+const siteHideHost = document.getElementById("siteHideHost");
+function loadSiteHidden() {
+  try {
+    chrome.runtime.sendMessage({ type: "siteHidden" }, (res) => {
+      if (chrome.runtime.lastError || !res || res.ok !== true || typeof res.host !== "string") { siteHideRow.hidden = true; return; }
+      siteHideHost.textContent = `${res.host.slice(0, 253)}: no icon; this button and Alt+Shift+L still work`;
+      siteHide.checked = res.hidden === true;
+      siteHideRow.hidden = false;
+    });
+  } catch { siteHideRow.hidden = true; }
+}
+siteHide.addEventListener("change", () => {
+  chrome.runtime.sendMessage({ type: "setSiteHidden", hidden: siteHide.checked }, (res) => {
+    if (chrome.runtime.lastError || !res || res.ok !== true) loadSiteHidden();
+  });
+});
+loadSiteHidden();
 
 function render(s) {
   offerSave.checked = s.offerSave !== false;
@@ -166,7 +193,8 @@ function render(s) {
   // The suggestion is part of the in-field UI: it never shows while the icon is off.
   suggestOnFocus.disabled = !showIcon.checked;
   suggestRow.classList.toggle("off", !showIcon.checked);
-  renderNever(Array.isArray(s.neverSave) ? s.neverSave.filter((h) => typeof h === "string") : []);
+  for (const l of SITE_LISTS) renderSites(l, l.key === "neverSave" && Array.isArray(s.neverSave) ? s.neverSave.filter((h) => typeof h === "string") : hostsOf(s[l.key]));
+  if (!siteHideRow.hidden && siteHideHost.textContent) loadSiteHidden(); // the list may have changed this site
   cachedTheme = NS ? NS.validateTheme(s.theme) : null;
   applyTheme();
 }
