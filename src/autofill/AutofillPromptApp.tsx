@@ -394,7 +394,7 @@ export default function AutofillPromptApp() {
     // The search hides every row: there is nothing on screen to allow.
     const nothing = showsSearch(o.items.length) && visibleChoices(o.items, q).length === 0;
     return (
-      <Panel key={o.key} refs={refs} host={o.host} icon="site" kind={o.kind} sub="Requested by the Notiq extension in your browser"
+      <Panel key={o.key} refs={refs} host={o.host} icon="site" kind={o.kind} sub="Asked by the Notiq browser extension"
              onClose={deny} onEscape={viewed ? closeDetails : undefined} defaultFocus="cancel"
              footer={viewed ? null : <>
                <DialogButton cancel onClick={deny} disabled={o.busy}>Deny</DialogButton>
