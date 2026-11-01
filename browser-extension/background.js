@@ -44,14 +44,31 @@ async function appUnlocked() {
 // own origin, its ancestors' origins and whether it shows fillable / password inputs; the background decides
 // (NotiqShared.fillTargetOk, Public Suffix List rule) which frames may receive the login. Self-contained:
 // executeScript serializes it, so it may not use anything outside its body.
+// Inputs inside the page's OPEN shadow roots count too: the same search as the in-page icon (NotiqFill.deepQuery
+// from fillkit.js, already loaded as a content script; else the same walk inline: at most 6 nested roots and
+// 200 roots in all; closed roots are never entered).
 function probeFrame() {
   const visible = (el) => {
     const r = el.getBoundingClientRect();
     const cs = getComputedStyle(el);
     return r.width > 0 && r.height > 0 && cs.visibility !== "hidden" && cs.display !== "none" && !el.disabled && !el.readOnly;
   };
+  const FKq = globalThis.NotiqFill;
+  const deep = (root, sel) => {
+    if (FKq && typeof FKq.deepQuery === "function") return FKq.deepQuery(root, sel);
+    const out = [];
+    let roots = 0;
+    const walk = (scope, depth) => {
+      for (const n of scope.querySelectorAll("*")) {
+        if (n.matches(sel)) out.push(n);
+        if (n.shadowRoot && depth < 6 && roots < 200) { roots++; walk(n.shadowRoot, depth + 1); }
+      }
+    };
+    walk(root, 0);
+    return out;
+  };
   const kinds = ["text", "email", "tel", "password", "number", ""];
-  const inputs = [...document.querySelectorAll("input")].filter((i) => kinds.includes(i.type) && visible(i));
+  const inputs = deep(document, "input").filter((i) => kinds.includes(i.type) && visible(i));
   let ancestors = null;
   try { if (location.ancestorOrigins) ancestors = [...location.ancestorOrigins]; } catch { ancestors = null; }
   return {
@@ -85,10 +102,26 @@ function fillPage(host, cred, scope) {
     const setter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
     el.focus();
     if (setter) setter.call(el, value); else el.value = value;
-    el.dispatchEvent(new Event("input", { bubbles: true }));
+    // composed: listeners outside an open shadow root hear them too (as with the in-page fill).
+    el.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
     el.dispatchEvent(new Event("change", { bubbles: true }));
   };
-  const all = [...document.querySelectorAll("input")].filter(visible);
+  // Open shadow roots are searched like the in-page icon does (see probeFrame); lists are in tree order.
+  const FKq = globalThis.NotiqFill;
+  const deep = (root, sel) => {
+    if (FKq && typeof FKq.deepQuery === "function") return FKq.deepQuery(root, sel);
+    const out = [];
+    let roots = 0;
+    const walk = (scope, depth) => {
+      for (const n of scope.querySelectorAll("*")) {
+        if (n.matches(sel)) out.push(n);
+        if (n.shadowRoot && depth < 6 && roots < 200) { roots++; walk(n.shadowRoot, depth + 1); }
+      }
+    };
+    walk(root, 0);
+    return out;
+  };
+  const all = deep(document, "input").filter(visible);
   const pw = all.find((i) => i.type === "password");
   const textual = (i) => ["text", "email", "tel", ""].includes(i.type) || !i.type;
   let n = 0;
@@ -99,7 +132,7 @@ function fillPage(host, cred, scope) {
   {
     const runs = [];
     let run = [];
-    for (const i of document.querySelectorAll("input")) {
+    for (const i of deep(document, "input")) {
       if (i.type === "hidden") continue;
       if (["text", "tel", "number"].includes(i.type) && i.maxLength === 1 && visible(i)) { run.push(i); continue; }
       if (run.length) runs.push(run);
@@ -115,8 +148,10 @@ function fillPage(host, cred, scope) {
   if (boxes) used.push(...boxes);
   if (pw) {
     const form = pw.form || document;
-    const candidates = [...form.querySelectorAll("input")].filter((i) => visible(i) && textual(i) && i !== otp && !(boxes && boxes.includes(i)));
-    const before = candidates.filter((i) => pw.compareDocumentPosition(i) & Node.DOCUMENT_POSITION_PRECEDING);
+    const order = deep(form, "input"); // tree order across shadow roots (compareDocumentPosition can't order those)
+    const at = order.indexOf(pw);
+    const candidates = order.filter((i) => visible(i) && textual(i) && i !== otp && !(boxes && boxes.includes(i)));
+    const before = candidates.filter((i) => order.indexOf(i) < at);
     const user = before.length ? before[before.length - 1] : null;
     if (user && cred.username) { set(user, cred.username); n++; used.push(user); }
     set(pw, cred.password); n++; used.push(pw);
@@ -146,7 +181,7 @@ function fillPage(host, cred, scope) {
   const fields = Array.isArray(cred.fields) ? cred.fields : [];
   if (fields.length && FK && typeof FK.matchCustomFields === "function") {
     const root = (pw && pw.form) || (used.find((el) => el.form) || {}).form || document; // the login's form, else the frame
-    const els = [...root.querySelectorAll("input, textarea")].filter((el) => FK.customFillable(el) && visible(el) &&
+    const els = deep(root, "input, textarea").filter((el) => FK.customFillable(el) && visible(el) &&
       !used.includes(el) && el.maxLength !== 1 && !otpLike(el) &&
       !/(^|\s)(one-time-code|new-password|cc-[a-z-]+)(\s|$)/i.test(el.getAttribute("autocomplete") || ""));
     const active = document.activeElement;
