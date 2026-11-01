@@ -72,8 +72,8 @@ export function BackupSection() {
       <SettingRow
         id="vault.backup.import"
         label="Import backup"
-        description="Restore a .nqbackup file. If a vault already exists here it will be replaced (a copy is kept)."
-        keywords={["restore", "backup", "import", ".nqbackup", "recover"]}
+        description="Restore a .nqbackup file. If a vault already exists here you can merge the backup into it or replace it (a copy is kept either way)."
+        keywords={["restore", "backup", "import", ".nqbackup", "recover", "merge"]}
       >
         <Button className="settings-btn" size="sm" icon={<FileUp size={12} />} onClick={() => setRestoring(true)}>Import backup…</Button>
       </SettingRow>
