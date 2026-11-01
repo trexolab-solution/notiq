@@ -116,7 +116,7 @@ export const InlineLabelInput = React.memo(function InlineLabelInput(
 ) {
   return (
     <input type="text" {...props}
-           className={"h-6 -ml-1.5 px-1.5 min-w-[9rem] max-w-full [field-sizing:content] rounded text-xs " +
+           className={"h-6 -ml-1.5 px-1.5 min-w-[3rem] max-w-full [field-sizing:content] rounded text-xs " +
              "bg-transparent border border-transparent text-[var(--color-text-muted)] " +
              "placeholder:text-[var(--color-text-muted)] placeholder:opacity-70 " +
              "placeholder-shown:border-dashed placeholder-shown:border-[var(--color-border)] " +
