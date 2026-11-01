@@ -40,7 +40,11 @@ export function EntryLayout({ tab, children }: { tab: Tab; children: React.React
   return (
     <HistoryToggle.Provider value={{ open, toggle }}>
       <div ref={rootRef} data-tour="editor" className="relative flex-1 min-h-0 flex bg-[var(--color-editor-bg)]">
-        <div className="flex-1 min-w-0 overflow-y-auto">{children}</div>
+        {/* `data-entry-drop`: the area files can be dropped on to attach them (AttachmentsPanel), and the
+            positioned box its drop highlight is drawn over. */}
+        <div data-entry-drop="" className="relative flex-1 min-w-0 flex flex-col">
+          <div className="flex-1 min-h-0 overflow-y-auto">{children}</div>
+        </div>
         {open && <HistoryPanel key={tab.filePath} tab={tab} containerWidth={width} onClose={() => setOpenFor(null)} />}
       </div>
     </HistoryToggle.Provider>

@@ -14,6 +14,7 @@ import { isVaultPath, extFromPath, vaultLock, vaultReadFile, vaultRename, vaultW
 import { entryTitleOf, isStructuredExt, withEntryTitle } from "../lib/entryName";
 import { planEntryRename } from "../lib/entrySync";
 import { useVaultStore } from "./vaultStore";
+import { flushVaultPendingOps } from "../lib/vaultPendingOps";
 import { pickVaultDestination } from "../lib/vaultDest";
 import { scrubMonacoModels } from "../lib/vaultMemory";
 import { isSameOrUnder, remapPath } from "../lib/vaultTree";
@@ -646,6 +647,8 @@ export const useAppStore = create<AppState>((set, get) => {
     },
 
     async lockVault() {
+      // Apply changes still waiting out their Undo window (e.g. attachment removals) while the vault is open.
+      await flushVaultPendingOps();
       // Never lose edits: save dirty vault tabs first; abort the lock if any fails.
       const dirty = get().tabs.filter((t) => isVaultPath(t.filePath) && !t.vaultLocked && t.isDirty);
       for (const t of dirty) {
