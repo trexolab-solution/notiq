@@ -1,11 +1,10 @@
 import { useEffect, useState } from "react";
-import { KeyRound, Lock, Copy, Printer, Cloud, ShieldPlus } from "lucide-react";
-import { Dialog, DialogBody, DialogButton, DialogCheckbox, DialogFooter } from "../ui/Dialog";
+import { KeyRound, Lock, Cloud, ShieldPlus } from "lucide-react";
+import { Dialog, DialogBody, DialogButton, DialogFooter } from "../ui/Dialog";
 import { Input } from "../ui/Input";
 import { PasswordInput } from "../ui/PasswordInput";
-import { Button } from "../ui/Button";
 import { RestoreBackupDialog } from "./RestoreBackupDialog";
-import { RecoveryKitDialog } from "./RecoveryKitDialog"; // 0.7.0 recovery kit
+import { RecoveryKeyDialog } from "./RecoveryKeyDialog";
 import { SyncSetupHost } from "./sync/SyncSetupHost";
 import { SyncOnboardingDialog } from "./sync/SyncOnboardingDialog";
 import { useSyncStatus, useSyncStore } from "../../lib/vaultSync";
@@ -17,8 +16,7 @@ import { initVaultStateSync, useVaultStore, type VaultDialogMode } from "../../s
 import { useAppStore } from "../../store";
 import { useVaultAutoLock } from "../../hooks/useVaultAutoLock";
 import { useVaultSessionLock } from "../../hooks/useVaultSessionLock";
-import { copySecretTimed } from "../../lib/secureCopy";
-import { clipboardClearLabel } from "../../lib/vaultPrefs";
+import { useFailedUnlockNotice } from "../../hooks/useFailedUnlockNotice";
 import { vaultCreate, vaultUnlockWithRecovery, vaultErrorMessage } from "../../lib/vault";
 import { useVaultUnlock } from "./unlock/useVaultUnlock";
 import { VaultUnlockActions, VaultUnlockBody } from "./unlock/VaultUnlockForm";
@@ -38,6 +36,7 @@ export function VaultDialog() {
   // vault's global behaviour (idle / close-to-tray auto-lock).
   useVaultAutoLock();
   useVaultSessionLock();
+  useFailedUnlockNotice();
   // After creating a NEW vault: the optional "Use this vault on your other PCs?" step. It lives here (not in
   // the setup dialog) so the setup finishes — and whoever waited for the vault continues — first.
   const [offerSync, setOfferSync] = useState(false);
@@ -92,9 +91,7 @@ function VaultDialogInner({ mode, onCreated }: { mode: SetupMode; onCreated?: ()
   const [error, setError] = useState<string | null>(null);
   // After setup succeeds we show the recovery key once.
   const [recoveryKey, setRecoveryKey] = useState<string | null>(null);
-  const [saved, setSaved] = useState(false);
   const [restoring, setRestoring] = useState(false);
-  const [showKit, setShowKit] = useState(false); // 0.7.0 recovery kit
   // Hide "Use my vault from Google Drive" only once we know this build has no Google sign-in.
   const syncStatus = useSyncStatus();
   // Opened by the sync flow's "Create a new vault" (Drive is known to be empty): no Drive card, and sync turns on
@@ -134,58 +131,21 @@ function VaultDialogInner({ mode, onCreated }: { mode: SetupMode; onCreated?: ()
     }
   };
 
-  const copyKey = async () => {
-    if (!recoveryKey) return;
-    // copySecretTimed keeps it out of clipboard history and clears it after the user's setting; it shows its own
-    // error toast on failure.
-    const secs = await copySecretTimed(recoveryKey, "Recovery key", { quiet: true });
-    if (secs !== null) {
-      toast.info(secs > 0
-        ? `Recovery key copied — it clears from the clipboard in ${clipboardClearLabel(secs)}. Paste it somewhere safe now.`
-        : "Recovery key copied. Paste it somewhere safe now.");
-    }
-  };
-
   const label = "block text-xs mb-1 text-[var(--color-text-muted)]";
 
   // ── Step 2 of setup: show the recovery key exactly once ───────────────────
   if (recoveryKey) {
     return (
-      <Dialog onClose={() => {}} dismissable={false} zClassName="z-[70]" size="sm" title="Save your recovery key" icon="shield">
-        <DialogBody
-          message={<>If you forget your master password, this key is the <b>only</b> way to open your locked notes.</>}
-          detail="It is shown once and is not stored anywhere. Keep it somewhere safe and offline."
-        >
-          <div
-            className="font-mono text-sm tracking-wide text-center select-all break-all rounded-md p-3 mb-3 bg-[var(--color-bg-tertiary)] border border-[var(--color-border)]"
-            data-testid="recovery-key"
-          >
-            {recoveryKey}
-          </div>
-          <div className="flex justify-end gap-2 mb-3">
-            <Button size="sm" icon={<Printer size={12} />} onClick={() => setShowKit(true)}>Print recovery kit</Button>
-            <Button size="sm" icon={<Copy size={12} />} onClick={copyKey}>Copy</Button>
-          </div>
-          {showKit && <RecoveryKitDialog recoveryKey={recoveryKey} onClose={() => setShowKit(false)} />}
-          <DialogCheckbox checked={saved} onChange={setSaved} label="I have saved my recovery key" />
-        </DialogBody>
-        <DialogFooter>
-          <DialogButton
-            variant="primary"
-            disabled={!saved}
-            onClick={async () => {
-              setShowKit(false);
-              setRecoveryKey(null);
-              const sync = await useSyncStore.getState().refresh();
-              const syncFlowContinues = isCreatingForSync(); // read before succeed() hands control back to the flow
-              await succeed();
-              if (!syncFlowContinues && shouldOfferSyncOnboarding(sync)) onCreated?.();
-            }}
-          >
-            Done
-          </DialogButton>
-        </DialogFooter>
-      </Dialog>
+      <RecoveryKeyDialog
+        recoveryKey={recoveryKey}
+        onDone={async () => {
+          setRecoveryKey(null);
+          const sync = await useSyncStore.getState().refresh();
+          const syncFlowContinues = isCreatingForSync(); // read before succeed() hands control back to the flow
+          await succeed();
+          if (!syncFlowContinues && shouldOfferSyncOnboarding(sync)) onCreated?.();
+        }}
+      />
     );
   }
 
