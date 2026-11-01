@@ -11,6 +11,7 @@ import { resolveVaultDir } from "../lib/vaultDir";
 import { ERR_LOCKED, vaultErrorMessage, vaultReadFile, vaultStatus } from "../lib/vault";
 import { toFull } from "../lib/vaultTree";
 import { EntryIcon } from "../components/vault/sidebar/EntryIcon";
+import { TotpRing } from "../components/ui/TotpRing";
 import {
   copyFields, hasCopyableSecret, moveSelection, searchEntries, toResult, type IndexItem, type QuickResult,
 } from "./rank";
@@ -413,9 +414,6 @@ export default function QuickSearchApp() {
   );
 }
 
-const RING_R = 6;
-const RING_C = 2 * Math.PI * RING_R;
-
 /**
  * A row's live 2FA code + countdown ring; click (or Enter / Space when focused) copies it.
  * Screen readers: the name says whose code it is and the seconds left *when it got the focus*
@@ -438,16 +436,7 @@ function CodeButton({ name, code, left, waiting, onCopy }: {
       onClick={(e) => { e.stopPropagation(); onCopy(); }}
       onDoubleClick={(e) => e.stopPropagation()}
     >
-      <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden className="shrink-0">
-        <circle cx="8" cy="8" r={RING_R} fill="none" stroke="var(--color-border)" strokeWidth="2" />
-        <circle
-          cx="8" cy="8" r={RING_R} fill="none" strokeWidth="2" strokeLinecap="round"
-          stroke={low ? "var(--color-warning)" : "var(--color-primary)"}
-          strokeDasharray={RING_C}
-          strokeDashoffset={RING_C * (1 - left / TOTP_PERIOD)}
-          transform="rotate(-90 8 8)"
-        />
-      </svg>
+      <TotpRing left={left} period={TOTP_PERIOD} low={low} />
       <span aria-hidden className={`font-mono tabular-nums tracking-wide ${low ? "text-[var(--color-text-muted)]" : ""}`}>
         {code ? formatCode(code) : "••• •••"}
       </span>
