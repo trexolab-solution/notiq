@@ -1009,6 +1009,35 @@ pub fn autofill_prompt_hide(app: AppHandle, restore: bool) {
     hide_prompt(&app, restore);
 }
 
+/// A vault-relative entry path the prompt may ask the main window to open: an `.nqv` file, no `..`.
+pub fn valid_entry_rel(rel: &str) -> bool {
+    !rel.is_empty()
+        && rel.len() < 4096
+        && rel.to_ascii_lowercase().ends_with(".nqv")
+        && !rel.starts_with('/')
+        && !rel.contains('\\')
+        && !rel.contains(':')
+        && rel.split('/').all(|seg| !seg.is_empty() && seg != "." && seg != "..")
+}
+
+/// "Open in Notiq" from the prompt's details view: hide the prompt (the focus goes to the main
+/// window, not back to the browser), bring the main window forward and ask it to open the entry's tab
+/// (the same event the quick-search popup uses). Only the main window learns the path; nothing goes
+/// to the browser extension.
+#[tauri::command]
+pub fn autofill_prompt_open_entry(app: AppHandle, rel: String) -> Result<(), String> {
+    if !valid_entry_rel(&rel) {
+        return Err("Invalid entry".into());
+    }
+    hide_prompt(&app, false);
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.unminimize();
+        let _ = w.show();
+        let _ = w.set_focus();
+    }
+    app.emit_to("main", crate::quick_search::OPEN_EVENT, json!({ "rel": rel })).map_err(|e| e.to_string())
+}
+
 /// The window that had the focus when the request arrived (normally the browser).
 #[cfg(windows)]
 type Foreground = windows_sys::Win32::Foundation::HWND;
@@ -1357,6 +1386,17 @@ fn launch_and_wait() -> Option<Conn> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn open_entry_rel_validation() {
+        assert!(valid_entry_rel("Logins/bank.nqv"));
+        assert!(valid_entry_rel("top.NQV"));
+        assert!(valid_entry_rel("a b/c-d/e.nqv"));
+        for bad in ["", "Logins/bank.txt", "/abs.nqv", "../x.nqv", "a/../b.nqv", "a//b.nqv", "./a.nqv", "C:/x.nqv", "a\\b.nqv"] {
+            assert!(!valid_entry_rel(bad), "{bad:?} must be rejected");
+        }
+        assert!(!valid_entry_rel(&format!("{}.nqv", "a".repeat(5000))));
+    }
 
     #[test]
     fn constant_time_compare() {
