@@ -13,6 +13,10 @@
 //!   `quick_search_totp` returns the current 6-digit code and its seconds left for one entry; the
 //!   secret itself never reaches the quick window. Only answered for the quick window, only while
 //!   the vault is unlocked.
+//! * Window lifecycle (0.9.3): a show waits (hidden, dark background) until the page reports ready
+//!   (`quick_search_ready`), up to `READY_WAIT_MS`; focus loss hides it from Rust (`on_window_event`),
+//!   so an outside click closes it even while the page is loading or dead; a page that was ready
+//!   but doesn't answer a show is reloaded. Every hide goes through `hide_quick`.
 
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -448,69 +452,215 @@ fn restore_foreground() {
 #[cfg(not(windows))]
 fn restore_foreground() {}
 
+// ─── window lifecycle (pure) ─────────────────────────────────────────────────
+
+/// How long a show waits for the page to report ready (`quick_search_ready`) before showing the
+/// window anyway (dark background + the page's own "Loading…" state, never a white page).
+pub const READY_WAIT_MS: u64 = 1500;
+/// After a show, how long a page that *was* ready gets to acknowledge the `shown` event. No answer
+/// means its JS is dead (renderer crashed / page blanked): the webview is reloaded.
+pub const ALIVE_WAIT_MS: u64 = 2500;
+
+/// What a pending show does next, given whether the page is ready and how long it has waited.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ShowStep {
+    /// Keep the window hidden a little longer.
+    Wait,
+    /// Show it now; `ready` is false when the wait timed out.
+    Show { ready: bool },
+}
+
+pub fn show_step(ready: bool, waited_ms: u64, limit_ms: u64) -> ShowStep {
+    if ready {
+        ShowStep::Show { ready: true }
+    } else if waited_ms >= limit_ms {
+        ShowStep::Show { ready: false }
+    } else {
+        ShowStep::Wait
+    }
+}
+
+/// A focus change of the quick window: hide it when it lost the focus while on screen (the user
+/// clicked or switched elsewhere). Deliberate actions (copy, open, unlock) hide it themselves first,
+/// so by the time their focus loss arrives the window is no longer visible.
+pub fn hide_on_blur(focused: bool, visible: bool) -> bool {
+    !focused && visible
+}
+
+/// The page was ready when shown but never answered the `shown` event: its JS is gone.
+pub fn needs_reload(was_ready: bool, acked: bool) -> bool {
+    was_ready && !acked
+}
+
 // ─── window ──────────────────────────────────────────────────────────────────
 
-/// Hides the quick window and tells it so (it stops its 2FA timers and forgets the codes).
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+
+/// The page listens for its events (set by `quick_search_ready`, cleared when a load starts).
+static READY: AtomicBool = AtomicBool::new(false);
+/// Bumped by every show request and every hide: a show whose generation is stale was cancelled
+/// (hidden, toggled off) while it waited, and must not put the window on screen.
+static SHOW_GEN: AtomicU64 = AtomicU64::new(0);
+/// The latest generation the page acknowledged (`quick_search_ready` after mount or a `shown` event).
+static ACK_GEN: AtomicU64 = AtomicU64::new(0);
+/// A show was requested and is still waiting for the page (the window isn't visible yet).
+static PENDING: AtomicBool = AtomicBool::new(false);
+
+/// Hides the quick window and tells it so (it stops its 2FA timers and forgets the codes and the
+/// query). Every hide goes through here; it also cancels a show that is still waiting.
 fn hide_quick(app: &AppHandle) {
+    SHOW_GEN.fetch_add(1, Ordering::AcqRel);
+    PENDING.store(false, Ordering::Release);
     if let Some(w) = app.get_webview_window(WINDOW_LABEL) {
         let _ = w.hide();
         let _ = app.emit_to(WINDOW_LABEL, HIDDEN_EVENT, ());
     }
 }
 
-#[cfg(desktop)]
-fn on_hotkey(app: &AppHandle) {
-    if let Some(w) = app.get_webview_window(WINDOW_LABEL) {
-        if w.is_visible().unwrap_or(false) && w.is_focused().unwrap_or(false) {
-            hide_quick(app);
-            restore_foreground();
-            return;
+#[cfg(windows)]
+fn forget_foreground() {
+    PREV_FOREGROUND.store(0, Ordering::Release);
+}
+#[cfg(not(windows))]
+fn forget_foreground() {}
+
+/// Window events of the quick window (wired in lib.rs): an outside click / app switch hides it, and
+/// closing it (Alt+F4) only hides it, so the loaded page is kept for the next hotkey press.
+pub fn on_window_event(window: &tauri::Window, event: &tauri::WindowEvent) {
+    match event {
+        tauri::WindowEvent::Focused(focused) => {
+            let visible = window.is_visible().unwrap_or(false);
+            if hide_on_blur(*focused, visible) {
+                // The user moved on: don't hand the focus back to the app from before the hotkey.
+                hide_quick(window.app_handle());
+                forget_foreground();
+            }
         }
+        tauri::WindowEvent::CloseRequested { api, .. } => {
+            api.prevent_close();
+            hide_quick(window.app_handle());
+            restore_foreground();
+        }
+        _ => {}
     }
-    remember_foreground(app);
-    // Creating a webview from the event-loop thread can deadlock on Windows; do it off-thread.
+}
+
+/// Starts a show off the event-loop thread (creating a webview from it can deadlock on Windows,
+/// and the show waits for the page).
+#[cfg(desktop)]
+fn request_show(app: &AppHandle) {
+    let gen = SHOW_GEN.fetch_add(1, Ordering::AcqRel) + 1;
+    PENDING.store(true, Ordering::Release);
     let app = app.clone();
-    std::thread::spawn(move || show_window(&app));
+    std::thread::spawn(move || show_window(&app, gen));
 }
 
 #[cfg(desktop)]
-fn show_window(app: &AppHandle) {
+fn on_hotkey(app: &AppHandle) {
+    let w = app.get_webview_window(WINDOW_LABEL);
+    let visible = w.as_ref().is_some_and(|w| w.is_visible().unwrap_or(false));
+    // Pressing the shortcut again closes the window, focused or not (and cancels a pending show).
+    if visible || PENDING.load(Ordering::Acquire) {
+        let focused = w.as_ref().is_some_and(|w| w.is_focused().unwrap_or(false));
+        hide_quick(app);
+        if focused { restore_foreground() } else { forget_foreground() }
+        return;
+    }
+    remember_foreground(app);
+    request_show(app);
+}
+
+#[cfg(desktop)]
+fn create_window(app: &AppHandle) -> Result<tauri::WebviewWindow, String> {
+    READY.store(false, Ordering::Release);
+    let w = tauri::WebviewWindowBuilder::new(app, WINDOW_LABEL, tauri::WebviewUrl::App("index.html#/quick-search".into()))
+        .title(if crate::profile::IS_DEV { "Notiq Dev Quick Search" } else { "Notiq Quick Search" })
+        .inner_size(560.0, 400.0)
+        .resizable(false)
+        .maximizable(false)
+        .minimizable(false)
+        .decorations(false)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .shadow(true)
+        // Window *and* webview background: the app's dark theme until the page paints.
+        .background_color(tauri::window::Color(15, 23, 42, 255))
+        .visible(false)
+        .focused(false)
+        .center()
+        // A (re)load means the page no longer listens until it reports ready again.
+        .on_page_load(|_w, p| {
+            if p.event() == tauri::webview::PageLoadEvent::Started {
+                READY.store(false, Ordering::Release);
+            }
+        })
+        .build()
+        .map_err(|e| e.to_string())?;
+    crate::capture_shield::refresh(app);
+    Ok(w)
+}
+
+#[cfg(desktop)]
+fn show_window(app: &AppHandle, gen: u64) {
+    let current = || SHOW_GEN.load(Ordering::Acquire) == gen;
     let w = match app.get_webview_window(WINDOW_LABEL) {
         Some(w) => w,
-        None => {
-            let built = tauri::WebviewWindowBuilder::new(
-                app,
-                WINDOW_LABEL,
-                tauri::WebviewUrl::App("index.html#/quick-search".into()),
-            )
-            .title(if crate::profile::IS_DEV { "Notiq Dev Quick Search" } else { "Notiq Quick Search" })
-            .inner_size(560.0, 400.0)
-            .resizable(false)
-            .decorations(false)
-            .always_on_top(true)
-            .skip_taskbar(true)
-            .shadow(true)
-            .background_color(tauri::window::Color(15, 23, 42, 255))
-            .visible(false)
-            .center()
-            .build();
-            match built {
-                Ok(w) => {
-                    crate::capture_shield::refresh(app);
-                    w
-                }
-                Err(e) => {
-                    eprintln!("quick_search: cannot create window: {e}");
-                    return;
-                }
+        None => match create_window(app) {
+            Ok(w) => w,
+            Err(e) => {
+                eprintln!("quick_search: cannot create window: {e}");
+                PENDING.store(false, Ordering::Release);
+                return;
             }
+        },
+    };
+    // Wait (hidden) until the page listens, so it never shows up blank / white.
+    let start = std::time::Instant::now();
+    let ready = loop {
+        if !current() {
+            return; // hidden or toggled off meanwhile
+        }
+        match show_step(READY.load(Ordering::Acquire), start.elapsed().as_millis() as u64, READY_WAIT_MS) {
+            ShowStep::Show { ready } => break ready,
+            ShowStep::Wait => std::thread::sleep(std::time::Duration::from_millis(25)),
         }
     };
+    if !current() {
+        return;
+    }
     let _ = w.center();
-    let _ = w.show();
     let _ = w.unminimize();
+    let _ = w.show();
     let _ = w.set_focus();
+    PENDING.store(false, Ordering::Release);
     let _ = app.emit_to(WINDOW_LABEL, SHOWN_EVENT, ());
+
+    // Without the focus an outside click never blurs the window (nothing would close it): retry
+    // briefly in case Windows' foreground lock refused the first attempt.
+    for _ in 0..4 {
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        if !current() {
+            return;
+        }
+        if w.is_focused().unwrap_or(false) {
+            break;
+        }
+        let _ = w.set_focus();
+    }
+
+    // A page that was ready must acknowledge the `shown` event; if it doesn't, its JS is dead
+    // (crashed renderer, blank page): reload it so the window recovers instead of staying blank.
+    let start = std::time::Instant::now();
+    while start.elapsed().as_millis() < ALIVE_WAIT_MS as u128 {
+        if !current() || ACK_GEN.load(Ordering::Acquire) >= gen {
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    if current() && needs_reload(ready, ACK_GEN.load(Ordering::Acquire) >= gen) {
+        eprintln!("quick_search: the page did not answer; reloading it");
+        let _ = w.reload();
+    }
 }
 
 // ─── commands ────────────────────────────────────────────────────────────────
@@ -564,8 +714,18 @@ pub fn quick_search_hide(app: AppHandle, restore: bool) {
     if restore {
         restore_foreground();
     } else {
-        #[cfg(windows)]
-        PREV_FOREGROUND.store(0, std::sync::atomic::Ordering::Release);
+        forget_foreground();
+    }
+}
+
+/// The quick window's page listens for its events: sent after mount and in answer to every
+/// `quick-search:shown`. A show waits for it (no blank window) and a missing answer after a show
+/// means the page died (it is then reloaded). Ignored for every other window.
+#[tauri::command]
+pub fn quick_search_ready(window: tauri::Window) {
+    if window.label() == WINDOW_LABEL {
+        READY.store(true, Ordering::Release);
+        ACK_GEN.store(SHOW_GEN.load(Ordering::Acquire), Ordering::Release);
     }
 }
 
@@ -575,9 +735,8 @@ pub fn quick_search_show_main(app: AppHandle, action: String, rel: Option<String
     hide_quick(&app);
     // After an unlock the popup comes back (`quick_search_reopen`) and a copy should still return
     // the focus to the original app; opening an entry ends the quick-search session.
-    #[cfg(windows)]
     if action != "unlock" {
-        PREV_FOREGROUND.store(0, std::sync::atomic::Ordering::Release);
+        forget_foreground();
     }
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.unminimize();
@@ -598,7 +757,7 @@ pub fn quick_search_show_main(app: AppHandle, action: String, rel: Option<String
 #[tauri::command]
 pub fn quick_search_reopen(app: AppHandle) {
     #[cfg(desktop)]
-    std::thread::spawn(move || show_window(&app));
+    request_show(&app);
     #[cfg(not(desktop))]
     let _ = app;
 }
@@ -791,6 +950,33 @@ mod tests {
         let json = serde_json::to_string(&item).unwrap();
         assert!(json.contains("\"totp\":true"));
         assert!(!json.contains("JBSWY3DP"));
+    }
+
+    #[test]
+    fn show_waits_for_the_page_then_times_out() {
+        assert_eq!(show_step(true, 0, READY_WAIT_MS), ShowStep::Show { ready: true });
+        assert_eq!(show_step(true, 99_999, READY_WAIT_MS), ShowStep::Show { ready: true });
+        assert_eq!(show_step(false, 0, READY_WAIT_MS), ShowStep::Wait);
+        assert_eq!(show_step(false, READY_WAIT_MS - 1, READY_WAIT_MS), ShowStep::Wait);
+        // Not ready in time: shown anyway (dark background + the page's loading state).
+        assert_eq!(show_step(false, READY_WAIT_MS, READY_WAIT_MS), ShowStep::Show { ready: false });
+        assert!(READY_WAIT_MS <= 2000, "the hotkey must feel instant");
+    }
+
+    #[test]
+    fn focus_loss_hides_only_a_visible_window() {
+        assert!(hide_on_blur(false, true)); // outside click / app switch
+        assert!(!hide_on_blur(true, true)); // gained the focus
+        assert!(!hide_on_blur(false, false)); // already hidden (copy / open / unlock hid it first)
+        assert!(!hide_on_blur(true, false));
+    }
+
+    #[test]
+    fn a_silent_page_is_reloaded_only_if_it_was_ready() {
+        assert!(needs_reload(true, false)); // was listening, didn't answer `shown`: JS is dead
+        assert!(!needs_reload(true, true));
+        assert!(!needs_reload(false, false)); // still loading: a reload would only restart it
+        assert!(!needs_reload(false, true));
     }
 
     #[test]

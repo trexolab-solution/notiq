@@ -822,6 +822,7 @@ pub fn run() {
         quick_search::quick_search_get,
         quick_search::quick_search_set,
         quick_search::quick_search_hide,
+        quick_search::quick_search_ready,
         quick_search::quick_search_show_main,
         quick_search::quick_search_reopen,
         quick_search::quick_search_index,
@@ -922,6 +923,7 @@ pub fn run() {
         quick_search::quick_search_get,
         quick_search::quick_search_set,
         quick_search::quick_search_hide,
+        quick_search::quick_search_ready,
         quick_search::quick_search_show_main,
         quick_search::quick_search_reopen,
         quick_search::quick_search_index,
@@ -944,6 +946,11 @@ pub fn run() {
 
     #[cfg(desktop)]
     let builder = builder.on_window_event(|window, event| {
+        if window.label() == quick_search::WINDOW_LABEL {
+            // Hide on an outside click / app switch; Alt+F4 only hides (see quick_search.rs).
+            quick_search::on_window_event(window, event);
+            return;
+        }
         if let tauri::WindowEvent::CloseRequested { api, .. } = event {
             if window.label() == "main" {
                 // Tell the frontend the window is going to the tray so the
