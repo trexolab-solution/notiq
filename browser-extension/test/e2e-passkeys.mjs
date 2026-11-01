@@ -176,7 +176,7 @@ try {
   await sleep(800);
   const togglePasskeys = async () => {
     await cdp("Target.activateTarget", { targetId: popTarget });
-    const at = await evalIn(pop, `(() => { const e = document.getElementById("passkeys"); e.scrollIntoView({ block: "center" }); const r = e.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; })()`);
+    const at = await evalIn(pop, `(() => { showView("settings"); const e = document.getElementById("passkeys"); e.scrollIntoView({ block: "center" }); const r = e.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; })()`);
     for (const type of ["mousePressed", "mouseReleased"]) await cdp("Input.dispatchMouseEvent", { type, x: at.x, y: at.y, button: "left", clickCount: 1 }, pop);
     await sleep(800);
     await cdp("Target.activateTarget", { targetId });

@@ -150,17 +150,27 @@ Updating from 0.1: click the reload button on the extension's card. The browser 
   older Notiq shows "Update Notiq to use this." for identities.
 
 ### Settings (toolbar popup)
-- **Offer to save new logins** (on by default).
-- **Show Notiq icon on login fields** (on by default). Turning it off keeps the toolbar button and shortcut (the shortcut then opens the popup) (and
-  also hides the focus suggestion).
-- **Suggest on field focus** (off by default; turn it on in the popup): the **Fill with Notiq** button under a focused login field.
-- **Hide Notiq on this site** (the active tab's site): no icon or focus suggestion there.
-- **Never save for these sites:** the sites you chose "Never for this site" on; click × to allow offers again.
-- **Notiq hidden on these sites:** the sites you hid Notiq on (from the icon's menu or the switch above); × shows
-  the icon there again.
-- **No password warning on these sites:** the sites you answered "It's OK, I trust this site" on; × turns the
-  warning back on there.
-- **Save and use passkeys with Notiq (experimental)** (off by default): see [Passkeys (experimental)](#passkeys-experimental).
+The popup opens on the **current site**: its host, a **Fill login** button (with your shortcut as a hint), and this
+site's saved logins (fill, copy username / password / 2FA code, open in Notiq). The header says whether Notiq is
+unlocked, locked or not running; when something is in the way (Notiq not running or not set up, the vault locked, an
+update needed, or a page Notiq can't fill such as `chrome://` or plain `http`), the popup says so and offers **Try
+again** / **Check again** where that helps. The **⋯** button next to the site holds **Hide Notiq on this site** (no icon
+or focus suggestion there; Fill login and the shortcut still work).
+
+The gear icon opens **Settings**:
+- **Filling**
+  - **Show Notiq icon on login fields** (on by default). Turning it off keeps the toolbar button and shortcut (the
+    shortcut then opens the popup) and also hides the focus suggestion.
+  - **Suggest on field focus** (off by default): the **Fill with Notiq** button under a focused login field.
+- **Saving**: **Offer to save new logins** (on by default).
+- **Sites**: each list opens its own page with a count; × removes a site.
+  - **Never save on these sites:** the sites you chose "Never for this site" on; × allows offers again.
+  - **Notiq hidden on these sites:** the sites you hid Notiq on (from the icon's menu or the popup's ⋯); × shows the
+    icon there again.
+  - **No password warning on these sites:** the sites you answered "It's OK, I trust this site" on; × turns the
+    warning back on there.
+- **Experimental**: **Passkeys** (Beta, off by default): save and use passkeys with Notiq; see
+  [Passkeys (experimental)](#passkeys-experimental).
 
 All three lists are kept in `chrome.storage.local` (`neverSave`, `hiddenSites`, `reuseTrusted`; lower-case hosts,
 at most 500 each).

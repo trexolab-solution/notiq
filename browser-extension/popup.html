@@ -8,11 +8,16 @@
   :root {
     --nq-bg: #0f172a; --nq-bg2: #1e293b; --nq-bg3: #334155; --nq-text: #e2e8f0; --nq-muted: #94a3b8;
     --nq-border: #334155; --nq-primary: #c9a84c; --nq-on-primary: #0f172a; --nq-danger: #f87171; --nq-success: #4ade80;
-    --hover: color-mix(in srgb, var(--nq-text) 7%, transparent);
-    --line: color-mix(in srgb, var(--nq-border) 80%, transparent);
-    --ring: color-mix(in srgb, var(--nq-primary) 70%, transparent);
-    --primary-hover: color-mix(in srgb, var(--nq-primary) 86%, var(--nq-text));
-    --card: color-mix(in srgb, var(--nq-bg2) 70%, var(--nq-bg));
+    --hover: color-mix(in srgb, var(--nq-text) 6%, transparent);
+    --press: color-mix(in srgb, var(--nq-text) 10%, transparent);
+    --line: color-mix(in srgb, var(--nq-border) 75%, transparent);
+    --ring: color-mix(in srgb, var(--nq-primary) 75%, transparent);
+    --primary-hover: color-mix(in srgb, var(--nq-primary) 88%, var(--nq-text));
+    --surface: color-mix(in srgb, var(--nq-bg2) 55%, var(--nq-bg));
+    --surface-2: color-mix(in srgb, var(--nq-bg2) 85%, var(--nq-bg));
+    --tint: color-mix(in srgb, var(--nq-primary) 14%, transparent);
+    --soft: color-mix(in srgb, var(--nq-muted) 82%, var(--nq-bg));
+    --r: 10px;
     color-scheme: dark;
   }
   @media (prefers-color-scheme: light) {
@@ -23,192 +28,371 @@
     }
   }
   * { box-sizing: border-box; }
-  html { background: var(--nq-bg); }
-  body { width: 320px; margin: 0; padding: 16px; background: var(--nq-bg); color: var(--nq-text);
+  html { background: var(--nq-bg); overflow-x: hidden; }
+  body { width: 360px; min-height: 300px; margin: 0; background: var(--nq-bg); color: var(--nq-text);
     font: 13px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; -webkit-font-smoothing: antialiased; }
   button { font: inherit; color: inherit; }
+  [hidden] { display: none !important; }
+  :focus { outline: none; }
   :focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+  svg { display: block; }
+  .vh { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 
-  /* header */
-  .hdr { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; }
-  .mark { width: 32px; height: 32px; border-radius: 8px; flex: none; display: block; }
+  /* ---------- views ---------- */
+  .view { display: flex; flex-direction: column; min-height: 300px; }
+  .bar { display: flex; align-items: center; gap: 10px; padding: 10px 12px 10px 14px; border-bottom: 1px solid var(--line); }
+  .body { padding: 12px 14px 12px; display: flex; flex-direction: column; gap: 12px; flex: 1; }
+  .icon-btn { width: 30px; height: 30px; flex: none; display: grid; place-items: center; padding: 0; border: 0; border-radius: 8px;
+    background: transparent; color: var(--nq-muted); cursor: pointer; transition: background-color .12s, color .12s; }
+  .icon-btn svg { width: 17px; height: 17px; }
+  .icon-btn:hover { background: var(--hover); color: var(--nq-text); }
+  .icon-btn:active { background: var(--press); }
+  .icon-btn[aria-expanded="true"] { background: var(--press); color: var(--nq-text); }
+
+  /* ---------- main header ---------- */
+  .mark { width: 28px; height: 28px; border-radius: 7px; flex: none; display: block; }
   .brand { min-width: 0; flex: 1; }
-  h1 { margin: 0; font-size: 14px; font-weight: 650; letter-spacing: -.005em; line-height: 1.25; }
-  .status { display: flex; align-items: center; gap: 6px; margin-top: 2px; font-size: 12px; color: var(--nq-muted); }
-  .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--nq-muted);
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--nq-muted) 18%, transparent); }
-  .status[data-state="on"] .dot { background: var(--nq-success); box-shadow: 0 0 0 3px color-mix(in srgb, var(--nq-success) 20%, transparent); }
-  .status[data-state="off"] .dot { background: var(--nq-danger); box-shadow: 0 0 0 3px color-mix(in srgb, var(--nq-danger) 20%, transparent); }
+  h1 { margin: 0; font-size: 13.5px; font-weight: 650; letter-spacing: -.01em; line-height: 1.25; }
+  .status { display: flex; align-items: center; gap: 6px; margin-top: 1px; font-size: 12px; color: var(--nq-muted); min-width: 0; }
+  #statusText { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--nq-muted); }
+  .status[data-state="unknown"] .dot { animation: pulse 1.2s ease-in-out infinite; }
+  .status[data-state="on"] .dot { background: var(--nq-success); box-shadow: 0 0 0 3px color-mix(in srgb, var(--nq-success) 18%, transparent); }
+  .status[data-state="off"] .dot { background: var(--nq-danger); box-shadow: 0 0 0 3px color-mix(in srgb, var(--nq-danger) 18%, transparent); }
   .status[data-state="locked"] .dot, .status[data-state="update_app"] .dot, .status[data-state="update_ext"] .dot {
-    background: var(--nq-primary); box-shadow: 0 0 0 3px color-mix(in srgb, var(--nq-primary) 22%, transparent); }
-  .status[data-state="update_app"], .status[data-state="update_ext"] { color: var(--nq-text); font-weight: 600; }
-  #notice { margin: 0 0 12px; padding: 8px 10px; border-radius: 8px; font-size: 12.5px; line-height: 1.4; color: var(--nq-text);
-    background: color-mix(in srgb, var(--nq-primary) 12%, transparent); border: 1px solid color-mix(in srgb, var(--nq-primary) 35%, transparent); }
-  #notice[hidden] { display: none; }
+    background: var(--nq-primary); box-shadow: 0 0 0 3px color-mix(in srgb, var(--nq-primary) 20%, transparent); }
+  @keyframes pulse { 50% { opacity: .35; } }
 
-  /* primary action */
-  #fill { display: flex; align-items: center; gap: 8px; width: 100%; padding: 10px 12px; border: 0; border-radius: 10px;
-    background: var(--nq-primary); color: var(--nq-on-primary); font-weight: 600; cursor: pointer; text-align: left;
-    box-shadow: 0 1px 2px color-mix(in srgb, #000 20%, transparent); transition: background-color .15s; }
+  /* ---------- site bar ---------- */
+  .site { position: relative; display: flex; align-items: center; gap: 8px; }
+  .chip { min-width: 0; flex: 1; display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 8px 0 12px; border-radius: var(--r);
+    background: var(--surface); border: 1px solid var(--line); }
+  .chip svg { width: 14px; height: 14px; flex: none; color: var(--nq-muted); }
+  .chip[data-secure="true"] svg { color: var(--nq-success); }
+  #siteHost { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 550; }
+  #siteHost.none { color: var(--nq-muted); font-weight: 400; }
+  .tag { flex: none; padding: 1px 8px; border-radius: 6px; font-size: 11px; font-weight: 650; line-height: 16px; letter-spacing: .01em;
+    color: var(--nq-muted); background: color-mix(in srgb, var(--nq-text) 9%, transparent); }
+  .tag.beta { color: var(--nq-primary); background: var(--tint); text-transform: uppercase; letter-spacing: .05em; font-size: 11px; }
+  #siteMenuBtn { width: 34px; height: 34px; border: 1px solid var(--line); background: var(--surface); }
+  #siteMenuBtn:hover { background: var(--surface-2); }
+  .menu { position: absolute; z-index: 5; top: calc(100% + 6px); right: 0; width: 280px; padding: 4px; border-radius: 12px;
+    background: var(--surface-2); border: 1px solid var(--line);
+    box-shadow: 0 12px 28px -8px color-mix(in srgb, #000 45%, transparent), 0 2px 6px color-mix(in srgb, #000 18%, transparent); }
+  .menu .row { border-radius: 8px; }
+
+  /* ---------- primary action ---------- */
+  #fill { display: flex; align-items: center; gap: 8px; width: 100%; height: 40px; padding: 0 10px 0 14px; border: 0; border-radius: var(--r);
+    background: var(--nq-primary); color: var(--nq-on-primary); font-weight: 600; cursor: pointer; text-align: left; transition: background-color .12s; }
   #fill:hover { background: var(--primary-hover); }
+  #fill:active { transform: translateY(.5px); }
   #fill:disabled { opacity: .6; cursor: default; }
   #fill svg { width: 16px; height: 16px; flex: none; }
   #fill .label { flex: 1; min-width: 0; }
-  .chip { flex: none; padding: 2px 6px; border-radius: 6px; font: 600 11px/16px system-ui, -apple-system, "Segoe UI", sans-serif;
-    background: transparent; border: 1px solid color-mix(in srgb, var(--nq-on-primary) 40%, transparent); color: inherit; white-space: nowrap; }
-  .chip:empty { display: none; }
+  kbd { flex: none; padding: 1px 8px; border-radius: 6px; font: 600 11px/18px system-ui, -apple-system, "Segoe UI", sans-serif; white-space: nowrap;
+    background: color-mix(in srgb, var(--nq-on-primary) 13%, transparent); color: color-mix(in srgb, var(--nq-on-primary) 78%, transparent); }
+  kbd:empty { display: none; }
 
-  #msg { margin: 8px 0 0; min-height: 0; font-size: 12.5px; color: var(--nq-muted); }
+  #msg { margin: -4px 0 0; font-size: 12.5px; color: var(--nq-muted); display: flex; gap: 6px; align-items: flex-start; }
   #msg:empty { display: none; }
   #msg.err { color: var(--nq-danger); }
   #msg.ok { color: var(--nq-success); }
-  .help { margin: 8px 0 0; font-size: 12px; line-height: 1.5; color: var(--nq-muted); }
 
-  /* chooser: one card per login */
-  #choose { list-style: none; margin: 8px 0 0; padding: 0; max-height: 216px; overflow-y: auto; display: grid; gap: 4px; }
-  #choose[hidden] { display: none; }
+  /* ---------- state panel (not running / locked / update / unsupported page) ---------- */
+  .panel { display: flex; flex-direction: column; align-items: center; text-align: center; padding: 22px 16px 18px; border-radius: 12px;
+    background: var(--surface); border: 1px solid var(--line); }
+  .panel-ico { width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; margin-bottom: 10px;
+    background: color-mix(in srgb, var(--nq-text) 8%, transparent); color: var(--nq-muted); }
+  .panel-ico svg { width: 20px; height: 20px; }
+  .panel[data-icon="lock"] .panel-ico, .panel[data-icon="update"] .panel-ico { background: var(--tint); color: var(--nq-primary); }
+  .panel[data-icon="power"] .panel-ico { background: color-mix(in srgb, var(--nq-danger) 13%, transparent); color: var(--nq-danger); }
+  .panel h2 { margin: 0; font-size: 13.5px; font-weight: 650; }
+  .panel p { margin: 4px 0 0; color: var(--nq-muted); font-size: 12.5px; max-width: 280px; text-wrap: pretty; }
+  .btn { margin-top: 14px; display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 14px; border-radius: 8px; cursor: pointer;
+    background: transparent; border: 1px solid color-mix(in srgb, var(--nq-text) 22%, transparent); font-weight: 600; font-size: 12.5px;
+    transition: background-color .12s; }
+  .btn svg { width: 14px; height: 14px; }
+  .btn:hover { background: var(--hover); }
+  .btn:active { background: var(--press); }
+
+  /* ---------- several logins match (after Fill login) ---------- */
+  #choose { list-style: none; margin: -4px 0 0; padding: 0; max-height: 216px; overflow-y: auto; display: grid; gap: 4px; }
   #choose li { padding: 0; }
-  #choose button.choice { display: block; width: 100%; padding: 8px 12px; text-align: left; cursor: pointer;
-    background: var(--card); border: 1px solid var(--line); border-radius: 8px; transition: border-color .15s, background-color .15s; }
-  #choose button.choice:hover { background: var(--hover); border-color: color-mix(in srgb, var(--nq-primary) 45%, var(--nq-border)); }
-  #choose button.choice:focus-visible { outline: 2px solid var(--ring); outline-offset: 0; border-color: transparent; }
+  #choose button.choice { display: block; width: 100%; padding: 9px 14px; text-align: left; cursor: pointer;
+    background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); transition: border-color .12s, background-color .12s; }
+  #choose button.choice:hover { background: var(--surface-2); border-color: color-mix(in srgb, var(--nq-primary) 45%, var(--nq-border)); }
+  #choose button.choice:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; border-color: transparent; }
   .choice .t, .choice .u { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .choice .t { font-weight: 600; }
   .choice .u { font-size: 12px; color: var(--nq-muted); }
 
-  /* settings card */
-  .card { margin-top: 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); overflow: hidden; }
-  h2 { margin: 0; padding: 12px 12px 4px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--nq-muted); }
-  label.row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 12px; cursor: pointer; }
-  label.row + label.row, label.row + details, details { border-top: 1px solid var(--line); }
-  label.row:hover { background: var(--hover); }
-  .row .txt { min-width: 0; }
-  .row .sub { display: block; font-size: 11.5px; color: var(--nq-muted); margin-top: 1px; }
+  /* ---------- this site's logins ---------- */
+  .sec-head { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; }
+  .sec-head h2 { margin: 0; font-size: 11px; font-weight: 650; text-transform: uppercase; letter-spacing: .07em; color: var(--nq-muted); }
+  .sec-head .n { font-size: 11px; font-weight: 600; color: var(--nq-muted); padding: 0 8px; border-radius: 9px; line-height: 16px;
+    background: color-mix(in srgb, var(--nq-text) 9%, transparent); }
+  .sec-head .n:empty { display: none; }
+  .search { position: relative; margin: 0 0 8px; }
+  .search svg { position: absolute; left: 10px; top: 50%; width: 14px; height: 14px; transform: translateY(-50%); color: var(--nq-muted); pointer-events: none; }
+  #filter { display: block; width: 100%; height: 32px; padding: 0 10px 0 31px; border-radius: 8px; font: inherit; color: var(--nq-text);
+    background: var(--surface); border: 1px solid var(--line); transition: border-color .12s; }
+  #filter::placeholder { color: var(--nq-muted); }
+  #filter:hover { border-color: var(--nq-border); }
+  #filter:focus-visible, #filter:focus { outline: 2px solid var(--ring); outline-offset: -1px; border-color: transparent; }
+  #filter::-webkit-search-cancel-button { filter: grayscale(1); opacity: .6; }
+  .search:has(#filter[hidden]) { display: none; }
+  #accList { list-style: none; margin: 0; padding: 0; max-height: 252px; overflow: hidden auto; display: grid;
+    grid-template-columns: minmax(0, 1fr); border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+  #accList:empty { display: none; }
+  #accList li { display: flex; align-items: center; gap: 1px; padding: 4px 8px 4px 4px; transition: background-color .12s; }
+  #accList li + li { border-top: 1px solid var(--line); }
+  #accList li:hover, #accList li:focus-within { background: var(--hover); }
+  .acc-main { flex: 1; min-width: 0; display: grid; grid-template-columns: 30px minmax(0, 1fr); column-gap: 10px; align-items: center;
+    padding: 4px 8px 4px 6px; text-align: left; cursor: pointer; background: transparent; border: 0; border-radius: 8px; }
+  .acc-main::before { content: attr(data-initial); grid-row: 1 / span 2; width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center;
+    font-weight: 700; font-size: 13px; color: var(--nq-primary); background: var(--tint); }
+  .acc-main:focus-visible { outline-offset: -2px; }
+  .acc-main .t, .acc-main .u { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; grid-column: 2; }
+  .acc-main .t { font-weight: 600; line-height: 1.3; }
+  .acc-main .u { font-size: 12px; color: var(--nq-muted); line-height: 1.3; }
+  .acc-main .u:empty { display: none; }
+  .acc-main:has(.u:empty)::before { grid-row: 1; }
+  .ico { width: 28px; height: 28px; flex: none; display: grid; place-items: center; padding: 0; border: 0; border-radius: 7px;
+    background: transparent; color: var(--soft); cursor: pointer; transition: background-color .12s, color .12s; }
+  .ico svg { width: 15px; height: 15px; }
+  .ico:hover { background: var(--press); color: var(--nq-text); }
+  .ico:disabled { opacity: .3; cursor: default; }
+  .ico:disabled:hover { background: transparent; color: var(--soft); }
+  .ico.done, .ico.done:hover { color: var(--nq-success); }
+  .ico:focus-visible { outline-offset: -1px; }
+
+  /* list states: loading, empty, no match, errors */
+  .empty { display: flex; flex-direction: column; align-items: center; text-align: center; padding: 18px 12px 16px; border-radius: 12px;
+    border: 1px dashed var(--line); color: var(--nq-muted); }
+  .empty .e-ico { width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; margin-bottom: 8px;
+    background: color-mix(in srgb, var(--nq-text) 7%, transparent); }
+  .empty .e-ico svg { width: 17px; height: 17px; }
+  #siteState { margin: 0; font-size: 12.5px; color: var(--nq-text); font-weight: 550; }
+  .empty .hint { margin: 2px 0 0; font-size: 12px; }
+  .empty .hint:empty { display: none; }
+  .empty[data-kind="loading"] { border: 1px solid var(--line); background: var(--surface); padding: 0; align-items: stretch; }
+  .empty[data-kind="loading"] .e-ico, .empty[data-kind="loading"] .hint { display: none; }
+  .empty[data-kind="loading"] #siteState { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .skel { display: none; }
+  .empty[data-kind="loading"] .skel { display: flex; align-items: center; gap: 10px; padding: 10px; }
+  .empty[data-kind="loading"] .skel + .skel { border-top: 1px solid var(--line); }
+  .skel i { display: block; border-radius: 6px; background: color-mix(in srgb, var(--nq-text) 9%, transparent); animation: pulse 1.4s ease-in-out infinite; }
+  .skel i:first-child { width: 30px; height: 30px; border-radius: 8px; flex: none; }
+  .skel span { flex: 1; display: grid; gap: 6px; }
+  .skel span i:first-child { width: 45%; height: 9px; }
+  .skel span i:last-child { width: 70%; height: 8px; }
+  .empty[data-kind="nomatch"] .e-ico, .empty[data-kind="error"] .e-ico { display: none; }
+  .empty[data-kind="nomatch"], .empty[data-kind="error"] { padding: 14px 12px; }
+
+  .foot { margin-top: auto; display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--nq-muted); padding-top: 2px; }
+  .foot svg { width: 13px; height: 13px; flex: none; }
+
+  /* ---------- settings ---------- */
+  .bar h1 { flex: 1; font-size: 14px; }
+  .bar .back { margin-left: -6px; }
+  .group { margin: 0 0 6px 2px; font-size: 11px; font-weight: 650; text-transform: uppercase; letter-spacing: .07em; color: var(--nq-muted); }
+  .card { border: 1px solid var(--line); border-radius: 12px; background: var(--surface); overflow: hidden; }
+  .card > .row + .row { border-top: 1px solid var(--line); }
+  h1[tabindex]:focus, h1[tabindex]:focus-visible { outline: none; }
+  .desc { margin: 0; font-size: 12.5px; color: var(--nq-muted); }
+  label.row, button.row { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; min-height: 42px;
+    padding: 8px 14px; cursor: pointer; text-align: left; background: transparent; border: 0; transition: background-color .12s; }
+  label.row:hover, button.row:hover { background: var(--hover); }
+  button.row:focus-visible { outline-offset: -2px; }
+  .row .txt { min-width: 0; flex: 1; }
+  .row .ttl { display: flex; align-items: center; gap: 6px; font-weight: 500; }
+  .row .sub { display: block; font-size: 11.5px; line-height: 1.4; color: var(--nq-muted); margin-top: 1px; }
   label.row.off { cursor: default; }
   label.row.off .txt { opacity: .5; }
   label.row.off:hover { background: none; }
+  .row .count { font-size: 11.5px; font-weight: 600; color: var(--nq-muted); }
+  .row .count:empty::before { content: "None"; font-weight: 400; }
+  .row .chev { width: 14px; height: 14px; flex: none; color: var(--nq-muted); margin-left: -4px; }
+  .row .rico { width: 16px; height: 16px; flex: none; color: var(--nq-muted); }
 
   /* toggle switch: still a real checkbox (role=switch) */
-  input[role="switch"] { appearance: none; -webkit-appearance: none; margin: 0; flex: none; position: relative; width: 32px; height: 18px;
-    border-radius: 9px; cursor: pointer; background: color-mix(in srgb, var(--nq-text) 22%, transparent); transition: background-color .15s; }
-  input[role="switch"]::before { content: ""; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%;
-    background: var(--nq-bg); box-shadow: 0 1px 2px color-mix(in srgb, #000 30%, transparent); transition: transform .15s; }
+  input[role="switch"] { appearance: none; -webkit-appearance: none; margin: 0; flex: none; position: relative; width: 34px; height: 20px;
+    border-radius: 10px; cursor: pointer; background: color-mix(in srgb, var(--nq-text) 22%, transparent); transition: background-color .15s; }
+  input[role="switch"]::before { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%;
+    background: #fff; box-shadow: 0 1px 2px color-mix(in srgb, #000 35%, transparent); transition: transform .15s; }
   input[role="switch"]:checked { background: var(--nq-primary); }
   input[role="switch"]:checked::before { transform: translateX(14px); background: var(--nq-on-primary); }
   input[role="switch"]:disabled { cursor: default; opacity: .45; }
   input[role="switch"]:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
 
-  /* never-save disclosure */
-  summary { display: flex; align-items: center; gap: 8px; padding: 8px 12px; cursor: pointer; list-style: none; }
-  summary::-webkit-details-marker { display: none; }
-  summary:hover { background: var(--hover); }
-  summary:focus-visible { outline-offset: -2px; }
-  summary .caret { width: 12px; height: 12px; flex: none; margin-left: auto; color: var(--nq-muted); transition: transform .15s; }
-  details[open] summary .caret { transform: rotate(90deg); }
-  summary .count { font-size: 11px; font-weight: 600; padding: 0 6px; border-radius: 9px; line-height: 16px;
-    background: color-mix(in srgb, var(--nq-text) 10%, transparent); color: var(--nq-muted); }
-  summary .count:empty { display: none; }
-  .sites { list-style: none; margin: 0; padding: 0 8px 8px; max-height: 140px; overflow-y: auto; }
-  .sites li { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 2px 4px 2px 8px; border-radius: 6px; }
+  /* site lists (sub-pages) */
+  .sites { list-style: none; margin: 0; padding: 0; border: 1px solid var(--line); border-radius: 12px; background: var(--surface);
+    max-height: 320px; overflow-y: auto; }
+  .sites li { display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 4px 8px 4px 14px; }
+  .sites li + li { border-top: 1px solid var(--line); }
   .sites li:hover { background: var(--hover); }
-  .sites li span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .sites li button { width: 24px; height: 24px; padding: 0; flex: none; border: 0; border-radius: 6px; background: transparent;
-    color: var(--nq-muted); font-size: 16px; line-height: 1; cursor: pointer; }
-  .sites li button:hover { background: color-mix(in srgb, var(--nq-danger) 15%, transparent); color: var(--nq-danger); }
-  .sites .empty { color: var(--nq-muted); padding: 4px 8px; }
-  #siteHideRow[hidden] { display: none; }
-  #siteHideHost { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
-  /* this site's logins (titles + usernames from the app; copies happen in the app) */
-  #site { margin-top: 12px; }
-  #site[hidden] { display: none; }
-  .site-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin: 0 0 6px; }
-  .site-head h2 { padding: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .site-head .n { flex: none; font-size: 11px; color: var(--nq-muted); }
-  #filter { display: block; width: 100%; margin: 0 0 6px; padding: 6px 10px; border-radius: 8px; font: inherit; color: var(--nq-text);
-    background: var(--nq-bg); border: 1px solid var(--line); }
-  #filter::placeholder { color: var(--nq-muted); }
-  #filter:focus-visible { outline: 2px solid var(--ring); outline-offset: 0; border-color: transparent; }
-  #filter[hidden] { display: none; }
-  #accList { list-style: none; margin: 0; padding: 0; max-height: 236px; overflow: hidden auto; display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; }
-  #accList li { display: flex; align-items: center; gap: 2px; padding: 2px 4px 2px 2px; background: var(--card);
-    border: 1px solid var(--line); border-radius: 8px; transition: border-color .15s, background-color .15s; }
-  #accList li:hover, #accList li:focus-within { border-color: color-mix(in srgb, var(--nq-primary) 45%, var(--nq-border)); }
-  .acc-main { flex: 1; min-width: 0; display: block; padding: 5px 8px; text-align: left; cursor: pointer; background: transparent;
-    border: 0; border-radius: 6px; }
-  .acc-main:hover { background: var(--hover); }
-  .acc-main:focus-visible { outline-offset: -2px; }
-  .acc-main .t, .acc-main .u { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .acc-main .t { font-weight: 600; }
-  .acc-main .u { font-size: 12px; color: var(--nq-muted); }
-  .ico { width: 26px; height: 26px; flex: none; display: grid; place-items: center; padding: 0; border: 0; border-radius: 6px;
+  .sites li span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sites li button { width: 28px; height: 28px; padding: 0; flex: none; display: grid; place-items: center; border: 0; border-radius: 7px;
     background: transparent; color: var(--nq-muted); cursor: pointer; }
-  .ico svg { width: 15px; height: 15px; }
-  .ico:hover { background: var(--hover); color: var(--nq-text); }
-  .ico:disabled { opacity: .35; cursor: default; }
-  .ico:disabled:hover { background: transparent; color: var(--nq-muted); }
-  .ico.done { color: var(--nq-success); }
-  .ico .txt { font: 700 9.5px/1 system-ui, -apple-system, "Segoe UI", sans-serif; letter-spacing: .02em; }
-  #siteState { margin: 4px 0 0; font-size: 12px; color: var(--nq-muted); }
-  #siteState:empty { display: none; }
-  footer { margin-top: 12px; text-align: center; font-size: 11px; color: var(--nq-muted); }
+  .sites li button svg { width: 14px; height: 14px; }
+  .sites li button:hover { background: color-mix(in srgb, var(--nq-danger) 14%, transparent); color: var(--nq-danger); }
+  .sites li.empty { display: block; padding: 20px 16px; text-align: center; color: var(--nq-muted); border: 0; font-size: 12.5px; }
+  .sites li.empty:hover { background: none; }
+  .sites:has(li.empty) { border-style: dashed; background: transparent; }
+  .ver { margin: auto 0 0; padding-top: 0; text-align: center; font-size: 11px; color: var(--nq-muted); }
 
   @media (prefers-reduced-motion: reduce) {
     *, *::before { transition: none !important; animation: none !important; }
   }
 </style>
-<header class="hdr">
-  <img class="mark" src="icon48.png" alt="" width="32" height="32">
-  <div class="brand">
-    <h1>Notiq Autofill</h1>
-    <div class="status" id="status" role="status" data-state="unknown"><span class="dot" aria-hidden="true"></span><span id="statusText">Checking Notiq…</span></div>
-  </div>
-</header>
-<main>
-  <p id="notice" role="note" hidden></p>
-  <button id="fill" type="button" aria-describedby="help">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="7.5" cy="15.5" r="4.5"/><path d="M10.7 12.3 20 3"/><path d="M16.5 6.5l3 3"/><path d="M14 9l2 2"/></svg>
-    <span class="label">Fill login for this site</span>
-    <kbd class="chip" id="shortcut">Alt+Shift+L</kbd>
-  </button>
-  <p id="msg" role="status" aria-live="polite"></p>
-  <ul id="choose" role="listbox" aria-label="Choose a login" hidden></ul>
-  <p class="help" id="help">You approve every fill and save in the Notiq app first.</p>
-  <section id="site" aria-labelledby="siteTitle" hidden>
-    <div class="site-head"><h2 id="siteTitle">Logins for this site</h2><span class="n" id="siteCount"></span></div>
-    <input type="search" id="filter" placeholder="Filter logins" aria-label="Filter logins for this site" aria-controls="accList" autocomplete="off" spellcheck="false" hidden>
-    <ul id="accList" aria-labelledby="siteTitle"></ul>
-    <p id="siteState" role="status" aria-live="polite"></p>
-  </section>
 
-  <section class="card" aria-labelledby="settingsTitle">
-    <h2 id="settingsTitle">Settings</h2>
-    <label class="row"><span class="txt">Offer to save new logins</span><input type="checkbox" role="switch" id="offerSave"></label>
-    <label class="row"><span class="txt">Show Notiq icon on login fields</span><input type="checkbox" role="switch" id="showIcon"></label>
-    <label class="row" id="suggestRow"><span class="txt">Suggest on field focus<span class="sub">“Fill with Notiq” under login fields</span></span><input type="checkbox" role="switch" id="suggestOnFocus"></label>
-    <label class="row" id="siteHideRow" hidden><span class="txt">Hide Notiq on this site<span class="sub" id="siteHideHost"></span></span><input type="checkbox" role="switch" id="siteHide"></label>
-    <label class="row" id="passkeysRow"><span class="txt">Save and use passkeys with Notiq (experimental)<span class="sub">Notiq asks before saving or using one; reload open pages after changing this</span></span><input type="checkbox" role="switch" id="passkeys"></label>
-    <details id="never">
-      <summary>Never save for these sites <span class="count" id="neverCount"></span>
-        <svg class="caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
-      </summary>
-      <ul id="neverList" class="sites"></ul>
-    </details>
-    <details id="hiddenSites">
-      <summary>Notiq hidden on these sites <span class="count" id="hiddenCount"></span>
-        <svg class="caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
-      </summary>
-      <ul id="hiddenList" class="sites"></ul>
-    </details>
-    <details id="trustedSites">
-      <summary>No password warning on these sites <span class="count" id="trustedCount"></span>
-        <svg class="caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
-      </summary>
-      <ul id="trustedList" class="sites"></ul>
-    </details>
-  </section>
-</main>
-<footer id="version"></footer>
+<!-- ===================== main: the current site ===================== -->
+<div class="view" id="viewMain">
+  <header class="bar">
+    <img class="mark" src="icon48.png" alt="" width="28" height="28">
+    <div class="brand">
+      <h1>Notiq Autofill</h1>
+      <div class="status" id="status" role="status" data-state="unknown"><span class="dot" aria-hidden="true"></span><span id="statusText">Checking Notiq…</span></div>
+    </div>
+    <button type="button" class="icon-btn" id="openSettings" aria-label="Settings" title="Settings">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
+    </button>
+  </header>
+  <main class="body">
+    <div class="site">
+      <div class="chip" id="siteChip" data-secure="false" title="">
+        <svg id="siteIco" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a14 14 0 0 1 0 18a14 14 0 0 1 0-18"/></svg>
+        <span class="vh">Current site:</span><span id="siteHost" class="none">This page</span>
+        <span class="tag" id="siteHiddenTag" title="The Notiq icon is hidden on this site" hidden>Icon hidden</span>
+      </div>
+      <button type="button" class="icon-btn" id="siteMenuBtn" aria-label="Options for this site" title="Options for this site"
+        aria-haspopup="true" aria-expanded="false" aria-controls="siteMenu" hidden>
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>
+      </button>
+      <div class="menu" id="siteMenu" role="group" aria-label="Options for this site" hidden>
+        <label class="row" id="siteHideRow" hidden><span class="txt"><span class="ttl">Hide Notiq on this site</span><span class="sub" id="siteHideHost"></span></span><input type="checkbox" role="switch" id="siteHide"></label>
+      </div>
+    </div>
+
+    <div class="panel" id="panel" data-icon="" hidden>
+      <div class="panel-ico" id="panelIco" aria-hidden="true"></div>
+      <h2 id="panelTitle"></h2>
+      <p id="panelText"></p>
+      <button type="button" class="btn" id="panelAction" hidden>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>
+        <span id="panelActionText">Try again</span>
+      </button>
+    </div>
+
+    <button id="fill" type="button" aria-describedby="help">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="7.5" cy="15.5" r="4.5"/><path d="M10.7 12.3 20 3"/><path d="M16.5 6.5l3 3"/><path d="M14 9l2 2"/></svg>
+      <span class="label">Fill login</span>
+      <kbd id="shortcut" title="Keyboard shortcut">Alt+Shift+L</kbd>
+    </button>
+    <p id="msg" role="status" aria-live="polite"></p>
+    <ul id="choose" role="listbox" aria-label="Choose a login" hidden></ul>
+
+    <section id="site" aria-labelledby="siteTitle">
+      <div class="sec-head"><h2 id="siteTitle">Saved logins</h2><span class="n" id="siteCount"></span></div>
+      <div class="search">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <input type="search" id="filter" placeholder="Search logins" aria-label="Filter logins for this site" aria-controls="accList" autocomplete="off" spellcheck="false" hidden>
+      </div>
+      <ul id="accList" aria-labelledby="siteTitle"></ul>
+      <div class="empty" id="siteEmpty" data-kind="loading">
+        <div class="skel" aria-hidden="true"><i></i><span><i></i><i></i></span></div>
+        <div class="skel" aria-hidden="true"><i></i><span><i></i><i></i></span></div>
+        <div class="e-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="7.5" cy="15.5" r="4.5"/><path d="M10.7 12.3 20 3"/><path d="M16.5 6.5l3 3"/><path d="M14 9l2 2"/></svg></div>
+        <p id="siteState" role="status" aria-live="polite">Checking Notiq…</p>
+        <p class="hint" id="siteHint"></p>
+      </div>
+    </section>
+
+    <p class="foot" id="help">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg>
+      <span>You approve every fill and save in the Notiq app first.</span>
+    </p>
+  </main>
+</div>
+
+<!-- ===================== settings ===================== -->
+<div class="view" id="viewSettings" hidden>
+  <header class="bar">
+    <button type="button" class="icon-btn back" data-back="main" aria-label="Back" title="Back">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>
+    </button>
+    <h1 id="settingsTitle" tabindex="-1">Settings</h1>
+  </header>
+  <div class="body">
+    <section aria-labelledby="gFill">
+      <h2 class="group" id="gFill">Filling</h2>
+      <div class="card">
+        <label class="row"><span class="txt"><span class="ttl">Show Notiq icon on login fields</span><span class="sub">Click it to pick a login for the field</span></span><input type="checkbox" role="switch" id="showIcon"></label>
+        <label class="row" id="suggestRow"><span class="txt"><span class="ttl">Suggest on field focus</span><span class="sub">“Fill with Notiq” under login fields</span></span><input type="checkbox" role="switch" id="suggestOnFocus"></label>
+      </div>
+    </section>
+    <section aria-labelledby="gSave">
+      <h2 class="group" id="gSave">Saving</h2>
+      <div class="card">
+        <label class="row"><span class="txt"><span class="ttl">Offer to save new logins</span><span class="sub">After you sign in with a login Notiq doesn't have</span></span><input type="checkbox" role="switch" id="offerSave"></label>
+      </div>
+    </section>
+    <section aria-labelledby="gSites">
+      <h2 class="group" id="gSites">Sites</h2>
+      <div class="card">
+        <button type="button" class="row" data-view="never" aria-describedby="neverCount"><span class="txt"><span class="ttl">Never save on these sites</span></span><span class="count" id="neverCount"></span><svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></button>
+        <button type="button" class="row" data-view="hidden" aria-describedby="hiddenCount"><span class="txt"><span class="ttl">Notiq hidden on these sites</span></span><span class="count" id="hiddenCount"></span><svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></button>
+        <button type="button" class="row" data-view="trusted" aria-describedby="trustedCount"><span class="txt"><span class="ttl">No password warning on these sites</span></span><span class="count" id="trustedCount"></span><svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></button>
+      </div>
+    </section>
+    <section aria-labelledby="gExp">
+      <h2 class="group" id="gExp">Experimental</h2>
+      <div class="card">
+        <label class="row" id="passkeysRow"><span class="txt"><span class="ttl">Passkeys <span class="tag beta">Beta</span></span><span class="sub">Save and use passkeys with Notiq. Reload open pages after changing.</span></span><input type="checkbox" role="switch" id="passkeys" aria-label="Save and use passkeys with Notiq (experimental)"></label>
+      </div>
+    </section>
+    <p class="ver" id="version"></p>
+  </div>
+</div>
+
+<!-- ===================== site lists ===================== -->
+<div class="view" id="viewNever" hidden>
+  <header class="bar">
+    <button type="button" class="icon-btn back" data-back="settings" aria-label="Back to settings" title="Back">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>
+    </button>
+    <h1 id="neverTitle" tabindex="-1">Never save</h1>
+  </header>
+  <div class="body">
+    <p class="desc">Notiq won't offer to save logins on these sites. Remove one to get offers there again.</p>
+    <ul id="neverList" class="sites" aria-labelledby="neverTitle"></ul>
+  </div>
+</div>
+<div class="view" id="viewHidden" hidden>
+  <header class="bar">
+    <button type="button" class="icon-btn back" data-back="settings" aria-label="Back to settings" title="Back">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>
+    </button>
+    <h1 id="hiddenTitle" tabindex="-1">Hidden on</h1>
+  </header>
+  <div class="body">
+    <p class="desc">No Notiq icon or suggestion on these sites. Fill login and the shortcut still work there.</p>
+    <ul id="hiddenList" class="sites" aria-labelledby="hiddenTitle"></ul>
+  </div>
+</div>
+<div class="view" id="viewTrusted" hidden>
+  <header class="bar">
+    <button type="button" class="icon-btn back" data-back="settings" aria-label="Back to settings" title="Back">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>
+    </button>
+    <h1 id="trustedTitle" tabindex="-1">No password warning</h1>
+  </header>
+  <div class="body">
+    <p class="desc">Notiq won't warn you about typing another site's password on these sites.</p>
+    <ul id="trustedList" class="sites" aria-labelledby="trustedTitle"></ul>
+  </div>
+</div>
+
 <script src="shared.js"></script>
 <script src="popupkit.js"></script>
 <script src="popup.js"></script>

@@ -95,6 +95,32 @@ test("popupkit: arrow keys move between rows and back to the filter", () => {
   assert.equal(NP.nextRow("ArrowDown", 0, 0), -1);
 });
 
+test("popupkit: avatar initial, status label, main panel", () => {
+  assert.equal(NP.initial(A[0]), "W");
+  assert.equal(NP.initial({ ...A[0], title: "  émile" }), "É");
+  assert.equal(NP.initial({ ...A[0], title: "<img>" }), "I");
+  assert.equal(NP.initial(A[2]), "L"); // "Login"
+  assert.equal(NP.initial({ ...A[0], title: "***" }), "?");
+  assert.equal(NP.statusLabel("on"), "Unlocked");
+  assert.equal(NP.statusLabel("locked"), "Vault locked");
+  assert.equal(NP.statusLabel("off"), "Notiq not running");
+  assert.equal(NP.statusLabel("off", true), "Notiq not set up");
+  assert.equal(NP.statusLabel("toString"), "Notiq not running");
+  assert.equal(NP.mainPanel({ conn: "on" }), null);
+  assert.equal(NP.mainPanel({ conn: "unknown" }), null);
+  assert.equal(NP.mainPanel(), null);
+  assert.equal(NP.mainPanel({ conn: "locked" }).action, "retry");
+  assert.match(NP.mainPanel({ conn: "locked" }).title, /locked/);
+  assert.match(NP.mainPanel({ conn: "off" }).title, /isn't running/);
+  assert.match(NP.mainPanel({ conn: "off", noHost: true }).title, /set up/);
+  assert.equal(NP.mainPanel({ conn: "update_app", detail: "Get 0.9" }).text, "Get 0.9");
+  assert.equal(NP.mainPanel({ conn: "update_ext" }).action, "");
+  // A page Notiq can't fill wins over the connection state; other tab errors are ignored.
+  assert.equal(NP.mainPanel({ conn: "locked", pageError: "not_https" }).icon, "page");
+  assert.equal(NP.mainPanel({ conn: "on", pageError: "bad_url" }).icon, "page");
+  assert.equal(NP.mainPanel({ conn: "on", pageError: "no_tab" }), null);
+});
+
 // ---------- background.js popup handlers ----------
 const EXT_ID = "notiq-test-id";
 const PAGE = "https://accounts.example.com/signin";
