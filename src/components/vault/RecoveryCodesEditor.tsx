@@ -2,11 +2,11 @@ import { useMemo, useState } from "react";
 import { ClipboardCopy, Eye, EyeOff, ListChecks, Plus, X } from "lucide-react";
 import { Button } from "../ui/Button";
 import { Input } from "../ui/Input";
-import { Tooltip } from "../ui/Tooltip";
 import { useAppStore } from "../../store";
 import { useAutoHide } from "../../hooks/useAutoHide";
 import { CopyIconButton } from "./CopyIconButton";
 import { AttachmentsPanel } from "./AttachmentsPanel";
+import { reinsert, RowActions, rowButtonClass, RowIconButton, useAnnouncer, useLatest, useListFocus, useUndoToast } from "./ListEditor";
 import { EntryHeader, SaveHint, Section, fieldLabel, textArea } from "./EntryParts";
 import { copySecret } from "../../lib/secureCopy";
 import { toast } from "../../lib/toast";
@@ -21,6 +21,10 @@ export function RecoveryCodesEditor({ tab }: { tab: Tab }) {
   const [show, setShow] = useState(false);
   useAutoHide(show, setShow);
   const [draft, setDraft] = useState("");
+  const { rootRef, focusAfter } = useListFocus();
+  const { announce, region } = useAnnouncer();
+  const undo = useUndoToast();
+  const latest = useLatest(entry);
   const save = (next: CodesEntry) => useAppStore.getState().updateTabContent(tab.id, serializeCodes(next));
 
   const left = remainingCount(entry.codes);
@@ -34,10 +38,24 @@ export function RecoveryCodesEditor({ tab }: { tab: Tab }) {
     toast.info(`Added ${r.added} code${r.added === 1 ? "" : "s"}${r.skipped ? ` (${r.skipped} skipped: duplicate or over ${MAX_CODES})` : ""}`);
   };
 
+  const remove = (i: number) => {
+    const removed = entry.codes[i];
+    save({ ...entry, codes: removeCode(entry.codes, i) });
+    focusAfter(entry.codes.length > 1 ? { index: i } : "add");
+    announce(`Removed code ${i + 1}`);
+    undo(`Removed code ${i + 1}`, () => {
+      const cur = latest.current;
+      if (cur.codes.length >= MAX_CODES || cur.codes.some((c) => c.code === removed.code)) return;
+      save({ ...cur, codes: reinsert(cur.codes, i, removed) });
+      announce(`Restored code ${i + 1}`);
+    });
+  };
+
   return (
     <div data-tour="editor" className="flex-1 min-h-0 overflow-y-auto bg-[var(--color-editor-bg)]">
-      <div className="max-w-xl mx-auto px-6 py-8 flex flex-col gap-4 text-[var(--color-text)]">
+      <div ref={rootRef} className="max-w-xl mx-auto px-6 py-8 flex flex-col gap-4 text-[var(--color-text)]">
         <EntryHeader icon={ListChecks} title="Recovery codes" tab={tab} />
+        {region}
         <div>
           <label className={fieldLabel} htmlFor="rc-title">Name</label>
           <Input id="rc-title" value={entry.title} onChange={(e) => save({ ...entry, title: e.target.value })} />
@@ -66,22 +84,25 @@ export function RecoveryCodesEditor({ tab }: { tab: Tab }) {
             <p className="text-xs text-[var(--color-warning)]">Every code is used. Generate new ones on the service and paste them below.</p>
           )}
           {entry.codes.length > 0 && (
-            <ol className="flex flex-col rounded-md border border-[var(--color-border)] divide-y divide-[var(--color-border)]">
+            <ol aria-label="Recovery codes" className="flex flex-col rounded-md border border-[var(--color-border)] divide-y divide-[var(--color-border)]">
               {entry.codes.map((c, i) => (
-                <li key={`${c.code}-${i}`} className={`flex items-center gap-2 px-2.5 py-1 ${i === next ? "bg-[var(--color-bg-tertiary)]" : ""}`}>
-                  <input type="checkbox" checked={c.used} aria-label={`Mark code ${i + 1} as used`}
-                         onChange={() => save({ ...entry, codes: toggleUsed(entry.codes, i) })}
-                         className="accent-[var(--color-primary)] w-3.5 h-3.5 cursor-pointer" />
+                <li key={`${c.code}-${i}`} data-list-row className={`flex items-center gap-2 px-1 py-0.5 ${i === next ? "bg-[var(--color-bg-tertiary)]" : ""}`}>
+                  {/* 28px hit target around the small native checkbox */}
+                  <label className="inline-flex items-center justify-center h-7 w-7 shrink-0 cursor-pointer">
+                    <input type="checkbox" data-row-focus checked={c.used} aria-label={`Mark code ${i + 1} as used`}
+                           onChange={() => save({ ...entry, codes: toggleUsed(entry.codes, i) })}
+                           className="accent-[var(--color-primary)] w-3.5 h-3.5 cursor-pointer" />
+                  </label>
                   <span className="w-6 text-right text-[11px] text-[var(--color-text-muted)] tabular-nums">{i + 1}.</span>
                   <span className={`flex-1 min-w-0 truncate font-mono text-sm ${c.used ? "line-through text-[var(--color-text-muted)]" : ""}`}>
                     {show ? c.code : "•".repeat(Math.min(12, c.code.length))}
                   </span>
                   {c.used && <span className="text-[11px] text-[var(--color-text-muted)]">used</span>}
-                  <CopyIconButton value={c.code} label={`code ${i + 1}`} />
-                  <Tooltip content="Remove code">
-                    <Button size="sm" variant="danger" aria-label={`Remove code ${i + 1}`} icon={<X size={12} />}
-                            onClick={() => save({ ...entry, codes: removeCode(entry.codes, i) })} />
-                  </Tooltip>
+                  <RowActions>
+                    <CopyIconButton value={c.code} label={`code ${i + 1}`} className={rowButtonClass} />
+                    <RowIconButton danger label={`Remove code ${i + 1}`} tooltip="Remove code" icon={<X size={13} />}
+                                   onClick={() => remove(i)} />
+                  </RowActions>
                 </li>
               ))}
             </ol>
@@ -91,7 +112,7 @@ export function RecoveryCodesEditor({ tab }: { tab: Tab }) {
               {entry.codes.length ? "Add more codes" : "Paste your codes"}
               <span className="ml-1.5 opacity-70">· one per line or separated by spaces</span>
             </label>
-            <textarea id="rc-add" rows={3} value={draft} spellCheck={false} autoComplete="off"
+            <textarea id="rc-add" data-list-add rows={3} value={draft} spellCheck={false} autoComplete="off"
                       placeholder={"a1b2-c3d4\ne5f6-g7h8"} className={`${textArea} font-mono`}
                       onChange={(e) => setDraft(e.target.value)}
                       onKeyDown={(e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); add(); } }} />
