@@ -84,7 +84,7 @@ describe("choice rows: details quick action", () => {
     await act(async () => { btn.click(); });
     expect(onDetails).toHaveBeenCalledWith(1);
     expect(onPick).not.toHaveBeenCalled();
-    expect(host.querySelectorAll<HTMLInputElement>('input[type="radio"]')[0].checked).toBe(true);
+    expect(host.querySelectorAll<HTMLElement>('[role="radio"]')[0].getAttribute("aria-checked")).toBe("true");
   });
 
   it("no details button without onDetails (main-window fallback dialog)", async () => {
@@ -127,7 +127,8 @@ describe("details view", () => {
     expect(host.textContent).not.toContain("hunter22");
     expect(host.textContent).not.toContain("9876");
     expect(host.textContent).not.toContain("JBSWY3DPEHPK3PXP");
-    for (const label of ["Website", "Also on", "Username", "Password", "Customer ID", "PIN", "2-step code", "Notes"]) {
+    expect(val("site-1")).toBe("bank.example.co.uk");
+    for (const label of ["website bank.example", "website bank.example.co.uk", "Username", "Password", "Customer ID", "PIN", "2-step code", "Notes"]) {
       expect(host.querySelector(`button[aria-label="Copy ${label}"]`), label).toBeTruthy();
     }
     await act(async () => { host.querySelector<HTMLButtonElement>('button[aria-label="Show Password"]')!.click(); });
@@ -138,7 +139,9 @@ describe("details view", () => {
   it("shows the live 2-step code, never the secret", async () => {
     await render(deps(loginFile));
     await act(async () => { await new Promise((r) => setTimeout(r, 20)); });
-    expect(val("totp")).toMatch(/^\d{3} \d{3} · \d+s$/);
+    expect(val("totp")).toMatch(/^\d{3} \d{3}$/);
+    expect(host.querySelector('[data-testid="af-totp-left"]')?.textContent).toMatch(/^\d+s$/);
+    expect(host.querySelector("[data-totp-ring]")).toBeTruthy();
   });
 
   it("revealed secrets hide again when the window loses focus", async () => {
@@ -159,10 +162,9 @@ describe("details view", () => {
   it("Back and Open in Notiq call back; Back has the focus", async () => {
     const onBack = vi.fn();
     const onOpen = vi.fn();
-    await render(deps(loginFile), { onBack, onOpen, note: "Allow uses the selected login" });
+    await render(deps(loginFile), { onBack, onOpen });
     const back = host.querySelector<HTMLButtonElement>('button[aria-label="Back to the list"]')!;
     expect(document.activeElement).toBe(back);
-    expect(host.textContent).toContain("Allow uses the selected login");
     await act(async () => { back.click(); });
     expect(onBack).toHaveBeenCalled();
     const open = [...host.querySelectorAll("button")].find((b) => b.textContent?.includes("Open in Notiq"))!;
@@ -173,5 +175,81 @@ describe("details view", () => {
   it("no Open in Notiq without a way to open the entry", async () => {
     await render(deps(loginFile));
     expect([...host.querySelectorAll("button")].some((b) => b.textContent?.includes("Open in Notiq"))).toBe(false);
+  });
+
+  it("header: avatar, title and site; the list's title is shown while the entry is read", async () => {
+    let release: (f: VaultFile) => void = () => {};
+    const slow: DetailsDeps = { status: async () => ({ exists: true, unlocked: true }), read: () => new Promise((r) => { release = r; }) };
+    await act(async () => { root.render(<EntryDetailsView path="/v/Logins/bank.nqv" title="Bank (list)" onBack={() => {}} deps={slow} />); });
+    expect(host.querySelector(".af-details-title")?.textContent).toBe("Bank (list)");
+    await act(async () => { release(loginFile); await Promise.resolve(); });
+    expect(host.querySelector(".af-details-title")?.textContent).toBe("Bank");
+    expect(host.querySelector(".af-details-sub")?.textContent).toBe("bank.example");
+    expect(host.querySelector(".af-details-head .nq-avatar")?.textContent).toBe("B");
+  });
+
+  it("layout: websites as a list, notes in their own scrolling box, one action column per row", async () => {
+    await render(deps(loginFile));
+    expect(host.querySelectorAll('ul[aria-label="Websites"] > li')).toHaveLength(2);
+    expect(host.querySelector(".af-notes")?.textContent).toBe("Branch 12");
+    // Every row ends in the same two slots (reveal or a spacer, then copy), so the edges line up.
+    for (const li of host.querySelectorAll('ul[aria-label="Fields"] > li, ul[aria-label="Custom fields"] > li')) {
+      expect(li.lastElementChild!.children.length, li.textContent ?? "").toBe(2);
+    }
+  });
+
+  it("Fill this login: calls back once, reads nothing more, never shows the secret", async () => {
+    const onFill = vi.fn();
+    const onBack = vi.fn();
+    const dp = deps(loginFile);
+    await render(dp, { onFill, onBack });
+    const fill = [...host.querySelectorAll("button")].find((b) => b.textContent === "Fill this login")!;
+    await act(async () => { fill.click(); });
+    expect(onFill).toHaveBeenCalledTimes(1);
+    expect(onBack).not.toHaveBeenCalled();
+    expect(dp.read).toHaveBeenCalledTimes(1);
+    expect(host.textContent).not.toContain("hunter22");
+  });
+
+  it("while filling: the button spins and Back / Open are disabled", async () => {
+    await render(deps(loginFile), { onFill: () => {}, onOpen: () => {}, busy: true });
+    const fill = host.querySelector<HTMLButtonElement>(".af-fill-btn")!;
+    expect(fill.disabled).toBe(true);
+    expect(fill.textContent).toBe("Filling…");
+    expect(host.querySelector<HTMLButtonElement>('button[aria-label="Back to the list"]')!.disabled).toBe(true);
+    expect([...host.querySelectorAll("button")].find((b) => b.textContent?.includes("Open in Notiq"))!.disabled).toBe(true);
+  });
+
+  it("security: nothing is read before the view opens, and a reveal does not survive Back", async () => {
+    const dp = deps(loginFile);
+    const choice = <FillChoice host="bank.example" matches={[{ path: "/v/Logins/bank.nqv", rel: "Logins/bank.nqv", entry: login }]}
+                               pick={0} onPick={() => {}} trust={false} onTrust={() => {}} onDetails={() => {}} />;
+    await act(async () => { root.render(choice); });
+    expect(dp.read).not.toHaveBeenCalled();
+    expect(host.textContent).not.toContain("hunter22");
+
+    await render(dp);
+    await act(async () => { host.querySelector<HTMLButtonElement>('button[aria-label="Show Password"]')!.click(); });
+    expect(val("password")).toBe("hunter22");
+    // Back: the view unmounts (the window shows the list again), then the row is opened a second time.
+    await act(async () => { root.render(choice); });
+    expect(host.textContent).not.toContain("hunter22");
+    await render(dp);
+    expect(val("password")).toBe(MASK);
+    expect(dp.read).toHaveBeenCalledTimes(2); // read fresh on each open, nothing kept in between
+  });
+
+  it("security: the session lock's hide-secrets event masks revealed values", async () => {
+    const { VAULT_HIDE_SECRETS_EVENT } = await import("../hooks/useAutoHide");
+    await render(deps(loginFile));
+    await act(async () => { host.querySelector<HTMLButtonElement>('button[aria-label="Show Password"]')!.click(); });
+    expect(val("password")).toBe("hunter22");
+    await act(async () => { window.dispatchEvent(new Event(VAULT_HIDE_SECRETS_EVENT)); });
+    expect(val("password")).toBe(MASK);
+  });
+
+  it("locked or unreadable: an intentional state, not a blank view", async () => {
+    await render({ status: async () => ({ exists: true, unlocked: true }), read: async () => { throw new Error("gone"); } });
+    expect(host.querySelector(".af-state--error")?.textContent).toContain("Couldn't read this entry");
   });
 });

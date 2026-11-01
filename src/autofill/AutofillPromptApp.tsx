@@ -5,9 +5,15 @@ import { flushSync } from "react-dom";
 import { invoke } from "@tauri-apps/api/core";
 import { emitTo, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
-import { CreditCard, FingerprintPattern, IdCard, KeyRound, Lock, TriangleAlert, X } from "lucide-react";
+import { Copy, CreditCard, FingerprintPattern, IdCard, KeyRound, Lock, ShieldCheck, Timer, TriangleAlert, X } from "lucide-react";
 import { DialogButton, DialogFooter, DialogIcon } from "../components/ui/DialogParts";
-import { CardChoice, FillChoice, IdentityChoice, SaveFields } from "../components/vault/autofillBodies";
+import { SaveFields } from "../components/vault/autofillBodies";
+import {
+  cardAllowLabel, cardChoiceItems, CardChoice, fillAllowLabel, FillChoice, IdentityChoice, identityAllowLabel, identityChoiceItems,
+  loginChoiceItems, showsSearch, visibleChoices, type ChoiceItem,
+} from "../components/vault/autofillChoices";
+import { Avatar } from "../components/ui/Avatar";
+import { InlineLoading } from "../components/ui/Loading";
 import { useVaultUnlock } from "../components/vault/unlock/useVaultUnlock";
 import { VaultUnlockActions, VaultUnlockBody } from "../components/vault/unlock/VaultUnlockForm";
 import { useDialogBehaviour } from "../components/ui/useDialogBehaviour";
@@ -83,6 +89,8 @@ export default function AutofillPromptApp() {
   const footRef = useRef<HTMLDivElement>(null);
   /** The row whose read-only details view is open, for request `id` only (nothing secret is kept here). */
   const [details, setDetails] = useState<{ id: string; index: number } | null>(null);
+  /** The chooser's search text, for request `id` only (a new request starts with an empty search). */
+  const [query, setQuery] = useState<{ id: string; q: string }>({ id: "", q: "" });
 
   // ── window size ───────────────────────────────────────────────────────────
   const measure = useCallback(() => {
@@ -314,6 +322,7 @@ export default function AutofillPromptApp() {
       listen<{ unlocked: boolean; source?: string }>("vault:state-changed", (e) => {
         if (!e.payload.unlocked) {
           clearTrust();
+          setDetails(null); // drop the details view (and everything it read) at once, not only with the request
           dispatch({ type: "vaultLocked" });
         } else if (e.payload.source !== LABEL) {
           dispatch({ type: "unlocked" }); // unlocked in the main window while this one asked for the password
@@ -368,11 +377,46 @@ export default function AutofillPromptApp() {
     setDetails(null);
     dispatch({ type: "deny" });
   };
-  const detailsView = (path: string, rel: string | undefined, index: number, pick: number, busy: boolean, noun: string) => (
-    <EntryDetailsView key={path} path={path} onBack={closeDetails} disabled={busy}
-                      onOpen={rel ? () => void openInNotiq(rel) : undefined}
-                      note={index !== pick ? `Allow uses the selected ${noun}, not this one. Go back to change it.` : undefined} />
-  );
+  // ── chooser stages (logins, cards, identities) ────────────────────────────
+  const q = query.id === reqId ? query.q : "";
+  const onQuery = (value: string) => { if (reqId) setQuery({ id: reqId, q: value }); };
+  const onPick = (index: number) => dispatch({ type: "pick", index });
+  /** Enter / double-click on a row and "Fill this login" in the details view: the same as picking the row, then Allow. */
+  const pickAndAllow = (index: number) => { dispatch({ type: "pick", index }); dispatch({ type: "allow" }); };
+
+  const chooser = (o: {
+    key: string; host: string; kind: Kind; trustNote: ReactNode; items: ChoiceItem[];
+    entries: { path: string; rel?: string }[]; busy: boolean; allowLabel: string; busyText: string; fillLabel: string;
+    list: ReactNode;
+  }) => {
+    const at = viewing;
+    const viewed = at !== null ? o.entries[at] : undefined;
+    // The search hides every row: there is nothing on screen to allow.
+    const nothing = showsSearch(o.items.length) && visibleChoices(o.items, q).length === 0;
+    return (
+      <Panel key={o.key} refs={refs} host={o.host} icon="site" kind={o.kind} sub="Asked by the Notiq browser extension"
+             onClose={deny} onEscape={viewed ? closeDetails : undefined} defaultFocus="cancel"
+             footer={viewed ? null : <>
+               <DialogButton cancel onClick={deny} disabled={o.busy}>Deny</DialogButton>
+               <DialogButton variant="primary" className="af-allow" title={o.allowLabel} disabled={nothing} loading={o.busy}
+                             loadingText={o.busyText} onClick={() => dispatch({ type: "allow" })}>
+                 <span className="af-allow-label">{o.allowLabel}</span>
+               </DialogButton>
+             </>}>
+        {viewed && at !== null ? (
+          <EntryDetailsView key={viewed.path} path={viewed.path} title={o.items[at]?.title} onBack={closeDetails} busy={o.busy}
+                            fillLabel={o.fillLabel} onFill={() => pickAndAllow(at)}
+                            onOpen={viewed.rel ? () => void openInNotiq(viewed.rel!) : undefined} />
+        ) : <>
+          <div className="dlg-callout af-trust-note">
+            <ShieldCheck size={14} className="shrink-0 mt-0.5" aria-hidden />
+            <span>{o.trustNote}</span>
+          </div>
+          {o.list}
+        </>}
+      </Panel>
+    );
+  };
 
   switch (state.stage) {
     case "checking":
@@ -380,78 +424,59 @@ export default function AutofillPromptApp() {
       return (
         <Panel key={`checking-${state.job.req.id}`} refs={refs} host={state.job.req.host} icon="shield" onClose={deny}
                sub="Vault unlocked." footer={<DialogButton cancel onClick={deny}>Cancel</DialogButton>}>
-          <p className="af-detail" role="status">
-            {state.job.kind === "card" ? "Looking for saved cards…"
-              : state.job.kind === "identity" ? "Looking for saved identities…"
-              : state.job.kind === "passkeyGet" ? "Looking for saved passkeys…" : "Looking for saved logins for this site…"}
-          </p>
+          <InlineLoading delay={0} className="af-state"
+                         label={state.job.kind === "card" ? "Looking for saved cards…"
+                           : state.job.kind === "identity" ? "Looking for saved identities…"
+                           : state.job.kind === "passkeyGet" ? "Looking for saved passkeys…" : "Looking for saved logins for this site…"} />
         </Panel>
       );
     case "locked":
       return <LockedStage key={`locked-${state.job.req.id}`} refs={refs} job={state.job} dispatch={dispatch} onDeny={deny} />;
     case "request": {
       const { job, matches, pick, trust, busy } = state;
-      return (
-        <Panel key={`request-${job.req.id}`} refs={refs} host={job.req.host} icon="shield"
-               sub={job.req.copy
-                 ? `The Notiq extension in your browser wants Notiq to copy the ${COPY_LABEL[job.req.copy]} of a saved login.`
-                 : job.req.intent === "code"
-                 ? "The Notiq extension in your browser wants the 2FA code of a saved login."
-                 : "The Notiq extension in your browser wants to fill a saved login."}
-               onClose={deny} onEscape={viewing !== null ? closeDetails : undefined} defaultFocus="cancel"
-               footer={<>
-                 <DialogButton cancel onClick={deny} disabled={busy}>Deny</DialogButton>
-                 <DialogButton variant="primary" loading={busy} loadingText={job.req.copy ? "Copying…" : "Filling…"} onClick={() => dispatch({ type: "allow" })}>Allow</DialogButton>
-               </>}>
-          {viewing !== null && matches[viewing] ? detailsView(matches[viewing].path, matches[viewing].rel, viewing, pick, busy, "login") : <>
-            <p className="af-detail">
-              {job.req.copy ? "Only allow this if you just pressed Copy in the Notiq extension." : "Only allow this if you just pressed Fill on this site."}
-            </p>
-            <FillChoice host={job.req.host} matches={matches} pick={pick} disabled={busy}
-                        onPick={(index) => dispatch({ type: "pick", index })} onDetails={openDetails}
-                        trust={trust} onTrust={(on) => dispatch({ type: "trust", on })} />
-          </>}
-        </Panel>
-      );
+      const { copy, intent } = job.req;
+      return chooser({
+        key: `request-${job.req.id}`, host: job.req.host, busy, entries: matches, items: loginChoiceItems(matches),
+        kind: copy ? { icon: <Copy size={11} />, label: `Copy ${COPY_LABEL[copy]}` }
+          : intent === "code" ? { icon: <Timer size={11} />, label: "2-step code" } : { icon: <KeyRound size={11} />, label: "Login" },
+        trustNote: copy ? "Only allow this if you just pressed Copy in the Notiq extension." : "Only allow this if you just pressed Fill on this site.",
+        allowLabel: fillAllowLabel(matches[pick], job.req), busyText: copy ? "Copying…" : "Filling…",
+        fillLabel: copy ? `Copy the ${COPY_LABEL[copy]}` : intent === "code" ? "Fill this code" : "Fill this login",
+        list: (
+          <FillChoice host={job.req.host} matches={matches} pick={pick} disabled={busy} onPick={onPick} onAllow={pickAndAllow}
+                      onDetails={openDetails} query={q} onQuery={onQuery}
+                      trust={trust} onTrust={(on) => dispatch({ type: "trust", on })} />
+        ),
+      });
     }
     case "card": {
       const { job, cards, pick, busy } = state;
-      return (
-        <Panel key={`card-${job.req.id}`} refs={refs} host={job.req.host} icon={<CreditCard size={16} />}
-               sub="The Notiq extension in your browser wants to fill a payment card." onClose={deny} defaultFocus="cancel"
-               onEscape={viewing !== null ? closeDetails : undefined}
-               footer={<>
-                 <DialogButton cancel onClick={deny} disabled={busy}>Deny</DialogButton>
-                 <DialogButton variant="primary" loading={busy} loadingText="Filling…" onClick={() => dispatch({ type: "allow" })}>Fill card</DialogButton>
-               </>}>
-          {viewing !== null && cards[viewing] ? detailsView(cards[viewing].path, cards[viewing].rel, viewing, pick, busy, "card") : <>
-            <p className="af-detail">Only allow this if you just pressed Fill on this site&rsquo;s checkout.</p>
-            <CardChoice cards={cards} pick={pick} disabled={busy} onPick={(index) => dispatch({ type: "pick", index })}
-                        onDetails={openDetails} />
-          </>}
-        </Panel>
-      );
+      return chooser({
+        key: `card-${job.req.id}`, host: job.req.host, busy, entries: cards, items: cardChoiceItems(cards),
+        kind: { icon: <CreditCard size={11} />, label: "Payment card" },
+        trustNote: <>Only allow this if you just pressed Fill on this site&rsquo;s checkout.</>,
+        allowLabel: cardAllowLabel(cards[pick]), busyText: "Filling…", fillLabel: "Fill this card",
+        list: (
+          <CardChoice cards={cards} pick={pick} disabled={busy} onPick={onPick} onAllow={pickAndAllow} onDetails={openDetails}
+                      query={q} onQuery={onQuery} />
+        ),
+      });
     }
     case "identity": {
       const { job, identities, pick, busy } = state;
-      return (
-        <Panel key={`identity-${job.req.id}`} refs={refs} host={job.req.host} icon={<IdCard size={16} />}
-               sub="The Notiq extension in your browser wants to fill your details into a form on this site." onClose={deny}
-               defaultFocus="cancel" onEscape={viewing !== null ? closeDetails : undefined}
-               footer={<>
-                 <DialogButton cancel onClick={deny} disabled={busy}>Deny</DialogButton>
-                 <DialogButton variant="primary" loading={busy} loadingText="Filling…" onClick={() => dispatch({ type: "allow" })}>Fill</DialogButton>
-               </>}>
-          {viewing !== null && identities[viewing] ? detailsView(identities[viewing].path, identities[viewing].rel, viewing, pick, busy, "identity") : <>
-            <p className="af-detail">
-              Name, email, phone and address go to <strong className="af-host-inline">{job.req.host}</strong>. Only allow
-              this if you just asked to fill a form there.
-            </p>
-            <IdentityChoice identities={identities} pick={pick} disabled={busy} onPick={(index) => dispatch({ type: "pick", index })}
-                            onDetails={openDetails} />
-          </>}
-        </Panel>
-      );
+      return chooser({
+        key: `identity-${job.req.id}`, host: job.req.host, busy, entries: identities, items: identityChoiceItems(identities),
+        kind: { icon: <IdCard size={11} />, label: "Identity" },
+        trustNote: <>
+          Your name, email, phone and address go to <strong className="af-host-inline">{job.req.host}</strong>. Only allow this
+          if you just asked to fill a form there.
+        </>,
+        allowLabel: identityAllowLabel(identities[pick]), busyText: "Filling…", fillLabel: "Fill with this identity",
+        list: (
+          <IdentityChoice identities={identities} pick={pick} disabled={busy} onPick={onPick} onAllow={pickAndAllow}
+                          onDetails={openDetails} query={q} onQuery={onQuery} />
+        ),
+      });
     }
     case "save": {
       const { job, plan, name, reveal, busy } = state;
@@ -523,7 +548,7 @@ export default function AutofillPromptApp() {
                  <DialogButton variant="primary" loading={busy} loadingText="Signing in…" onClick={() => dispatch({ type: "allow" })}>Sign in</DialogButton>
                </>}>
           <p className="af-detail">Only allow this if you just chose to sign in with a passkey on this site.</p>
-          <PasskeyChoice passkeys={passkeys} pick={pick} disabled={busy} onPick={(index) => dispatch({ type: "pick", index })} />
+          <PasskeyChoice passkeys={passkeys} pick={pick} disabled={busy} onPick={onPick} onAllow={pickAndAllow} />
         </Panel>
       );
     }
@@ -557,31 +582,42 @@ interface PanelProps {
   refs: Refs;
   host: string;
   sub: ReactNode;
-  icon: "shield" | ReactNode;
+  /** "site": the site's letter avatar, with `kind` (what will be filled) as its badge and as a chip. */
+  icon: "shield" | "site" | ReactNode;
+  kind?: Kind;
   tone?: "primary" | "danger";
   onClose: () => void;
   /** Escape does this instead of `onClose` (e.g. back from a details view); the close button still closes. */
   onEscape?: () => void;
   defaultFocus?: DefaultFocus;
   onSubmit?: (e: FormEvent<HTMLFormElement>) => void;
-  footer: ReactNode;
+  /** null: no footer (the details view has its own actions). */
+  footer: ReactNode | null;
   children: ReactNode;
 }
 
+/** What a request will fill, for the header ("Login", "Payment card"…). */
+interface Kind { icon: ReactNode; label: string }
+
 /** The whole window as one dialog: site header, scrolling body, footer. Esc / × = deny. */
-function Panel({ refs, host, sub, icon, tone = "primary", onClose, onEscape, defaultFocus, onSubmit, footer, children }: PanelProps) {
+function Panel({ refs, host, sub, icon, kind, tone = "primary", onClose, onEscape, defaultFocus, onSubmit, footer, children }: PanelProps) {
   const panelRef = useRef<HTMLElement | null>(null);
   useDialogBehaviour(panelRef, { onClose: onEscape ?? onClose, dismissable: true, autoFocus: true, defaultFocus });
   const { prefix, site } = splitHost(host);
   const inner = (
     <>
       <div ref={refs.headRef} className="af-head" data-tauri-drag-region>
-        {icon === "shield" ? <DialogIcon kind="shield" /> : <DialogIcon tone={tone}>{icon}</DialogIcon>}
+        {icon === "site" ? <Avatar name={site} size={36} badge={kind?.icon} className="af-site-avatar" />
+          : icon === "shield" ? <DialogIcon kind="shield" /> : <DialogIcon tone={tone}>{icon}</DialogIcon>}
         <div className="af-head-text" data-tauri-drag-region>
           <h1 className="af-host" id="af-title" title={host}>
             {prefix && <span className="af-host-prefix">{prefix}</span>}{site}
           </h1>
-          <p className="af-sub" id="af-desc" data-tauri-drag-region>{sub}</p>
+          <p className="af-sub" id="af-desc" data-tauri-drag-region>
+            {kind && <span className="af-kind">{kind.icon}{kind.label}</span>}
+            {kind && <span className="sr-only">: </span>}
+            {sub}
+          </p>
         </div>
         <button type="button" className="dlg-close" aria-label="Close" onClick={onClose}>
           <X size={14} strokeWidth={2} aria-hidden />
@@ -591,7 +627,7 @@ function Panel({ refs, host, sub, icon, tone = "primary", onClose, onEscape, def
         <div ref={refs.contentRef} className="af-content">{children}</div>
       </div>
       <div ref={refs.footRef}>
-        <DialogFooter>{footer}</DialogFooter>
+        {footer != null && <DialogFooter>{footer}</DialogFooter>}
       </div>
     </>
   );

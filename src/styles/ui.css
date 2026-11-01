@@ -326,3 +326,30 @@
 }
 .nq-inline-loading__row { display: inline-flex; align-items: center; gap: 6px; }
 .nq-inline-loading__hint { padding-left: 19px; font-size: 11px; opacity: 0.85; }
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   LETTER AVATAR (components/ui/Avatar.tsx): an entry's or site's first letter in
+   a softly tinted tile; the tint comes from the name, theme tokens only.
+══════════════════════════════════════════════════════════════════════════════ */
+.nq-avatar {
+  --av-tone: var(--color-primary);
+  position: relative; flex: none;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 8px;
+  font-weight: 650; line-height: 1; user-select: none;
+  color: var(--av-tone);
+  background: color-mix(in srgb, var(--av-tone) 15%, var(--color-bg-tertiary));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--av-tone) 24%, transparent);
+}
+.nq-avatar--accent  { --av-tone: var(--color-accent); }
+.nq-avatar--success { --av-tone: var(--color-success); }
+.nq-avatar--warning { --av-tone: var(--color-warning); }
+.nq-avatar--muted   { --av-tone: var(--color-text-muted); }
+.nq-avatar-badge {
+  position: absolute; right: -4px; bottom: -4px;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 17px; height: 17px; border-radius: 5px;
+  color: var(--color-text);
+  background: var(--color-bg-secondary);
+  box-shadow: 0 0 0 1px var(--color-border);
+}
