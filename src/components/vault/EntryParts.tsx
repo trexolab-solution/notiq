@@ -12,8 +12,11 @@ import { clipboardClearLabel, getClipboardClearSeconds } from "../../lib/vaultPr
 export const fieldLabel = "block text-xs mb-1 text-[var(--color-text-muted)]";
 export const textArea = "w-full rounded-md px-2.5 py-2 text-sm bg-[var(--color-bg-tertiary)] border border-[var(--color-border)] outline-none focus:border-[var(--color-primary)]";
 
-/** Lets the header's History button toggle the panel that `EntryLayout` renders beside the form. */
-const HistoryToggle = createContext<{ open: boolean; toggle: () => void } | null>(null);
+/**
+ * Lets the header's History button toggle the panel that `EntryLayout` renders beside the form, and
+ * tells the sticky header whether the form has scrolled under it.
+ */
+const HistoryToggle = createContext<{ open: boolean; toggle: () => void; scrolled: boolean } | null>(null);
 
 /**
  * Root of a structured entry editor: the form in its own scroll area on the left and, while open, the
@@ -25,6 +28,7 @@ export function EntryLayout({ tab, children }: { tab: Tab; children: React.React
   const open = openFor === tab.id && !!tab.filePath;
   const rootRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
+  const [scrolled, setScrolled] = useState(false);
 
   useEffect(() => {
     const el = rootRef.current;
@@ -38,12 +42,13 @@ export function EntryLayout({ tab, children }: { tab: Tab; children: React.React
   const toggle = () => setOpenFor((id) => (id === tab.id ? null : tab.id));
 
   return (
-    <HistoryToggle.Provider value={{ open, toggle }}>
+    <HistoryToggle.Provider value={{ open, toggle, scrolled }}>
       <div ref={rootRef} data-tour="editor" className="relative flex-1 min-h-0 flex bg-[var(--color-editor-bg)]">
         {/* `data-entry-drop`: the area files can be dropped on to attach them (AttachmentsPanel), and the
             positioned box its drop highlight is drawn over. */}
         <div data-entry-drop="" className="relative flex-1 min-w-0 flex flex-col">
-          <div className="flex-1 min-h-0 overflow-y-auto">{children}</div>
+          <div className="flex-1 min-h-0 overflow-y-auto"
+               onScroll={(e) => setScrolled(e.currentTarget.scrollTop > 0)}>{children}</div>
         </div>
         {open && <HistoryPanel key={tab.filePath} tab={tab} containerWidth={width} onClose={() => setOpenFor(null)} />}
       </div>
@@ -51,7 +56,11 @@ export function EntryLayout({ tab, children }: { tab: Tab; children: React.React
   );
 }
 
-/** Editor title row: kind icon + name, and the History button on the right. */
+/**
+ * Editor title row: kind icon + name, and Save / History on the right. It sticks to the top of the
+ * form's scroll area (the negative margins widen its background over the column padding), with a
+ * divider once the form has scrolled under it.
+ */
 export function EntryHeader({ icon: Icon, title, tab, badge }: {
   icon: LucideIcon;
   title: string;
@@ -60,8 +69,10 @@ export function EntryHeader({ icon: Icon, title, tab, badge }: {
   badge?: string | null;
 }) {
   const history = useContext(HistoryToggle);
+  const stuck = !!history?.scrolled;
   return (
-    <div className="flex items-center gap-2">
+    <div data-entry-header="" className={`sticky top-0 z-20 -mx-6 px-6 -my-2 py-2 flex items-center gap-2 bg-[var(--color-editor-bg)] border-b transition-colors motion-reduce:transition-none ${
+      stuck ? "border-[var(--color-border)]" : "border-transparent"}`}>
       <Icon size={18} style={{ color: "var(--color-primary)" }} />
       <h1 className="text-base font-semibold">{title}</h1>
       {badge && (
