@@ -7,6 +7,7 @@ import { bootstrapAutostart } from "../lib/autostart";
 import { sessionLoaded } from "./useSession";
 import { isTourCompleted, wasUpdated, recordSeenVersion } from "../lib/firstRun";
 import { readFileEntry, type FileEntry } from "../lib/fileOps";
+import { dragLeave, dragMove, dropAt } from "../lib/dropTargets";
 import { WHATS_NEW } from "../config/whatsNew";
 import { APP_VERSION } from "../config/app";
 import { updater } from "../lib/updater";
@@ -94,14 +95,19 @@ export function useAppStartup({
   useEffect(() => {
     let unlisten: (() => void) | undefined;
     getCurrentWebview().onDragDropEvent(async (event) => {
-      if (event.payload.type === "enter") {
-        setDragOver(true);
-      } else if (event.payload.type === "leave") {
+      const p = event.payload;
+      // Parts of the window can claim drops (lib/dropTargets, e.g. a vault entry's attachments):
+      // over one, the "Drop files to open" overlay hides; a drop there goes to it, not to new tabs.
+      if (p.type === "enter" || p.type === "over") {
+        setDragOver(!dragMove(p.position));
+      } else if (p.type === "leave") {
+        dragLeave();
         setDragOver(false);
-      } else if (event.payload.type === "drop") {
+      } else if (p.type === "drop") {
         setDragOver(false);
+        if (dropAt(p.paths, p.position)) return;
         const entries: FileEntry[] = [];
-        for (const filePath of event.payload.paths) {
+        for (const filePath of p.paths) {
           try {
             entries.push(await readFileEntry(filePath));
           } catch { /* skip unreadable / binary */ }
