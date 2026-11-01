@@ -3,10 +3,10 @@ import { useWindowContextMenu } from "../hooks/useWindowContextMenu";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { Lock, Search, Star } from "lucide-react";
+import { Copy, Hourglass, Lock, Search, Star } from "lucide-react";
 import { InlineLoading } from "../components/ui/Loading";
 import { applyTheme } from "../lib/themes";
-import { copySecret } from "../lib/secureCopy";
+import { copiedMessage, copySecret, copySecretTimed } from "../lib/secureCopy";
 import { resolveVaultDir } from "../lib/vaultDir";
 import { ERR_LOCKED, vaultErrorMessage, vaultReadFile, vaultStatus } from "../lib/vault";
 import { toFull } from "../lib/vaultTree";
@@ -14,6 +14,10 @@ import { EntryIcon } from "../components/vault/sidebar/EntryIcon";
 import {
   copyFields, hasCopyableSecret, moveSelection, searchEntries, toResult, type IndexItem, type QuickResult,
 } from "./rank";
+import {
+  codeLabel, codeTargets, copyPlan, formatCode, msUntilNextStep, NEAR_EXPIRY_SECONDS, secondsLeft, TOTP_PERIOD,
+  totpStep, waitingMessage, type TotpNow,
+} from "./totp";
 
 type Phase = "loading" | "ready" | "locked" | "novault" | "error";
 type ThemeId = Parameters<typeof applyTheme>[0];
@@ -26,7 +30,9 @@ const showMain = (action: "open" | "unlock", rel?: string) =>
 /**
  * The quick-search popup (window label `quick-search`, opened by the global hotkey).
  * Lists vault entries by name / type / folder / host only; secrets are read on demand when
- * copying and never rendered.
+ * copying and never rendered. The one exception is a login's live 2FA code (shown with its
+ * countdown): it comes from `quick_search_totp` (the TOTP secret never reaches this window) and is
+ * dropped, with every timer, as soon as the window hides or the vault locks.
  */
 export default function QuickSearchApp() {
   const ctxMenu = useWindowContextMenu();
@@ -40,9 +46,33 @@ export default function QuickSearchApp() {
   const listRef = useRef<HTMLUListElement>(null);
   const hadFocus = useRef(false);
   const busy = useRef(false);
+  // 2FA codes of the visible / selected logins, each valid for one TOTP step. Only codes, never
+  // secrets; dropped (and every timer stopped) whenever the window hides or the vault locks.
+  const [codes, setCodes] = useState<Record<string, { code: string; step: number }>>({});
+  const [now, setNow] = useState(() => Date.now());
+  /** Non-error footer status ("2FA code copied — clears in 30 s"). Never holds a code. */
+  const [note, setNote] = useState<string | null>(null);
+  /** A 2FA copy waiting for the next code (near expiry). */
+  const [waitingRel, setWaitingRel] = useState<string | null>(null);
+  const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const fetching = useRef(new Set<string>());
+  /** Bumped on every reset so a reply that arrives after a hide / lock is dropped. */
+  const gen = useRef(0);
 
   const results = useMemo(() => searchEntries(items, query), [items, query]);
   const current = results[Math.min(sel, results.length - 1)] as QuickResult | undefined;
+
+  /** Forgets every code and stops the 2FA timers (window hidden, vault locked). */
+  const dropCodes = useCallback(() => {
+    gen.current += 1;
+    timers.current.forEach(clearTimeout);
+    timers.current = [];
+    fetching.current.clear();
+    setCodes({});
+    setWaitingRel(null);
+    setNote(null);
+    busy.current = false;
+  }, []);
 
   const refresh = useCallback(async () => {
     try {
@@ -66,8 +96,11 @@ export default function QuickSearchApp() {
     setVisible(false);
     hadFocus.current = false;
     setQuery(""); setSel(0); setMsg(null);
+    dropCodes();
     void hide(restore);
-  }, []);
+  }, [dropCodes]);
+
+  const lockedNow = useCallback(() => { dropCodes(); setItems([]); setPhase("locked"); }, [dropCodes]);
 
   // Theme (same source as the main window), initial load, and the "shown" event from Rust.
   useEffect(() => {
@@ -78,11 +111,16 @@ export default function QuickSearchApp() {
     const subs = [
       listen<{ themeId: string }>("theme-changed", (e) => applyTheme(e.payload.themeId as ThemeId)),
       listen("quick-search:shown", () => {
+        dropCodes();
         setVisible(true);
         setQuery(""); setSel(0); setMsg(null);
         void refresh();
         requestAnimationFrame(() => inputRef.current?.focus());
       }),
+      // Rust hid the window (hotkey pressed again, quick search turned off, entry opened).
+      listen("quick-search:hidden", () => { setVisible(false); hadFocus.current = false; dropCodes(); }),
+      // Locked anywhere (main window, panic lock, idle lock): no code stays on screen.
+      listen<{ unlocked: boolean }>("vault:state-changed", (e) => { if (!e.payload.unlocked) lockedNow(); }),
       getCurrentWindow().onFocusChanged(({ payload: focused }) => {
         if (focused) { hadFocus.current = true; return; }
         // Clicked elsewhere: just hide, don't steal the focus back.
@@ -90,7 +128,45 @@ export default function QuickSearchApp() {
       }),
     ];
     return () => { subs.forEach((p) => p.then((un) => un()).catch(() => {})); };
-  }, [refresh, close]);
+  }, [refresh, close, dropCodes, lockedNow]);
+
+  // Live 2FA codes: only for the logins on screen + the selected one, only while shown and unlocked.
+  const targets = useMemo(
+    () => (phase === "ready" && visible ? codeTargets(results, sel) : []),
+    [phase, visible, results, sel],
+  );
+  const targetsKey = targets.join("\n");
+  const ticking = targets.length > 0 || waitingRel !== null;
+  const step = totpStep(now);
+
+  useEffect(() => {
+    if (!ticking) return;
+    setNow(Date.now());
+    const t = setInterval(() => setNow(Date.now()), 500);
+    return () => clearInterval(t);
+  }, [ticking]);
+
+  useEffect(() => {
+    if (!targetsKey) return;
+    for (const rel of targetsKey.split("\n")) {
+      if (codes[rel]?.step === step || fetching.current.has(rel)) continue;
+      fetching.current.add(rel);
+      const g = gen.current;
+      // Labelled with the step at request time: if a step boundary passes meanwhile, the next
+      // render sees a stale step and fetches again.
+      const asked = totpStep(Date.now());
+      invoke<TotpNow>("quick_search_totp", { rel })
+        .then((t) => t.code, (e) => {
+          if (e === ERR_LOCKED && g === gen.current) lockedNow();
+          return ""; // shown as a placeholder; retried next step
+        })
+        .then((code) => {
+          if (g !== gen.current) return;
+          fetching.current.delete(rel);
+          setCodes((c) => ({ ...c, [rel]: { code, step: asked } }));
+        });
+    }
+  }, [targetsKey, step, codes, lockedNow]);
 
   // While locked and on screen, notice the unlock done in the main window.
   useEffect(() => {
@@ -131,6 +207,47 @@ export default function QuickSearchApp() {
     }
   };
 
+  /** Copies the code fresh from the vault (not the cached one), confirms briefly, then hides. */
+  const copyCodeNow = async (r: QuickResult) => {
+    if (busy.current) return;
+    busy.current = true;
+    const g = gen.current;
+    let closing = false;
+    try {
+      const t = await invoke<TotpNow>("quick_search_totp", { rel: r.rel });
+      if (g !== gen.current) return; // hidden or locked meanwhile
+      const secs = await copySecretTimed(t.code, "2FA code", { quiet: true });
+      if (secs === null) { setMsg("Couldn't copy to the clipboard"); return; }
+      setMsg(null);
+      setNote(copiedMessage("2FA code", secs));
+      closing = true; // stay "busy" so losing the focus meanwhile doesn't race the close
+      timers.current.push(setTimeout(() => close(true), 700));
+    } catch (e) {
+      if (g !== gen.current) return;
+      if (e === ERR_LOCKED) { lockedNow(); return; }
+      setMsg(vaultErrorMessage(e));
+    } finally {
+      if (!closing && g === gen.current) busy.current = false;
+    }
+  };
+
+  /** Shift+Enter / the row's code button. Near expiry it waits for the next code (see `copyPlan`). */
+  const copyCode = (r: QuickResult) => {
+    if (busy.current || waitingRel) return;
+    if (!r.totp) { setMsg(`"${r.name}" has no 2FA code`); return; }
+    const plan = copyPlan(secondsLeft(Date.now()));
+    if (plan.kind === "now") { void copyCodeNow(r); return; }
+    setMsg(null);
+    setWaitingRel(r.rel);
+    setNote(waitingMessage(plan.seconds));
+    const g = gen.current;
+    timers.current.push(setTimeout(() => {
+      if (g !== gen.current) return;
+      setWaitingRel(null);
+      void copyCodeNow(r);
+    }, msUntilNextStep(Date.now()) + 250));
+  };
+
   const open = (r: QuickResult) => { close(false); void showMain("open", r.rel); };
 
   // Esc works whatever has the focus (the search box is disabled while locked).
@@ -147,6 +264,13 @@ export default function QuickSearchApp() {
     if (e.key === "ArrowDown" || e.key === "ArrowUp") {
       e.preventDefault();
       setSel((s) => moveSelection(s, e.key === "ArrowDown" ? 1 : -1, results.length));
+      return;
+    }
+    // A focused row button (the 2FA code) handles Enter / Space itself.
+    if (e.key === "Enter" && (e.target as HTMLElement).closest("button")) return;
+    if (e.key === "Enter" && e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey && current) {
+      e.preventDefault();
+      copyCode(current);
       return;
     }
     if (e.key === "Enter" && current) {
@@ -250,6 +374,15 @@ export default function QuickSearchApp() {
                     {[r.host, r.folder].filter(Boolean).join("  ·  ") || " "}
                   </div>
                 </div>
+                {r.totp && r.kind === "login" && (
+                  <CodeButton
+                    name={r.name}
+                    code={codes[r.rel]?.step === step ? codes[r.rel].code : ""}
+                    left={secondsLeft(now)}
+                    waiting={waitingRel === r.rel}
+                    onCopy={() => { setSel(i); copyCode(r); }}
+                  />
+                )}
               </li>
             ))}
           </ul>
@@ -261,12 +394,15 @@ export default function QuickSearchApp() {
       <div className="px-3 py-1.5 border-t border-[var(--color-border)] text-[11px] text-[var(--color-text-muted)] flex items-center gap-3">
         {msg && phase === "ready" ? (
           <span role="alert" className="text-[var(--color-danger)] truncate">{msg}</span>
+        ) : note && phase === "ready" ? (
+          <span role="status" className="text-[var(--color-success)] truncate">{note}</span>
         ) : phase === "ready" ? (
           <>
-            <span><kbd>↵</kbd> {mainLabel === "open" ? "open" : `copy ${mainLabel}`}</span>
-            <span><kbd>Ctrl+↵</kbd> copy {secondaryLabel}</span>
-            <span><kbd>Alt+↵</kbd> open in Notiq</span>
-            <span className="ml-auto"><kbd>Esc</kbd> close</span>
+            <span className="whitespace-nowrap"><kbd>↵</kbd> {mainLabel === "open" ? "open" : `copy ${mainLabel}`}</span>
+            <span className="whitespace-nowrap"><kbd>Ctrl+↵</kbd> copy {secondaryLabel}</span>
+            {current?.totp && <span className="whitespace-nowrap"><kbd>Shift+↵</kbd> copy 2FA code</span>}
+            <span className="whitespace-nowrap"><kbd>Alt+↵</kbd> {current?.totp ? "open" : "open in Notiq"}</span>
+            <span className="ml-auto whitespace-nowrap"><kbd>Esc</kbd> close</span>
           </>
         ) : (
           <span className="ml-auto"><kbd>Esc</kbd> close</span>
@@ -274,5 +410,50 @@ export default function QuickSearchApp() {
       </div>
       {ctxMenu}
     </div>
+  );
+}
+
+const RING_R = 6;
+const RING_C = 2 * Math.PI * RING_R;
+
+/**
+ * A row's live 2FA code + countdown ring; click (or Enter / Space when focused) copies it.
+ * Screen readers: the name says whose code it is and the seconds left *when it got the focus*
+ * (`aria-live="off"`, the label isn't updated every tick), so nothing is announced each second.
+ */
+function CodeButton({ name, code, left, waiting, onCopy }: {
+  name: string; code: string; left: number; waiting: boolean; onCopy: () => void;
+}) {
+  const [label, setLabel] = useState(() => codeLabel(name, left));
+  const low = left < NEAR_EXPIRY_SECONDS;
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      aria-live="off"
+      title="Copy 2FA code (Shift+Enter)"
+      className="shrink-0 flex items-center gap-1.5 px-2 py-1 rounded-md border border-[var(--color-border)] text-xs hover:bg-[var(--color-bg-secondary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--color-primary)]"
+      onFocus={() => setLabel(codeLabel(name, left))}
+      onMouseDown={(e) => e.preventDefault() /* keep the focus in the search box */}
+      onClick={(e) => { e.stopPropagation(); onCopy(); }}
+      onDoubleClick={(e) => e.stopPropagation()}
+    >
+      <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden className="shrink-0">
+        <circle cx="8" cy="8" r={RING_R} fill="none" stroke="var(--color-border)" strokeWidth="2" />
+        <circle
+          cx="8" cy="8" r={RING_R} fill="none" strokeWidth="2" strokeLinecap="round"
+          stroke={low ? "var(--color-warning)" : "var(--color-primary)"}
+          strokeDasharray={RING_C}
+          strokeDashoffset={RING_C * (1 - left / TOTP_PERIOD)}
+          transform="rotate(-90 8 8)"
+        />
+      </svg>
+      <span aria-hidden className={`font-mono tabular-nums tracking-wide ${low ? "text-[var(--color-text-muted)]" : ""}`}>
+        {code ? formatCode(code) : "••• •••"}
+      </span>
+      {waiting
+        ? <Hourglass size={12} aria-hidden className="text-[var(--color-text-muted)]" />
+        : <Copy size={12} aria-hidden className="text-[var(--color-text-muted)]" />}
+    </button>
   );
 }
