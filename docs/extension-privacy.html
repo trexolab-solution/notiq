@@ -7,22 +7,63 @@
 <meta name="description" content="How the Notiq Autofill browser extension handles your data: locally, through the Notiq desktop app, with no servers.">
 <link rel="icon" href="favicon.ico" sizes="any">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="color-scheme" content="dark light">
+<meta name="theme-color" content="#0a1222">
+<script>
+(function(){try{var t=localStorage.getItem('notiq-site-theme');if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t);}catch(e){}})();
+</script>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<div class="wrap">
-  <header class="top">
-    <a class="brand" href="./"><img src="logo.png" alt="">Notiq</a>
-    <nav><a href="./">Home</a><a href="https://github.com/trexolab-solution/notiq">GitHub</a></nav>
-  </header>
+<a class="skip" href="#main">Skip to content</a>
 
-  <main class="doc">
-    <h1>Privacy policy: Notiq Autofill extension</h1>
-    <p class="meta">Last updated: 1 November 2026 · Extension: Notiq Autofill · Developer: TrexoLab</p>
+<header class="site-head sealed-field">
+  <div class="head-in">
+    <a class="brand" href="./" aria-label="Notiq home"><img src="logo.png" alt="" width="28" height="28"><span>Notiq</span></a>
+    <nav class="nav" aria-label="Primary">
+      <a href="./#features">Features</a>
+      <a href="./#vault">Vault</a>
+      <a href="./#sync">Sync</a>
+      <a href="./#autofill">Autofill</a>
+      <a href="./#security">Security</a>
+      <a href="./#download">Download</a>
+      <a href="privacy.html">Privacy</a>
+    </nav>
+    <div class="head-actions">
+      <a class="icon-link" href="https://github.com/trexolab-solution/notiq" aria-label="Notiq on GitHub"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4"/><path d="M9 18c-4.51 2-5-2-7-2"/></svg><span class="gh-label">GitHub</span></a>
+      <button class="icon-btn theme-toggle" type="button" id="themeToggle" aria-label="Switch theme" title="Toggle theme">
+        <svg class="i sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2m-7.07-17.07 1.41 1.41m11.32 11.32 1.41 1.41M2 12h2m16 0h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg><svg class="i moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
+      </button>
+    </div>
+  </div>
+</header>
+
+<main id="main">
+  <div class="sealed-field doc-head-wrap">
+    <div class="container doc-head">
+      <h1>Privacy policy: Notiq Autofill extension</h1>
+      <p class="meta">Last updated: 1 November 2026 · Extension: Notiq Autofill · Developer: TrexoLab</p>
+    </div>
+  </div>
+  <div class="container doc-layout">
+    <nav class="toc" aria-label="On this page">
+      <p>On this page</p>
+      <ol>
+        <li><a href="#what-the-extension-reads-on-web-pages">What the extension reads on web pages</a></li>
+        <li><a href="#what-the-extension-stores">What the extension stores</a></li>
+        <li><a href="#where-credentials-go">Where credentials go</a></li>
+        <li><a href="#what-we-collect">What we collect</a></li>
+        <li><a href="#how-to-remove-your-data">How to remove your data</a></li>
+        <li><a href="#children">Children</a></li>
+        <li><a href="#changes-and-contact">Changes and contact</a></li>
+      </ol>
+    </nav>
+    <article class="doc">
+    
 
     <p>Notiq Autofill is a browser extension that fills and saves logins (and fills addresses) with your vault in the Notiq desktop app. It works only together with that app, on your own computer. We run no server for it, and we do not receive your logins, your browsing activity or any other data.</p>
 
-    <h2>What the extension reads on web pages</h2>
+    <h2 id="what-the-extension-reads-on-web-pages">What the extension reads on web pages</h2>
     <ul>
       <li>It looks for login form fields (username, email, password and 2FA code inputs) and address / contact form fields on the pages you visit, so it can show its small icon in them. To fill a login's custom fields (for example a bank's "Customer ID") it compares the names of the page's fields with the names of those custom fields.</li>
       <li>It reads the values of login fields only when you click the Notiq icon to fill, or when you submit a login form so it can offer to save it. It does not read page content beyond that.</li>
@@ -31,37 +72,54 @@
       <li>It makes no network requests of its own.</li>
     </ul>
 
-    <h2>What the extension stores</h2>
+    <h2 id="what-the-extension-stores">What the extension stores</h2>
     <ul>
       <li><strong>Settings and the never-save list</strong> (whether to offer to save logins, whether to show the icon, whether to suggest logins when a field gets focus, and the sites you chose "Never for this site" for) are kept in the browser's extension storage on your computer.</li>
       <li><strong>A pending login</strong> you just submitted is kept in the browser's session storage while the "Save login to Notiq?" offer is open, for at most 90 seconds. Session storage lives in memory only, is never written to disk, and is cleared when the tab is closed or the browser exits.</li>
       <li>The extension does not store your passwords, your addresses or your vault. When you copy a password or 2FA code from the popup, the Notiq app puts it on the clipboard and clears it after the time you chose in Notiq's settings. Saved logins live only in the Notiq app, encrypted on your device.</li>
     </ul>
 
-    <h2>Where credentials go</h2>
+    <h2 id="where-credentials-go">Where credentials go</h2>
     <p>Logins and identities travel only between the page and the Notiq desktop app on the same computer, through the browser's local native-messaging bridge. You approve every fill and every save inside the Notiq app, and the vault must be unlocked. Credentials are never sent to the internet, to us or to any third party.</p>
 
-    <h2>What we collect</h2>
+    <h2 id="what-we-collect">What we collect</h2>
     <p>Nothing. There are no servers, no analytics, no crash reporting, no advertising and no third-party code. We do not sell or share data, and we do not use it for any purpose other than the single purpose of filling and saving your logins at your request.</p>
 
-    <h2>How to remove your data</h2>
+    <h2 id="how-to-remove-your-data">How to remove your data</h2>
     <ul>
       <li>Remove the extension from your browser's extensions page. This deletes its settings, never-save list and any pending login.</li>
       <li>Or clear the never-save list from the extension's toolbar popup by clicking the × next to a site.</li>
       <li>Logins saved in the Notiq app are managed and deleted in the app.</li>
     </ul>
 
-    <h2>Children</h2>
+    <h2 id="children">Children</h2>
     <p>The extension is not directed at children and does not knowingly collect data from anyone.</p>
 
-    <h2>Changes and contact</h2>
+    <h2 id="changes-and-contact">Changes and contact</h2>
     <p>If this policy changes, the new version will be posted on this page with an updated date. Questions or concerns: open an issue at <a href="https://github.com/trexolab-solution/notiq/issues">github.com/trexolab-solution/notiq/issues</a>.</p>
-  </main>
+    </article>
+  </div>
+</main>
 
-  <footer>
-    <div><a href="./">Home</a><a href="https://github.com/trexolab-solution/notiq/blob/main/LICENSE">MIT license</a></div>
-    <div>Notiq</div>
-  </footer>
-</div>
+<footer class="site-foot sealed-field">
+  <div class="container foot-in">
+    <a class="brand" href="./"><img src="logo.png" alt="" width="24" height="24"><span>Notiq</span></a>
+    <nav aria-label="Footer">
+      <a href="privacy.html">Privacy policy</a>
+      <a href="extension-privacy.html">Extension privacy policy</a>
+      <a href="https://github.com/trexolab-solution/notiq">Source on GitHub</a>
+      <a href="https://github.com/trexolab-solution/notiq/issues">Report an issue</a>
+      <a href="https://github.com/trexolab-solution/notiq/blob/main/LICENSE">MIT license</a>
+    </nav>
+    <p class="foot-note">This site sets no cookies and loads nothing from third parties.</p>
+  </div>
+</footer>
+
+<script>
+(function(){var r=document.documentElement,b=document.getElementById('themeToggle');
+function cur(){return r.getAttribute('data-theme')||(matchMedia('(prefers-color-scheme: light)').matches?'light':'dark');}
+function sync(){b.setAttribute('aria-label',cur()==='dark'?'Switch to light theme':'Switch to dark theme');}
+b.addEventListener('click',function(){var n=cur()==='dark'?'light':'dark';r.setAttribute('data-theme',n);try{localStorage.setItem('notiq-site-theme',n);}catch(e){}sync();});sync();})();
+</script>
 </body>
 </html>
