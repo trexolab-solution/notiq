@@ -1158,3 +1158,197 @@ fn a_concurrent_password_change_beats_a_kdf_upgrade_in_both_orders() {
         assert_eq!(office.unlock(AAM), Ok(()));
     }
 }
+
+// ─── restoring a backup of a synced vault ────────────────────────────────────
+
+/// The app's `LocalVault`: the real `VaultState` over a `vault.nqdb` on disk (load, the restore
+/// re-stamp, atomic save), as `sync::commands::TauriLocal` uses it.
+struct DiskVault {
+    vs: crate::vault::VaultState,
+    meta: VaultMeta,
+    key: VaultKey,
+    vault_id: [u8; VAULT_ID_LEN],
+    st: SyncState,
+}
+
+impl LocalVault for DiskVault {
+    fn read_db<T>(&self, f: impl FnOnce(&Db) -> T) -> Result<T, String> {
+        self.vs.with_db_quiet(|db, _, _, _| Ok((f(db), false)))
+    }
+    fn update_db<T>(&self, f: impl FnOnce(&mut Db) -> (T, bool)) -> Result<T, String> {
+        self.vs.with_db_quiet(|db, _, _, _| Ok(f(db)))
+    }
+    fn meta(&self) -> Result<VaultMeta, String> {
+        Ok(self.meta.clone())
+    }
+    fn adopt_meta(&self, _: &VaultMeta) -> Result<(), String> {
+        Ok(())
+    }
+    fn safety_backup(&self, _: &str) -> Result<Option<PathBuf>, String> {
+        Ok(None)
+    }
+    fn change_seq(&self) -> u64 {
+        self.vs.change_seq()
+    }
+}
+
+impl DiskVault {
+    /// A PC with no vault restores `backup` (a `.nqbackup` container) and unlocks it.
+    /// `st` is its sync state for that vault (connected, sync on).
+    fn restore(backup: &[u8], meta: &VaultMeta, key: &VaultKey, st: SyncState) -> DiskVault {
+        let dir = tmp();
+        crate::vault_backup::install(&dir, &dir.join("vault.json"), &dir.join("vault.nqdb"), backup, false, 1).unwrap();
+        let vs = crate::vault::VaultState::default();
+        vs.ensure_device(&dir);
+        vs.set_root(dir);
+        let vault_id = meta.vault_id_bytes().unwrap();
+        vs.install_key(key.clone(), vault_id);
+        DiskVault { vs, meta: meta.clone(), key: key.clone(), vault_id, st }
+    }
+
+    fn sync(&mut self, p: &dyn StorageProvider) -> Outcome {
+        let dev = self.vs.device_id().unwrap();
+        let ctx = Ctx::new(p, &self.key, &self.vault_id, &dev, "This PC", crate::vault_db::now_ms());
+        let mut st = self.st.clone();
+        let o = ok(block_on(sync_once(&ctx, &*self, &mut st, Mode::Full)));
+        self.st = st;
+        o
+    }
+
+    fn live(&self) -> Vec<String> {
+        self.read_db(|db| db.list().into_iter().filter(|i| !i.dir).map(|i| i.rel).collect()).unwrap()
+    }
+}
+
+/// The exporting PC's vault with three notes (one with an attachment), and its `.nqbackup`.
+fn exported_vault() -> (Device, Vec<u8>) {
+    let mut a = Device::create(A, "Laptop");
+    a.put("a.nqv", "one");
+    a.put("Folder/b.nqv", "two");
+    a.put("c.nqv", "three");
+    a.edit(|db| { db.attach_add("c.nqv", "f.txt", &b64_encode(b"file")).unwrap(); });
+    let db = a.v.db.lock().unwrap().seal(&a.v.key, &a.v.vault_id).unwrap();
+    let backup = crate::vault_backup::build_container(a.v.meta.lock().unwrap().to_json().as_bytes(), &db);
+    (a, backup)
+}
+
+fn sync_on(meta: &VaultMeta) -> SyncState {
+    let mut st = SyncState { provider: Some("gdrive".into()), ..Default::default() };
+    prepare_enable(&mut st, &meta.vault_id, None).unwrap();
+    st
+}
+
+#[test]
+fn an_empty_store_never_wipes_a_restored_vault() {
+    // Restore the export on a PC with no vault, Drive connected and empty, then turn sync on.
+    let (a, backup) = exported_vault();
+    let meta = a.v.meta.lock().unwrap().clone();
+    let p = InMemoryProvider::new();
+    let mut pc = DiskVault::restore(&backup, &meta, &a.v.key, sync_on(&meta));
+    assert_eq!(pc.live().len(), 3);
+    for _ in 0..3 {
+        pc.sync(&p);
+        assert_eq!(pc.live().len(), 3);
+    }
+    let b = join(&p, B, "Other", PW).unwrap();
+    assert_eq!(b.paths().iter().filter(|p| p.ends_with(".nqv")).count(), 3, "uploaded to the store");
+    assert_eq!(b.v.db.lock().unwrap().get("c.nqv").unwrap().attachments.len(), 1);
+}
+
+#[test]
+fn a_restored_backup_survives_deletions_the_synced_copy_made_after_it() {
+    // Exported, then everything was deleted (and synced): the store's copy of the vault is empty.
+    let (mut a, backup) = exported_vault();
+    let meta = a.v.meta.lock().unwrap().clone();
+    let p = InMemoryProvider::new();
+    ok(a.sync(&p));
+    a.edit(|db| {
+        for path in ["a.nqv", "Folder", "c.nqv"] { db.trash(path).unwrap(); }
+        db.empty_trash();
+    });
+    ok(a.sync(&p));
+    assert!(a.paths().is_empty());
+
+    // Control: the restored file as it is (no restore marker) — the store's deletions remove it again.
+    let mut stale = DiskVault::restore(&backup, &meta, &a.v.key, sync_on(&meta));
+    let marker = crate::vault_db::restored_marker_path(&stale.vs.root().unwrap());
+    std::fs::remove_file(&marker).unwrap();
+    assert_eq!(stale.live().len(), 3);
+    stale.sync(&p);
+    assert!(stale.live().is_empty(), "the bug: an old copy loses to the store's later deletions");
+
+    // The restore: its entries are a new change, kept here and brought back everywhere.
+    let mut pc = DiskVault::restore(&backup, &meta, &a.v.key, sync_on(&meta));
+    let marker = crate::vault_db::restored_marker_path(&pc.vs.root().unwrap());
+    assert_eq!(pc.live().len(), 3);
+    assert!(!marker.exists(), "re-stamped once, on the first load");
+    assert!(pc.change_seq() > 0, "counted as a local change, so it is uploaded");
+    pc.sync(&p);
+    pc.sync(&p);
+    assert_eq!(pc.live(), vec!["a.nqv", "c.nqv", "Folder/b.nqv"]);
+    ok(a.sync(&p));
+    assert_eq!(a.text("Folder/b.nqv").as_deref(), Some("two"));
+    let db = a.v.db.lock().unwrap();
+    let att = &db.get("c.nqv").unwrap().attachments;
+    assert!(att.len() == 1 && !att[0].data.is_empty(), "the attachment comes back too");
+}
+
+// ─── merging a backup into a synced vault ────────────────────────────────────
+
+impl DiskVault {
+    /// A PC that already has this vault (holding `db`) on disk and unlocked.
+    fn open(db: &Db, meta: &VaultMeta, key: &VaultKey, st: SyncState) -> DiskVault {
+        let dir = tmp();
+        let vault_id = meta.vault_id_bytes().unwrap();
+        std::fs::write(dir.join("vault.json"), meta.to_json()).unwrap();
+        std::fs::write(crate::vault_db::db_path(&dir), db.seal(key, &vault_id).unwrap()).unwrap();
+        let vs = crate::vault::VaultState::default();
+        vs.ensure_device(&dir);
+        vs.set_root(dir);
+        vs.install_key(key.clone(), vault_id);
+        DiskVault { vs, meta: meta.clone(), key: key.clone(), vault_id, st }
+    }
+}
+
+#[test]
+fn a_merged_backup_survives_deletions_the_synced_copy_made_after_it() {
+    // Exported, then everything was deleted (and synced): the store holds only tombstones for it.
+    let (mut a, backup) = exported_vault();
+    let meta = a.v.meta.lock().unwrap().clone();
+    let p = InMemoryProvider::new();
+    ok(a.sync(&p));
+    a.edit(|db| {
+        for path in ["a.nqv", "Folder", "c.nqv"] { db.trash(path).unwrap(); }
+        db.empty_trash();
+    });
+    ok(a.sync(&p));
+
+    // A second PC on the same vault, with a note of its own, has synced those deletions.
+    let mut own = Db::new();
+    own.device = C.into();
+    own.put("pc.nqv", "md", "mine").unwrap();
+    let mut pc = DiskVault::open(&own, &meta, &a.v.key, sync_on(&meta));
+    pc.sync(&p);
+    assert_eq!(pc.live(), vec!["pc.nqv"]);
+
+    // Merge the old backup into it: every entry it adds is a new local change.
+    let root = pc.vs.root().unwrap();
+    let key = crate::vault_backup::backup_key(&backup, PW).unwrap();
+    let seq = pc.change_seq();
+    let r = crate::vault_backup::merge_into_vault(&pc.vs, &root, &root.join("vault.json"), &backup, &key, 1).unwrap();
+    assert!(pc.change_seq() > seq, "counted as a local change, so it is uploaded");
+    assert!(format!("{r:?}").contains("added: 3"), "{r:?}");
+    pc.st.pending = true; // what the change hook does in the app (sync::commands::on_local_change)
+    for _ in 0..2 {
+        pc.sync(&p);
+        assert_eq!(pc.live(), vec!["a.nqv", "c.nqv", "Folder/b.nqv", "pc.nqv"], "the older deletions don't remove it");
+    }
+
+    // And it comes back on the device that deleted it.
+    ok(a.sync(&p));
+    assert_eq!(a.text("Folder/b.nqv").as_deref(), Some("two"));
+    assert_eq!(a.text("pc.nqv").as_deref(), Some("mine"));
+    let db = a.v.db.lock().unwrap();
+    let att = &db.get("c.nqv").unwrap().attachments;
+    assert!(att.len() == 1 && !att[0].data.is_empty(), "the attachment comes back too");
+}

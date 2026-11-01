@@ -3,6 +3,11 @@
 //! Container (`.nqbackup`): magic `NQB1`, u32 BE length + `vault.json` bytes, the raw
 //! `vault.nqdb` bytes (still encrypted, never decrypted here), then a CRC-32 (u32 BE)
 //! of everything before it so truncation / corruption is detected.
+//!
+//! A backup is restored either by **replacing** this device's vault with the backup's files
+//! ([`install`]), or by **merging** it into the unlocked vault ([`merge_into_vault`]): the backup is
+//! opened with its own master password and its entries are re-sealed into the current vault with
+//! the current key; this vault's password, key file and id never change.
 
 use std::{
     fs,
@@ -14,8 +19,8 @@ use serde::Serialize;
 use tauri::{AppHandle, Manager, State};
 use zeroize::Zeroizing;
 
-use crate::vault::{atomic_write, guarded, load_meta, meta_path, require_meta, VaultState};
-use crate::vault_core::{self as vc, VaultMeta, VAULT_ID_LEN};
+use crate::vault::{atomic_write, guarded, load_meta, meta_path, require_meta, VaultState, ERR_LOCKED};
+use crate::vault_core::{self as vc, VaultKey, VaultMeta, VAULT_ID_LEN};
 use crate::vault_db as vdb;
 
 const MAGIC: &[u8; 4] = b"NQB1";
@@ -37,6 +42,14 @@ pub struct InspectResult {
     db_bytes: u64,
     /// File modification time (unix seconds).
     created: Option<u64>,
+}
+
+#[derive(Serialize, Debug)]
+pub struct MergeResult {
+    #[serde(flatten)]
+    counts: vdb::BackupMerge,
+    /// Where the vault.json / vault.nqdb from before the merge were copied (only when it changed).
+    previous_saved_to: Option<String>,
 }
 
 #[derive(Serialize, Debug)]
@@ -126,26 +139,65 @@ fn now_secs() -> u64 {
 
 // ─── install (pure, testable) ────────────────────────────────────────────────
 
+/// Copies the vault's `meta_file` / `db_file` (those that exist) into `<data_dir>/<prefix>-<ts>/`.
+fn keep_copy(data_dir: &Path, prefix: &str, ts: u64, meta_file: &Path, db_file: &Path) -> Result<String, String> {
+    let dir = data_dir.join(format!("{prefix}-{ts}"));
+    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    for f in [meta_file, db_file] {
+        if f.exists() {
+            let name = f.file_name().expect("file name");
+            fs::copy(f, dir.join(name)).map_err(|e| format!("Couldn't keep a copy of the current vault: {e}"))?;
+        }
+    }
+    Ok(dir.to_string_lossy().into_owned())
+}
+
+/// Opens the backup's database with `key`, derived from the backup's own master password (see
+/// [`backup_key`]). Errors when the key doesn't open it.
+fn open_backup(p: &Parsed<'_>, key: &VaultKey) -> Result<vdb::Db, String> {
+    let id = p.meta.vault_id_bytes().map_err(|e| e.to_string())?;
+    vdb::Db::open(key, &id, p.db_bytes)
+        .map_err(|_| "The backup couldn't be opened with that password".to_string())?
+        .ok_or_else(|| "The backup's vault database is invalid".to_string())
+}
+
+/// The backup's key from its master password (Argon2: run it off the main thread).
+pub(crate) fn backup_key(data: &[u8], password: &str) -> Result<VaultKey, vc::VaultError> {
+    let p = parse_container(data).map_err(|_| vc::VaultError::BadMeta("backup"))?;
+    vc::unlock_with_password(&p.meta, password)
+}
+
+/// Merges the backup `data` (opened with its `backup_key`) into the unlocked vault in `state`
+/// (see [`vdb::Db::merge_backup`]). Before the merged database is written (atomically, by
+/// `with_db`), the current vault.json / vault.nqdb are copied into `<data_dir>/before-merge-<ts>/`.
+/// Nothing is written when the backup can't be opened or adds nothing. The merge is a local
+/// change, so the next sync uploads it.
+pub(crate) fn merge_into_vault(state: &VaultState, data_dir: &Path, meta_file: &Path, data: &[u8], backup_key: &VaultKey, ts: u64) -> Result<MergeResult, String> {
+    let p = parse_container(data)?;
+    let backup = open_backup(&p, backup_key)?;
+    state.with_db(|db, root, _, _| {
+        let mut next = db.clone();
+        let counts = next.merge_backup(&backup);
+        if !counts.changed { return Ok((MergeResult { counts, previous_saved_to: None }, false)); }
+        let saved = keep_copy(data_dir, "before-merge", ts, meta_file, &vdb::db_path(root))?;
+        *db = next;
+        Ok((MergeResult { counts, previous_saved_to: Some(saved) }, true))
+    })
+}
+
 /// Writes the backup's files into `meta_file` / `db_file`. An existing vault is refused unless
 /// `replace`; then its files are first copied into `<data_dir>/before-restore-<ts>/`.
-fn install(data_dir: &Path, meta_file: &Path, db_file: &Path, data: &[u8], replace: bool, ts: u64) -> Result<ImportResult, String> {
+pub(crate) fn install(data_dir: &Path, meta_file: &Path, db_file: &Path, data: &[u8], replace: bool, ts: u64) -> Result<ImportResult, String> {
     let p = parse_container(data)?;
     let exists = meta_file.exists();
     if exists && !replace {
         return Err("A vault already exists on this device. Restoring would replace it.".into());
     }
-    let mut saved = None;
-    if exists || db_file.exists() {
-        let dir = data_dir.join(format!("before-restore-{ts}"));
-        fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-        for f in [meta_file, db_file] {
-            if f.exists() {
-                let name = f.file_name().expect("file name");
-                fs::copy(f, dir.join(name)).map_err(|e| format!("Couldn't keep a copy of the current vault: {e}"))?;
-            }
-        }
-        saved = Some(dir.to_string_lossy().into_owned());
-    }
+    let saved = if exists || db_file.exists() { Some(keep_copy(data_dir, "before-restore", ts, meta_file, db_file)?) } else { None };
+    // The marker first: a restored database must never sync without being re-stamped (on the
+    // first load after unlock, see vault_db::Db::restamp_restored).
+    let marker = vdb::restored_marker_path(db_file.parent().ok_or("Invalid vault folder")?);
+    atomic_write(&marker, p.meta.vault_id.as_bytes())?;
     atomic_write(db_file, p.db_bytes)?;
     atomic_write(meta_file, p.meta_bytes)?;
     Ok(ImportResult {
@@ -190,6 +242,21 @@ pub fn vault_backup_inspect(path: String) -> Result<InspectResult, String> {
     let created = fs::metadata(&path).and_then(|m| m.modified()).ok()
         .and_then(|t| t.duration_since(UNIX_EPOCH).ok()).map(|d| d.as_secs());
     Ok(InspectResult { ok: true, vault_id_hex: p.meta.vault_id.clone(), db_bytes: p.db_bytes.len() as u64, created })
+}
+
+/// Merges a backup into the unlocked vault on this device, opening it with `password` (the
+/// backup's master password, which may differ from this vault's). Counts toward the unlock
+/// throttle like any password check. Errors `VAULT_LOCKED` when the vault is locked.
+#[tauri::command]
+pub async fn vault_backup_merge(app: AppHandle, state: State<'_, VaultState>, path: String, password: String) -> Result<MergeResult, String> {
+    let data = fs::read(&path).map_err(|e| format!("Couldn't read the file: {e}"))?;
+    parse_container(&data)?;
+    if !state.is_unlocked() { return Err(ERR_LOCKED.into()); }
+    let data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let meta_file = meta_path(&app)?;
+    let password = Zeroizing::new(password);
+    let (data, key) = guarded(&state, move || { let k = backup_key(&data, &password)?; Ok((data, k)) }).await?;
+    merge_into_vault(&state, &data_dir, &meta_file, &data, &key, now_secs())
 }
 
 /// Installs a backup. Refuses when a vault exists unless `replace`. The in-memory vault is locked.
@@ -247,6 +314,7 @@ mod tests {
         assert_eq!(r.vault_id_hex, meta.vault_id);
         assert_eq!(fs::read(&mf).unwrap(), m);
         assert_eq!(fs::read(&df).unwrap(), d);
+        assert!(vdb::restored_marker_path(df.parent().unwrap()).exists(), "the first load re-stamps it");
         let _ = fs::remove_dir_all(dir);
     }
 
@@ -296,6 +364,106 @@ mod tests {
         assert_eq!(fs::read(keep.join("vault.nqdb")).unwrap(), d1);
         assert_eq!(fs::read(&mf).unwrap(), m2);
         assert_eq!(fs::read(&df).unwrap(), d2);
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    // ─── merge ───────────────────────────────────────────────────────────────
+
+    /// This device's unlocked vault on disk (vault.json + vault.nqdb in `dir`), with `notes`.
+    fn current_vault(name: &str, password: &str, notes: &[(&str, &str)]) -> (PathBuf, VaultState, VaultMeta) {
+        let dir = tmp(name);
+        let (meta, key, _) = create_vault(password, FAST).unwrap();
+        fs::write(dir.join("vault.json"), meta.to_json()).unwrap();
+        let vs = VaultState::default();
+        vs.ensure_device(&dir);
+        vs.set_root(dir.clone());
+        vs.install_key(key, meta.vault_id_bytes().unwrap());
+        vs.with_db(|db, _, _, _| { for (p, c) in notes { db.put(p, "md", c)?; } Ok(((), true)) }).unwrap();
+        (dir, vs, meta)
+    }
+
+    /// A `.nqbackup` of another vault (its own key and `password`) holding `db`.
+    fn backup_of(db: &vdb::Db, password: &str) -> Vec<u8> {
+        let (meta, key, _) = create_vault(password, FAST).unwrap();
+        build_container(meta.to_json().as_bytes(), &db.seal(&key, &meta.vault_id_bytes().unwrap()).unwrap())
+    }
+
+    fn texts(vs: &VaultState) -> Vec<(String, String)> {
+        vs.with_db(|db, _, _, _| Ok((db.list().into_iter().filter(|i| !i.dir).map(|i| {
+            let c = db.get(&i.rel).unwrap().content.clone();
+            (i.rel, c)
+        }).collect(), false))).unwrap()
+    }
+
+    #[test]
+    fn merge_opens_a_backup_with_its_own_password_and_keeps_this_vaults() {
+        let (dir, vs, meta) = current_vault("merge-pw", "this-vaults-password-1", &[("mine.nqv", "here")]);
+        let meta_file = dir.join("vault.json");
+        let meta_before = fs::read(&meta_file).unwrap();
+        let mut bdb = vdb::Db::new();
+        bdb.device = "b".repeat(32);
+        bdb.put("theirs.nqv", "md", "there").unwrap();
+        let backup = backup_of(&bdb, "the-backups-password-2");
+
+        assert!(backup_key(&backup, "this-vaults-password-1").is_err(), "this vault's password doesn't open it");
+        let key = backup_key(&backup, "the-backups-password-2").unwrap();
+        let seq = vs.change_seq();
+        let r = merge_into_vault(&vs, &dir, &meta_file, &backup, &key, 7).unwrap();
+        assert_eq!((r.counts.added, r.counts.updated, r.counts.unchanged, r.counts.kept_in_history), (1, 0, 0, 0));
+        assert!(vs.change_seq() > seq, "a local change, so the next sync uploads it");
+        assert_eq!(texts(&vs), vec![("mine.nqv".into(), "here".into()), ("theirs.nqv".into(), "there".into())]);
+
+        // This vault's key file (password, id) is untouched; the merged db opens with this vault's key.
+        assert_eq!(fs::read(&meta_file).unwrap(), meta_before);
+        let (cur_key, cur_id) = vs.key_copy().unwrap();
+        assert_eq!(cur_id, meta.vault_id_bytes().unwrap());
+        let on_disk = vdb::Db::open(&cur_key, &cur_id, &fs::read(vdb::db_path(&dir)).unwrap()).unwrap().unwrap();
+        assert!(on_disk.get("theirs.nqv").is_some(), "re-sealed with the current key");
+        assert!(!vdb::restored_marker_path(&dir).exists(), "stamped at merge time, no restore marker");
+
+        // The pre-merge copy is the vault as it was.
+        let keep = dir.join("before-merge-7");
+        assert_eq!(r.previous_saved_to.as_deref(), Some(keep.to_string_lossy().as_ref()));
+        assert_eq!(fs::read(keep.join("vault.json")).unwrap(), meta_before);
+        let old = vdb::Db::open(&cur_key, &cur_id, &fs::read(keep.join("vault.nqdb")).unwrap()).unwrap().unwrap();
+        assert!(old.get("mine.nqv").is_some() && old.get("theirs.nqv").is_none());
+
+        // Merging the same backup again: nothing to do, nothing written.
+        let again = merge_into_vault(&vs, &dir, &meta_file, &backup, &key, 8).unwrap();
+        assert_eq!((again.counts.added, again.counts.unchanged), (0, 1));
+        assert!(again.previous_saved_to.is_none() && !dir.join("before-merge-8").exists());
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn merge_with_the_wrong_password_changes_nothing() {
+        let (dir, vs, _) = current_vault("merge-wrong", "this-vaults-password-1", &[("mine.nqv", "here")]);
+        let meta_file = dir.join("vault.json");
+        let mut bdb = vdb::Db::new();
+        bdb.put("theirs.nqv", "md", "there").unwrap();
+        let backup = backup_of(&bdb, "the-backups-password-2");
+        let db_before = fs::read(vdb::db_path(&dir)).unwrap();
+        let seq = vs.change_seq();
+
+        assert_eq!(backup_key(&backup, "not-the-password-3").err(), Some(vc::VaultError::WrongPassword));
+        // A key that isn't the backup's (here: this vault's) can't open it either.
+        let (wrong, _) = vs.key_copy().unwrap();
+        assert!(merge_into_vault(&vs, &dir, &meta_file, &backup, &wrong, 9).is_err());
+
+        assert_eq!(fs::read(vdb::db_path(&dir)).unwrap(), db_before);
+        assert_eq!(vs.change_seq(), seq);
+        assert!(!dir.join("before-merge-9").exists());
+        assert_eq!(texts(&vs), vec![("mine.nqv".into(), "here".into())]);
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn merge_needs_the_vault_unlocked() {
+        let (dir, vs, _) = current_vault("merge-locked", "this-vaults-password-1", &[]);
+        let backup = backup_of(&vdb::Db::new(), "the-backups-password-2");
+        let key = backup_key(&backup, "the-backups-password-2").unwrap();
+        vs.lock_all();
+        assert_eq!(merge_into_vault(&vs, &dir, &dir.join("vault.json"), &backup, &key, 1).err().as_deref(), Some(ERR_LOCKED));
         let _ = fs::remove_dir_all(dir);
     }
 
