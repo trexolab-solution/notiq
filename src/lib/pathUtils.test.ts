@@ -6,6 +6,7 @@ import {
   dirname,
   joinPath,
   isAbsolute,
+  middleEllipsis,
 } from "./pathUtils";
 
 describe("getFileName", () => {
@@ -73,5 +74,18 @@ describe("isAbsolute", () => {
   it("rejects relative paths and empty input", () => {
     expect(isAbsolute("rel/path")).toBe(false);
     expect(isAbsolute("")).toBe(false);
+  });
+});
+
+describe("middleEllipsis", () => {
+  it("leaves short text alone", () => {
+    expect(middleEllipsis("backup.nqbackup", 40)).toBe("backup.nqbackup");
+  });
+  it("cuts the middle, keeping the start and the extension, within the limit", () => {
+    const s = middleEllipsis("notiq-vault-2026-11-01-very-long-name-from-somewhere.nqbackup", 30);
+    expect(s).toHaveLength(30);
+    expect(s.startsWith("notiq-vault-20")).toBe(true);
+    expect(s.endsWith(".nqbackup")).toBe(true);
+    expect(s).toContain("…");
   });
 });

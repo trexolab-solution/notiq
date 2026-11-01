@@ -42,3 +42,12 @@ export function isAbsolute(path: string): boolean {
   if (path.startsWith("/")) return true;
   return /^[A-Za-z]:[/\\]/.test(path);
 }
+
+/** Shortens `text` to at most `max` characters by replacing its middle with "…" (keeps a file's extension visible). */
+export function middleEllipsis(text: string, max = 40): string {
+  if (text.length <= max) return text;
+  if (max < 2) return "…".slice(0, max);
+  const keep = max - 1;
+  const head = Math.ceil(keep / 2);
+  return `${text.slice(0, head)}…${text.slice(text.length - (keep - head))}`;
+}
