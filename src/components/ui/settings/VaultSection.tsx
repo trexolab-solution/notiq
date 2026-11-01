@@ -11,6 +11,7 @@ import { QuickSearchRow } from "./QuickSearchRow";
 import { BackupSection } from "../../vault/BackupSection";
 import { AutofillSection } from "./AutofillSection";
 import { HelloRow } from "./HelloRow";
+import { RecoveryKeyRow } from "./RecoveryKeyRow";
 import { SyncSection } from "./SyncSection";
 import { SYNC_INDEX } from "./syncIndex";
 import { useSyncStatus } from "../../../lib/vaultSync";
@@ -186,6 +187,7 @@ export const VaultSection = React.memo(function VaultSection() {
             <p className="text-sm text-[var(--color-text-muted)]">Set up the vault first to have a master password to change.</p>
           )}
         </SettingsBlock>
+        <RecoveryKeyRow />
       </SettingsGroup>
 
       <SettingsGroup title="Browser autofill" description="Fill logins from your vault in Edge, Chrome or Brave.">
@@ -266,6 +268,9 @@ export const SETTINGS_INDEX: SettingMeta[] = [
   { id: "vault.password.change", section: "vault", group: "Master password", label: "Change master password",
     description: "Your locked notes don't need re-encrypting, and your recovery key keeps working.",
     keywords: ["password", "change", "new password", "recovery key", "credentials"] },
+  { id: "vault.password.recovery-key", section: "vault", group: "Master password", label: "Recovery key",
+    description: "Create a new recovery key. The old key stops working for this vault; older backup files still open with it.",
+    keywords: ["recovery key", "new recovery key", "rotate", "replace", "lost", "reset", "forgot password"] },
   { id: "vault.autofill.install", section: "vault", group: "Browser autofill", label: "Install the browser extension",
     description: "Load the Notiq extension into Edge, Chrome or Brave to fill logins from your vault.",
     keywords: ["extension", "chrome", "edge", "brave", "firefox", "developer mode", "load unpacked", "autofill", "browser"] },

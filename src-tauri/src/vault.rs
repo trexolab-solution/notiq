@@ -14,12 +14,12 @@ use std::{
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicU64, Ordering},
-        Mutex, MutexGuard, OnceLock,
+        Arc, Mutex, MutexGuard, OnceLock,
     },
     time::{Instant, SystemTime},
 };
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, State};
 use zeroize::Zeroizing;
 
@@ -29,6 +29,8 @@ use crate::vault_db::{self as vdb, AttachmentMeta, Db, ListItem, RevisionMeta};
 const META_FILE: &str = "vault.json";
 /// 0.9.0 sync: the `vault.json` a synced password change replaced (for `PASSWORD_CHANGED_ELSEWHERE`).
 const PREV_META_FILE: &str = "vault.prev.json";
+/// 0.9.1: wrong passwords / recovery keys entered since the last successful unlock.
+const ATTEMPTS_FILE: &str = "vault-attempts.json";
 const NQV_EXT: &str = "nqv";
 
 const ERR_NO_VAULT: &str = "NO_VAULT";
@@ -63,6 +65,8 @@ pub struct VaultState {
     /// 0.9.0 sync: counts saved changes made outside sync, and the hook told about them.
     change_seq: AtomicU64,
     change_hook: OnceLock<ChangeHook>,
+    /// 0.9.1: failed attempts found at the last successful unlock, until the UI takes them.
+    attempts_notice: Mutex<Option<FailedAttempts>>,
 }
 
 impl VaultState {
@@ -216,6 +220,15 @@ pub(crate) fn notify_state(app: &AppHandle, unlocked: bool, source: &str) {
     let _ = app.emit(STATE_EVENT, state_payload(unlocked, source));
 }
 
+/// 0.9.1: wrong master passwords / recovery keys entered since the last successful unlock
+/// (`vault-attempts.json` in the app-data folder; removed by the next successful unlock).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FailedAttempts {
+    pub count: u32,
+    /// Unix ms of the most recent one.
+    pub last_ms: u64,
+}
+
 #[derive(Serialize)]
 pub struct VaultStatus {
     exists: bool,
@@ -301,6 +314,87 @@ fn stamped_change(state: &VaultState, mut meta: VaultMeta) -> VaultMeta {
 /// Forgets `vault.prev.json` (the password was changed here, or another vault was installed).
 pub(crate) fn clear_prev_meta(app: &AppHandle) {
     if let Ok(p) = prev_meta_path(app) { let _ = fs::remove_file(p); }
+}
+
+// ─── 0.9.1: failed-attempt notice ─────────────────────────────────────────────
+
+fn attempts_path(app: &AppHandle) -> Result<PathBuf, String> {
+    Ok(meta_path(app)?.with_file_name(ATTEMPTS_FILE))
+}
+
+fn read_attempts(path: &Path) -> FailedAttempts {
+    fs::read_to_string(path).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default()
+}
+
+/// Adds one failed attempt made at `now_ms`.
+fn bump_attempts(path: &Path, now_ms: u64) -> Result<(), String> {
+    let prev = read_attempts(path);
+    let next = FailedAttempts { count: prev.count.saturating_add(1), last_ms: now_ms.max(prev.last_ms) };
+    atomic_write(path, serde_json::to_string(&next).map_err(|e| e.to_string())?.as_bytes())
+}
+
+/// Reads and removes the record; `None` when there were no failed attempts.
+fn take_attempts(path: &Path) -> Option<FailedAttempts> {
+    let a = read_attempts(path);
+    let _ = fs::remove_file(path);
+    (a.count > 0).then_some(a)
+}
+
+/// A wrong password / recovery key from `guarded` (not a throttle refusal or another error).
+fn is_wrong_credential(err: &str) -> bool {
+    err == VaultError::WrongPassword.to_string() || err == VaultError::WrongRecoveryKey.to_string()
+}
+
+/// Counts a failed unlock attempt (best effort: never turns the unlock error into another one).
+fn note_failed_unlock(app: &AppHandle, err: &str) {
+    if !is_wrong_credential(err) { return; }
+    if let Err(e) = attempts_path(app).and_then(|p| bump_attempts(&p, vdb::now_ms())) {
+        eprintln!("[vault] couldn't record a failed unlock attempt: {e}");
+    }
+}
+
+/// After any successful unlock: resets the count and keeps it for the one-time notice.
+pub(crate) fn note_successful_unlock(app: &AppHandle, state: &VaultState) {
+    let found = attempts_path(app).ok().and_then(|p| take_attempts(&p));
+    if found.is_some() {
+        *state.attempts_notice.lock().unwrap_or_else(|e| e.into_inner()) = found;
+    }
+}
+
+/// The failed attempts found at the last successful unlock, once (the next call returns `None`).
+#[tauri::command]
+pub fn vault_take_failed_attempts(state: State<'_, VaultState>) -> Option<FailedAttempts> {
+    state.attempts_notice.lock().unwrap_or_else(|e| e.into_inner()).take()
+}
+
+// ─── 0.9.1: KDF auto-upgrade ─────────────────────────────────────────────────
+
+/// Re-derives the password wrap with today's Argon2 settings after a password unlock of a vault
+/// created with weaker ones. Runs in the background; a failure is logged and changes nothing.
+fn spawn_kdf_upgrade(app: AppHandle, meta: VaultMeta, key: VaultKey, password: Arc<Zeroizing<String>>) {
+    tauri::async_runtime::spawn(async move {
+        let from = meta.clone();
+        let target = KdfParams::default();
+        let upgraded = blocking(move || vc::upgrade_kdf(&meta, &key, &password, &target)).await;
+        let saved = upgraded.and_then(|mut up| {
+            // Only over the vault.json that was unlocked: a password change or a synced meta that
+            // landed meanwhile is newer, and the next unlock upgrades that one instead.
+            if load_meta(&app)?.as_ref() != Some(&from) {
+                return Ok(false);
+            }
+            // A stamped change so Vault Sync uploads it, but with the lowest stamp after the meta it
+            // replaces: a real password change / recovery reset made on another device is always
+            // later and wins over this upgrade (engine::remote_meta_wins).
+            up.stamp_change(0, app.state::<VaultState>().device_id().as_deref());
+            save_meta(&app, &up)?;
+            Ok(true)
+        });
+        match saved {
+            Ok(true) => crate::sync::commands::on_local_meta_changed(&app),
+            Ok(false) => eprintln!("[vault] KDF upgrade skipped: vault.json changed meanwhile"),
+            Err(e) => eprintln!("[vault] KDF upgrade failed (the vault stays unlocked as usual): {e}"),
+        }
+    });
 }
 
 fn check_nqv_path(path: &str) -> Result<PathBuf, String> {
@@ -393,10 +487,18 @@ pub async fn vault_unlock(
     let meta = require_meta(&app)?;
     let m = meta.clone();
     let prev = load_prev_meta(&app);
-    let password = Zeroizing::new(password);
+    let password = Arc::new(Zeroizing::new(password));
+    let pw = Arc::clone(&password);
     // A password another device replaced fails with PASSWORD_CHANGED_ELSEWHERE (0.9.0 sync).
-    let key = guarded(&state, move || vc::unlock_with_password_or_previous(&m, prev.as_ref(), &password)).await?;
-    state.set(key, meta.vault_id_bytes().map_err(|e| e.to_string())?);
+    let key = guarded(&state, move || vc::unlock_with_password_or_previous(&m, prev.as_ref(), &pw))
+        .await
+        .inspect_err(|e| note_failed_unlock(&app, e))?;
+    let vault_id = meta.vault_id_bytes().map_err(|e| e.to_string())?;
+    if vc::kdf_needs_upgrade(&meta, &KdfParams::default()) {
+        spawn_kdf_upgrade(app.clone(), meta, key.clone(), password);
+    }
+    state.set(key, vault_id);
+    note_successful_unlock(&app, &state);
     notify_state(&app, true, window.label());
     crate::sync::commands::on_unlocked(&app);
     Ok(())
@@ -420,10 +522,12 @@ pub async fn vault_unlock_with_recovery(
         let new_meta = vc::rewrap_password(&m, &key, &new_password)?;
         Ok((key, new_meta))
     })
-    .await?;
+    .await
+    .inspect_err(|e| note_failed_unlock(&app, e))?;
     let new_meta = stamped_change(&state, new_meta);
     save_meta(&app, &new_meta)?;
     state.set(key, new_meta.vault_id_bytes().map_err(|e| e.to_string())?);
+    note_successful_unlock(&app, &state);
     notify_state(&app, true, window.label());
     crate::sync::commands::on_local_meta_changed(&app);
     crate::sync::commands::on_unlocked(&app);
@@ -452,6 +556,27 @@ pub async fn vault_change_password(
     state.set(key, new_meta.vault_id_bytes().map_err(|e| e.to_string())?);
     crate::sync::commands::on_local_meta_changed(&app);
     Ok(())
+}
+
+/// 0.9.1: replaces the recovery key (after re-checking the master password, which counts toward
+/// the throttle) and returns the new one to show once. Synced like a password change. The old
+/// key stops opening this vault; backup files made before still open with it.
+#[tauri::command]
+pub async fn vault_rotate_recovery_key(app: AppHandle, state: State<'_, VaultState>, password: String) -> Result<String, String> {
+    if !state.is_unlocked() {
+        return Err(ERR_LOCKED.into());
+    }
+    let meta = require_meta(&app)?;
+    let password = Zeroizing::new(password);
+    let (new_meta, recovery) = guarded(&state, move || {
+        let key = vc::unlock_with_password(&meta, &password)?;
+        vc::rewrap_recovery(&meta, &key)
+    })
+    .await?;
+    let new_meta = stamped_change(&state, new_meta);
+    save_meta(&app, &new_meta)?;
+    crate::sync::commands::on_local_meta_changed(&app);
+    Ok(recovery)
 }
 
 /// Drops the key from memory (zeroised on drop). With Vault Sync on and local changes pending,
@@ -811,6 +936,33 @@ mod tests {
         let _ = fs::remove_dir_all(&d);
         fs::create_dir_all(&d).unwrap();
         d
+    }
+
+    #[test]
+    fn failed_attempts_count_up_and_are_taken_once() {
+        let d = tmp("attempts");
+        let p = d.join(ATTEMPTS_FILE);
+        assert_eq!(take_attempts(&p), None, "no file");
+        bump_attempts(&p, 1_000).unwrap();
+        bump_attempts(&p, 5_000).unwrap();
+        bump_attempts(&p, 3_000).unwrap(); // a clock set back never moves "last" backwards
+        assert_eq!(read_attempts(&p), FailedAttempts { count: 3, last_ms: 5_000 });
+        assert_eq!(take_attempts(&p), Some(FailedAttempts { count: 3, last_ms: 5_000 }));
+        assert!(!p.exists(), "reset after a successful unlock");
+        assert_eq!(take_attempts(&p), None);
+        fs::write(&p, b"not json").unwrap();
+        assert_eq!(take_attempts(&p), None, "a damaged file is just reset");
+        bump_attempts(&p, 7).unwrap();
+        assert_eq!(read_attempts(&p).count, 1);
+        let _ = fs::remove_dir_all(d);
+    }
+
+    #[test]
+    fn only_wrong_credentials_count_as_failed_attempts() {
+        assert!(is_wrong_credential(&VaultError::WrongPassword.to_string()));
+        assert!(is_wrong_credential(&VaultError::WrongRecoveryKey.to_string()));
+        assert!(!is_wrong_credential(&VaultError::PasswordChangedElsewhere.to_string()));
+        assert!(!is_wrong_credential("Too many attempts. Try again in 4s"));
     }
 
     #[test]

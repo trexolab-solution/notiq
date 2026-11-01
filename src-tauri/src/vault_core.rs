@@ -99,6 +99,17 @@ impl Default for KdfParams {
 }
 
 impl KdfParams {
+    /// True when these parameters are cheaper than `target` (less memory or fewer passes), i.e.
+    /// a vault created by an older version that should be re-derived with today's defaults.
+    pub fn weaker_than(&self, target: &KdfParams) -> bool {
+        self.m_kib < target.m_kib || self.t < target.t
+    }
+
+    /// The stronger of both, field by field: an upgrade never lowers any cost the vault already had.
+    pub fn max(&self, other: &KdfParams) -> KdfParams {
+        KdfParams { m_kib: self.m_kib.max(other.m_kib), t: self.t.max(other.t), p: self.p.max(other.p) }
+    }
+
     /// Reject absurd values from a tampered/foreign vault.json (DoS guard).
     fn validate(&self) -> Result<()> {
         if self.m_kib < 8 || self.m_kib > 1024 * 1024 || self.t < 1 || self.t > 20 || self.p < 1 || self.p > 16 {
@@ -236,14 +247,46 @@ pub fn unlock_with_recovery(meta: &VaultMeta, recovery: &str) -> Result<VaultKey
 /// fresh salt. The recovery wrap and every `.nqv` file stay valid.
 pub fn rewrap_password(meta: &VaultMeta, key: &VaultKey, new_password: &str) -> Result<VaultMeta> {
     check_password(new_password)?;
+    rewrap_password_with(meta, key, new_password, meta.kdf)
+}
+
+fn rewrap_password_with(meta: &VaultMeta, key: &VaultKey, password: &str, kdf: KdfParams) -> Result<VaultMeta> {
+    kdf.validate()?;
     let vault_id = meta.vault_id_bytes()?;
     let mut salt = [0u8; 16];
     OsRng.fill_bytes(&mut salt);
-    let kek = derive_kek(new_password, &salt, &meta.kdf)?;
+    let kek = derive_kek(password, &salt, &kdf)?;
     let mut out = meta.clone();
+    out.kdf = kdf;
     out.salt = hex_encode(&salt);
     out.pw_wrap = hex_encode(&wrap(&kek, &aad(AAD_WRAP_PW, &vault_id), key)?);
     Ok(out)
+}
+
+/// 0.9.1: whether `meta`'s password wrap uses cheaper Argon2 settings than `target` (normally
+/// `KdfParams::default()`), so the next successful unlock should re-derive it.
+pub fn kdf_needs_upgrade(meta: &VaultMeta, target: &KdfParams) -> bool {
+    meta.kdf.weaker_than(target)
+}
+
+/// 0.9.1: re-wraps the (already unlocked) vault key under the SAME password with stronger KDF
+/// settings (`meta.kdf` raised to at least `target`) and a fresh salt. `password` must be the one
+/// that just unlocked `meta`; it is not length-checked again (it already is the vault's password).
+/// The recovery wrap and the vault key are unchanged.
+pub fn upgrade_kdf(meta: &VaultMeta, key: &VaultKey, password: &str, target: &KdfParams) -> Result<VaultMeta> {
+    rewrap_password_with(meta, key, password, meta.kdf.max(target))
+}
+
+/// 0.9.1: replaces the recovery wrap with one under a fresh random recovery key. Returns the new
+/// meta and the new key's text (show it once). The old recovery key no longer opens this meta;
+/// a copy of the old meta (e.g. inside an older backup file) still opens with the old key.
+pub fn rewrap_recovery(meta: &VaultMeta, key: &VaultKey) -> Result<(VaultMeta, String)> {
+    let vault_id = meta.vault_id_bytes()?;
+    let mut recovery = Zeroizing::new([0u8; KEY_LEN]);
+    OsRng.fill_bytes(&mut *recovery);
+    let mut out = meta.clone();
+    out.rec_wrap = hex_encode(&wrap(&recovery, &aad(AAD_WRAP_REC, &vault_id), key)?);
+    Ok((out, format_recovery_key(&recovery)))
 }
 
 // ─── Note sealing ────────────────────────────────────────────────────────────
@@ -756,6 +799,55 @@ mod tests {
         // An unknown device keeps an empty tie-break.
         m.stamp_change(5_000, None);
         assert_eq!(m.change_stamp(), Some((5_000, "")));
+    }
+
+    #[test]
+    fn kdf_upgrade_is_needed_only_for_weaker_params() {
+        let d = KdfParams::default();
+        let (meta, _, _) = vault();
+        assert!(kdf_needs_upgrade(&meta, &d), "FAST is weaker than the default");
+        let mut m = meta.clone();
+        m.kdf = d;
+        assert!(!kdf_needs_upgrade(&m, &d));
+        m.kdf = KdfParams { m_kib: d.m_kib * 2, t: d.t + 1, p: 4 };
+        assert!(!kdf_needs_upgrade(&m, &d), "stronger than the default");
+        m.kdf = KdfParams { m_kib: d.m_kib * 2, t: d.t - 1, p: 1 };
+        assert!(kdf_needs_upgrade(&m, &d), "fewer passes");
+        m.kdf = KdfParams { m_kib: d.m_kib / 2, t: d.t + 1, p: 1 };
+        assert!(kdf_needs_upgrade(&m, &d), "less memory");
+        // Upgrading never lowers a cost the vault already had.
+        assert_eq!(m.kdf.max(&d), KdfParams { m_kib: d.m_kib, t: d.t + 1, p: 1 });
+    }
+
+    #[test]
+    fn upgraded_kdf_still_unlocks_with_password_and_recovery() {
+        // A cheap stand-in for KdfParams::default() so the test stays fast.
+        let target = KdfParams { m_kib: 256, t: 2, p: 1 };
+        let (meta, key, rec) = vault();
+        assert!(kdf_needs_upgrade(&meta, &target));
+        let up = upgrade_kdf(&meta, &key, PW, &target).unwrap();
+        assert_eq!(up.kdf, target);
+        assert!(!kdf_needs_upgrade(&up, &target));
+        assert_ne!(up.salt, meta.salt, "fresh salt");
+        assert_ne!(up.pw_wrap, meta.pw_wrap);
+        assert_eq!((&up.vault_id, &up.rec_wrap), (&meta.vault_id, &meta.rec_wrap));
+        assert_eq!(*unlock_with_password(&up, PW).unwrap(), *key);
+        assert_eq!(*unlock_with_recovery(&up, &rec).unwrap(), *key);
+        assert_eq!(unlock_with_password(&up, "not the password").unwrap_err(), VaultError::WrongPassword);
+        assert_eq!(VaultMeta::from_json(&up.to_json()).unwrap(), up);
+    }
+
+    #[test]
+    fn rotated_recovery_key_replaces_the_old_one() {
+        let (meta, key, old) = vault();
+        let (m2, new) = rewrap_recovery(&meta, &key).unwrap();
+        assert_ne!(new, old);
+        assert_eq!(*unlock_with_recovery(&m2, &new).unwrap(), *key);
+        assert_eq!(unlock_with_recovery(&m2, &old).unwrap_err(), VaultError::WrongRecoveryKey);
+        // The password wrap is untouched, and the old meta (an older backup) still opens with the old key.
+        assert_eq!((&m2.salt, &m2.pw_wrap, m2.kdf), (&meta.salt, &meta.pw_wrap, meta.kdf));
+        assert_eq!(*unlock_with_password(&m2, PW).unwrap(), *key);
+        assert_eq!(*unlock_with_recovery(&meta, &old).unwrap(), *key);
     }
 
     #[test]

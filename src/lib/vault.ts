@@ -41,6 +41,8 @@ export const vaultUnlockWithRecovery = (recoveryKey: string, newPassword: string
   invoke<void>("vault_unlock_with_recovery", { recoveryKey, newPassword });
 export const vaultChangePassword = (oldPassword: string, newPassword: string) =>
   invoke<void>("vault_change_password", { oldPassword, newPassword });
+/** 0.9.1: re-checks the master password, replaces the recovery key and resolves the new one (show it once). */
+export const vaultRotateRecoveryKey = (password: string) => invoke<string>("vault_rotate_recovery_key", { password });
 export const vaultLock = () => invoke<void>("vault_lock");
 export const vaultWriteFile = (path: string, content: string, ext: string) =>
   invoke<void>("vault_write_file", { path, content, ext }).then(() => {
