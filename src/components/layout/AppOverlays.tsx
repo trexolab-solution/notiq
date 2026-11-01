@@ -8,6 +8,7 @@ import { UpdateDialog } from "../ui/UpdateDialog";
 import { FileSelectionModal } from "../ui/FileSelectionModal";
 import { ToastProvider } from "../ui/Toast";
 import { VaultDialog } from "../vault/VaultDialog";
+import { QuitGuard } from "../vault/QuitGuard";
 import { AutofillPrompt } from "../vault/AutofillPrompt";
 import { AutofillSavePrompt } from "../vault/AutofillSavePrompt";
 import { VaultDestinationDialog } from "../vault/VaultDestinationDialog";
@@ -16,6 +17,7 @@ import { LegacyVaultImport } from "../vault/LegacyVaultImport";
 import type { CtxMenuState } from "../../hooks/useGlobalContextMenu";
 import type { Tab, AppView } from "../../types";
 import type { FileEntry } from "../../lib/fileOps";
+import { unsavedCloseText } from "../../lib/closeGuard";
 
 const AIOnboarding = lazy(() =>
   import("../ai/AIOnboarding").then((m) => ({ default: m.AIOnboarding }))
@@ -137,15 +139,11 @@ export function AppOverlays({
         ) : (
           <ConfirmDialog
             title="Unsaved changes"
-            message={
-              pendingTab.filePath
-                ? "This note has unsaved changes. Save before closing?"
-                : "This note has never been saved to disk. Close without saving?"
-            }
+            message={unsavedCloseText(pendingTab).message}
             detail={pendingTab.title}
             icon="file"
-            confirmLabel={pendingTab.filePath ? "Save" : "Save As"}
-            discardLabel="Discard"
+            confirmLabel={unsavedCloseText(pendingTab).confirmLabel}
+            discardLabel="Don't save"
             cancelLabel="Cancel"
             onConfirm={handleSaveAndClose}
             onDiscard={handleDiscardAndClose}
@@ -157,6 +155,7 @@ export function AppOverlays({
       <UpdateDialog />
 
       <VaultDialog />
+      <QuitGuard />
       <AutofillPrompt />
       <AutofillSavePrompt />
       <VaultDestinationDialog />

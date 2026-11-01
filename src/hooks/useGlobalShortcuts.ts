@@ -4,6 +4,7 @@ import { exportToPDF } from "../lib/pdfExport";
 import { toast } from "../lib/toast";
 import { comboFromEvent } from "../lib/shortcutCombo";
 import { getPanicShortcut } from "../lib/vaultPrefs";
+import { isStructuredEntryTab } from "../lib/entryName";
 
 interface Options {
   requestClose:        (id: string) => void;
@@ -64,7 +65,8 @@ export function useGlobalShortcuts(opts: Options) {
       }
       if (e.ctrlKey && e.shiftKey && e.key === "S") {
         e.preventDefault();
-        if (activeTabId && activeTab?.kind === "note") saveTabToFileAs(activeTabId);
+        // Not for structured vault entries: Save As would write their secrets to a plain file.
+        if (activeTabId && activeTab?.kind === "note" && !isStructuredEntryTab(activeTab)) saveTabToFileAs(activeTabId);
         return;
       }
       if (e.ctrlKey && !e.shiftKey && e.key === "o") { e.preventDefault(); handleOpenMultiple(); return; }

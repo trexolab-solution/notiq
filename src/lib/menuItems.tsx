@@ -2,6 +2,7 @@ import {
   FileDown, FilePlus, Files, FolderOpen, Save, SaveAll, SquarePen, Trash2,
 } from "lucide-react";
 import type { ContextMenuItem } from "../components/ui/ContextMenu";
+import { isStructuredEntryTab } from "./entryName";
 
 export interface FileMenuContext {
   addTab: () => void;
@@ -28,7 +29,7 @@ export function buildFileMenuItems(ctx: FileMenuContext): ContextMenuItem[] {
     { type: "item", label: "Open Folder",    icon: <FolderOpen  size={13} />, shortcut: "Ctrl+\u21e7+O", onClick: onOpenFolder },
     { type: "separator" },
     { type: "item", label: "Save",           icon: <Save        size={13} />, shortcut: "Ctrl+S",   disabled: !isNote || !activeTab?.isDirty,  onClick: () => activeTab && saveTabToFile(activeTab.id) },
-    { type: "item", label: "Save As\u2026",       icon: <SaveAll     size={13} />, shortcut: "Ctrl+\u21e7+S", disabled: !isNote,                         onClick: () => activeTab && saveTabToFileAs(activeTab.id) },
+    { type: "item", label: "Save As\u2026",       icon: <SaveAll     size={13} />, shortcut: "Ctrl+\u21e7+S", disabled: !isNote || (!!activeTab && isStructuredEntryTab(activeTab)), onClick: () => activeTab && saveTabToFileAs(activeTab.id) },
     { type: "item", label: "Export PDF",     icon: <FileDown    size={13} />, shortcut: "Ctrl+P",   disabled: !isMd,                            onClick: exportPDF },
     { type: "separator" },
     { type: "item", label: "Close Tab",      icon: <Trash2      size={13} />, shortcut: "Ctrl+W",   danger: true, disabled: !activeTab,         onClick: () => activeTab && requestClose(activeTab.id) },

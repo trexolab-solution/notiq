@@ -3,6 +3,7 @@ import { ChevronRight, Eye, EyeOff, History, type LucideIcon } from "lucide-reac
 import { Button } from "../ui/Button";
 import { Tooltip } from "../ui/Tooltip";
 import { HistoryDialog } from "./HistoryDialog";
+import { EntrySaveButton } from "./EntrySaveButton";
 import type { Tab } from "../../types";
 import { clipboardClearLabel, getClipboardClearSeconds } from "../../lib/vaultPrefs";
 
@@ -30,6 +31,7 @@ export function EntryHeader({ icon: Icon, title, tab, badge }: {
         </span>
       )}
       <div className="flex-1" />
+      <EntrySaveButton tab={tab} />
       <Tooltip content="Earlier saved versions of this entry">
         <Button size="sm" icon={<History size={13} />} disabled={!tab.filePath} onClick={() => setHistoryOpen(true)}>
           History
@@ -91,7 +93,7 @@ export const clearHint = (secs: number) =>
 export function SaveHint() {
   return (
     <p className="text-xs text-[var(--color-text-muted)]">
-      Saved with the vault when you save this tab (Ctrl+S). {clearHint(getClipboardClearSeconds())}
+      Changes are stored in the vault when you press Save (Ctrl+S), and the item takes this Name. {clearHint(getClipboardClearSeconds())}
     </p>
   );
 }

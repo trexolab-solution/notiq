@@ -30,7 +30,8 @@ async function ensureSaved(tabId: string): Promise<string | null> {
   const cur = st.tabs.find((t) => t.id === tabId);
   if (!cur || !isVaultPath(cur.filePath)) return null;
   if (cur.isDirty && !(await st.saveTabToFile(tabId))) return null;
-  return cur.filePath!;
+  // Saving can rename the entry to its Name, so read the path again.
+  return useAppStore.getState().tabs.find((t) => t.id === tabId)?.filePath ?? null;
 }
 
 /** Collapsible "Attachments (n)" section for a structured vault entry. Files are stored encrypted in the vault. */

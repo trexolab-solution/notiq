@@ -3,8 +3,9 @@ import { useVaultStore } from "../../../store/vaultStore";
 import { readFileEntry } from "../../../lib/fileOps";
 import {
   vaultDuplicate, vaultEmptyTrash, vaultErrorMessage, vaultMkdir, vaultPurge, vaultRename, vaultRestore,
-  vaultSetStarred, vaultSetTags, vaultTrash, type VaultItem,
+  vaultReadFile, vaultSetStarred, vaultSetTags, vaultTrash, vaultWriteFile, type VaultItem,
 } from "../../../lib/vault";
+import { entryTitleOf, isStructuredExt, withEntryTitle } from "../../../lib/entryName";
 import { createVaultEntryAt, type NewEntryKind } from "../../../lib/vaultCreate";
 import {
   canMoveTo, displayName, joinRel, movedRel, nameError, nameTaken, normalizeTags, parentRel, renamedRel, toFull, toRel,
@@ -47,8 +48,40 @@ export async function renameEntry(root: string, items: VaultItem[], rel: string,
   try {
     await vaultRename(toFull(root, rel), toFull(root, to));
     useAppStore.getState().remapVaultTabs(toFull(root, rel), toFull(root, to));
-    return to;
   } catch (e) { fail(e); return null; }
+  if (!dir) await syncEntryTitle(toFull(root, to));
+  return to;
+}
+
+/**
+ * After a structured entry got a new item name (sidebar rename, duplicate), make
+ * the Name stored inside it match. An open tab with unsaved edits only gets the
+ * new Name in its edits (saved with them); otherwise the entry is rewritten and an
+ * open tab keeps showing it as saved. Plain notes are left alone.
+ */
+export async function syncEntryTitle(full: string) {
+  const name = displayName(full);
+  const st = useAppStore.getState();
+  const norm = (p: string) => p.replace(/\\/g, "/").toLowerCase();
+  const tab = st.tabs.find((t) => !t.vaultLocked && !!t.filePath && norm(t.filePath) === norm(full));
+  try {
+    if (tab) {
+      if (!isStructuredExt(tab.vaultExt)) return;
+      const next = withEntryTitle(tab.content, name);
+      if (next === tab.content) return;
+      if (tab.isDirty) { st.updateTabContent(tab.id, next); return; }
+      await vaultWriteFile(full, next, tab.vaultExt!);
+      st.reloadTabFromDisk(tab.id, next);
+      return;
+    }
+    const f = await vaultReadFile(full);
+    if (!isStructuredExt(f.ext)) return;
+    const title = entryTitleOf(f.content);
+    if (title === null || title === name) return;
+    await vaultWriteFile(full, withEntryTitle(f.content, name), f.ext);
+  } catch (e) {
+    console.warn("vault: couldn't update the entry's Name after a rename", e);
+  }
 }
 
 export async function moveEntry(root: string, items: VaultItem[], rel: string, destFolder: string):
@@ -70,6 +103,7 @@ export async function moveEntry(root: string, items: VaultItem[], rel: string, d
 export async function duplicateEntry(root: string, rel: string): Promise<string | null> {
   try {
     const full = await vaultDuplicate(toFull(root, rel));
+    await syncEntryTitle(full);
     return toRel(root, full) ?? null;
   } catch (e) { fail(e); return null; }
 }
