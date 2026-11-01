@@ -852,7 +852,7 @@ try {
   const popInfo = await evalIn(pop2, `({ ver: document.getElementById("version").textContent, sw: [...document.querySelectorAll('input[type=checkbox]')].map((i) => i.getAttribute("role") + ":" + i.id + ":" + i.checked),
     status: document.getElementById("status").dataset.state, bg: getComputedStyle(document.body).backgroundColor })`);
   check("popup: version footer, role=switch toggles incl. 'Suggest on field focus', 'Hide Notiq on this site' and the experimental passkeys (off), status dot",
-    popInfo.ver === "Notiq Autofill v0.7.0" && popInfo.sw.join() === "switch:offerSave:true,switch:showIcon:true,switch:suggestOnFocus:false,switch:siteHide:false,switch:passkeys:false" &&
+    popInfo.ver === "Notiq Autofill v0.7.0" && popInfo.sw.join() === "switch:siteHide:false,switch:showIcon:true,switch:suggestOnFocus:false,switch:offerSave:true,switch:passkeys:false" &&
     ["on", "off"].includes(popInfo.status) && popInfo.bg === "rgb(46, 52, 64)", JSON.stringify(popInfo));
   await evalIn(pop2, `document.getElementById("suggestOnFocus").click(), true`);
   check("popup toggle writes suggestOnFocus", await waitFor(async () => (await local()).suggestOnFocus === true, 1500));
@@ -1008,11 +1008,11 @@ try {
     for (const [name, theme] of [["dark", DEFAULT_DARK], ["light", LIGHT], ["nord", THEME]]) {
       await cdp("Target.activateTarget", { targetId: pop2Target });
       await SW(`chrome.storage.local.set({ theme: ${JSON.stringify(theme)}, neverSave: ["accounts.example.com", "old-bank.example"] }).then(() => true)`);
-      await evalIn(pop2, `(() => { document.getElementById("never").open = true; return true; })()`);
+      await evalIn(pop2, `(() => { showView("never"); return true; })()`);
       await sleep(300);
       const h = await evalIn(pop2, `Math.ceil(document.documentElement.getBoundingClientRect().height)`);
       await shoot(pop2, `popup-${name}.png`, { x: 0, y: 0, width: 320, height: h });
-      await evalIn(pop2, `(() => { const m = document.getElementById("msg"); m.className = ""; m.textContent = "Several logins match. Pick one:";
+      await evalIn(pop2, `(() => { showView("settings"); showView("main"); const m = document.getElementById("msg"); m.className = ""; m.textContent = "Several logins match. Pick one:";
         const c = document.getElementById("choose"); c.hidden = false; c.textContent = "";
         for (const [t, u] of [["Work", "alice@work.com"], ["Home", "alice@home.example"]]) { const li = document.createElement("li"); const b = document.createElement("button");
           b.className = "choice"; const a = document.createElement("span"); a.className = "t"; a.textContent = t; const d = document.createElement("span"); d.className = "u"; d.textContent = u;
@@ -1275,11 +1275,11 @@ try {
     await P3(`(document.activeElement && document.activeElement.blur && document.activeElement.blur(), setStatus("on", "Notiq unlocked"), loadSite("on"), true)`);
     const rows3 = () => P3(`({ rows: [...document.querySelectorAll("#accList li")].map((li) => ({ t: li.querySelector(".t").textContent, u: li.querySelector(".u").textContent,
       labels: [...li.querySelectorAll("button")].map((b) => b.getAttribute("aria-label")), code: li.querySelector('[data-action="code"]').disabled })),
-      imgs: document.querySelectorAll("#accList img").length, title: document.getElementById("siteTitle").textContent,
+      imgs: document.querySelectorAll("#accList img").length, title: document.getElementById("siteHost").textContent,
       filterShown: !document.getElementById("filter").hidden, focus: document.activeElement && document.activeElement.id, state: document.getElementById("siteState").textContent })`);
     const r3 = await waitFor(async () => { const s = await rows3(); return s.rows.length === 2 && s; }, 3000) || await rows3();
-    check("popup list: two rows (title + username as text), filter box shown and focused, host in the heading",
-      r3.rows.length === 2 && r3.rows[0].t === "Work" && r3.rows[1].t.startsWith("<img") && r3.imgs === 0 && r3.filterShown && r3.focus === "filter" && r3.title === "Logins for localhost",
+    check("popup list: two rows (title + username as text), filter box shown and focused, host in the site chip",
+      r3.rows.length === 2 && r3.rows[0].t === "Work" && r3.rows[1].t.startsWith("<img") && r3.imgs === 0 && r3.filterShown && r3.focus === "filter" && r3.title === "localhost",
       JSON.stringify(r3));
     check("popup list: every control has an accessible name; 2FA copy disabled without a code",
       r3.rows[0].labels.join("|") === "Fill Work (alice@work.com)|Copy username of Work|Copy password of Work|Copy 2FA code of Work|Open Work in Notiq" &&

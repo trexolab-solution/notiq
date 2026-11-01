@@ -1,6 +1,8 @@
 const NS = globalThis.NotiqShared; // shared.js
-const btn = document.getElementById("fill");
-const msg = document.getElementById("msg");
+const NP = globalThis.NotiqPopup; // popupkit.js
+const $ = (id) => document.getElementById(id);
+const btn = $("fill");
+const msg = $("msg");
 const TEXT = {
   app_not_running: "Notiq isn't running. Open the app and try again.",
   no_host: "Notiq isn't set up for this browser yet. Start the Notiq app once, then restart the browser.",
@@ -13,7 +15,69 @@ const TEXT = {
   stale: "That list of logins expired. Try again.",
   extension_outdated: "This version of Notiq needs a newer Notiq Autofill extension. Update the extension, then try again.",
 };
-const chooser = document.getElementById("choose");
+const chooser = $("choose");
+
+// ---------- icons (built with DOM calls; no markup strings) ----------
+const SVG_NS = "http://www.w3.org/2000/svg";
+const ICONS = {
+  username: ["c:12,8,4", "M4 21c0-4 4-6 8-6s8 2 8 6"],
+  password: ["c:7.5,15.5,4.5", "M10.7 12.3 20 3", "M16.5 6.5l3 3", "M14 9l2 2"],
+  code: ["c:12,13,8", "M12 9v4l2.5 2", "M9 2h6"],
+  open: ["M14 4h6v6", "M20 4l-9 9", "M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"],
+  check: ["M5 12.5l4.5 4.5L19 7.5"],
+  remove: ["M6 6l12 12", "M18 6L6 18"],
+  lock: ["M6 11h12a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1v-8a1 1 0 0 1 1-1z", "M8 11V7a4 4 0 0 1 8 0v4"],
+  power: ["M12 3v8", "M6.4 6.4a8 8 0 1 0 11.2 0"],
+  page: ["M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z", "M14 3v5h5", "M9.5 13.5l5 5", "M14.5 13.5l-5 5"],
+  update: ["M12 3v12", "M7 10l5 5 5-5", "M5 21h14"],
+  empty: ["c:7.5,15.5,4.5", "M10.7 12.3 20 3", "M16.5 6.5l3 3", "M14 9l2 2"],
+};
+function icon(name) {
+  const svg = document.createElementNS(SVG_NS, "svg");
+  for (const [k, v] of Object.entries({ viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": "2",
+    "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true" })) svg.setAttribute(k, v);
+  for (const d of ICONS[name] || []) {
+    let el;
+    if (d.startsWith("c:")) {
+      const [cx, cy, r] = d.slice(2).split(",");
+      el = document.createElementNS(SVG_NS, "circle");
+      el.setAttribute("cx", cx); el.setAttribute("cy", cy); el.setAttribute("r", r);
+    } else {
+      el = document.createElementNS(SVG_NS, "path");
+      el.setAttribute("d", d);
+    }
+    svg.appendChild(el);
+  }
+  return svg;
+}
+
+// ---------- views: main (this site) / settings / the three site lists ----------
+const VIEWS = { main: $("viewMain"), settings: $("viewSettings"), never: $("viewNever"), hidden: $("viewHidden"), trusted: $("viewTrusted") };
+const PARENT = { settings: "main", never: "settings", hidden: "settings", trusted: "settings" };
+let view = "main";
+const openers = {};
+function showView(name) {
+  if (!VIEWS[name] || name === view) return;
+  closeSiteMenu(false);
+  const back = PARENT[view] === name;
+  if (!back) openers[name] = document.activeElement;
+  VIEWS[view].hidden = true;
+  VIEWS[name].hidden = false;
+  const from = view;
+  view = name;
+  window.scrollTo(0, 0);
+  // Going in: focus the new view's heading (screen readers hear where they are). Going back: the control that opened it.
+  const target = back ? openers[from] : VIEWS[name].querySelector("h1[tabindex]");
+  if (target && target.isConnected && typeof target.focus === "function") target.focus();
+}
+$("openSettings").addEventListener("click", () => showView("settings"));
+for (const b of document.querySelectorAll("[data-view]")) b.addEventListener("click", () => showView(b.dataset.view));
+for (const b of document.querySelectorAll("[data-back]")) b.addEventListener("click", () => showView(b.dataset.back));
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Escape") return;
+  if (!siteMenu.hidden) { e.preventDefault(); closeSiteMenu(true); return; }
+  if (PARENT[view]) { e.preventDefault(); showView(PARENT[view]); }
+});
 
 // ---------- theme (the Notiq app's, cached by the background; else an OS-matched default) ----------
 const darkScheme = matchMedia("(prefers-color-scheme: dark)");
@@ -21,9 +85,32 @@ let cachedTheme = null;
 const applyTheme = () => { if (NS) NS.applyTheme(document.documentElement, cachedTheme, darkScheme.matches); };
 darkScheme.addEventListener("change", applyTheme);
 
+// ---------- what the main view shows ----------
+// conn: the header's appStatus state; pageError: the active tab can't be filled (not_https / bad_url).
+const conn = { state: "unknown", noHost: false, detail: "" };
+let pageError = "";
+const panel = $("panel");
+const site = $("site");
+const help = $("help");
+function renderMain() {
+  const p = NP ? NP.mainPanel({ conn: conn.state, pageError, noHost: conn.noHost, detail: conn.detail }) : null;
+  panel.hidden = !p;
+  btn.hidden = !!p;
+  site.hidden = !!p;
+  help.hidden = !!p;
+  if (!p) return;
+  panel.dataset.icon = p.icon;
+  $("panelIco").replaceChildren(icon(p.icon));
+  $("panelTitle").textContent = p.title;
+  $("panelText").textContent = p.text;
+  $("panelAction").hidden = p.action !== "retry";
+  $("panelActionText").textContent = p.actionLabel || "Try again";
+}
+$("panelAction").addEventListener("click", () => checkNotiq());
+
 // ---------- header: connection status + version ----------
-const status = document.getElementById("status");
-const statusText = document.getElementById("statusText");
+const status = $("status");
+const statusText = $("statusText");
 function setStatus(state, text, title) {
   status.dataset.state = state;
   statusText.textContent = text;
@@ -32,26 +119,38 @@ function setStatus(state, text, title) {
 let extVersion = "";
 try {
   const v = chrome.runtime.getManifest().version;
-  if (typeof v === "string") { extVersion = v; document.getElementById("version").textContent = `Notiq Autofill v${v}`; }
+  if (typeof v === "string") { extVersion = v; $("version").textContent = `Notiq Autofill v${v}`; }
 } catch { /* no manifest (test stub) */ }
-// Locked vault / version mismatch: a short status plus, when the user has to do something, a notice
-// above the Fill button (text only). The background also drops any held multi-step password here
-// when Notiq is locked or closed.
-const notice = document.getElementById("notice");
-function showNotice(text) { notice.textContent = text || ""; notice.hidden = !text; }
-try {
-  chrome.runtime.sendMessage({ type: "ping" }, (res) => {
-    if (chrome.runtime.lastError || !res) { setStatus("off", "Notiq not running"); loadSite("off"); return; }
-    const s = NS ? NS.appStatus(res, extVersion) : { state: res.ok ? "on" : "off", text: res.ok ? "Notiq running" : "Notiq not running", detail: "" };
-    if (s.state === "off") setStatus("off", s.text, res.error === "no_host" ? TEXT.no_host : TEXT.app_not_running);
-    // The header names the lock state: "Notiq unlocked" / "Notiq is locked".
-    else setStatus(s.state, s.state === "on" ? "Notiq unlocked" : s.text, s.detail);
-    if (s.state === "locked" || s.state === "update_app" || s.state === "update_ext") showNotice(s.detail);
-    loadSite(s.state); // this site's logins (below)
-  });
-} catch { setStatus("off", "Notiq not running"); }
+const label = (state, noHost) => (NP ? NP.statusLabel(state, noHost) : state);
+// Locked vault / version mismatch: a short status plus, when the user has to do something, a panel that says
+// what to do. The background also drops any held multi-step password here when Notiq is locked or closed.
+function checkNotiq() {
+  conn.state = "unknown";
+  setStatus("unknown", label("unknown"));
+  try {
+    chrome.runtime.sendMessage({ type: "ping" }, (res) => {
+      if (chrome.runtime.lastError || !res) {
+        Object.assign(conn, { state: "off", noHost: false, detail: "" });
+        setStatus("off", label("off"), TEXT.app_not_running);
+        loadSite("off");
+        return;
+      }
+      const s = NS ? NS.appStatus(res, extVersion) : { state: res.ok ? "on" : "off", text: "", detail: "" };
+      const noHost = s.state === "off" && res.error === "no_host";
+      Object.assign(conn, { state: s.state, noHost, detail: s.detail || "" });
+      if (s.state === "off") setStatus("off", label("off", noHost), noHost ? TEXT.no_host : TEXT.app_not_running);
+      else setStatus(s.state, s.state === "on" && s.appVersion ? `${label("on")} · Notiq ${s.appVersion}` : label(s.state), s.detail);
+      loadSite(s.state); // this site's logins (below)
+    });
+  } catch {
+    Object.assign(conn, { state: "off", noHost: false, detail: "" });
+    setStatus("off", label("off"));
+    renderMain();
+  }
+}
+checkNotiq();
 // The real shortcut (the user may have changed or removed it in the browser's shortcut settings).
-const shortcut = document.getElementById("shortcut");
+const shortcut = $("shortcut");
 try {
   if (chrome.commands && typeof chrome.commands.getAll === "function") {
     chrome.commands.getAll((cmds) => {
@@ -120,28 +219,107 @@ function fill(account) {
 }
 btn.addEventListener("click", () => fill());
 
+// ---------- the current site: host chip + "Hide Notiq on this site" (in the … menu) ----------
+const siteHost = $("siteHost");
+const siteChip = $("siteChip");
+function setSiteHost(host) {
+  const h = typeof host === "string" ? host.slice(0, 253) : "";
+  siteHost.textContent = h || "This page";
+  siteHost.classList.toggle("none", !h);
+  siteChip.title = h;
+}
+const PAGE_ERRORS = new Set(["not_https", "bad_url"]);
+function setPageError(error) {
+  const next = PAGE_ERRORS.has(error) ? error : "";
+  if (next === pageError) return;
+  pageError = next;
+  if (next) setSiteHost("");
+  renderMain();
+}
+
+const siteMenuBtn = $("siteMenuBtn");
+const siteMenu = $("siteMenu");
+function openSiteMenu() {
+  siteMenu.hidden = false;
+  siteMenuBtn.setAttribute("aria-expanded", "true");
+  siteHide.focus();
+}
+function closeSiteMenu(refocus) {
+  if (siteMenu.hidden) return;
+  siteMenu.hidden = true;
+  siteMenuBtn.setAttribute("aria-expanded", "false");
+  if (refocus) siteMenuBtn.focus();
+}
+siteMenuBtn.addEventListener("click", () => (siteMenu.hidden ? openSiteMenu() : closeSiteMenu(true)));
+document.addEventListener("pointerdown", (e) => {
+  if (!siteMenu.hidden && !siteMenu.contains(e.target) && !siteMenuBtn.contains(e.target)) closeSiteMenu(false);
+});
+siteMenu.addEventListener("focusout", (e) => {
+  if (!siteMenu.hidden && e.relatedTarget && !siteMenu.contains(e.relatedTarget) && e.relatedTarget !== siteMenuBtn) closeSiteMenu(false);
+});
+
+// The background takes the host from the active tab's URL.
+const siteHideRow = $("siteHideRow");
+const siteHide = $("siteHide");
+const siteHideHost = $("siteHideHost");
+const siteHiddenTag = $("siteHiddenTag");
+function showSiteHidden(on) {
+  siteHideRow.hidden = !on;
+  siteMenuBtn.hidden = !on;
+  if (!on) { closeSiteMenu(false); siteHiddenTag.hidden = true; }
+}
+function loadSiteHidden() {
+  try {
+    chrome.runtime.sendMessage({ type: "siteHidden" }, (res) => {
+      if (chrome.runtime.lastError || !res || res.ok !== true || typeof res.host !== "string") {
+        showSiteHidden(false);
+        if (res && typeof res.error === "string") setPageError(res.error);
+        return;
+      }
+      setSiteHost(res.host);
+      setPageError("");
+      siteHideHost.textContent = "No icon or suggestion here. Fill login and the shortcut still work.";
+      siteHide.checked = res.hidden === true;
+      siteHiddenTag.hidden = res.hidden !== true;
+      showSiteHidden(true);
+    });
+  } catch { showSiteHidden(false); }
+}
+siteHide.addEventListener("change", () => {
+  siteHiddenTag.hidden = !siteHide.checked;
+  chrome.runtime.sendMessage({ type: "setSiteHidden", hidden: siteHide.checked }, (res) => {
+    if (chrome.runtime.lastError || !res || res.ok !== true) loadSiteHidden();
+  });
+});
+loadSiteHidden();
+
 // ---------- settings (chrome.storage.local; content.js reacts to changes) ----------
 const DEFAULTS = { offerSave: true, showIcon: true, suggestOnFocus: false, neverSave: [], hiddenSites: [], reuseTrusted: [], theme: null };
-const offerSave = document.getElementById("offerSave");
-const showIcon = document.getElementById("showIcon");
-const suggestOnFocus = document.getElementById("suggestOnFocus");
-const suggestRow = document.getElementById("suggestRow");
-// Per-site lists: × removes the site (the content scripts follow the storage change).
+const offerSave = $("offerSave");
+const showIcon = $("showIcon");
+const suggestOnFocus = $("suggestOnFocus");
+const suggestRow = $("suggestRow");
+// Per-site lists (each on its own page): × removes the site (the content scripts follow the storage change).
 const SITE_LISTS = [
-  { key: "neverSave", list: "neverList", count: "neverCount", undo: (h) => `Offer to save logins for ${h} again` },
-  { key: "hiddenSites", list: "hiddenList", count: "hiddenCount", undo: (h) => `Show Notiq on ${h} again` },
-  { key: "reuseTrusted", list: "trustedList", count: "trustedCount", undo: (h) => `Warn about passwords of other sites on ${h} again` },
+  { key: "neverSave", list: "neverList", count: "neverCount", undo: (h) => `Offer to save logins for ${h} again`,
+    empty: "No sites yet. Choose “Never for this site” on a save offer to add one." },
+  { key: "hiddenSites", list: "hiddenList", count: "hiddenCount", undo: (h) => `Show Notiq on ${h} again`,
+    empty: "No sites yet. Hide Notiq from its icon's menu, or from … next to the site." },
+  { key: "reuseTrusted", list: "trustedList", count: "trustedCount", undo: (h) => `Warn about passwords of other sites on ${h} again`,
+    empty: "No sites yet. Sites you mark “It's OK, I trust this site” on the warning appear here." },
 ];
-function renderSites({ key, list: listId, count: countId, undo }, hosts) {
-  const list = document.getElementById(listId);
-  const count = document.getElementById(countId);
+function renderSites({ key, list: listId, count: countId, undo, empty }, hosts) {
+  const list = $(listId);
+  const count = $(countId);
+  const hadFocus = list.contains(document.activeElement);
   list.textContent = "";
   count.textContent = hosts.length ? String(hosts.length) : "";
   if (!hosts.length) {
     const li = document.createElement("li");
     li.className = "empty";
-    li.textContent = "No sites yet.";
+    li.textContent = empty;
     list.appendChild(li);
+    if (hadFocus) { const b = list.closest(".view").querySelector("[data-back]"); if (b) b.focus(); }
     return;
   }
   for (const host of hosts) {
@@ -151,9 +329,9 @@ function renderSites({ key, list: listId, count: countId, undo }, hosts) {
     name.title = host;
     const rm = document.createElement("button");
     rm.type = "button";
-    rm.textContent = "×";
     rm.title = undo(host);
     rm.setAttribute("aria-label", `Remove ${host}`);
+    rm.appendChild(icon("remove"));
     rm.addEventListener("click", async () => {
       const cur = (await chrome.storage.local.get(DEFAULTS))[key];
       const next = (Array.isArray(cur) ? cur : []).filter((h) => h !== host);
@@ -162,29 +340,10 @@ function renderSites({ key, list: listId, count: countId, undo }, hosts) {
     li.append(name, rm);
     list.appendChild(li);
   }
+  // Keep the keyboard in the list after a removal.
+  if (hadFocus) { const b = list.querySelector("button"); if (b) b.focus(); }
 }
 const hostsOf = (v) => (NS ? NS.hostList(v) : Array.isArray(v) ? v.filter((h) => typeof h === "string") : []);
-
-// "Hide Notiq on this site" for the active tab (the background takes the host from the tab's URL).
-const siteHideRow = document.getElementById("siteHideRow");
-const siteHide = document.getElementById("siteHide");
-const siteHideHost = document.getElementById("siteHideHost");
-function loadSiteHidden() {
-  try {
-    chrome.runtime.sendMessage({ type: "siteHidden" }, (res) => {
-      if (chrome.runtime.lastError || !res || res.ok !== true || typeof res.host !== "string") { siteHideRow.hidden = true; return; }
-      siteHideHost.textContent = `${res.host.slice(0, 253)}: no icon; this button and Alt+Shift+L still work`;
-      siteHide.checked = res.hidden === true;
-      siteHideRow.hidden = false;
-    });
-  } catch { siteHideRow.hidden = true; }
-}
-siteHide.addEventListener("change", () => {
-  chrome.runtime.sendMessage({ type: "setSiteHidden", hidden: siteHide.checked }, (res) => {
-    if (chrome.runtime.lastError || !res || res.ok !== true) loadSiteHidden();
-  });
-});
-loadSiteHidden();
 
 function render(s) {
   offerSave.checked = s.offerSave !== false;
@@ -194,76 +353,47 @@ function render(s) {
   suggestOnFocus.disabled = !showIcon.checked;
   suggestRow.classList.toggle("off", !showIcon.checked);
   for (const l of SITE_LISTS) renderSites(l, l.key === "neverSave" && Array.isArray(s.neverSave) ? s.neverSave.filter((h) => typeof h === "string") : hostsOf(s[l.key]));
-  if (!siteHideRow.hidden && siteHideHost.textContent) loadSiteHidden(); // the list may have changed this site
+  if (!siteHideRow.hidden) loadSiteHidden(); // the list may have changed this site
   cachedTheme = NS ? NS.validateTheme(s.theme) : null;
   applyTheme();
+  if (NP && !accounts.length && lastState === "on" && siteEmpty.dataset.kind === "empty") renderAccounts(); // the empty hint follows offerSave
 }
-
-applyTheme();
-chrome.storage.local.get(DEFAULTS, render);
-chrome.storage.onChanged.addListener((_changes, area) => {
-  if (area === "local") chrome.storage.local.get(DEFAULTS, render);
-});
-offerSave.addEventListener("change", () => chrome.storage.local.set({ offerSave: offerSave.checked }));
-showIcon.addEventListener("change", () => chrome.storage.local.set({ showIcon: showIcon.checked }));
-suggestOnFocus.addEventListener("change", () => chrome.storage.local.set({ suggestOnFocus: suggestOnFocus.checked }));
-// Refresh the app's theme now (the background caches it; the change arrives via storage).
-try { chrome.runtime.sendMessage({ type: "theme" }, () => void chrome.runtime.lastError); } catch { /* ignore */ }
 
 // ---------- this site's logins (0.9.0) ----------
 // Titles + usernames of the logins that match the active tab's site, from the app (popupkit.js validates and
 // filters). Row: fill (normal approval in Notiq) + copy username / password / 2FA code (Notiq copies it; the
 // value never reaches the extension) + open in Notiq. Rendered with textContent only.
-const NP = globalThis.NotiqPopup;
-const site = document.getElementById("site");
-const siteTitle = document.getElementById("siteTitle");
-const siteCount = document.getElementById("siteCount");
-const filter = document.getElementById("filter");
-const accList = document.getElementById("accList");
-const siteState = document.getElementById("siteState");
+const siteCount = $("siteCount");
+const filter = $("filter");
+const accList = $("accList");
+const siteState = $("siteState");
+const siteEmpty = $("siteEmpty");
+const siteHint = $("siteHint");
 let accounts = [];
 let lastState = "";
 
-const SVG_NS = "http://www.w3.org/2000/svg";
-const ICONS = {
-  username: ["c:12,8,4", "M4 21c0-4 4-6 8-6s8 2 8 6"],
-  password: ["c:7.5,15.5,4.5", "M10.7 12.3 20 3", "M16.5 6.5l3 3", "M14 9l2 2"],
-  code: ["c:12,13,8", "M12 9v4l2.5 2", "M9 2h6"],
-  open: ["M14 4h6v6", "M20 4l-9 9", "M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"],
-};
 const TIPS = { username: "Copy username", password: "Copy password", code: "Copy 2FA code", open: "Open in Notiq" };
-function icon(name) {
-  const svg = document.createElementNS(SVG_NS, "svg");
-  for (const [k, v] of Object.entries({ viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": "2",
-    "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true" })) svg.setAttribute(k, v);
-  for (const d of ICONS[name]) {
-    let el;
-    if (d.startsWith("c:")) {
-      const [cx, cy, r] = d.slice(2).split(",");
-      el = document.createElementNS(SVG_NS, "circle");
-      el.setAttribute("cx", cx); el.setAttribute("cy", cy); el.setAttribute("r", r);
-    } else {
-      el = document.createElementNS(SVG_NS, "path");
-      el.setAttribute("d", d);
-    }
-    svg.appendChild(el);
-  }
-  return svg;
-}
 
 function say(text, cls = "") { msg.className = cls; msg.textContent = text || ""; }
 const actionError = (res) => (NP ? NP.actionText(res && res.error) : "Something went wrong.");
 
-function siteMessage(text) { siteState.textContent = text || ""; }
+// kind: loading | empty | nomatch | error ("" hides the block).
+function siteMessage(text, kind = "error") {
+  siteState.textContent = text || "";
+  siteHint.textContent = kind === "empty"
+    ? (offerSave.checked ? "Sign in here and Notiq will offer to save the login." : "Add one in the Notiq app to fill it here.") : "";
+  siteEmpty.dataset.kind = kind;
+  siteEmpty.hidden = !text;
+}
 
 function renderAccounts() {
   const shown = NP.filterAccounts(accounts, filter.value);
   accList.textContent = "";
-  filter.hidden = !accounts.length;
-  siteCount.textContent = accounts.length > 1 ? (shown.length === accounts.length ? `${accounts.length}` : `${shown.length} of ${accounts.length}`) : "";
+  filter.hidden = accounts.length < 2;
+  siteCount.textContent = accounts.length ? (shown.length === accounts.length ? `${accounts.length}` : `${shown.length} of ${accounts.length}`) : "";
   for (const a of shown) accList.appendChild(accountRow(a));
-  if (!accounts.length) siteMessage(NP.listText("empty"));
-  else if (!shown.length) siteMessage(`No logins match “${filter.value.trim().slice(0, 60)}”.`);
+  if (!accounts.length) siteMessage(NP.listText("empty"), "empty");
+  else if (!shown.length) siteMessage(`No logins match “${filter.value.trim().slice(0, 60)}”.`, "nomatch");
   else siteMessage("");
 }
 
@@ -274,6 +404,7 @@ function accountRow(a) {
   const main = document.createElement("button");
   main.type = "button";
   main.className = "acc-main";
+  main.dataset.initial = NP.initial(a);
   main.setAttribute("aria-label", names.fill);
   main.title = "Fill on this page";
   const t = document.createElement("span");
@@ -313,15 +444,16 @@ function fillAccount(a) {
   });
 }
 
-function copyAccount(a, what, btn) {
+function copyAccount(a, what, b) {
   // A password or code copy may need your OK in Notiq (which can close this popup; the copy still happens).
   say(what === "username" ? "Copying…" : "Waiting for your approval in Notiq…");
   chrome.runtime.sendMessage({ type: "copy", account: a.account, what }, (res) => {
     if (chrome.runtime.lastError) { say(TEXT.app_not_running, "err"); return; }
     if (res && res.ok) {
       say(NP.copiedText(what, res.clearAfter), "ok");
-      btn.classList.add("done");
-      setTimeout(() => btn.classList.remove("done"), 1500);
+      b.classList.add("done");
+      b.replaceChildren(icon("check"));
+      setTimeout(() => { b.classList.remove("done"); b.replaceChildren(icon(what)); }, 1500);
       return;
     }
     say(actionError(res), "err");
@@ -344,26 +476,30 @@ const STATE_ERROR = { off: "app_not_running", locked: "locked", update_app: "unk
 function loadSite(state) {
   if (!NP) return;
   lastState = state;
-  site.hidden = false;
+  conn.state = state;
+  renderMain();
   if (state !== "on") {
     accounts = [];
     renderAccounts();
     siteMessage(NP.listText(STATE_ERROR[state] || "app_not_running"));
     return;
   }
-  siteMessage("Loading your logins for this site…");
+  accounts = [];
+  accList.textContent = "";
+  filter.hidden = true;
+  siteCount.textContent = "";
+  siteMessage("Loading your logins for this site…", "loading");
   chrome.runtime.sendMessage({ type: "list" }, (res) => {
     if (chrome.runtime.lastError || !res) { accounts = []; renderAccounts(); siteMessage(NP.listText("app_not_running")); return; }
-    if (typeof res.host === "string" && res.host) {
-      siteTitle.textContent = `Logins for ${res.host.slice(0, 253)}`;
-      siteTitle.title = res.host.slice(0, 253);
-    }
+    if (typeof res.host === "string" && res.host) setSiteHost(res.host);
+    if (res.ok) setPageError("");
+    else if (PAGE_ERRORS.has(res.error)) setPageError(res.error);
     const list = res.ok ? NP.validAccounts(res.accounts) : null;
     accounts = list || [];
     renderAccounts();
     if (!list) { siteMessage(NP.listText(res.ok ? "malformed" : res.error)); return; }
     // Ready to type a filter (or press Enter to fill the first login).
-    if (accounts.length && (document.activeElement === document.body || !document.activeElement)) filter.focus();
+    if (!filter.hidden && view === "main" && (document.activeElement === document.body || !document.activeElement)) filter.focus();
   });
 }
 
@@ -394,3 +530,15 @@ accList.addEventListener("keydown", (e) => {
   const target = [...rows[to].querySelectorAll("button")];
   (target[col] && !target[col].disabled ? target[col] : target[0]).focus();
 });
+
+// ---------- start ----------
+applyTheme();
+chrome.storage.local.get(DEFAULTS, render);
+chrome.storage.onChanged.addListener((_changes, area) => {
+  if (area === "local") chrome.storage.local.get(DEFAULTS, render);
+});
+offerSave.addEventListener("change", () => chrome.storage.local.set({ offerSave: offerSave.checked }));
+showIcon.addEventListener("change", () => chrome.storage.local.set({ showIcon: showIcon.checked }));
+suggestOnFocus.addEventListener("change", () => chrome.storage.local.set({ suggestOnFocus: suggestOnFocus.checked }));
+// Refresh the app's theme now (the background caches it; the change arrives via storage).
+try { chrome.runtime.sendMessage({ type: "theme" }, () => void chrome.runtime.lastError); } catch { /* ignore */ }

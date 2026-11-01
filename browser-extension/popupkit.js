@@ -118,7 +118,51 @@
     }
   }
 
-  const api = Object.freeze({ MAX, COPY_WHAT, validAccounts, filterAccounts, rowText, labels, copiedText, listText, actionText, nextRow });
+  // One letter for a row's avatar (drawn by CSS from a data attribute; never markup).
+  function initial(a) {
+    const name = a ? rowText(a).title : "";
+    const m = /[\p{L}\p{N}]/u.exec(name);
+    return m ? m[0].toLocaleUpperCase() : "?";
+  }
+
+  // The header's short connection line, from shared.js appStatus().state (+ whether the host is missing).
+  const STATUS_LABEL = Object.freeze({
+    unknown: "Checking Notiq…",
+    on: "Unlocked",
+    locked: "Vault locked",
+    off: "Notiq not running",
+    update_app: "Update Notiq",
+    update_ext: "Update the extension",
+  });
+  function statusLabel(state, noHost) {
+    if (state === "off" && noHost) return "Notiq not set up";
+    return Object.prototype.hasOwnProperty.call(STATUS_LABEL, state) ? STATUS_LABEL[state] : STATUS_LABEL.off;
+  }
+
+  // What the main view shows instead of the site's logins, or null when the logins can be shown.
+  // conn: appStatus state ("unknown" while checking); pageError: the active tab's error (not_https / bad_url
+  // mean nothing can be filled here; anything else is ignored); detail: appStatus detail for the update states.
+  // action: "retry" asks Notiq again (the same ping); "" has no button.
+  function mainPanel({ conn, pageError, noHost, detail } = {}) {
+    if (pageError === "not_https") return { icon: "page", title: "Notiq can't fill this page",
+      text: "Logins are filled and saved on secure (https) websites only.", action: "" };
+    if (pageError === "bad_url") return { icon: "page", title: "Nothing to fill here",
+      text: "Open a website to see and fill its logins.", action: "" };
+    const d = typeof detail === "string" ? detail.slice(0, 400) : "";
+    switch (conn) {
+      case "on": case "unknown": case undefined: return null;
+      case "locked": return { icon: "lock", title: "Your vault is locked",
+        text: "Unlock it in the Notiq app to see and fill your logins for this site.", action: "retry", actionLabel: "Check again" };
+      case "update_app": return { icon: "update", title: "Update Notiq", text: d || "This extension needs a newer Notiq app.", action: "" };
+      case "update_ext": return { icon: "update", title: "Update the extension", text: d || "This Notiq app needs a newer Notiq Autofill extension.", action: "" };
+      default: return noHost
+        ? { icon: "power", title: "Notiq isn't set up for this browser", text: "Start the Notiq app once, then restart the browser.", action: "retry", actionLabel: "Try again" }
+        : { icon: "power", title: "Notiq isn't running", text: "Open the Notiq app on this computer, then try again.", action: "retry", actionLabel: "Try again" };
+    }
+  }
+
+  const api = Object.freeze({ MAX, COPY_WHAT, validAccounts, filterAccounts, rowText, labels, copiedText, listText, actionText, nextRow,
+    initial, statusLabel, mainPanel });
   try {
     Object.defineProperty(g, "NotiqPopup", { value: api, writable: false, configurable: false, enumerable: false });
   } catch { /* already defined */ }
