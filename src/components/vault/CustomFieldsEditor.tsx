@@ -1,18 +1,19 @@
 import { useState } from "react";
-import { ArrowDown, ArrowUp, Eye, EyeOff, X } from "lucide-react";
+import { Eye, EyeOff, Lock, Trash2, Type } from "lucide-react";
 import { Input } from "../ui/Input";
-import { Select } from "../ui/Select";
+import type { ContextMenuItem } from "../ui/ContextMenu";
 import { useAutoHide } from "../../hooks/useAutoHide";
 import { CopyIconButton } from "./CopyIconButton";
 import { Section } from "./EntryParts";
 import {
-  AddRowButton, moveItem, reinsert, RowActions, rowButtonClass, RowIconButton,
-  useAnnouncer, useFieldError, useLatest, useListFocus, useUndoToast,
+  AddRowButton, InlineLabelInput, liftedRowClass, listBoxClass, listRowHoverClass, moveTo, reinsert, RowActions,
+  rowButtonClass, RowDragHandle, RowIconButton, RowIconSpacer, RowMenuButton, SortableRows, useAnnouncer, useFieldError,
+  useLatest, useListFocus, useSortableList, useSortableRow, useUndoToast,
 } from "./ListEditor";
 import { MAX_CUSTOM_FIELDS, MAX_CUSTOM_LABEL, type CustomField } from "../../lib/customFields";
 
-const TYPE_OPTIONS = [{ value: "text", label: "Text" }, { value: "hidden", label: "Hidden" }];
 const EMPTY: CustomField = { label: "", value: "", secret: false };
+const SEPARATOR: ContextMenuItem = { type: "separator" };
 
 /** How a row is named in labels and announcements: its name, or its position while it has none. */
 export const fieldName = (f: CustomField, i: number) => f.label.trim() || `field ${i + 1}`;
@@ -24,9 +25,23 @@ export function fieldNameError(f: CustomField, i: number, all: CustomField[]): s
   return all.some((o, j) => j < i && o.label.trim().toLowerCase() === name) ? "Another field already uses this name" : null;
 }
 
-function FieldRow({ field, index, count, error, onChange, onRemove, onMove, onEnterLast }: {
-  field: CustomField; index: number; count: number; error: string | null;
-  onChange: (f: CustomField) => void; onRemove: () => void; onMove: (dir: -1 | 1) => void; onEnterLast: () => void;
+/** Shown next to a hidden field's name, so its type is visible without opening the menu. */
+function HiddenBadge() {
+  return (
+    <span className="inline-flex items-center gap-1 h-[18px] px-1.5 rounded shrink-0 text-[10px] font-medium uppercase tracking-wide bg-[var(--color-bg-tertiary)] text-[var(--color-text-muted)]">
+      <Lock size={10} aria-hidden />Hidden
+    </span>
+  );
+}
+
+/**
+ * One field, laid out like the form's built-in fields: a drag handle, its name as an editable label, the
+ * value full width below it, and a fixed action column (reveal slot · copy · ⋯) so every input ends at the same x.
+ */
+function FieldRow({ id, field, index, count, error, lifted, sortDescribedBy, onSortKeyDown, onChange, onToggleSecret, onRemove, onEnterLast }: {
+  id: string; field: CustomField; index: number; count: number; error: string | null;
+  lifted: boolean; sortDescribedBy: string; onSortKeyDown: (e: React.KeyboardEvent) => void;
+  onChange: (f: CustomField) => void; onToggleSecret: () => void; onRemove: () => void; onEnterLast: () => void;
 }) {
   const [show, setShow] = useState(false);
   useAutoHide(show, setShow);
@@ -36,44 +51,53 @@ function FieldRow({ field, index, count, error, onChange, onRemove, onMove, onEn
   const nameErr = useFieldError(shownError);
   const name = fieldName(field, index);
   const last = index === count - 1;
+  const sortable = useSortableRow(id);
+
+  const menu: ContextMenuItem[] = [
+    field.secret
+      ? { type: "item", label: "Show as text", icon: <Type size={14} />, onClick: () => { setShow(false); onToggleSecret(); } }
+      : { type: "item", label: "Hide value", icon: <Lock size={14} />, onClick: () => { setShow(false); onToggleSecret(); } },
+    SEPARATOR,
+    { type: "item", label: "Remove field", icon: <Trash2 size={14} />, danger: true, onClick: onRemove },
+  ];
 
   return (
-    <li data-list-row
-        className="flex flex-col gap-1.5 rounded-md p-2 bg-[var(--color-bg-secondary)] border border-[var(--color-border)]">
-      <div className="flex items-center gap-1.5">
-        <Input data-row-focus aria-label={`Name of custom field ${index + 1}`} value={field.label} placeholder="Name, e.g. Customer ID"
-               maxLength={MAX_CUSTOM_LABEL} spellCheck={false} {...nameErr.inputProps}
-               className={`min-w-0 font-medium ${nameErr.errorClass}`}
-               onBlur={() => setTouched(true)}
-               onChange={(e) => onChange({ ...field, label: e.target.value.slice(0, MAX_CUSTOM_LABEL) })}
-               onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); e.currentTarget.closest("li")?.querySelector<HTMLInputElement>("[data-field-value]")?.focus(); } }} />
-        <Select aria-label={`Type of ${name}`} options={TYPE_OPTIONS} value={field.secret ? "hidden" : "text"}
-                className="shrink-0 focus-visible:ring-2 focus-visible:ring-[var(--color-primary)]/40"
-                triggerStyle={{ minWidth: 88, padding: "3px 8px", fontSize: 12, borderRadius: 6, background: "var(--color-bg-tertiary)" }}
-                onChange={(v) => { setShow(false); onChange({ ...field, secret: v === "hidden" }); }} />
-        <RowActions>
-          <RowIconButton data-move="up" label={`Move ${name} up`} tooltip="Move up" icon={<ArrowUp size={13} />}
-                         disabled={index === 0} onClick={() => onMove(-1)} />
-          <RowIconButton data-move="down" label={`Move ${name} down`} tooltip="Move down" icon={<ArrowDown size={13} />}
-                         disabled={last} onClick={() => onMove(1)} />
-          <RowIconButton danger label={`Remove ${name}`} tooltip="Remove field" icon={<X size={13} />} onClick={onRemove} />
-        </RowActions>
-      </div>
-      {nameErr.message && <div className="-mt-1">{nameErr.message}</div>}
-      <div className="flex items-center gap-1.5">
-        <Input data-field-value aria-label={`Value of ${name}`} value={field.value} placeholder="Value" autoComplete="off" spellCheck={false}
-               type={field.secret && !show ? "password" : "text"}
-               className={`min-w-0 ${field.secret ? "font-mono" : ""}`}
-               onBlur={() => setTouched(true)}
-               onChange={(e) => onChange({ ...field, value: e.target.value })}
-               onKeyDown={(e) => { if (e.key === "Enter" && last) { e.preventDefault(); onEnterLast(); } }} />
-        <RowActions>
-          {field.secret && (
-            <RowIconButton pressed={show} label={show ? `Hide value of ${name}` : `Show value of ${name}`}
-                           icon={show ? <EyeOff size={13} /> : <Eye size={13} />} onClick={() => setShow((v) => !v)} />
-          )}
-          <CopyIconButton value={field.value} label={`value of ${name}`} className={rowButtonClass} />
-        </RowActions>
+    <li data-list-row {...sortable.rowProps}
+        className={`group flex items-center gap-1 pl-1 pr-3 py-2.5 ${listRowHoverClass} ${lifted || sortable.isDragging ? liftedRowClass : ""}`}>
+      <RowDragHandle label={`Reorder ${name}`} lifted={lifted} describedBy={sortDescribedBy}
+                     onKeyDown={onSortKeyDown} handleProps={sortable.handleProps} />
+      <div className="flex-1 min-w-0 flex flex-col gap-1">
+        <div className="flex items-center gap-1.5 min-w-0">
+          <InlineLabelInput data-row-focus aria-label={`Field name ${index + 1}`} value={field.label}
+                            placeholder="Field name, e.g. Customer ID" maxLength={MAX_CUSTOM_LABEL} spellCheck={false}
+                            {...nameErr.inputProps} className={nameErr.errorClass}
+                            onBlur={() => setTouched(true)}
+                            onChange={(e) => onChange({ ...field, label: e.target.value.slice(0, MAX_CUSTOM_LABEL) })}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                e.preventDefault();
+                                e.currentTarget.closest("li")?.querySelector<HTMLInputElement>("[data-field-value]")?.focus();
+                              }
+                            }} />
+          {field.secret && <HiddenBadge />}
+        </div>
+        {nameErr.message && <div className="-mt-1">{nameErr.message}</div>}
+        <div className="flex items-center gap-2">
+          <Input data-field-value aria-label={`Value of ${name}`} value={field.value} placeholder="Value" autoComplete="off"
+                 spellCheck={false} type={field.secret && !show ? "password" : "text"}
+                 className={`min-w-0 ${field.secret ? "font-mono" : ""}`}
+                 onBlur={() => setTouched(true)}
+                 onChange={(e) => onChange({ ...field, value: e.target.value })}
+                 onKeyDown={(e) => { if (e.key === "Enter" && last) { e.preventDefault(); onEnterLast(); } }} />
+          <RowActions>
+            {field.secret ? (
+              <RowIconButton pressed={show} label={show ? `Hide value of ${name}` : `Show value of ${name}`}
+                             icon={show ? <EyeOff size={13} /> : <Eye size={13} />} onClick={() => setShow((v) => !v)} />
+            ) : <RowIconSpacer />}
+            <CopyIconButton value={field.value} label={`value of ${name}`} className={rowButtonClass} />
+            <RowMenuButton data-row-menu label={`More actions for ${name}`} menuLabel={`Actions for ${name}`} items={menu} />
+          </RowActions>
+        </div>
       </div>
     </li>
   );
@@ -85,9 +109,18 @@ export function CustomFieldsEditor({ value, onChange }: { value: CustomField[]; 
   const { announce, region } = useAnnouncer();
   const undo = useUndoToast();
   const latest = useLatest({ value, onChange });
-  // Bumped on remove / move so rows remount: a row never hands its "shown" state to its neighbour.
+  // Bumped on remove / reorder so rows remount: a row never hands its "shown" state to its neighbour.
+  // Ids stay fixed while a drag is in progress, which is all the sortable list needs.
   const [version, setVersion] = useState(0);
+  const ids = value.map((_, i) => `${i}-${version}`);
   const full = value.length >= MAX_CUSTOM_FIELDS;
+
+  const sort = useSortableList({
+    ids, announce,
+    nameOf: (i) => fieldName(value[i], i),
+    onReorder: (from, to) => { onChange(moveTo(value, from, to)); setVersion((v) => v + 1); },
+    focusHandle: (p) => focusAfter({ index: p, selector: "[data-row-handle]" }),
+  });
 
   const add = () => {
     if (full) return;
@@ -113,40 +146,37 @@ export function CustomFieldsEditor({ value, onChange }: { value: CustomField[]; 
     });
   };
 
-  const move = (i: number, dir: -1 | 1) => {
-    const to = i + dir;
-    if (to < 0 || to >= value.length) return;
-    onChange(moveItem(value, i, to));
-    setVersion((v) => v + 1);
-    const same = dir < 0 ? '[data-move="up"]' : '[data-move="down"]';
-    const other = dir < 0 ? '[data-move="down"]' : '[data-move="up"]';
-    focusAfter({ index: to, selector: `${same}:not([disabled]), ${other}` });
-    announce(`${fieldName(value[i], i)} moved to position ${to + 1} of ${value.length}`);
+  const toggleSecret = (i: number) => {
+    const f = value[i];
+    onChange(value.map((x, j) => (j === i ? { ...x, secret: !x.secret } : x)));
+    announce(f.secret ? `${fieldName(f, i)} is now shown as text` : `${fieldName(f, i)} is now hidden`);
   };
 
   return (
     <Section title={value.length ? `Custom fields · ${value.length}` : "Custom fields"}>
       <div ref={rootRef} className="flex flex-col gap-2">
         {region}
+        {sort.instructions}
         {value.length === 0 ? (
-          <p className="text-xs text-[var(--color-text-muted)]">
-            Add anything else worth keeping with this entry: account numbers, security questions, licence keys…
-          </p>
+          <p className="text-xs text-[var(--color-text-muted)]">Add fields like a customer ID or PIN.</p>
         ) : (
-          <ul aria-label="Custom fields" className="flex flex-col gap-2">
-            {value.map((f, i) => (
-              <FieldRow key={`${i}-${version}`} field={f} index={i} count={value.length}
-                        error={fieldNameError(f, i, value)}
-                        onChange={(nf) => onChange(value.map((x, j) => (j === i ? nf : x)))}
-                        onRemove={() => remove(i)} onMove={(d) => move(i, d)} onEnterLast={add} />
-            ))}
-          </ul>
+          <SortableRows sort={sort}>
+            <ul aria-label="Custom fields" className={listBoxClass}>
+              {sort.order.map((i) => (
+                <FieldRow key={ids[i]} id={ids[i]} field={value[i]} index={i} count={value.length}
+                          error={fieldNameError(value[i], i, value)}
+                          lifted={sort.lifted === i} sortDescribedBy={sort.instructionsId}
+                          onSortKeyDown={sort.handleKeyDown(i)}
+                          onChange={(nf) => onChange(value.map((x, j) => (j === i ? nf : x)))}
+                          onToggleSecret={() => toggleSecret(i)}
+                          onRemove={() => remove(i)} onEnterLast={add} />
+              ))}
+            </ul>
+          </SortableRows>
         )}
-        <div>
-          <AddRowButton atLimit={full} limitText={`Up to ${MAX_CUSTOM_FIELDS} custom fields`} onAdd={add}>
-            Add field
-          </AddRowButton>
-        </div>
+        <AddRowButton block atLimit={full} limitText={`Up to ${MAX_CUSTOM_FIELDS} custom fields`} onAdd={add}>
+          Add field
+        </AddRowButton>
       </div>
     </Section>
   );

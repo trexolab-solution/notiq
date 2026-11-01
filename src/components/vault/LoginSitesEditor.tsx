@@ -4,7 +4,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { Button } from "../ui/Button";
 import { Input } from "../ui/Input";
 import {
-  AddRowButton, reinsert, RowActions, RowIconButton, useAnnouncer, useFieldError, useLatest, useListFocus, useUndoToast,
+  AddRowButton, listBoxClass, listRowHoverClass, reinsert, RowActions, RowIconButton, useAnnouncer, useFieldError, useLatest, useListFocus, useUndoToast,
 } from "./ListEditor";
 import { extraUrlError, hostOf, MAX_LOGIN_URLS, type LoginEntry } from "../../lib/loginEntry";
 
@@ -58,13 +58,12 @@ export function LoginSitesEditor({ entry, onChange }: { entry: LoginEntry; onCha
       {urls.length > 0 && (
         <>
           <span className="text-xs text-[var(--color-text-muted)]" id={headingId}>Also used on</span>
-          <ul aria-labelledby={headingId}
-              className="flex flex-col rounded-md border border-[var(--color-border)] divide-y divide-[var(--color-border)]">
+          <ul aria-labelledby={headingId} className={listBoxClass}>
             {urls.map((u, i) => {
               const host = hostOf(u);
               return (
                 <li key={`${u}-${i}`} data-list-row
-                    className="flex items-center gap-2 pl-2.5 pr-1 py-0.5 text-[13px] transition-colors hover:bg-[var(--color-bg-tertiary)]">
+                    className={`flex items-center gap-2 pl-2.5 pr-1 py-0.5 text-[13px] ${listRowHoverClass}`}>
                   <Globe size={13} className="shrink-0 text-[var(--color-text-muted)]" aria-hidden />
                   <span className="flex-1 min-w-0 truncate" title={u}>{u}</span>
                   <RowActions>
@@ -98,7 +97,7 @@ export function LoginSitesEditor({ entry, onChange }: { entry: LoginEntry; onCha
         </div>
       ) : (
         <div>
-          <AddRowButton atLimit={full} limitText={limitText} tooltip="Use this login on another website too"
+          <AddRowButton block atLimit={full} limitText={limitText} tooltip="Use this login on another website too"
                         onAdd={() => setAdding(true)}>
             Add website
           </AddRowButton>

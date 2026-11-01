@@ -23,6 +23,12 @@ interface ContextMenuProps {
    * inputs like the tab rename box would close under the menu.
    */
   keepFocus?: boolean;
+  /** "end": `x` is the menu's right edge (a dropdown under a right-aligned button). Default "start". */
+  align?: "start" | "end";
+  /** Focus the first enabled item on open, as a menu button opened from the keyboard should. */
+  autoFocusFirst?: boolean;
+  /** Accessible name of the menu ("Actions for PIN"). */
+  label?: string;
 }
 
 /**
@@ -30,7 +36,7 @@ interface ContextMenuProps {
  * the anchor, is keyboard navigable (arrows, Home/End, Enter, Escape), and closes
  * on an outside click, another right-click, scroll, resize or window blur.
  */
-export function ContextMenu({ x, y, items, onClose, keepFocus = false }: ContextMenuProps) {
+export function ContextMenu({ x, y, items, onClose, keepFocus = false, align = "start", autoFocusFirst = false, label }: ContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState({ left: x, top: y });
   const [focusIdx, setFocusIdx] = useState(-1);
@@ -39,18 +45,26 @@ export function ContextMenu({ x, y, items, onClose, keepFocus = false }: Context
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
 
+  const enabled = items.map((it) => it.type === "item" && !it.disabled);
+  const enabledRef = useRef(enabled);
+  enabledRef.current = enabled;
+
   // Measure after render and keep the whole menu inside the viewport.
   useLayoutEffect(() => {
     const el = menuRef.current;
     if (!el) return;
     const r = el.getBoundingClientRect();
-    setPos(clampMenuPosition(x, y, r.width, r.height, window.innerWidth, window.innerHeight));
-  }, [x, y, items.length]);
+    setPos(clampMenuPosition(align === "end" ? x - r.width : x, y, r.width, r.height, window.innerWidth, window.innerHeight));
+  }, [x, y, items.length, align]);
 
   useClickOutside(menuRef, () => onClose());
 
   useEffect(() => {
-    if (!keepFocus) menuRef.current?.focus({ preventScroll: true });
+    if (!keepFocus) {
+      const first = autoFocusFirst ? nextFocusIndex(enabledRef.current, -1, 1) : -1;
+      if (first >= 0) { setFocusIdx(first); itemRefs.current[first]?.focus({ preventScroll: true }); }
+      else menuRef.current?.focus({ preventScroll: true });
+    }
     const close = () => onCloseRef.current();
     // Scrolling anything but the menu itself would leave it floating off its target.
     const onScroll = (e: Event) => {
@@ -64,6 +78,7 @@ export function ContextMenu({ x, y, items, onClose, keepFocus = false }: Context
       window.removeEventListener("resize", close);
       window.removeEventListener("scroll", onScroll, true);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- open-time focus only
   }, [keepFocus]);
 
   // Capture-phase so menu keys never reach the editor / field / dialog underneath,
@@ -75,7 +90,6 @@ export function ContextMenu({ x, y, items, onClose, keepFocus = false }: Context
     return () => window.removeEventListener("keydown", h, true);
   }, []);
 
-  const enabled = items.map((it) => it.type === "item" && !it.disabled);
 
   const run = (item: ContextMenuItem | undefined) => {
     if (item?.type !== "item" || item.disabled) return;
@@ -120,6 +134,7 @@ export function ContextMenu({ x, y, items, onClose, keepFocus = false }: Context
       style={{ left: pos.left, top: pos.top }}
       tabIndex={-1}
       role="menu"
+      aria-label={label}
       // Clicking an item must not pull focus out of the field it acts on.
       onMouseDown={(e) => e.preventDefault()}
       onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); }}
