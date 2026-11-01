@@ -67,7 +67,7 @@ const popupDeps: PopupDeps = {
 };
 
 export default function AutofillPromptApp() {
-  // No clipboard permission in this window: just keep the webview's menu out.
+  // No text menu here (copies go through the details view's copy buttons): just keep the webview's menu out.
   useWindowContextMenu({ textMenu: false });
   const [state, setState] = useState<PromptState>(IDLE);
   const stateRef = useRef<PromptState>(IDLE);
