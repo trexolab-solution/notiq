@@ -432,7 +432,7 @@ All locked entries (notes, logins, SSH entries, API keys, cards, Wi-Fi, recovery
 - **Starred** items pinned at the top, **duplicate**, sort by name or last modified
 - **Recycle Bin** — deleting moves items to the trash; restore them, delete forever, or empty the bin (items are removed for good after 30 days)
 - Right-click menus and keyboard control (Enter to open, `F2` rename, `Delete` to trash, arrow keys)
-- **Vault health** (shield icon) — an offline check for weak, reused, very old and empty passwords and http-only sites; nothing leaves your computer and passwords are never shown in the report
+- **Vault health** (shield icon) — a check for weak, reused, very old and empty passwords and http-only sites, done on your computer; passwords are never shown in the report. An optional breached-password check (off by default) can also flag passwords found in known data breaches: only the first 5 characters of each password's SHA-1 hash are sent to [Have I Been Pwned](https://haveibeenpwned.com/Passwords), so the password and full hash never leave your computer
 - **Import logins** — from Chrome / Edge / Brave, Bitwarden or KeePass CSV files (or any CSV with a column mapping), with a preview, duplicate handling and folder mapping
 
 ### Entry types
@@ -508,6 +508,7 @@ The `browser-extension/` folder holds a Chrome / Edge / Brave (and Firefox) exte
 - **No telemetry, ever** — no analytics, no crash reporting, no accounts
 - **Update checks** only download the public release file from GitHub (hourly; turn it off in **Settings → Updates**)
 - **Vault Sync is opt-in and off by default.** When you turn it on, only the encrypted vault goes to your own Google Drive (see [Vault Sync with Google Drive](#vault-sync-with-google-drive))
+- **The breached-password check in Vault Health is opt-in and off by default.** It is the only network request Vault Health makes: only the first 5 characters of each password's SHA-1 hash go to Have I Been Pwned (k-anonymity); the comparison happens on your computer
 - **AI is opt-in and off by default.** When you enable it, only the text needed for a request is sent to the AI service you configure — your own machine with local Ollama (fully offline), or Ollama Cloud or OpenRouter if you provide an API key. Nothing is sent anywhere else, and nothing is sent at all while AI is disabled. Your API key is kept in the OS keychain, never in a plain-text file
 
 ---
