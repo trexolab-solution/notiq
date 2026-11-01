@@ -810,7 +810,7 @@
       win.classList.add("is-press");
       await p.sleep(260); if (id !== run) return;
       win.classList.remove("is-press"); win.classList.add("is-filled");
-      user.value = "octo-dev@example.com"; pass.value = "Vt7#qe-Lm2!pXr9w";
+      user.value = "ana@example.com"; pass.value = "Vt7#qe-Lm2!pXr9w";
       cap.innerHTML = caps.filled;
     }
     tabs.forEach(function (t) {

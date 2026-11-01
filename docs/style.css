@@ -163,7 +163,7 @@ kbd {
 @media (max-width: 760px) { .foot-in { grid-template-columns: 1fr; } .site-foot nav { justify-content: flex-start; } }
 
 /* ── Prose pages (privacy policies) ─────────────────────── */
-.doc-head { padding: 64px 0 40px; border-bottom: 1px solid var(--s-line); }
+.doc-head { padding-block: 64px 40px; border-bottom: 1px solid var(--s-line); }
 .doc-head h1 { margin: 0 0 14px; font-size: clamp(2.1rem, 4.6vw, 3.25rem); line-height: 1.06; letter-spacing: -.03em; font-weight: 720; max-width: 22ch; }
 .doc-head .meta { margin: 0; color: var(--muted); font-size: 14.5px; }
 .doc-layout { display: grid; grid-template-columns: 220px minmax(0, 720px); gap: 64px; padding-top: 56px; padding-bottom: 96px; }
@@ -189,7 +189,7 @@ kbd {
   .toc ol { grid-template-columns: 1fr 1fr; border-left: 0; gap: 0 16px; }
   .toc a { padding-left: 0; border-left: 0; }
 }
-@media (max-width: 520px) { .doc-head { padding: 40px 0 28px; } .toc ol { grid-template-columns: 1fr; } }
+@media (max-width: 520px) { .doc-head { padding-block: 40px 28px; } .toc ol { grid-template-columns: 1fr; } }
 
 /* ── Reduced motion ─────────────────────────────────────── */
 @media (prefers-reduced-motion: reduce) {
