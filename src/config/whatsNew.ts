@@ -15,15 +15,30 @@ export const WHATS_NEW = `# What's New in Notiq ${APP_VERSION}
 
 Thanks for updating! Here's what's new in this release.
 
-## ✨ Highlights
+## ✨ Vault Sync with Google Drive
 
-- **Vault Sync with Google Drive** — use the same vault on all your PCs. Open **Settings → Vault → Sync**, connect your Google account and turn on *Sync this vault*. On another PC, choose **Use my vault from Google Drive** on the vault setup screen and enter your master password. Everything is encrypted on your PC before it's uploaded, and Notiq can only see its own files in your Drive.
-- **No lost edits** — if the same note was changed on two PCs, the newer version is kept and the other one is saved in the note's history. You get one notification saying which notes and devices.
-- **Already have a vault on the other PC?** — Notiq backs it up first, then imports its entries into the synced vault (identical logins are skipped, different ones are kept as *"Name (This PC)"*), or just keeps the backup file. Your choice.
-- **Sync at a glance** — a small indicator in the status bar shows when the vault is synced, syncing, offline or needs attention. Click it for the details, the list of devices and *Sync now*.
-- **Always in the loop** — you see your vault uploading the first time, get one notice when another PC joins your vault, and a single *Reconnect* prompt if Google asks you to sign in again.
-- **Attachments sync too** — within the usual limits: up to 5 MB per file, 25 MB per vault and 20 files per note.
+- **Your vault on all your PCs** — click the **cloud button** in the title bar (or choose **Use my vault from Google Drive** on the vault setup screen) and sign in with Google. Everything is encrypted on your PC before it's uploaded, and Notiq can only see its own files in your Drive.
+- **No lost edits** — if the same item was changed on two PCs, the newer version is kept and the other one is saved in its history. You get one notification saying which items and devices.
+- **Two different vaults?** — Notiq backs up this PC's vault first, then lets you add its items to the Google Drive vault or switch to the Drive vault. *Keep this PC separate* leaves sync off.
+- **Changed your master password?** — the new password works on every PC. If two PCs change it at about the same time, the later change wins.
+- **Pause any time** — *Pause* stops syncing on this PC; *Resume sync* starts again. If your vault is no longer in Google Drive, Notiq asks before uploading it again.
+- **Attachments sync too** — up to 5 MB per file, 25 MB per vault and 20 files per item.
 - **Your account, your control** — disconnect any time; your data stays in your Drive until you delete it (Google Drive → Settings → Manage apps). Sync is off until you turn it on.
+
+## 🔑 Notiq Autofill 0.6.0
+
+- **A better toolbar popup** — see the logins for the current site, click one to fill it, or copy its username, password or 2FA code.
+- **Right-click menu** — right-click a field and choose **Notiq** to fill a login, a 2FA code or an identity, or to generate a password.
+- **Identities** — a new vault item for your name, email, phone and address (Home, Office…). Notiq fills it into address and checkout forms.
+- **Custom fields** — a login's custom fields, like a bank's *Customer ID*, are filled when the page has a field with the same name.
+- **Choose what to update** — when several logins share a username, the save prompt lets you pick which one to update, or save a new one.
+- **Smarter filling** — 2FA codes on their own page, logins inside web components, and generated passwords that follow the site's rules.
+
+## 🛠️ Also new
+
+- **Clear copied secrets after** — choose 15 s, 30 s (default), 1 min, 2 min or Never in **Settings → Vault**.
+- **Resizable vault sidebar** — drag its edge, or use the arrow keys; Notiq remembers the width.
+- **Clearer loading and hovers** — consistent loading indicators and VS Code-style tooltips throughout the app.
 
 ---
 

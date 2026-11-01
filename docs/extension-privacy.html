@@ -18,27 +18,28 @@
 
   <main class="doc">
     <h1>Privacy policy: Notiq Autofill extension</h1>
-    <p class="meta">Last updated: 29 October 2026 · Extension: Notiq Autofill · Developer: TrexoLab</p>
+    <p class="meta">Last updated: 1 November 2026 · Extension: Notiq Autofill · Developer: TrexoLab</p>
 
-    <p>Notiq Autofill is a browser extension that fills and saves logins with your vault in the Notiq desktop app. It works only together with that app, on your own computer. We run no server for it, and we do not receive your logins, your browsing activity or any other data.</p>
+    <p>Notiq Autofill is a browser extension that fills and saves logins (and fills addresses) with your vault in the Notiq desktop app. It works only together with that app, on your own computer. We run no server for it, and we do not receive your logins, your browsing activity or any other data.</p>
 
     <h2>What the extension reads on web pages</h2>
     <ul>
-      <li>It looks for login form fields (username, email and password inputs) on the pages you visit, so it can show its small icon in them.</li>
-      <li>It reads the values of those fields only when you click the Notiq icon to fill, or when you submit a login form so it can offer to save it. It does not read page content beyond that.</li>
-      <li>It asks the Notiq app about a site only after you click. Nothing is sent when a page loads.</li>
+      <li>It looks for login form fields (username, email, password and 2FA code inputs) and address / contact form fields on the pages you visit, so it can show its small icon in them. To fill a login's custom fields (for example a bank's "Customer ID") it compares the names of the page's fields with the names of those custom fields.</li>
+      <li>It reads the values of login fields only when you click the Notiq icon to fill, or when you submit a login form so it can offer to save it. It does not read page content beyond that.</li>
+      <li>It asks the Notiq app about a site only after you act: click the Notiq icon, open the toolbar popup, or right-click a field. Nothing is sent when a page loads.</li>
+      <li>The toolbar popup shows the logins that match the current site (their names and usernames, never passwords), received from the Notiq app while it is open. The right-click menu shows the names of your identities (for example "Home" or "Office"), only while Notiq is unlocked.</li>
       <li>It makes no network requests of its own.</li>
     </ul>
 
     <h2>What the extension stores</h2>
     <ul>
-      <li><strong>Settings and the never-save list</strong> (whether to offer to save logins, whether to show the icon, and the sites you chose "Never for this site" for) are kept in the browser's extension storage on your computer.</li>
+      <li><strong>Settings and the never-save list</strong> (whether to offer to save logins, whether to show the icon, whether to suggest logins when a field gets focus, and the sites you chose "Never for this site" for) are kept in the browser's extension storage on your computer.</li>
       <li><strong>A pending login</strong> you just submitted is kept in the browser's session storage while the "Save login to Notiq?" offer is open, for at most 90 seconds. Session storage lives in memory only, is never written to disk, and is cleared when the tab is closed or the browser exits.</li>
-      <li>The extension does not store your passwords or your vault. Saved logins live only in the Notiq app, encrypted on your device.</li>
+      <li>The extension does not store your passwords, your addresses or your vault. When you copy a password or 2FA code from the popup, the Notiq app puts it on the clipboard and clears it after the time you chose in Notiq's settings. Saved logins live only in the Notiq app, encrypted on your device.</li>
     </ul>
 
     <h2>Where credentials go</h2>
-    <p>Logins travel only between the page and the Notiq desktop app on the same computer, through the browser's local native-messaging bridge. You approve every fill and every save inside the Notiq app, and the vault must be unlocked. Credentials are never sent to the internet, to us or to any third party.</p>
+    <p>Logins and identities travel only between the page and the Notiq desktop app on the same computer, through the browser's local native-messaging bridge. You approve every fill and every save inside the Notiq app, and the vault must be unlocked. Credentials are never sent to the internet, to us or to any third party.</p>
 
     <h2>What we collect</h2>
     <p>Nothing. There are no servers, no analytics, no crash reporting, no advertising and no third-party code. We do not sell or share data, and we do not use it for any purpose other than the single purpose of filling and saving your logins at your request.</p>
