@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useWindowContextMenu } from "../hooks/useWindowContextMenu";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Copy, Hourglass, Lock, Search, Star } from "lucide-react";
 import { InlineLoading } from "../components/ui/Loading";
 import { applyTheme } from "../lib/themes";
@@ -24,6 +23,8 @@ type ThemeId = Parameters<typeof applyTheme>[0];
 
 /** Hides the window; `restore` gives the focus back to the app that was active before the hotkey. */
 const hide = (restore: boolean) => invoke("quick_search_hide", { restore }).catch(() => {});
+/** Tells Rust the page listens (after mount and on every show): it shows the window only then. */
+const ready = () => invoke("quick_search_ready").catch(() => {});
 const showMain = (action: "open" | "unlock", rel?: string) =>
   invoke("quick_search_show_main", { action, rel: rel ?? null }).catch(() => {});
 
@@ -44,7 +45,6 @@ export default function QuickSearchApp() {
   const [visible, setVisible] = useState(true);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
-  const hadFocus = useRef(false);
   const busy = useRef(false);
   // 2FA codes of the visible / selected logins, each valid for one TOTP step. Only codes, never
   // secrets; dropped (and every timer stopped) whenever the window hides or the vault locks.
@@ -94,7 +94,6 @@ export default function QuickSearchApp() {
 
   const close = useCallback((restore: boolean) => {
     setVisible(false);
-    hadFocus.current = false;
     setQuery(""); setSel(0); setMsg(null);
     dropCodes();
     void hide(restore);
@@ -111,24 +110,29 @@ export default function QuickSearchApp() {
     const subs = [
       listen<{ themeId: string }>("theme-changed", (e) => applyTheme(e.payload.themeId as ThemeId)),
       listen("quick-search:shown", () => {
+        void ready();
         dropCodes();
         setVisible(true);
         setQuery(""); setSel(0); setMsg(null);
         void refresh();
         requestAnimationFrame(() => inputRef.current?.focus());
       }),
-      // Rust hid the window (hotkey pressed again, quick search turned off, entry opened).
-      listen("quick-search:hidden", () => { setVisible(false); hadFocus.current = false; dropCodes(); }),
+      // Rust hid the window (outside click, hotkey pressed again, Alt+F4, quick search turned off,
+      // entry opened): forget the codes, the query and any message.
+      listen("quick-search:hidden", () => {
+        setVisible(false);
+        setQuery(""); setSel(0); setMsg(null);
+        dropCodes();
+      }),
       // Locked anywhere (main window, panic lock, idle lock): no code stays on screen.
       listen<{ unlocked: boolean }>("vault:state-changed", (e) => { if (!e.payload.unlocked) lockedNow(); }),
-      getCurrentWindow().onFocusChanged(({ payload: focused }) => {
-        if (focused) { hadFocus.current = true; return; }
-        // Clicked elsewhere: just hide, don't steal the focus back.
-        if (hadFocus.current && !busy.current) close(false);
-      }),
+      // An outside click (focus loss) is handled in Rust (`on_window_event`): it works even while
+      // this page is still loading or has died, and it can't miss a focus gained before mount.
     ];
-    return () => { subs.forEach((p) => p.then((un) => un()).catch(() => {})); };
-  }, [refresh, close, dropCodes, lockedNow]);
+    let cancelled = false;
+    void Promise.all(subs).then(() => { if (!cancelled) void ready(); }, () => { if (!cancelled) void ready(); });
+    return () => { cancelled = true; subs.forEach((p) => p.then((un) => un()).catch(() => {})); };
+  }, [refresh, dropCodes, lockedNow]);
 
   // Live 2FA codes: only for the logins on screen + the selected one, only while shown and unlocked.
   const targets = useMemo(
@@ -190,8 +194,10 @@ export default function QuickSearchApp() {
   const copy = async (r: QuickResult, which: "main" | "secondary") => {
     if (busy.current) return;
     busy.current = true;
+    const g = gen.current;
     try {
       const f = await vaultReadFile(toFull(await resolveVaultDir(), r.rel));
+      if (g !== gen.current) return; // hidden (clicked away) or locked meanwhile: copy nothing
       const field = copyFields(f.ext, f.content)[which];
       if (!field) {
         setMsg(which === "main" ? `"${r.name}" has nothing to copy` : `"${r.name}" has no ${r.kind === "secret" ? "env name" : "username"}`);
@@ -200,10 +206,11 @@ export default function QuickSearchApp() {
       if (await copySecret(field.value, field.label, { quiet: true })) close(true);
       else setMsg("Couldn't copy to the clipboard");
     } catch (e) {
+      if (g !== gen.current) return;
       if (e === ERR_LOCKED) { setItems([]); setPhase("locked"); return; }
       setMsg(vaultErrorMessage(e));
     } finally {
-      busy.current = false;
+      if (g === gen.current) busy.current = false;
     }
   };
 
@@ -220,7 +227,7 @@ export default function QuickSearchApp() {
       if (secs === null) { setMsg("Couldn't copy to the clipboard"); return; }
       setMsg(null);
       setNote(copiedMessage("2FA code", secs));
-      closing = true; // stay "busy" so losing the focus meanwhile doesn't race the close
+      closing = true; // stay "busy" so a second Enter doesn't start another copy before the close
       timers.current.push(setTimeout(() => close(true), 700));
     } catch (e) {
       if (g !== gen.current) return;
@@ -257,7 +264,7 @@ export default function QuickSearchApp() {
     return () => window.removeEventListener("keydown", h);
   }, [close]);
 
-  const unlock = () => { setVisible(false); hadFocus.current = false; void showMain("unlock"); };
+  const unlock = () => { setVisible(false); void showMain("unlock"); };
 
   const onKeyDown = (e: React.KeyboardEvent) => {
     if (phase !== "ready") return;

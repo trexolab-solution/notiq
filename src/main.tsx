@@ -2,6 +2,7 @@ import React, { lazy, Suspense } from "react";
 import ReactDOM from "react-dom/client";
 import "./lib/monacoWorkers"; // must be imported before any Monaco editor renders
 import "./App.css"; // load CSS synchronously for all windows (main + sticky notes)
+import { QuickErrorBoundary, QuickLoading } from "./quick/QuickErrorBoundary";
 
 const hash = window.location.hash;
 const isStickyNote = hash.startsWith("#/sticky-note/");
@@ -33,13 +34,16 @@ if (isStickyNote) {
   );
 } else if (isQuickSearch) {
   // ── Quick search popup (0.7.0, opened by the global hotkey) ──────────────
+  // The boundary + loading state keep the window from ever sitting on a blank page (0.9.3).
   const QuickSearchApp = lazy(() => import("./quick/QuickSearchApp"));
 
   ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
     <React.StrictMode>
-      <Suspense fallback={null}>
-        <QuickSearchApp />
-      </Suspense>
+      <QuickErrorBoundary>
+        <Suspense fallback={<QuickLoading />}>
+          <QuickSearchApp />
+        </Suspense>
+      </QuickErrorBoundary>
     </React.StrictMode>,
   );
 } else if (isAutofillPrompt) {
