@@ -24,7 +24,7 @@ const CONFIG_FILE: &str = "quick_search.json";
 /// Emitted to the quick-search window each time it is shown (reset the query, refresh).
 const SHOWN_EVENT: &str = "quick-search:shown";
 /// Emitted to the main window: open an entry (`{ rel }`) / open the unlock dialog.
-const OPEN_EVENT: &str = "quick-search:open";
+pub(crate) const OPEN_EVENT: &str = "quick-search:open";
 const UNLOCK_EVENT: &str = "quick-search:unlock";
 
 // ─── config (pure) ───────────────────────────────────────────────────────────

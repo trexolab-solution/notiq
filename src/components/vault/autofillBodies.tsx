@@ -1,4 +1,6 @@
-import { Eye, EyeOff } from "lucide-react";
+import { Eye, EyeOff, Info } from "lucide-react";
+import type { ReactNode } from "react";
+import { Tooltip } from "../ui/Tooltip";
 import { DialogCheckbox } from "../ui/DialogParts";
 import { Input } from "../ui/Input";
 import { Select } from "../ui/Select";
@@ -15,6 +17,39 @@ import { identitySummary } from "../../lib/identityEntry";
  * AutofillSavePrompt), so both ask exactly the same thing.
  */
 
+/**
+ * One choice row: the radio label plus, when `onDetails` is given, a "details" quick action beside it.
+ * The button sits outside the label, so pressing it neither picks the row nor fills anything.
+ */
+function ChoiceRow({ name, title, sub, index, pick, onPick, onDetails, disabled }: {
+  name: string; title: ReactNode; sub: ReactNode; index: number; pick: number;
+  onPick: (index: number) => void; onDetails?: (index: number) => void; disabled?: boolean;
+}) {
+  const label = (
+    <label className="af-login" data-selected={pick === index ? "" : undefined}>
+      <input type="radio" name={name} checked={pick === index} disabled={disabled} onChange={() => onPick(index)} />
+      <span className="af-login-text">
+        <span className="af-login-title">{title}</span>
+        <span className="af-login-user">{sub}</span>
+      </span>
+    </label>
+  );
+  if (!onDetails) return label;
+  const what = typeof title === "string" && title ? title : "this entry";
+  return (
+    <div className="af-login-row">
+      {label}
+      <Tooltip content="View details">
+        <button type="button" className="af-details-btn" aria-label={`View details of ${what}`} data-af-details={index}
+                disabled={disabled}
+                onClick={(e) => { e.preventDefault(); e.stopPropagation(); onDetails(index); }}>
+          <Info size={14} aria-hidden />
+        </button>
+      </Tooltip>
+    </div>
+  );
+}
+
 export interface FillChoiceProps {
   host: string;
   matches: LoginMatch[];
@@ -23,21 +58,18 @@ export interface FillChoiceProps {
   trust: boolean;
   onTrust: (on: boolean) => void;
   disabled?: boolean;
+  /** Opens the read-only details view of row `index` (the autofill window only). */
+  onDetails?: (index: number) => void;
 }
 
 /** Which saved login to send, plus "Allow this site for 5 minutes". */
-export function FillChoice({ host, matches, pick, onPick, trust, onTrust, disabled }: FillChoiceProps) {
+export function FillChoice({ host, matches, pick, onPick, trust, onTrust, disabled, onDetails }: FillChoiceProps) {
   return (
     <>
       <div role="radiogroup" aria-label="Saved logins" className="af-logins">
         {matches.map((m, i) => (
-          <label key={m.path} className="af-login" data-selected={pick === i ? "" : undefined}>
-            <input type="radio" name="af-login" checked={pick === i} disabled={disabled} onChange={() => onPick(i)} />
-            <span className="af-login-text">
-              <span className="af-login-title">{m.entry.title || m.entry.url}</span>
-              <span className="af-login-user">{m.entry.username || "(no username)"}</span>
-            </span>
-          </label>
+          <ChoiceRow key={m.path} name="af-login" index={i} pick={pick} onPick={onPick} onDetails={onDetails} disabled={disabled}
+                     title={m.entry.title || m.entry.url} sub={m.entry.username || "(no username)"} />
         ))}
       </div>
       <DialogCheckbox
@@ -55,10 +87,11 @@ export interface CardChoiceProps {
   pick: number;
   onPick: (index: number) => void;
   disabled?: boolean;
+  onDetails?: (index: number) => void;
 }
 
 /** Which saved card to send: title, brand, masked number and expiry (never the full number or the CVC). */
-export function CardChoice({ cards, pick, onPick, disabled }: CardChoiceProps) {
+export function CardChoice({ cards, pick, onPick, disabled, onDetails }: CardChoiceProps) {
   return (
     <div role="radiogroup" aria-label="Saved cards" className="af-logins">
       {cards.map((c, i) => {
@@ -66,15 +99,9 @@ export function CardChoice({ cards, pick, onPick, disabled }: CardChoiceProps) {
         const exp = c.fill.exp_month ? `${c.fill.exp_month}/${c.fill.exp_year.slice(-2)}` : "";
         const expired = cardExpired(c.fill);
         return (
-          <label key={c.path} className="af-login" data-selected={pick === i ? "" : undefined}>
-            <input type="radio" name="af-card" checked={pick === i} disabled={disabled} onChange={() => onPick(i)} />
-            <span className="af-login-text">
-              <span className="af-login-title">{cardTitle(c)}</span>
-              <span className="af-login-user">
-                {[brand, maskCardNumber(c.fill.number), exp && (expired ? `expired ${exp}` : `exp ${exp}`)].filter(Boolean).join(" · ")}
-              </span>
-            </span>
-          </label>
+          <ChoiceRow key={c.path} name="af-card" index={i} pick={pick} onPick={onPick} onDetails={onDetails} disabled={disabled}
+                     title={cardTitle(c)}
+                     sub={[brand, maskCardNumber(c.fill.number), exp && (expired ? `expired ${exp}` : `exp ${exp}`)].filter(Boolean).join(" · ")} />
         );
       })}
     </div>
@@ -177,20 +204,16 @@ export interface IdentityChoiceProps {
   pick: number;
   onPick: (index: number) => void;
   disabled?: boolean;
+  onDetails?: (index: number) => void;
 }
 
 /** Which saved identity to send: its title plus name and city (the rest is only sent once allowed). */
-export function IdentityChoice({ identities, pick, onPick, disabled }: IdentityChoiceProps) {
+export function IdentityChoice({ identities, pick, onPick, disabled, onDetails }: IdentityChoiceProps) {
   return (
     <div role="radiogroup" aria-label="Saved identities" className="af-logins">
       {identities.map((m, i) => (
-        <label key={m.path} className="af-login" data-selected={pick === i ? "" : undefined}>
-          <input type="radio" name="af-identity" checked={pick === i} disabled={disabled} onChange={() => onPick(i)} />
-          <span className="af-login-text">
-            <span className="af-login-title">{identityTitle(m)}</span>
-            <span className="af-login-user">{identitySummary(m.fill) || "(no name)"}</span>
-          </span>
-        </label>
+        <ChoiceRow key={m.path} name="af-identity" index={i} pick={pick} onPick={onPick} onDetails={onDetails} disabled={disabled}
+                   title={identityTitle(m)} sub={identitySummary(m.fill) || "(no name)"} />
       ))}
     </div>
   );

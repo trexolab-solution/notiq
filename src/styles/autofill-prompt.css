@@ -74,6 +74,37 @@ html.is-autofill-prompt #root { height: 100%; margin: 0; overflow: hidden; backg
 .af-login-title { font-size: 12.5px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .af-login-user { font-size: 11.5px; color: var(--color-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+/* Choice row with a "details" quick action beside the radio label. */
+.af-login-row { display: flex; align-items: stretch; gap: 4px; }
+.af-login-row > .af-login { flex: 1 1 auto; min-width: 0; }
+.af-details-btn {
+  flex: none; display: inline-flex; align-items: center; justify-content: center; width: 30px;
+  border: 1px solid var(--color-border); border-radius: 6px;
+  background: transparent; color: var(--color-text-muted); cursor: pointer;
+}
+.af-details-btn:hover:not(:disabled) { background: var(--color-bg-tertiary); color: var(--color-text); }
+.af-details-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.af-details-btn:focus-visible { outline: 2px solid color-mix(in srgb, var(--color-primary) 70%, transparent); outline-offset: 1px; }
+
+/* Read-only details sub-view (scrolls with the body when it is taller than the window). */
+.af-details { display: flex; flex-direction: column; gap: 10px; align-items: flex-start; }
+.af-details > * { max-width: 100%; }
+.af-details-bar { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; }
+.af-back {
+  flex: none; display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px 3px 4px;
+  border: none; border-radius: 4px; background: transparent; font: inherit; font-size: 12px;
+  color: var(--color-text-muted); cursor: pointer;
+}
+.af-back:hover { background: var(--color-bg-tertiary); color: var(--color-text); }
+.af-back:focus-visible { outline: 2px solid color-mix(in srgb, var(--color-primary) 70%, transparent); outline-offset: 1px; }
+.af-details-title { margin: 0; min-width: 0; font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.af-drows { display: flex; flex-direction: column; gap: 6px; width: 100%; }
+.af-drow { display: grid; grid-template-columns: 84px minmax(0, 1fr) auto; align-items: center; gap: 8px; font-size: 12px; }
+.af-dlabel { color: var(--color-text-muted); overflow-wrap: anywhere; line-height: 1.35; }
+.af-dval { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.af-dval--multi { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 96px; overflow-y: auto; }
+.af-dacts { display: flex; align-items: center; gap: 4px; }
+
 /* Save / update fields. */
 .af-fields {
   display: grid; grid-template-columns: 72px minmax(0, 1fr); align-items: center;

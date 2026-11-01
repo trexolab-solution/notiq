@@ -27,6 +27,7 @@ import {
   hasExcludedPasskey, passkeyReply, savePasskey, scanPasskeys, toCreateReq, toGetReq,
 } from "../lib/passkeys";
 import { PasskeyChoice, PasskeyTargetChoice } from "./PasskeyChoices";
+import { EntryDetailsView } from "./EntryDetailsView";
 import { fitWindowSize, sizeChanged } from "./fitWindowSize";
 import { splitHost } from "./hostParts";
 import {
@@ -66,7 +67,7 @@ const popupDeps: PopupDeps = {
 };
 
 export default function AutofillPromptApp() {
-  // No clipboard permission in this window: just keep the webview's menu out.
+  // No text menu here (copies go through the details view's copy buttons): just keep the webview's menu out.
   useWindowContextMenu({ textMenu: false });
   const [state, setState] = useState<PromptState>(IDLE);
   const stateRef = useRef<PromptState>(IDLE);
@@ -80,6 +81,8 @@ export default function AutofillPromptApp() {
   const headRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const footRef = useRef<HTMLDivElement>(null);
+  /** The row whose read-only details view is open, for request `id` only (nothing secret is kept here). */
+  const [details, setDetails] = useState<{ id: string; index: number } | null>(null);
 
   // ── window size ───────────────────────────────────────────────────────────
   const measure = useCallback(() => {
@@ -342,6 +345,35 @@ export default function AutofillPromptApp() {
   const refs = { headRef, contentRef, footRef };
   const deny = () => dispatch({ type: "deny" });
 
+  // ── details sub-view (logins, cards, identities) ──────────────────────────
+  const reqId = "job" in state ? state.job.req.id : null;
+  const viewing = details && details.id === reqId ? details.index : null;
+  const openDetails = (index: number) => { if (reqId) setDetails({ id: reqId, index }); };
+  const closeDetails = () => {
+    const index = viewing;
+    setDetails(null);
+    // Back on the list: put the focus on the row's details button again.
+    if (index !== null) requestAnimationFrame(() => document.querySelector<HTMLElement>(`[data-af-details="${index}"]`)?.focus());
+  };
+  /** "Open in Notiq": the main window opens the entry; this request ends as denied (nothing is filled). */
+  const openInNotiq = async (rel: string) => {
+    const wasShown = shown.current;
+    shown.current = false; // Rust hides the window itself, handing the focus to the main window, not the browser
+    try {
+      await invoke("autofill_prompt_open_entry", { rel });
+    } catch {
+      shown.current = wasShown;
+      return;
+    }
+    setDetails(null);
+    dispatch({ type: "deny" });
+  };
+  const detailsView = (path: string, rel: string | undefined, index: number, pick: number, busy: boolean, noun: string) => (
+    <EntryDetailsView key={path} path={path} onBack={closeDetails} disabled={busy}
+                      onOpen={rel ? () => void openInNotiq(rel) : undefined}
+                      note={index !== pick ? `Allow uses the selected ${noun}, not this one. Go back to change it.` : undefined} />
+  );
+
   switch (state.stage) {
     case "checking":
       // Only seen right after an unlock in this window, while the vault is read (usually a blink).
@@ -366,17 +398,19 @@ export default function AutofillPromptApp() {
                  : job.req.intent === "code"
                  ? "The Notiq extension in your browser wants the 2FA code of a saved login."
                  : "The Notiq extension in your browser wants to fill a saved login."}
-               onClose={deny} defaultFocus="cancel"
+               onClose={deny} onEscape={viewing !== null ? closeDetails : undefined} defaultFocus="cancel"
                footer={<>
                  <DialogButton cancel onClick={deny} disabled={busy}>Deny</DialogButton>
                  <DialogButton variant="primary" loading={busy} loadingText={job.req.copy ? "Copying…" : "Filling…"} onClick={() => dispatch({ type: "allow" })}>Allow</DialogButton>
                </>}>
-          <p className="af-detail">
-            {job.req.copy ? "Only allow this if you just pressed Copy in the Notiq extension." : "Only allow this if you just pressed Fill on this site."}
-          </p>
-          <FillChoice host={job.req.host} matches={matches} pick={pick} disabled={busy}
-                      onPick={(index) => dispatch({ type: "pick", index })}
-                      trust={trust} onTrust={(on) => dispatch({ type: "trust", on })} />
+          {viewing !== null && matches[viewing] ? detailsView(matches[viewing].path, matches[viewing].rel, viewing, pick, busy, "login") : <>
+            <p className="af-detail">
+              {job.req.copy ? "Only allow this if you just pressed Copy in the Notiq extension." : "Only allow this if you just pressed Fill on this site."}
+            </p>
+            <FillChoice host={job.req.host} matches={matches} pick={pick} disabled={busy}
+                        onPick={(index) => dispatch({ type: "pick", index })} onDetails={openDetails}
+                        trust={trust} onTrust={(on) => dispatch({ type: "trust", on })} />
+          </>}
         </Panel>
       );
     }
@@ -385,12 +419,16 @@ export default function AutofillPromptApp() {
       return (
         <Panel key={`card-${job.req.id}`} refs={refs} host={job.req.host} icon={<CreditCard size={16} />}
                sub="The Notiq extension in your browser wants to fill a payment card." onClose={deny} defaultFocus="cancel"
+               onEscape={viewing !== null ? closeDetails : undefined}
                footer={<>
                  <DialogButton cancel onClick={deny} disabled={busy}>Deny</DialogButton>
                  <DialogButton variant="primary" loading={busy} loadingText="Filling…" onClick={() => dispatch({ type: "allow" })}>Fill card</DialogButton>
                </>}>
-          <p className="af-detail">Only allow this if you just pressed Fill on this site&rsquo;s checkout.</p>
-          <CardChoice cards={cards} pick={pick} disabled={busy} onPick={(index) => dispatch({ type: "pick", index })} />
+          {viewing !== null && cards[viewing] ? detailsView(cards[viewing].path, cards[viewing].rel, viewing, pick, busy, "card") : <>
+            <p className="af-detail">Only allow this if you just pressed Fill on this site&rsquo;s checkout.</p>
+            <CardChoice cards={cards} pick={pick} disabled={busy} onPick={(index) => dispatch({ type: "pick", index })}
+                        onDetails={openDetails} />
+          </>}
         </Panel>
       );
     }
@@ -399,16 +437,19 @@ export default function AutofillPromptApp() {
       return (
         <Panel key={`identity-${job.req.id}`} refs={refs} host={job.req.host} icon={<IdCard size={16} />}
                sub="The Notiq extension in your browser wants to fill your details into a form on this site." onClose={deny}
-               defaultFocus="cancel"
+               defaultFocus="cancel" onEscape={viewing !== null ? closeDetails : undefined}
                footer={<>
                  <DialogButton cancel onClick={deny} disabled={busy}>Deny</DialogButton>
                  <DialogButton variant="primary" loading={busy} loadingText="Filling…" onClick={() => dispatch({ type: "allow" })}>Fill</DialogButton>
                </>}>
-          <p className="af-detail">
-            Name, email, phone and address go to <strong className="af-host-inline">{job.req.host}</strong>. Only allow
-            this if you just asked to fill a form there.
-          </p>
-          <IdentityChoice identities={identities} pick={pick} disabled={busy} onPick={(index) => dispatch({ type: "pick", index })} />
+          {viewing !== null && identities[viewing] ? detailsView(identities[viewing].path, identities[viewing].rel, viewing, pick, busy, "identity") : <>
+            <p className="af-detail">
+              Name, email, phone and address go to <strong className="af-host-inline">{job.req.host}</strong>. Only allow
+              this if you just asked to fill a form there.
+            </p>
+            <IdentityChoice identities={identities} pick={pick} disabled={busy} onPick={(index) => dispatch({ type: "pick", index })}
+                            onDetails={openDetails} />
+          </>}
         </Panel>
       );
     }
@@ -519,6 +560,8 @@ interface PanelProps {
   icon: "shield" | ReactNode;
   tone?: "primary" | "danger";
   onClose: () => void;
+  /** Escape does this instead of `onClose` (e.g. back from a details view); the close button still closes. */
+  onEscape?: () => void;
   defaultFocus?: DefaultFocus;
   onSubmit?: (e: FormEvent<HTMLFormElement>) => void;
   footer: ReactNode;
@@ -526,9 +569,9 @@ interface PanelProps {
 }
 
 /** The whole window as one dialog: site header, scrolling body, footer. Esc / × = deny. */
-function Panel({ refs, host, sub, icon, tone = "primary", onClose, defaultFocus, onSubmit, footer, children }: PanelProps) {
+function Panel({ refs, host, sub, icon, tone = "primary", onClose, onEscape, defaultFocus, onSubmit, footer, children }: PanelProps) {
   const panelRef = useRef<HTMLElement | null>(null);
-  useDialogBehaviour(panelRef, { onClose, dismissable: true, autoFocus: true, defaultFocus });
+  useDialogBehaviour(panelRef, { onClose: onEscape ?? onClose, dismissable: true, autoFocus: true, defaultFocus });
   const { prefix, site } = splitHost(host);
   const inner = (
     <>

@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "autofill-prompt",
-  "description": "Minimal capability for the browser-autofill approval window (vault, hello and autofill commands are app commands, allowed for every window)",
+  "description": "Minimal capability for the browser-autofill approval window (vault, hello and autofill commands are app commands, allowed for every window). Clipboard read/write is only the secureCopy fallback where the native secure_copy is unsupported (e.g. Linux): write the copy, read it back before the timed wipe",
   "windows": ["autofill-prompt"],
   "permissions": [
     "core:default",
@@ -10,6 +10,8 @@
     "core:window:allow-set-focus",
     "core:window:allow-set-size",
     "core:window:allow-center",
-    "core:window:allow-set-always-on-top"
+    "core:window:allow-set-always-on-top",
+    "clipboard-manager:allow-read-text",
+    "clipboard-manager:allow-write-text"
   ]
 }
