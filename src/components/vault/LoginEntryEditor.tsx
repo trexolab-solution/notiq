@@ -86,7 +86,7 @@ export function LoginEntryEditor({ tab }: { tab: Tab }) {
                    autoComplete="off" spellCheck={false} className="font-mono" />
             <Button size="sm" aria-label={show ? "Hide password" : "Show password"}
                     icon={show ? <EyeOff size={12} /> : <Eye size={12} />} onClick={() => setShow((v) => !v)} />
-            <GeneratePasswordButton onGenerate={(password) => { set({ password }); setShow(true); }} />
+            <GeneratePasswordButton current={entry.password} onGenerate={(password) => { set({ password }); setShow(true); }} />
             <CopyIconButton value={entry.password} label="password" />
           </div>
         </div>

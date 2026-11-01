@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Dices, SlidersHorizontal } from "lucide-react";
 import { Button } from "../ui/Button";
 import { Tooltip } from "../ui/Tooltip";
+import { ConfirmDialog } from "../ui/ConfirmDialog";
 import { useClickOutside } from "../../hooks/useClickOutside";
 import { useEscapeKey } from "../../hooks/useEscapeKey";
 import { generateWithOptions, type PwOptions } from "../../lib/passwordGen";
@@ -14,9 +15,15 @@ const POPUP_W = 288;
  * "Generate" for a password field. By default it opens a small popup to pick what the
  * password contains; ticking "Remember my choice" makes later clicks generate instantly,
  * and a ⚙ button (plus Settings → Vault) brings the options back.
+ * When the field already holds a password (`current`), replacing it is confirmed first.
  */
-export function GeneratePasswordButton({ onGenerate }: { onGenerate: (password: string) => void }) {
+export function GeneratePasswordButton({ onGenerate, current }: {
+  onGenerate: (password: string) => void;
+  /** The field's current value; a non-empty one asks before it is replaced. */
+  current?: string;
+}) {
   const [open, setOpen] = useState(false);
+  const [pending, setPending] = useState<PwOptions | null>(null);
   const [ask, setAsk] = useState(getPwAsk);
   const [opts, setOpts] = useState<PwOptions>(getPwOptions);
   const [remember, setRemember] = useState(false);
@@ -47,7 +54,10 @@ export function GeneratePasswordButton({ onGenerate }: { onGenerate: (password: 
 
   const openPopup = () => { setOpts(getPwOptions()); setRemember(!getPwAsk()); setOpen(true); };
 
-  const generate = (o: PwOptions) => onGenerate(generateWithOptions(o));
+  const generate = (o: PwOptions) => {
+    if (current) setPending(o);
+    else onGenerate(generateWithOptions(o));
+  };
 
   const confirm = () => {
     setPwOptions(opts);
@@ -102,6 +112,18 @@ export function GeneratePasswordButton({ onGenerate }: { onGenerate: (password: 
             <Button size="sm" variant="primary" icon={<Dices size={12} />} onClick={confirm} autoFocus>Generate</Button>
           </div>
         </div>
+      )}
+
+      {pending && (
+        <ConfirmDialog
+          title="Replace the password?"
+          message="This entry already has a password. Generating a new one replaces it."
+          detail="Change the password on the website too. The old one stays in this entry's History once you save."
+          confirmLabel="Replace password"
+          danger
+          onConfirm={() => { onGenerate(generateWithOptions(pending)); setPending(null); }}
+          onCancel={() => setPending(null)}
+        />
       )}
     </div>
   );
