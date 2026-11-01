@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Download, File, Paperclip, Plus, Trash2 } from "lucide-react";
+import { Download, File, Plus, Trash2 } from "lucide-react";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { readFile, stat } from "@tauri-apps/plugin-fs";
 import { Button } from "../ui/Button";
@@ -15,7 +15,10 @@ import {
   bytesToBase64, isVaultPath, vaultAttachAdd, vaultAttachExport, vaultAttachList, vaultAttachRemove, vaultErrorMessage,
   VAULT_ATTACH_MAX_PER_NOTE, VAULT_ATTACH_MAX_TOTAL, type VaultAttachment,
 } from "../../lib/vault";
+import { ATTACHMENT_LIMITS_TEXT } from "../../lib/vaultSync";
 import type { Tab } from "../../types";
+
+export const ATTACHMENTS_SYNC_NOTE = `${ATTACHMENT_LIMITS_TEXT} With Vault Sync on, attachments sync to your other devices too.`;
 
 const EXPORT_WARNED_KEY = "notiq.vault.attachExportWarned";
 const wasWarned = () => { try { return localStorage.getItem(EXPORT_WARNED_KEY) === "1"; } catch { return false; } };
@@ -153,16 +156,17 @@ export function AttachmentsPanel({ tab }: { tab: Tab }) {
         </ul>
       )}
       <div className="flex items-center gap-2">
-        <Button size="sm" icon={busy ? <Paperclip size={12} /> : <Plus size={12} />} disabled={busy || full || !path}
+        <Button size="sm" icon={<Plus size={12} />} disabled={full || !path} loading={busy} loadingText="Adding…"
                 title={full ? `At most ${VAULT_ATTACH_MAX_PER_NOTE} attachments per entry` : undefined}
                 onClick={() => { void add(); }}>
-          {busy ? "Adding…" : "Add files…"}
+          Add files…
         </Button>
         <span className="text-[11px] text-[var(--color-text-muted)]">
           {n}/{VAULT_ATTACH_MAX_PER_NOTE} files
           {vaultUsed !== null && ` · ${formatBytes(vaultUsed)} of ${formatBytes(VAULT_ATTACH_MAX_TOTAL)} used in the vault`}
         </span>
       </div>
+      <p className="text-[11px] text-[var(--color-text-muted)]">{ATTACHMENTS_SYNC_NOTE}</p>
 
       {removing && (
         <ConfirmDialog

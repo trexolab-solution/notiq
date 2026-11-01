@@ -4,6 +4,7 @@ import { Button } from "../ui/Button";
 import { Tooltip } from "../ui/Tooltip";
 import { HistoryDialog } from "./HistoryDialog";
 import type { Tab } from "../../types";
+import { clipboardClearLabel, getClipboardClearSeconds } from "../../lib/vaultPrefs";
 
 /** Shared building blocks for the structured vault entry editors. */
 
@@ -83,10 +84,14 @@ export function RevealButton({ shown, onToggle, name }: { shown: boolean; onTogg
   );
 }
 
+/** The clipboard half of the save hint, from Settings → Vault → "Clear copied secrets after". */
+export const clearHint = (secs: number) =>
+  secs > 0 ? `Copied values are cleared from the clipboard after ${clipboardClearLabel(secs)}.` : "Copied values stay on the clipboard.";
+
 export function SaveHint() {
   return (
     <p className="text-xs text-[var(--color-text-muted)]">
-      Saved with the vault when you save this tab (Ctrl+S). Copied values are cleared from the clipboard after 20 seconds.
+      Saved with the vault when you save this tab (Ctrl+S). {clearHint(getClipboardClearSeconds())}
     </p>
   );
 }

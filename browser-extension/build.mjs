@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Packages the Notiq Autofill extension. No dependencies (Node 20+).
 //   node browser-extension/build.mjs [--out dist] [--check]
+//   node browser-extension/build.mjs --psl      refresh the Public Suffix List copy in shared.js
 // Writes three reproducible zips:
 //   notiq-autofill-<ver>-chrome.zip   sideload / GitHub release (keeps manifest `key` => stable extension ID)
 //   notiq-autofill-<ver>-store.zip    Chrome Web Store + Edge Add-ons (`key` removed; the store assigns the ID)
@@ -16,6 +17,8 @@ export const FIREFOX_MIN = "121.0";
 // Loaded by background.js with importScripts() in the Chromium service worker; Firefox
 // (background.scripts, no importScripts) gets it listed before background.js instead.
 export const BACKGROUND_SHARED = "shared.js";
+// The identity helpers (reply validation) are loaded the same way, after shared.js.
+export const BACKGROUND_EXTRA = ["identity.js"];
 // Fixed timestamp so identical input gives byte-identical zips: 2026-01-01 00:00:00 (DOS format).
 const DOS_TIME = 0;
 const DOS_DATE = ((2026 - 1980) << 9) | (1 << 5) | 1;
@@ -38,7 +41,7 @@ export function transformFirefox(m) {
   delete out.key;
   const bg = out.background || {};
   const script = bg.service_worker || (bg.scripts && bg.scripts[0]) || "background.js";
-  out.background = { scripts: [BACKGROUND_SHARED, script] };
+  out.background = { scripts: [BACKGROUND_SHARED, ...BACKGROUND_EXTRA, script] };
   out.browser_specific_settings = {
     gecko: {
       id: FIREFOX_ID,
@@ -83,7 +86,7 @@ export function validateBuild(manifest, files, version, { store = false, firefox
     if (manifest.background?.service_worker) throw new Error("firefox build must not use service_worker");
     const scripts = manifest.background?.scripts || [];
     if (scripts[scripts.length - 1] !== "background.js" || scripts[0] !== BACKGROUND_SHARED) {
-      throw new Error("firefox build needs background.scripts [shared.js, background.js]");
+      throw new Error("firefox build needs background.scripts [shared.js, …, background.js]");
     }
     if (manifest.browser_specific_settings?.gecko?.id !== FIREFOX_ID) throw new Error("firefox gecko id missing");
   } else if (!manifest.background?.service_worker) {
@@ -93,8 +96,71 @@ export function validateBuild(manifest, files, version, { store = false, firefox
     if (!manifest.permissions?.includes(p)) throw new Error(`permission missing: ${p}`);
   }
   if (!manifest.content_scripts?.length) throw new Error("content_scripts missing");
-  if (!files.has(BACKGROUND_SHARED)) throw new Error(`runtime file missing: ${BACKGROUND_SHARED}`);
+  for (const f of [BACKGROUND_SHARED, ...BACKGROUND_EXTRA]) if (!files.has(f)) throw new Error(`runtime file missing: ${f}`);
   JSON.parse(files.get("manifest.json").toString("utf8"));
+}
+
+// ---------- Public Suffix List snapshot (shared.js <- src/lib/publicSuffixData.ts) ----------
+// shared.js carries a copy of the app's compact PSL table between the markers below, so the extension
+// (loaded unpacked straight from this folder) needs no build step. `--psl` rewrites that block from the
+// app's table; a normal build / `--check` fails while the copy is stale.
+export const PSL_SOURCE = join("src", "lib", "publicSuffixData.ts");
+export const PSL_BEGIN = "  // BEGIN PSL";
+export const PSL_END = "  // END PSL";
+
+// Reads SECOND_LEVEL / EXTRA / WILDCARD / EXCEPTION from the TypeScript data file (a plain literal table).
+export function parsePslData(ts) {
+  const pick = (name, open, close) => {
+    const at = ts.indexOf(`export const ${name}`);
+    if (at < 0) throw new Error(`PSL data: ${name} missing`);
+    const start = ts.indexOf(open, ts.indexOf("=", at));
+    const end = ts.indexOf(close, start);
+    if (start < 0 || end < 0) throw new Error(`PSL data: ${name} unreadable`);
+    return ts.slice(start, end + 1).replace(/\/\/[^\n]*/g, "");
+  };
+  const strings = (body) => [...body.matchAll(/"([^"]*)"/g)].map((m) => m[1]);
+  const second = {};
+  for (const m of pick("SECOND_LEVEL", "{", "};").matchAll(/^\s*"?([a-z0-9-]+)"?\s*:\s*"([^"]*)"/gm)) {
+    second[m[1]] = m[2].split(/\s+/).filter(Boolean).join(" ");
+  }
+  const data = {
+    second,
+    extra: strings(pick("EXTRA", "[", "];")),
+    wildcard: strings(pick("WILDCARD", "[", "];")),
+    exception: strings(pick("EXCEPTION", "[", "];")),
+  };
+  if (Object.keys(second).length < 50 || !data.extra.includes("github.io")) throw new Error("PSL data looks wrong");
+  for (const s of [...Object.keys(second), ...Object.values(second).join(" ").split(" "), ...data.extra, ...data.wildcard, ...data.exception]) {
+    if (!/^[a-z0-9.-]+$/.test(s)) throw new Error(`PSL data: bad label ${JSON.stringify(s)}`);
+  }
+  return data;
+}
+
+export function pslBlock(data) {
+  const lines = [
+    `${PSL_BEGIN} (generated from ${PSL_SOURCE.replace(/\\/g, "/")} by \`node browser-extension/build.mjs --psl\`; do not edit by hand)`,
+    "  const PSL = {",
+    "    second: {",
+    ...Object.entries(data.second).map(([tld, l]) => `      ${JSON.stringify(tld)}: ${JSON.stringify(l)},`),
+    "    },",
+    `    extra: ${JSON.stringify(data.extra)},`,
+    `    wildcard: ${JSON.stringify(data.wildcard)},`,
+    `    exception: ${JSON.stringify(data.exception)},`,
+    "  };",
+    PSL_END,
+  ];
+  return lines.join("\n");
+}
+
+// shared.js text with its PSL block replaced by one built from `ts`.
+export function syncPsl(shared, ts) {
+  const a = shared.indexOf(PSL_BEGIN);
+  const b = shared.indexOf(PSL_END, a);
+  if (a < 0 || b < 0) throw new Error("shared.js has no PSL block");
+  // Keep the file's own line endings (a Windows checkout with autocrlf has CRLF).
+  const eol = shared.includes("\r\n") ? "\r\n" : "\n";
+  const block = pslBlock(parsePslData(ts)).replace(/\r?\n/g, eol);
+  return shared.slice(0, a) + block + shared.slice(b + PSL_END.length);
 }
 
 // ---------- ZIP writer ----------
@@ -178,6 +244,20 @@ function main() {
   const check = args.includes("--check");
   const oi = args.indexOf("--out");
   const outDir = resolve(oi >= 0 && args[oi + 1] ? args[oi + 1] : "dist");
+
+  // The PSL copy in shared.js must match the app's table (skipped when packaging outside the repo).
+  const pslPath = join(here, "..", PSL_SOURCE);
+  if (existsSync(pslPath)) {
+    const sharedPath = join(here, BACKGROUND_SHARED);
+    const cur = readFileSync(sharedPath, "utf8");
+    const next = syncPsl(cur, readFileSync(pslPath, "utf8"));
+    if (args.includes("--psl")) {
+      if (next !== cur) writeFileSync(sharedPath, next);
+      console.log(next !== cur ? "Updated the PSL snapshot in shared.js" : "PSL snapshot in shared.js is current");
+      return;
+    }
+    if (next !== cur) throw new Error(`shared.js PSL snapshot is stale: run node browser-extension/build.mjs --psl`);
+  }
 
   const base = JSON.parse(readFileSync(join(here, "manifest.json"), "utf8"));
   const version = base.version;

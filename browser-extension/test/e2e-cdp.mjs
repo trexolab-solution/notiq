@@ -11,7 +11,7 @@
 // uses CDP Input events — which the page sees as trusted user input — to click and
 // type. Synthetic DOM events are used for the "untrusted" cases.
 import { spawn } from "node:child_process";
-import { mkdtempSync, readdirSync, existsSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, existsSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -90,7 +90,12 @@ async function mockNative(replies) {
 }
 // Vault traffic only: the content-free {op:"theme"} refresh is checked separately (allCalls).
 const allCalls = () => SW("globalThis.__calls || []");
-const calls = async () => (await allCalls()).filter((c) => c.op !== "theme");
+// Every request carries the extension's version and protocol (handshake); `bare` strips them for contract checks.
+const bare = (c) => { const { ext, protocol, ...rest } = c; return rest; };
+const tagged = (c) => typeof c.ext === "string" && c.ext.length > 0 && c.protocol === 2;
+// Vault requests only (theme and the lock-state ping are not).
+const calls = async () => (await allCalls()).filter((c) => c.op !== "theme" && c.op !== "ping");
+const pings = async () => (await allCalls()).filter((c) => c.op === "ping");
 const resetCalls = () => SW("(globalThis.__calls = [], true)");
 const session = () => SW("chrome.storage.session.get(null)");
 const local = () => SW("chrome.storage.local.get(null)");
@@ -231,8 +236,8 @@ try {
   ({ sessionId: sw } = await cdp("Target.attachToTarget", { targetId: swTarget.targetId, flatten: true }));
   await cdp("Runtime.enable", {}, sw);
   const manifest = await SW("chrome.runtime.getManifest()");
-  check("manifest version 0.5.0 with storage permission and all-frames content script (same-site gated)",
-    manifest.version === "0.5.0" && manifest.permissions.includes("storage") && manifest.content_scripts[0].all_frames === true &&
+  check("manifest version 0.6.0 with storage permission and all-frames content script (same-site gated)",
+    manifest.version === "0.6.0" && manifest.permissions.includes("storage") && manifest.content_scripts[0].all_frames === true &&
     typeof manifest.key === "string" && manifest.key.length > 100);
 
   const { targetId } = await cdp("Target.createTarget", { url: "about:blank" });
@@ -314,7 +319,7 @@ try {
   check("native save message matches the contract",
     c2.length === 1 && c2[0].op === "save" && c2[0].host === "localhost" && c2[0].url === `http://localhost:${PORT}/test-pages/login.html` &&
     c2[0].username === "bob@example.com" && c2[0].password === "Typed-Secret-2!" && c2[0].title === "Notiq test page: login forms" &&
-    Object.keys(c2[0]).sort().join() === "host,op,password,title,url,username", JSON.stringify(c2.map((c) => ({ ...c, password: "<redacted>" }))));
+    tagged(c2[0]) && Object.keys(bare(c2[0])).sort().join() === "host,op,password,title,url,username", JSON.stringify(c2.map((c) => ({ ...c, password: "<redacted>" }))));
   check("pending capture deleted after save", (await pendingEntries()).length === 0);
 
   // 6. Error path: locked vault keeps the capture and offers Try again
@@ -528,7 +533,7 @@ try {
   await waitFor(async () => (await calls()).length === 1, 3000);
   const c16 = await calls();
   check("update uses the same native save contract (no extra keys)",
-    c16.length === 1 && c16[0].op === "save" && c16[0].password === "New-Pw-22" && Object.keys(c16[0]).sort().join() === "host,op,password,title,url,username");
+    c16.length === 1 && c16[0].op === "save" && c16[0].password === "New-Pw-22" && tagged(c16[0]) && Object.keys(bare(c16[0])).sort().join() === "host,op,password,title,url,username");
 
   // 17. Split one-time-code boxes
   await resetState();
@@ -646,8 +651,15 @@ try {
     // Injection itself also needs that grant: record what would be injected instead.
     globalThis.__realExec = globalThis.__realExec || chrome.scripting.executeScript.bind(chrome.scripting);
     globalThis.__injected = [];
-    // The username-first probe (tabHasPassword) gets what this page has: a visible password field.
-    chrome.scripting.executeScript = async (o) => { if (o.func.name !== "fillPage") return [{ frameId: 0, result: true }]; globalThis.__injected.push({ allFrames: o.target.allFrames, func: o.func.name, args: o.args }); return [{ frameId: 0, result: 1 }]; };
+    // The secret-free frame probe (phase 1) gets what this page has: the top frame, with a visible password field.
+    chrome.scripting.executeScript = async (o) => {
+      if (o.func.name === "probeFrame") {
+        globalThis.__probes = (globalThis.__probes || 0) + 1;
+        return [{ frameId: 0, result: { origin: new URL(${JSON.stringify(PAGE)}).origin, top: true, ancestors: [], fields: true, password: true } }];
+      }
+      globalThis.__injected.push({ allFrames: o.target.allFrames, frameIds: o.target.frameIds, documentIds: o.target.documentIds, func: o.func.name, args: o.args });
+      return [{ frameId: 0, result: 1 }];
+    };
     return true;
   })()`);
   const t20 = await SW("fillActiveTab()");
@@ -656,7 +668,7 @@ try {
   const inj = await SW("globalThis.__injected");
   const c20 = await calls();
   check("toolbar re-send with account injects fillPage with that login for the tab host",
-    t20b && t20b.ok && c20.length === 2 && c20[1].account === "acc-work" && inj.length === 1 && inj[0].func === "fillPage" && inj[0].allFrames === true &&
+    t20b && t20b.ok && c20.length === 2 && c20[1].account === "acc-work" && inj.length === 1 && inj[0].func === "fillPage" && inj[0].allFrames === undefined && JSON.stringify(inj[0].frameIds) === "[0]" &&
     inj[0].args[0] === "localhost" && inj[0].args[1].password === "Work-Pw-8", JSON.stringify({ t20b, n: c20.length }));
   const t20c = await SW(`fillActiveTab("acc-work")`);
   check("an account can be used once per offer (replay refused)", t20c && t20c.error === "stale", JSON.stringify(t20c));
@@ -664,11 +676,11 @@ try {
   const FILLPAGE = await SW("fillPage.toString()");
   await load(EXTRA);
   await P(`document.getElementById("change").hidden = true`);
-  const fp = await P(`(${FILLPAGE})("localhost", { username: "u@example.com", password: "Tool-Pw-1", code: "135790" })`);
+  const fp = await P(`(${FILLPAGE})("localhost", { username: "u@example.com", password: "Tool-Pw-1", code: "135790" }, { top: location.origin, allowed: [location.origin] })`);
   const fpv = await P(`({ u: document.getElementById("m-user").value, p: document.getElementById("m-pass").value,
     code: [1,2,3,4,5,6].map((k) => document.getElementById("o" + k).value).join(""), active: document.activeElement.id })`);
   check("toolbar fillPage fills login + split OTP boxes", fp === 3 && fpv.u === "u@example.com" && fpv.p === "Tool-Pw-1" && fpv.code === "135790" && fpv.active === "o6", JSON.stringify({ fp, ...fpv, p: "<redacted>" }));
-  const fpOther = await P(`(${FILLPAGE})("example.com", { username: "x", password: "y" })`);
+  const fpOther = await P(`(${FILLPAGE})("example.com", { username: "x", password: "y" }, { top: location.origin, allowed: [location.origin] })`);
   check("toolbar fillPage refuses a top page whose host differs", fpOther === 0);
   await SW(`(chrome.tabs.query = globalThis.__realQuery, chrome.scripting.executeScript = globalThis.__realExec, true)`);
   // Popup UI (sendMessage stubbed in the popup page)
@@ -829,7 +841,7 @@ try {
   await cdp("Runtime.enable", {}, pop2);
   const stored = await waitFor(async () => (await local()).theme, 3000);
   const tc = await themeCalls();
-  check("opening the popup refreshes the theme ({op:'theme'} only, no host)", tc.length === 1 && JSON.stringify(tc[0]) === '{"op":"theme"}', JSON.stringify(tc));
+  check("opening the popup refreshes the theme ({op:'theme'} only, no host)", tc.length === 1 && JSON.stringify(bare(tc[0])) === '{"op":"theme"}' && tagged(tc[0]), JSON.stringify(tc));
   check("validated theme cached in storage.local", stored && stored.id === "nord" && stored.bg === "#2e3440", JSON.stringify(stored));
   const popVars = await waitFor(async () => { const v = await evalIn(pop2, `getComputedStyle(document.documentElement).getPropertyValue("--nq-bg").trim()`); return v === "#2e3440" && v; }, 2000);
   check("popup styles itself from the theme", popVars === "#2e3440");
@@ -838,7 +850,7 @@ try {
   const popInfo = await evalIn(pop2, `({ ver: document.getElementById("version").textContent, sw: [...document.querySelectorAll('input[type=checkbox]')].map((i) => i.getAttribute("role") + ":" + i.id + ":" + i.checked),
     status: document.getElementById("status").dataset.state, bg: getComputedStyle(document.body).backgroundColor })`);
   check("popup: version footer, three role=switch toggles incl. 'Suggest on field focus', status dot",
-    popInfo.ver === "Notiq Autofill v0.5.0" && popInfo.sw.join() === "switch:offerSave:true,switch:showIcon:true,switch:suggestOnFocus:false" &&
+    popInfo.ver === "Notiq Autofill v0.6.0" && popInfo.sw.join() === "switch:offerSave:true,switch:showIcon:true,switch:suggestOnFocus:false" &&
     ["on", "off"].includes(popInfo.status) && popInfo.bg === "rgb(46, 52, 64)", JSON.stringify(popInfo));
   await evalIn(pop2, `document.getElementById("suggestOnFocus").click(), true`);
   check("popup toggle writes suggestOnFocus", await waitFor(async () => (await local()).suggestOnFocus === true, 1500));
@@ -897,7 +909,7 @@ try {
   await clickId("s-user");
   await sleep(800);
   const tc2 = await themeCalls();
-  check("stale theme: first nudge refreshes once, the next page does not", tc2.length === 1 && JSON.stringify(tc2[0]) === '{"op":"theme"}', JSON.stringify(tc2));
+  check("stale theme: first nudge refreshes once, the next page does not", tc2.length === 1 && JSON.stringify(bare(tc2[0])) === '{"op":"theme"}' && tagged(tc2[0]), JSON.stringify(tc2));
   check("theme arrived through the nudge", (await local()).theme?.id === "nord");
 
   // ===================== multi-step sign-in =====================
@@ -928,6 +940,7 @@ try {
   await clickId("m-next");
   const spa = await waitFor(async () => { const v = await stepVals(); return v && v.p === "Notiq-Filled-1!" && v; }, 3000);
   check("SPA step: password filled without asking Notiq again", spa && (await calls()).length === 1, JSON.stringify(spa && { ...spa, p: "<redacted>" }));
+  check("SPA step: the lock state was checked (ping) before the hand-out", (await pings()).length >= 1);
   check("SPA step: held password gone after use, form not submitted", (await stepEntries()).length === 0 && spa && !spa.done);
   check("SPA step: the icon shows 'Filled'", !!(await waitFor(async () => (await icons()).some((i) => i.cls.includes("done") && i.tip === "Filled"), 1500)));
 
@@ -1020,6 +1033,469 @@ try {
     console.log(`screenshots written to ${dir}`);
   } else {
     await cdp("Target.closeTarget", { targetId: pop2Target });
+  }
+
+  // 25. Login forms inside open shadow roots (web components)
+  const SHADOW = `http://localhost:${PORT}/test-pages/shadow-login.html`;
+  // Centre of a field reached through open roots (window.__field on the test page), and the icon drawn in it.
+  const shadowBox = (path) => P(`(() => { const e = window.__field(${JSON.stringify(path)}); e.scrollIntoView({ block: "center" });
+    const r = e.getBoundingClientRect(); return { x: r.x + 20, right: r.right, cy: r.y + r.height / 2 }; })()`);
+  const shadowIcon = async (path) => {
+    const f = await shadowBox(path);
+    await sleep(250);
+    return ((await icons()) || []).find((i) => Math.abs(i.y - f.cy) < 3 && i.x < f.right && i.x > f.right - 30) || null;
+  };
+  const shadowVal = (path) => P(`window.__field(${JSON.stringify(path)}).value`);
+  await resetState();
+  await mockNative(NATIVE);
+  await load(SHADOW);
+  await sleep(1500); // the late component renders its form after 1.2 s
+  const ic25 = (await icons()) || [];
+  check("shadow DOM: icons on the open-root forms (2 + nested 2 + late 2), none in the closed root", ic25.length === 6, String(ic25.length));
+  const si = await shadowIcon(["#c1", "#c1-pass"]);
+  check("shadow DOM: the icon sits at the right inside edge of the shadow field", !!si);
+  await mouseClick(si.x, si.y);
+  await waitFor(async () => (await shadowVal(["#c1", "#c1-pass"])) !== "", 3000);
+  check("shadow DOM: one fill fills username and password inside the open root",
+    (await shadowVal(["#c1", "#c1-user"])) === "alice@example.com" && (await shadowVal(["#c1", "#c1-pass"])) === "Notiq-Filled-1!");
+  const si2 = await shadowIcon(["#c2", "#c2-pass", "input"]);
+  await sleep(2100); // the previous icon's "done" state
+  await mouseClick(si2.x, si2.y);
+  await waitFor(async () => (await shadowVal(["#c2", "#c2-pass", "input"])) !== "", 3000);
+  check("shadow DOM: nested components (email and password each in its own root) are filled together",
+    (await shadowVal(["#c2", "#c2-user", "input"])) === "alice@example.com" && (await shadowVal(["#c2", "#c2-pass", "input"])) === "Notiq-Filled-1!");
+  check("shadow DOM: the late-rendered form got its icons", !!(await shadowIcon(["#c3", "#c3-pass"])));
+  check("shadow DOM: the closed root's fields stay untouched", await P(`document.getElementById("c4").shadowRoot === null`));
+  // Capture from a shadow form: typed login, Enter submits the form inside the root.
+  await resetState();
+  await load(SHADOW);
+  for (const [path, text] of [[["#c1", "#c1-user"], "sam@example.com"], [["#c1", "#c1-pass"], "Shadow-Typed-7!"]]) {
+    const b = await shadowBox(path);
+    await mouseClick(b.x, b.cy);
+    await cdp("Input.insertText", { text }, page);
+  }
+  await pressEnter();
+  const p25 = await waitFor(async () => (await pendingEntries())[0], 2500);
+  check("shadow DOM: a login submitted inside an open root is offered for saving",
+    p25 && p25.username === "sam@example.com" && p25.password === "Shadow-Typed-7!", JSON.stringify(p25 && { ...p25, password: "<redacted>" }));
+
+  // 26. The generator follows the site's maxlength / passwordrules / pattern
+  const RULES = `http://localhost:${PORT}/test-pages/signup-rules.html`;
+  await resetState();
+  await mockNative(NATIVE);
+  await load(RULES);
+  const generate = async (id) => {
+    const gi26 = await iconFor(id);
+    if (!gi26) return null;
+    await mouseClick(gi26.x, gi26.y);
+    const m = await waitFor(menuInfo, 1500);
+    if (!m || !m.items.length) return null;
+    const sub = m.text;
+    await mouseClick(m.items[0].x, m.items[0].y);
+    await sleep(400);
+    const after = await menuInfo();
+    await key("Escape", "Escape", 27);
+    await sleep(250);
+    return { sub, after: after ? after.text : "" };
+  };
+  const fieldVals = (ids) => P(`${JSON.stringify(ids)}.map((id) => document.getElementById(id).value)`);
+  let g26 = await generate("m-pass");
+  let v26 = await fieldVals(["m-pass", "m-pass2"]);
+  check("maxlength=16: menu says 16 characters, both fields get the same 16-character password",
+    g26 && /16 characters/.test(g26.sub) && v26[0].length === 16 && v26[0] === v26[1] && /[A-Z]/.test(v26[0]) && /[^A-Za-z0-9]/.test(v26[0]),
+    JSON.stringify({ sub: g26 && g26.sub, len: v26[0].length }));
+  g26 = await generate("r-pass");
+  v26 = await fieldVals(["r-pass", "r-pass2"]);
+  check("passwordrules: 14 characters, lower+upper+digit, only -_. as symbols, confirm field too",
+    v26[0].length === 14 && v26[0] === v26[1] && /^[A-Za-z0-9._-]+$/.test(v26[0]) && /[a-z]/.test(v26[0]) && /[A-Z]/.test(v26[0]) && /\d/.test(v26[0]),
+    JSON.stringify({ len: v26[0].length }));
+  g26 = await generate("p-pass");
+  v26 = await fieldVals(["p-pass"]);
+  check("pattern [A-Za-z0-9]{8,12}: 12 letters/digits, valid for the browser",
+    /^[A-Za-z0-9]{12}$/.test(v26[0]) && (await P(`document.getElementById("p-pass").checkValidity()`)), JSON.stringify({ len: v26[0].length }));
+  g26 = await generate("i-pass");
+  v26 = await fieldVals(["i-pass"]);
+  check("impossible rules: a warning, and the default password capped at the 10-character maximum",
+    g26 && /couldn.t be met/.test(g26.after) && v26[0].length === 10, JSON.stringify({ after: g26 && g26.after, len: v26[0].length }));
+  g26 = await generate("j-pass");
+  v26 = await fieldVals(["j-pass", "j-pass2"]);
+  check("a script that cuts the value: retried at its length, the page keeps exactly what was generated (both fields)",
+    v26[0].length === 10 && v26[0] === v26[1] && /[A-Z]/.test(v26[0]), JSON.stringify({ len: v26[0].length, same: v26[0] === v26[1] }));
+  check("generating with rules sends nothing to Notiq", (await calls()).length === 0);
+
+  // 27. The 2FA step on its own page: code-only fill (single field and split boxes)
+  const OTP = `http://localhost:${PORT}/test-pages/otp.html`;
+  // An older app ignores the intent and sends the whole login: the page must still get only the code.
+  await resetState();
+  await mockNative({ ...NATIVE, fill: { ...NATIVE.fill, code: "482916" } });
+  await load(OTP);
+  const ic27 = (await icons()) || [];
+  check("2FA page: one icon on the code field, one after the split boxes", ic27.length === 2, String(ic27.length));
+  let ci = await iconFor("code");
+  check("2FA page: the code field's icon sits inside it", !!ci);
+  await mouseClick(ci.x, ci.y);
+  await waitFor(async () => (await P(`document.getElementById("code").value`)) !== "", 3000);
+  const c27 = await calls();
+  check("2FA page: one fill request with intent 'code' for the page host",
+    c27.length === 1 && c27[0].op === "fill" && c27[0].host === "localhost" && c27[0].intent === "code", JSON.stringify(c27));
+  check("2FA page: the code goes into the field", (await P(`document.getElementById("code").value`)) === "482916");
+  check("2FA page: the password never reaches the page", !(await P(`document.documentElement.outerHTML.includes("Notiq-Filled-1!")`)));
+  const t27 = await waitFor(async () => (await icons()).find((i) => i.tip === "Code filled"), 1500);
+  check("2FA page: the icon says 'Code filled'", !!t27);
+  // Split boxes: the icon right after the last box fills one digit per box.
+  const lastBox = await P(`(() => { const r = document.getElementById("b6").getBoundingClientRect(); return { right: r.right, cy: r.y + r.height / 2 }; })()`);
+  await sleep(2000);
+  const bi = ((await icons()) || []).find((i) => Math.abs(i.y - lastBox.cy) < 3 && i.x > lastBox.right && i.x < lastBox.right + 30);
+  check("2FA page: the split-box icon sits just after the last box", !!bi, JSON.stringify({ lastBox, ic: await icons() }));
+  await resetCalls();
+  await mouseClick(bi.x, bi.y);
+  await waitFor(async () => (await P(`document.getElementById("b6").value`)) !== "", 3000);
+  const bx = await P(`({ code: [1,2,3,4,5,6].map((k) => document.getElementById("b" + k).value).join(""), active: document.activeElement.id, inputs: window.__boxInputs })`);
+  check("2FA page: split boxes get one digit each, the last box is focused", bx.code === "482916" && bx.active === "b6" && bx.inputs >= 6, JSON.stringify(bx));
+  const c27b = await calls();
+  check("2FA page: the split boxes asked with intent 'code' too", c27b.length === 1 && c27b[0].intent === "code");
+  // No 2FA secret saved: a clear message, nothing filled.
+  await resetState();
+  await mockNative({ ...NATIVE, fill: { error: "no_code" } });
+  await load(OTP);
+  ci = await iconFor("code");
+  await mouseClick(ci.x, ci.y);
+  const e27 = await waitFor(async () => (await icons()).find((i) => i.cls.includes("error")), 3000);
+  check("2FA page: no saved code -> 'No 2FA code saved for this site'", e27 && /No 2FA code saved/.test(e27.tip) && (await P(`document.getElementById("code").value`)) === "",
+    JSON.stringify(e27));
+  // A login page with a code field keeps the old behaviour (no code icon: the normal fill brings the code).
+  await resetState();
+  await load(EXTRA);
+  check("login page with code boxes: still no code-only icon", ((await icons()) || []).length === 5);
+
+  // 28. Custom fields filled by name with the login (test-pages/custom-fields.html)
+  const CF = `http://localhost:${PORT}/test-pages/custom-fields.html`;
+  const FIELDS = [
+    { name: "Customer ID", value: "C-1001", secret: false },
+    { name: "Membership No.", value: "M-42", secret: false },
+    { name: "PIN", value: "4321", secret: true },
+    { name: "Branch", value: "North", secret: false },
+    { name: "Account nickname", value: "Daily", secret: false },
+  ];
+  const cfVals = (ids) => P(`(${JSON.stringify(ids)}).reduce((o, id) => (o[id] = document.getElementById(id).value, o), {})`);
+  await resetState();
+  await mockNative({ ...NATIVE, fill: { ...NATIVE.fill, fields: FIELDS } });
+  await load(CF);
+  let cfi = await iconFor("b-pass");
+  check("custom fields: the bank form's password field has an icon", !!cfi);
+  await mouseClick(cfi.x, cfi.y);
+  await waitFor(async () => (await P(`document.getElementById("b-pass").value`)) !== "", 3000);
+  const v28 = await cfVals(["b-cust", "b-member", "b-user", "b-pass", "b-pin", "b-pincode", "b-branch", "b-nick", "b-hidden", "b-gone", "p-member", "ph-cust"]);
+  check("custom fields: Customer ID, Membership No., PIN and nickname filled by name next to the login",
+    v28["b-cust"] === "C-1001" && v28["b-member"] === "M-42" && v28["b-pin"] === "4321" && v28["b-nick"] === "Daily" &&
+    v28["b-user"] === "alice@example.com" && v28["b-pass"] === "Notiq-Filled-1!", JSON.stringify({ ...v28, "b-pass": "<redacted>" }));
+  check("custom fields: 'PIN code' stays empty, a filled field is kept, hidden fields untouched",
+    v28["b-pincode"] === "" && v28["b-branch"] === "Main street" && v28["b-hidden"] === "" && v28["b-gone"] === "", JSON.stringify(v28));
+  check("custom fields: other forms on the page are left alone", v28["p-member"] === "" && v28["ph-cust"] === "");
+  check("custom fields: focus stays on the login's field", (await P(`document.activeElement && document.activeElement.id`)) === "b-pass");
+  // The site calls its password "PIN": the password goes there and the custom PIN never replaces it.
+  await resetCalls();
+  cfi = await iconFor("p-pass");
+  await mouseClick(cfi.x, cfi.y);
+  await waitFor(async () => (await P(`document.getElementById("p-pass").value`)) !== "", 3000);
+  const v28b = await cfVals(["p-user", "p-pass", "p-member"]);
+  check("custom fields: a password field labelled 'PIN' keeps the password; username field keeps the username",
+    v28b["p-pass"] === "Notiq-Filled-1!" && v28b["p-user"] === "alice@example.com" && v28b["p-member"] === "M-42", JSON.stringify({ ...v28b, "p-pass": "<redacted>" }));
+  // An older app sends no fields: the fill is exactly as before.
+  await resetState();
+  await mockNative(NATIVE);
+  await load(CF);
+  cfi = await iconFor("b-pass");
+  await mouseClick(cfi.x, cfi.y);
+  await waitFor(async () => (await P(`document.getElementById("b-pass").value`)) !== "", 3000);
+  const v28c = await cfVals(["b-cust", "b-pin", "b-user"]);
+  check("custom fields: none from the app -> only the login is filled", v28c["b-cust"] === "" && v28c["b-pin"] === "" && v28c["b-user"] === "alice@example.com", JSON.stringify(v28c));
+  // Toolbar path: fillPage with the matcher loaded (the background injects fillkit.js first).
+  await load(CF);
+  await P(readFileSync(join(EXT, "fillkit.js"), "utf8"));
+  const fp28 = await P(`(${FILLPAGE})("localhost", { username: "u@example.com", password: "Tool-Pw-1", code: "", fields: ${JSON.stringify(FIELDS)} }, { top: location.origin, allowed: [location.origin] })`);
+  const v28d = await cfVals(["b-cust", "b-member", "b-pin", "b-pincode", "b-branch", "b-user", "p-member"]);
+  check("custom fields: toolbar fill fills them by name too (same rules)",
+    fp28 === 6 && v28d["b-cust"] === "C-1001" && v28d["b-member"] === "M-42" && v28d["b-pin"] === "4321" && v28d["b-pincode"] === "" &&
+    v28d["b-branch"] === "Main street" && v28d["b-user"] === "u@example.com" && v28d["p-member"] === "", JSON.stringify({ fp28, ...v28d }));
+
+  // 29. Toolbar popup: this site's logins (0.9.0). Background handlers first (the popup opened in a CDP tab
+  // counts as a tab sender, so its own messages are stubbed below, as in check 20).
+  {
+    const ACC = [
+      { account: "Logins/Work.nqv", title: "Work", username: "alice@work.com", totp: true },
+      { account: "Logins/Home.nqv", title: "<img src=x onerror=alert(1)>Home", username: "alice@home.com", totp: false },
+    ];
+    await resetState();
+    await mockNative({ ...NATIVE, list: { ok: true, accounts: ACC }, copy: { ok: true, copied: "password", clearAfter: 30 }, open: { ok: true } });
+    await SW(`(() => {
+      const real = globalThis.__realQuery || chrome.tabs.query.bind(chrome.tabs);
+      globalThis.__realQuery = real;
+      chrome.tabs.query = async (q) => (await real(q)).map((t) => ({ ...t, url: ${JSON.stringify(PAGE)} }));
+      return true;
+    })()`);
+    const l28 = await SW("POPUP_HANDLERS.list()");
+    const c28 = await calls();
+    check("popup list: the app is asked for the active tab's host only (tagged), names come back",
+      l28 && l28.ok && l28.host === "localhost" && l28.accounts.length === 2 && c28.length === 1 && JSON.stringify(bare(c28[0])) === '{"op":"list","host":"localhost"}' && tagged(c28[0]),
+      JSON.stringify({ l28, c28 }));
+    const cp28 = await SW(`POPUP_HANDLERS.copy({ account: "Logins/Work.nqv", what: "password" })`);
+    const c28b = (await calls())[1];
+    check("popup copy: forwards {op:'copy', host, account, what}; reply has no value",
+      cp28 && cp28.ok && cp28.copied === "password" && cp28.clearAfter === 30 && c28b && c28b.op === "copy" && c28b.host === "localhost" && c28b.account === "Logins/Work.nqv" && c28b.what === "password",
+      JSON.stringify({ cp28, c28b }));
+    const st28 = await SW(`POPUP_HANDLERS.copy({ account: "Logins/Forged.nqv", what: "password" })`);
+    check("popup copy of an account that was not listed is refused before the app", st28 && st28.error === "stale" && (await calls()).length === 2, JSON.stringify(st28));
+    const op28 = await SW(`POPUP_HANDLERS.open({ account: "Logins/Home.nqv" })`);
+    check("popup open: forwards {op:'open'} for a listed account", op28 && op28.ok && (await calls())[2].op === "open", JSON.stringify(op28));
+    await mockNative({ ...NATIVE, list: { error: "unknown_op" } });
+    const old28 = await SW("POPUP_HANDLERS.list()");
+    check("popup list on an older Notiq: unknown_op is passed to the popup", old28 && old28.error === "unknown_op", JSON.stringify(old28));
+    await SW(`(chrome.tabs.query = globalThis.__realQuery, true)`);
+
+    // The popup page itself, with chrome.runtime.sendMessage stubbed.
+    const { targetId: pop3Target } = await cdp("Target.createTarget", { url: `chrome-extension://${extId}/popup.html` });
+    const { sessionId: pop3 } = await cdp("Target.attachToTarget", { targetId: pop3Target, flatten: true });
+    await cdp("Runtime.enable", {}, pop3);
+    await sleep(600);
+    const P3 = (e) => evalIn(pop3, e);
+    const stub = (replies) => P3(`(() => {
+      window.__sent = [];
+      const R = ${JSON.stringify(replies)};
+      const fake = (m, cb) => { window.__sent.push(m); setTimeout(() => cb && cb(R[m.type] || { error: "x" }), 30); };
+      try { chrome.runtime.sendMessage = fake; } catch {}
+      if (chrome.runtime.sendMessage !== fake) Object.defineProperty(chrome.runtime, "sendMessage", { value: fake, configurable: true, writable: true });
+      window.close = () => { window.__closed = true; };
+      return true;
+    })()`);
+    await stub({ list: { ok: true, host: "localhost", accounts: ACC }, copy: { ok: true, copied: "password", clearAfter: 30 }, popupFill: { ok: true }, open: { ok: true } });
+    await cdp("Target.activateTarget", { targetId: pop3Target });
+    await P3(`(document.activeElement && document.activeElement.blur && document.activeElement.blur(), setStatus("on", "Notiq unlocked"), loadSite("on"), true)`);
+    const rows3 = () => P3(`({ rows: [...document.querySelectorAll("#accList li")].map((li) => ({ t: li.querySelector(".t").textContent, u: li.querySelector(".u").textContent,
+      labels: [...li.querySelectorAll("button")].map((b) => b.getAttribute("aria-label")), code: li.querySelector('[data-action="code"]').disabled })),
+      imgs: document.querySelectorAll("#accList img").length, title: document.getElementById("siteTitle").textContent,
+      filterShown: !document.getElementById("filter").hidden, focus: document.activeElement && document.activeElement.id, state: document.getElementById("siteState").textContent })`);
+    const r3 = await waitFor(async () => { const s = await rows3(); return s.rows.length === 2 && s; }, 3000) || await rows3();
+    check("popup list: two rows (title + username as text), filter box shown and focused, host in the heading",
+      r3.rows.length === 2 && r3.rows[0].t === "Work" && r3.rows[1].t.startsWith("<img") && r3.imgs === 0 && r3.filterShown && r3.focus === "filter" && r3.title === "Logins for localhost",
+      JSON.stringify(r3));
+    check("popup list: every control has an accessible name; 2FA copy disabled without a code",
+      r3.rows[0].labels.join("|") === "Fill Work (alice@work.com)|Copy username of Work|Copy password of Work|Copy 2FA code of Work|Open Work in Notiq" &&
+      r3.rows[0].code === false && r3.rows[1].code === true, JSON.stringify(r3.rows));
+    await P3(`(() => { const f = document.getElementById("filter"); f.value = "HOME"; f.dispatchEvent(new Event("input")); return true; })()`);
+    const f3 = await rows3();
+    check("popup filter narrows the site's logins (title or username)", f3.rows.length === 1 && f3.rows[0].u === "alice@home.com", JSON.stringify(f3.rows));
+    await P3(`(() => { const f = document.getElementById("filter"); f.value = "zzz"; f.dispatchEvent(new Event("input")); return true; })()`);
+    const z3 = await rows3();
+    check("popup filter with no match says so", z3.rows.length === 0 && /No logins match/.test(z3.state), JSON.stringify(z3));
+    await P3(`(() => { const f = document.getElementById("filter"); f.value = ""; f.dispatchEvent(new Event("input")); f.focus(); return true; })()`);
+    const key = (k) => P3(`(document.activeElement.dispatchEvent(new KeyboardEvent("keydown", { key: ${JSON.stringify(k)}, bubbles: true, cancelable: true })), true)`);
+    const where = () => P3(`(() => { const a = document.activeElement; const li = a.closest && a.closest("li"); return { id: a.id, cls: a.className, action: a.dataset ? a.dataset.action || "" : "", row: li ? [...li.parentNode.children].indexOf(li) : -1 }; })()`);
+    await key("ArrowDown");
+    const k1 = await where();
+    await key("ArrowDown");
+    const k2 = await where();
+    await key("ArrowRight"); await key("ArrowRight");
+    const k3 = await where();
+    await key("ArrowUp");
+    const k4 = await where();
+    await key("ArrowUp");
+    const k5 = await where();
+    check("popup keyboard: ↓ from the filter to the rows, ↓/↑ keep the column, → moves along a row, ↑ from the top row back to the filter",
+      k1.cls === "acc-main" && k1.row === 0 && k2.row === 1 && k3.action === "password" && k3.row === 1 && k4.action === "password" && k4.row === 0 && k5.id === "filter",
+      JSON.stringify([k1, k2, k3, k4, k5]));
+    await key("Enter");
+    const s3 = await waitFor(async () => { const s = await P3("window.__sent"); return s.some((m) => m.type === "popupFill") && s; }, 2000);
+    check("popup: Enter in the filter fills the first login (popupFill with its account)",
+      s3 && s3.find((m) => m.type === "popupFill").account === "Logins/Work.nqv", JSON.stringify(s3));
+    await P3(`(document.querySelector('#accList li [data-action="password"]').click(), true)`);
+    const cm3 = await waitFor(async () => { const t = await P3(`document.getElementById("msg").textContent`); return /copied/.test(t) && t; }, 2000);
+    const sentCopy = (await P3("window.__sent")).find((m) => m.type === "copy");
+    check("popup copy button: asks the app to copy (no value in the popup), says when it clears",
+      sentCopy && sentCopy.what === "password" && sentCopy.account === "Logins/Work.nqv" && cm3 === "Password copied by Notiq. Clears in 30 s.", JSON.stringify({ sentCopy, cm3 }));
+    await P3(`(document.querySelector('#accList li [data-action="open"]').click(), true)`);
+    check("popup open button: sends open and closes the popup", await waitFor(() => P3("window.__closed === true && window.__sent.some((m) => m.type === 'open')"), 2000));
+    // An older Notiq: the list and the actions say to update it.
+    await stub({ list: { error: "unknown_op", host: "localhost" }, copy: { error: "unknown_op" } });
+    await P3(`(loadSite("on"), true)`);
+    const o3 = await waitFor(async () => { const t = await P3(`document.getElementById("siteState").textContent`); return /Update Notiq/.test(t) && t; }, 2000);
+    check("popup on an older Notiq: 'Update Notiq to see your logins…', no rows", o3 && (await rows3()).rows.length === 0, String(o3));
+    // Locked: no list request at all.
+    await stub({ list: { ok: true, accounts: ACC } });
+    await P3(`(loadSite("locked"), true)`);
+    await sleep(150);
+    const lk3 = await P3(`({ sent: window.__sent.length, state: document.getElementById("siteState").textContent, rows: document.querySelectorAll("#accList li").length })`);
+    check("popup with a locked vault asks for nothing and says to unlock", lk3.sent === 0 && lk3.rows === 0 && /Unlock Notiq/.test(lk3.state), JSON.stringify(lk3));
+    if (process.env.NOTIQ_POPUP_SHOT) {
+      await stub({ list: { ok: true, host: "accounts.example.com", accounts: [ACC[0], { ...ACC[1], title: "Home" }, { account: "x", title: "Shared family login with a long name", username: "family@example.com", totp: true }] } });
+      await P3(`(setStatus("on", "Notiq unlocked"), loadSite("on"), true)`);
+      await cdp("Page.enable", {}, pop3);
+      await cdp("Emulation.setDeviceMetricsOverride", { width: 320, height: 760, deviceScaleFactor: 2, mobile: false }, pop3);
+      await sleep(300);
+      const h = await P3(`Math.ceil(document.documentElement.getBoundingClientRect().height)`);
+      const { data } = await cdp("Page.captureScreenshot", { format: "png", clip: { x: 0, y: 0, width: 320, height: h, scale: 1 } }, pop3);
+      writeFileSync(process.env.NOTIQ_POPUP_SHOT, Buffer.from(data, "base64"));
+    }
+    await cdp("Target.closeTarget", { targetId: pop3Target });
+    await cdp("Target.activateTarget", { targetId });
+  }
+
+  // 30. Identities: address / contact forms, the in-page chooser, the right-click menu (own block scope)
+  {
+    const IDP = `http://localhost:${PORT}/test-pages/identity.html`;
+    const IDENT = { ok: true, title: "Home", name: "Asha K Rao", email: "asha@example.com", phone: "+91 98765 43210",
+      address1: "Flat 4B, Lake View Apts", address2: "MG Road, Indiranagar", city: "Bengaluru", state: "Karnataka", postal: "560038", country: "India" };
+    const IDLIST = { ok: true, identities: [{ account: "Identities/Home.nqv", title: "Home" }, { account: "Identities/Office.nqv", title: "Office" }] };
+    const idVals = (ids) => P(`(${JSON.stringify(ids)}).reduce((o, id) => (o[id] = document.getElementById(id).value, o), {})`);
+    async function rightClick(id) {
+      const r = await P(`(() => { const e = document.getElementById(${JSON.stringify(id)}); e.scrollIntoView({block:"center"}); const r = e.getBoundingClientRect(); return { x: r.x + 20, y: r.y + r.height / 2 }; })()`);
+      await cdp("Input.dispatchMouseEvent", { type: "mouseMoved", x: r.x, y: r.y }, page);
+      await cdp("Input.dispatchMouseEvent", { type: "mousePressed", x: r.x, y: r.y, button: "right", clickCount: 1 }, page);
+      await cdp("Input.dispatchMouseEvent", { type: "mouseReleased", x: r.x, y: r.y, button: "right", clickCount: 1 }, page);
+      await key("Escape", "Escape", 27); // close the browser's own menu, if one opened
+      await sleep(200);
+    }
+    // A click on one of our menu items, as chrome.contextMenus.onClicked delivers it (frame 0 of the test tab).
+    // tab.url isn't visible to the worker in this harness (no activeTab grant): the click's pageUrl stands in.
+    const menuClick = async (menuItemId, extra = {}) => SW(`chrome.tabs.query({ active: true }).then((tabs) => {
+      const tab = tabs.find((t) => (t.url || "").includes("/test-pages/identity.html")) || tabs[0];
+      return onMenuClick({ menuItemId: ${JSON.stringify(menuItemId)}, frameId: 0, editable: true, pageUrl: ${JSON.stringify(await P("location.href"))}, ...${JSON.stringify(extra)} }, tab).then(() => true);
+    })`);
+
+    await resetState();
+    await mockNative({ ...NATIVE, fill_identity: IDENT, identities: IDLIST });
+    await load(IDP);
+    const ic28 = (await icons()) || [];
+    // India form 6 (not the landmark / hidden / offscreen fields), token form 10, text-box form 5, login form 2,
+    // newsletter 0.
+    check("identity page: icons on the address forms' text fields, the login form keeps login icons only", ic28.length === 23, String(ic28.length));
+    check("identity page: nothing sent to Notiq on load", (await calls()).length === 0);
+    check("identity page: no icon on the landmark, the newsletter box or the hidden fields",
+      !(await iconFor("in-landmark")) && !(await iconFor("n-email")) && !(await iconFor("f-alt")));
+    let ii = await iconFor("in-name");
+    check("identity page: the full-name field has a 'Fill identity with Notiq' icon", !!ii);
+    await mouseClick(ii.x, ii.y);
+    const m28 = await waitFor(() => menuInfo(), 3000);
+    check("identity icon: lists the identity titles, then 'Choose in Notiq…'",
+      m28 && m28.items.map((i) => i.label).join("|") === "Home|Office|Choose in Notiq…", JSON.stringify(m28 && m28.items));
+    const c28a = (await calls()).map(bare);
+    check("identity icon: only the titles were asked for (no values yet)", c28a.length === 1 && c28a[0].op === "identities", JSON.stringify(c28a));
+    await mouseClick(m28.items[1].x, m28.items[1].y);
+    await waitFor(async () => (await P(`document.getElementById("in-city").value`)) !== "", 3000);
+    const c28b = (await calls()).map(bare);
+    const fi = c28b.find((c) => c.op === "fill_identity");
+    check("identity fill: fill_identity with the page host, its origin and the picked account",
+      fi && fi.host === "localhost" && fi.origin === `http://localhost:${PORT}` && fi.account === "Identities/Office.nqv" && Object.keys(fi).length === 4,
+      JSON.stringify(c28b));
+    const v28 = await idVals(["in-country", "in-name", "in-mobile", "in-pin", "in-line1", "in-line2", "in-landmark", "in-city", "in-state", "in-hidden", "in-trap", "in-offscreen-ok"]);
+    check("Indian form: name, 10-digit mobile, PIN, both lines, city, state and country filled",
+      v28["in-name"] === "Asha K Rao" && v28["in-mobile"] === "9876543210" && v28["in-pin"] === "560038" &&
+      v28["in-line1"] === "Flat 4B, Lake View Apts" && v28["in-line2"] === "MG Road, Indiranagar" && v28["in-city"] === "Bengaluru" &&
+      v28["in-state"] === "KA" && v28["in-country"] === "IN", JSON.stringify(v28));
+    check("Indian form: landmark, hidden, display:none and unrelated fields untouched",
+      v28["in-landmark"] === "" && v28["in-hidden"] === "" && v28["in-trap"] === "" && v28["in-offscreen-ok"] === "", JSON.stringify(v28));
+    check("Indian form: other forms on the page untouched", (await P(`document.getElementById("t-city").value + document.getElementById("f-name").value + document.getElementById("n-email").value`)) === "");
+    check("Indian form: the page saw the country change", (await P("window.__countryChanges")) >= 1);
+    const t28 = await waitFor(async () => (await icons()).find((i) => i.tip === "Filled"), 1500);
+    check("identity fill: the icon says 'Filled'", !!t28);
+
+    // Vault locked: no titles, so the icon goes straight to Notiq (which unlocks and asks); tagged fields.
+    await resetCalls();
+    await mockNative({ ...NATIVE, fill_identity: IDENT, identities: { error: "locked" } });
+    ii = await iconFor("t-city");
+    await mouseClick(ii.x, ii.y);
+    await waitFor(async () => (await P(`document.getElementById("t-city").value`)) !== "", 3000);
+    const c28c = (await calls()).map(bare);
+    check("locked vault: titles refused, then one fill_identity without an account",
+      c28c.length === 2 && c28c[0].op === "identities" && c28c[1].op === "fill_identity" && !("account" in c28c[1]), JSON.stringify(c28c));
+    const v28t = await idVals(["t-email", "t-first", "t-last", "t-addr1", "t-addr2", "t-city", "t-zip", "t-state", "t-country", "t-phone"]);
+    check("token form: given / family split, the country code for autocomplete=country, every field",
+      v28t["t-email"] === "asha@example.com" && v28t["t-first"] === "Asha K" && v28t["t-last"] === "Rao" && v28t["t-addr1"] === "Flat 4B, Lake View Apts" &&
+      v28t["t-addr2"] === "MG Road, Indiranagar" && v28t["t-city"] === "Bengaluru" && v28t["t-zip"] === "560038" && v28t["t-state"] === "Karnataka" &&
+      v28t["t-country"] === "IN" && v28t["t-phone"] === "+91 98765 43210", JSON.stringify(v28t));
+
+    // A text box for the address next to a locality field holds line 1 only.
+    await mockNative({ ...NATIVE, fill_identity: IDENT, identities: IDLIST });
+    ii = await iconFor("f-name");
+    await mouseClick(ii.x, ii.y);
+    const m28c = await waitFor(() => menuInfo(), 3000);
+    await mouseClick(m28c.items[0].x, m28c.items[0].y);
+    await waitFor(async () => (await P(`document.getElementById("f-address").value`)) !== "", 3000);
+    const v28f = await idVals(["f-name", "f-phone", "f-pin", "f-locality", "f-address", "f-alt"]);
+    check("text-box form: address box = line 1, locality = line 2, alternate phone untouched",
+      v28f["f-address"] === "Flat 4B, Lake View Apts" && v28f["f-locality"] === "MG Road, Indiranagar" && v28f["f-phone"] === "9876543210" &&
+      v28f["f-pin"] === "560038" && v28f["f-alt"] === "", JSON.stringify(v28f));
+
+    // An older Notiq doesn't know the op.
+    await resetState();
+    await mockNative({ ...NATIVE, fill_identity: { error: "unknown_op" }, identities: { error: "unknown_op" } });
+    await load(IDP);
+    ii = await iconFor("in-city");
+    await mouseClick(ii.x, ii.y);
+    const e28 = await waitFor(async () => (await icons()).find((i) => i.cls.includes("error")), 3000);
+    check("older Notiq: 'Update Notiq to use this.' and nothing filled", e28 && e28.tip === "Update Notiq to use this." && (await P(`document.getElementById("in-city").value`)) === "",
+      JSON.stringify(e28));
+
+    // Right-click menu.
+    await resetState();
+    await mockNative({ ...NATIVE, fill_identity: IDENT, identities: IDLIST });
+    await load(IDP);
+    await SW("(identityAt = 0, true)"); // the titles were just asked for above: drop the 15-second throttle
+    check("menu: the contextMenus API is available to the background", await SW("!!MENUS && typeof onMenuClick === 'function'"));
+    await rightClick("in-city");
+    const stored = await waitFor(async () => { const s = await session(); return s.identityMenu && s.identityMenu.length === 2 ? s.identityMenu : null; }, 3000);
+    check("menu: opening it on a field loads the identity titles (titles only) into session memory",
+      !!stored && JSON.stringify(stored) === JSON.stringify(IDLIST.identities), JSON.stringify(await session()));
+    check("menu: only the titles were asked for", (await calls()).map(bare).every((c) => c.op === "identities"));
+    await rightClick("in-city");
+    check("menu: re-opening within 15 s doesn't ask again", (await calls()).filter((c) => c.op === "identities").length === 1);
+    await resetCalls();
+    await menuClick("nq-identity:1");
+    await waitFor(async () => (await P(`document.getElementById("in-city").value`)) !== "", 3000);
+    const c28m = (await calls()).map(bare);
+    check("menu 'Fill identity > Office': one fill_identity for that account, form filled",
+      c28m.length === 1 && c28m[0].op === "fill_identity" && c28m[0].account === "Identities/Office.nqv" &&
+      (await P(`document.getElementById("in-pin").value`)) === "560038", JSON.stringify(c28m));
+    // Fill login on a field without any icon (the newsletter box): a temporary icon shows progress.
+    await resetCalls();
+    await rightClick("n-email");
+    await menuClick("nq-login");
+    const tmp = await waitFor(async () => iconFor("n-email"), 2000);
+    check("menu 'Fill login' on an undetected field: a temporary progress icon", !!tmp);
+    await waitFor(async () => (await P(`document.getElementById("n-email").value`)) !== "", 3000);
+    const c28l = (await calls()).map(bare);
+    check("menu 'Fill login': the normal login fill for the page host, into the clicked field",
+      c28l.some((c) => c.op === "fill" && c.host === "localhost") && (await P(`document.getElementById("n-email").value`)) === "alice@example.com", JSON.stringify(c28l));
+    const gone = await waitFor(async () => !(await iconFor("n-email")), 9000);
+    check("menu 'Fill login': the temporary icon goes away afterwards", gone);
+    // Generate password into the clicked field only, locally.
+    await resetCalls();
+    await rightClick("l-pass");
+    await menuClick("nq-generate");
+    const gp = await waitFor(async () => P(`document.getElementById("l-pass").value`), 2000);
+    check("menu 'Generate password': a 20-character password in that field, nothing sent to Notiq",
+      typeof gp === "string" && gp.length === 20 && (await calls()).length === 0, JSON.stringify({ len: gp && gp.length }));
+    const gm = await menuInfo();
+    check("menu 'Generate password': the usual confirmation menu", gm && /Strong password filled/.test(gm.text), JSON.stringify(gm && gm.text));
+    await key("Escape", "Escape", 27);
+    // "Choose identity…" opens the in-page chooser on the clicked field.
+    await rightClick("f-name");
+    await menuClick("nq-identity-choose");
+    const mc = await waitFor(() => menuInfo(), 3000);
+    check("menu 'Choose identity…': the in-page chooser on the clicked field", mc && mc.items.map((i) => i.label).join("|") === "Home|Office|Choose in Notiq…",
+      JSON.stringify(mc && mc.items));
+    await key("Escape", "Escape", 27);
+    // Locking drops the titles from the menu.
+    await mockNative({ ...NATIVE, fill_identity: { error: "locked" }, identities: { error: "locked" } });
+    await resetCalls();
+    await menuClick("nq-identity:0");
+    const dropped = await waitFor(async () => { const s = await session(); return Array.isArray(s.identityMenu) && s.identityMenu.length === 0; }, 3000);
+    check("menu: a 'locked' answer drops the identity titles", dropped, JSON.stringify(await session()));
+    // A menu click for a frame on another site is ignored.
+    await resetCalls();
+    await menuClick("nq-login", { frameId: 3, frameUrl: "https://evil.example/" });
+    await sleep(600);
+    check("menu: a click from another site's frame is ignored", (await calls()).length === 0);
   }
 
   exitCode = results.every((r) => r.ok) ? 0 : 1;

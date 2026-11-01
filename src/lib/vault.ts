@@ -7,6 +7,9 @@ export const VAULT_EXT = "nqv";
 // Stable error codes emitted by src-tauri/src/vault.rs
 export const ERR_NO_VAULT = "NO_VAULT";
 export const ERR_LOCKED = "VAULT_LOCKED";
+/** `vault_unlock`: the old password matched a vault.meta another device has since replaced (Vault Sync). */
+export const ERR_PASSWORD_CHANGED_ELSEWHERE = "PASSWORD_CHANGED_ELSEWHERE";
+export const PASSWORD_CHANGED_ELSEWHERE_MSG = "Your master password was changed on another device. Use the new password.";
 
 export interface VaultStatus { exists: boolean; unlocked: boolean }
 export interface VaultFile   { content: string; ext: string }
@@ -172,5 +175,6 @@ export function vaultErrorMessage(e: unknown): string {
   const s = typeof e === "string" ? e : e instanceof Error ? e.message : String(e);
   if (s === ERR_LOCKED) return "The vault is locked";
   if (s === ERR_NO_VAULT) return "No vault has been set up yet";
+  if (s === ERR_PASSWORD_CHANGED_ELSEWHERE) return PASSWORD_CHANGED_ELSEWHERE_MSG;
   return s;
 }

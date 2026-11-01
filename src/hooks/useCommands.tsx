@@ -13,6 +13,10 @@ import { THEMES } from "../lib/themes";
 import { getActiveEditor } from "../lib/activeEditor";
 import { aiContinue, aiSummarize, aiFixGrammar, aiGenerateTitle } from "../lib/ai/actions";
 import { SECTION_LABELS, SECTION_ORDER, type SectionId } from "../lib/settingsIndex";
+import { buildSyncCommands } from "../lib/syncCommands";
+import { requestSyncSetup, syncSettingsRow } from "../lib/syncSurfaces";
+import { useSyncStore } from "../lib/vaultSync";
+import { runSyncNow } from "../components/layout/SyncPopover";
 
 interface UseCommandsDeps {
   tabs: Tab[];
@@ -79,6 +83,12 @@ export function useCommands(deps: UseCommandsDeps): () => Command[] {
       { id: "vault:lock-note", label: "Vault: Lock This Note", group: "Vault", icon: <LockIcon size={14} />, run: () => { if (activeTabId) void useAppStore.getState().lockTabToVault(activeTabId); } },
       { id: "vault:lock", label: "Vault: Lock Now", group: "Vault", icon: <LockIcon size={14} />, run: () => { void useAppStore.getState().lockVault(); } },
       { id: "vault:unlock", label: "Vault: Unlock", group: "Vault", icon: <UnlockIcon size={14} />, run: () => { void useVaultStore.getState().ensureUnlocked(); } },
+      ...buildSyncCommands(useSyncStore.getState().status, useVaultStore.getState(), {
+        syncNow: () => { void runSyncNow(); },
+        openSettings: () => openSettings("vault", syncSettingsRow(useSyncStore.getState().status)),
+        // The set-up decision flow (sign-in, then create / open / upload) takes over.
+        connect: requestSyncSetup,
+      }),
       { id: "act:settings", label: "Open Settings", group: "Actions", icon: <SettingsIcon size={14} />, trailing: "Ctrl+,", run: onOpenSettings },
     );
 

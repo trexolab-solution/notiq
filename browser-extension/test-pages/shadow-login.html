@@ -1,0 +1,91 @@
+<!doctype html>
+<!--
+  Login forms built from web components with OPEN shadow roots (the extension
+  must find, fill and capture them) and one with a CLOSED root (ignored: the page
+  chose to hide it).
+    cd browser-extension/test-pages && python -m http.server 8000
+    http://localhost:8000/shadow-login.html
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Notiq test page: shadow DOM login</title>
+<style>
+  :root { color-scheme: light dark; --fg: #1f2328; --bg: #f6f7f9; --card: #fff; --line: #d0d7de; --accent: #6366f1; }
+  @media (prefers-color-scheme: dark) { :root { --fg: #e6edf3; --bg: #0d1117; --card: #161b22; --line: #30363d; } }
+  body { margin: 0; padding: 24px 16px 60px; font: 15px/1.45 system-ui, sans-serif; color: var(--fg); background: var(--bg); }
+  main { max-width: 980px; margin: 0 auto; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 18px; }
+  h2 { font-size: 16px; margin: 0 0 4px; }
+  .hint { font-size: 13px; opacity: .7; margin: 0 0 14px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Shadow DOM logins</h1>
+  <div class="grid">
+    <div class="card"><h2>1. One component (open root)</h2><p class="hint">&lt;x-login&gt;: a form inside an open shadow root.</p><x-login id="c1"></x-login></div>
+    <div class="card"><h2>2. Nested components</h2><p class="hint">Email and password each in their own component inside a login component.</p><x-split-login id="c2"></x-split-login></div>
+    <div class="card"><h2>3. Rendered late</h2><p class="hint">The form appears inside the root a second after load.</p><x-late-login id="c3"></x-late-login></div>
+    <div class="card"><h2>4. Closed root</h2><p class="hint">Hidden from the page and from Notiq: no icon.</p><x-closed-login id="c4"></x-closed-login></div>
+  </div>
+  <p id="status"></p>
+</main>
+<script>
+  const CSS = `label { display: block; font-size: 13px; margin: 10px 0 4px; }
+    input { box-sizing: border-box; width: 100%; padding: 9px 10px; font: inherit; border: 1px solid #d0d7de; border-radius: 8px; background: transparent; color: inherit; }
+    button { margin-top: 14px; width: 100%; padding: 10px; border: 0; border-radius: 8px; background: #6366f1; color: #fff; font: inherit; font-weight: 600; cursor: pointer; }`;
+  const FORM = (p) => `<style>${CSS}</style><form>
+      <label for="${p}-user">Email</label><input id="${p}-user" type="email" autocomplete="username">
+      <label for="${p}-pass">Password</label><input id="${p}-pass" type="password" autocomplete="current-password">
+      <button type="submit">Sign in</button></form>`;
+  const signIn = (root, form) => form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    form.remove();
+    root.appendChild(Object.assign(document.createElement("p"), { textContent: "Signed in" }));
+    document.getElementById("status").textContent = "signed in";
+  });
+
+  customElements.define("x-login", class extends HTMLElement {
+    connectedCallback() {
+      const r = this.attachShadow({ mode: "open" });
+      r.innerHTML = FORM("c1");
+      signIn(r, r.querySelector("form"));
+    }
+  });
+  customElements.define("x-text-field", class extends HTMLElement {
+    connectedCallback() {
+      const r = this.attachShadow({ mode: "open" });
+      r.innerHTML = `<style>${CSS}</style><label for="f">${this.getAttribute("label")}</label>
+        <input id="f" type="${this.getAttribute("type")}" autocomplete="${this.getAttribute("ac")}">`;
+    }
+  });
+  customElements.define("x-split-login", class extends HTMLElement {
+    connectedCallback() {
+      const r = this.attachShadow({ mode: "open" });
+      r.innerHTML = `<style>${CSS}</style><div class="box">
+        <x-text-field id="c2-user" label="Email" type="email" ac="username"></x-text-field>
+        <x-text-field id="c2-pass" label="Password" type="password" ac="current-password"></x-text-field>
+        <button type="button" id="c2-go">Sign in</button></div>`;
+    }
+  });
+  customElements.define("x-late-login", class extends HTMLElement {
+    connectedCallback() {
+      const r = this.attachShadow({ mode: "open" });
+      r.innerHTML = `<style>${CSS}</style><p>Loading…</p>`;
+      setTimeout(() => { r.innerHTML = FORM("c3"); signIn(r, r.querySelector("form")); }, 1200);
+    }
+  });
+  customElements.define("x-closed-login", class extends HTMLElement {
+    connectedCallback() {
+      const r = this.attachShadow({ mode: "closed" });
+      r.innerHTML = FORM("c4");
+    }
+  });
+  // For the e2e check: the inputs, reached through the open roots.
+  window.__field = (path) => path.reduce((n, sel) => (n.shadowRoot || n).querySelector(sel), document);
+</script>
+</body>
+</html>

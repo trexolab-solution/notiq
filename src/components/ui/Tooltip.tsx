@@ -1,139 +1,176 @@
-import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { placeTooltip, type TooltipPlacement, type TooltipPos } from "../../lib/popoverPosition";
+import { isFocusVisible, isMouseDown, parseShortcut, tooltipRuntime } from "../../lib/tooltipLogic";
+
+export type { TooltipPlacement };
 
 interface TooltipProps {
   /** Main label shown in the tooltip */
   content: React.ReactNode;
-  /** Optional keyboard shortcut shown as a kbd pill */
+  /** Optional keyboard shortcut, rendered as keybinding chips ("Ctrl+Shift+N", chords "Ctrl+K Ctrl+S") */
   shortcut?: string;
-  /** Hover delay in ms before the tooltip appears (default 550) */
+  /** Optional muted second line under the label */
+  description?: React.ReactNode;
+  /** Hover delay in ms before the tooltip appears (default 500; skipped while warm) */
   delay?: number;
+  /** Preferred side; flips to the opposite side when it doesn't fit (default "bottom") */
+  placement?: TooltipPlacement;
   /** When true the tooltip is suppressed entirely */
   disabled?: boolean;
   children: React.ReactElement;
 }
 
-// ── Module-level shared state ────────────────────────────────────────────────
-
-// Fast-follow: once a tooltip has been shown, the next tooltip in the same
-// "session" appears instantly so scanning a toolbar doesn't require waiting
-// the full delay on every button.
-let lastHideTime = 0;
-const FAST_FOLLOW_WINDOW = 400; // ms — if re-entering within this window, skip delay
-
-// Skip tooltip while any mouse button is held (prevents flash during click/drag)
-let isMouseDown = false;
-if (typeof document !== "undefined") {
-  document.addEventListener("mousedown", () => { isMouseDown = true; },  { capture: true, passive: true });
-  document.addEventListener("mouseup",   () => { isMouseDown = false; }, { capture: true, passive: true });
+/** Keybinding chips, VS Code style: each key in its own <kbd>, joined by "+". */
+export function KeybindingLabel({ shortcut }: { shortcut: string }) {
+  return (
+    <span className="app-tooltip-keys">
+      {parseShortcut(shortcut).map((chord, ci) => (
+        <span key={ci} className="app-tooltip-chord">
+          {chord.map((k, ki) => (
+            <React.Fragment key={ki}>
+              {ki > 0 && <span className="app-tooltip-kbd-sep">+</span>}
+              <kbd className="app-tooltip-kbd">{k}</kbd>
+            </React.Fragment>
+          ))}
+        </span>
+      ))}
+    </span>
+  );
 }
 
-// ── Component ────────────────────────────────────────────────────────────────
-
-export function Tooltip({ content, shortcut, delay = 550, disabled, children }: TooltipProps) {
-  const [visible, setVisible]   = useState(false);
-  const [pos, setPos]           = useState({ x: 0, y: 0, above: false });
-  const timerRef                = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const tooltipRef              = useRef<HTMLDivElement>(null);
-  const wasVisibleRef           = useRef(false); // true while this instance's tooltip is shown
+/**
+ * VS Code-style hover for a single trigger element.
+ *
+ * - Shows after `delay` (500 ms) on hover, or on keyboard focus (focus-visible);
+ *   once a tooltip has been shown, neighbours open instantly until it cools down.
+ * - Hides on pointer leave, blur, click/pointer-down, scroll, resize, Esc and window blur.
+ * - Placed below by default, flipped/shifted to stay inside the viewport.
+ * - Never takes focus (portal, `pointer-events: none`); wires `aria-describedby`
+ *   on the trigger while visible.
+ */
+export function Tooltip({
+  content, shortcut, description, delay, placement = "bottom", disabled, children,
+}: TooltipProps) {
+  const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState<TooltipPos | null>(null);
+  const id = useId();
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const anchorRef = useRef<Element | null>(null);
+  const tipRef = useRef<HTMLDivElement>(null);
+  const openRef = useRef(false);
 
   const clearTimer = () => {
     if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null; }
   };
 
-  const open = useCallback(
-    (el: Element) => {
-      if (disabled || !content) return;
-      // Auto-detect disabled form controls — no tooltip on an inactive button
-      if ((el as HTMLButtonElement).disabled) return;
-      // Don't show while a mouse button is held (click or drag in progress)
-      if (isMouseDown) return;
-      // Don't show when Monaco find widget is open — prevents flickering near the X button
-      if (document.querySelector(".monaco-editor .find-widget.visible")) return;
-
-      clearTimer();
-
-      // Fast-follow: skip the delay if we're quickly moving between tooltipped elements
-      const elapsed     = Date.now() - lastHideTime;
-      const actualDelay = elapsed < FAST_FOLLOW_WINDOW ? 0 : delay;
-
-      timerRef.current = setTimeout(() => {
-        // Re-check conditions at the moment of showing
-        if (isMouseDown) return;
-        if ((el as HTMLButtonElement).disabled) return;
-
-        const r     = el.getBoundingClientRect();
-        const above = r.bottom + 52 > window.innerHeight;
-        setPos({ x: r.left + r.width / 2, y: above ? r.top - 10 : r.bottom + 8, above });
-        wasVisibleRef.current = true;
-        setVisible(true);
-      }, actualDelay);
-    },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [disabled, content, delay],
-  );
-
-  const close = useCallback(() => {
+  // Stable identity: the shared runtime uses it to close this tooltip when another opens.
+  const hide = useCallback(() => {
     clearTimer();
-    // Only update the fast-follow timer when this instance's tooltip was actually shown
-    if (wasVisibleRef.current) {
-      lastHideTime = Date.now();
-      wasVisibleRef.current = false;
-    }
-    setVisible(false);
+    if (!openRef.current) return;
+    openRef.current = false;
+    tooltipRuntime.hidden(hide);
+    setOpen(false);
+    setPos(null);
   }, []);
 
-  // ── Viewport edge clamping ─────────────────────────────────────────────────
-  // Runs synchronously before paint so there is no visible position jump.
+  const canShow = (el: Element) =>
+    !disabled && !!content && !(el as HTMLButtonElement).disabled && !isMouseDown()
+    // Monaco's find widget sits over toolbar buttons — don't flicker under it.
+    && !document.querySelector(".monaco-editor .find-widget.visible");
+
+  const show = () => {
+    timerRef.current = null;
+    const el = anchorRef.current;
+    if (!el || !el.isConnected || !canShow(el)) return;
+    openRef.current = true;
+    tooltipRuntime.shown(hide);
+    setOpen(true);
+  };
+
+  const schedule = (el: Element) => {
+    anchorRef.current = el;
+    if (openRef.current || !canShow(el)) return;
+    clearTimer();
+    const wait = tooltipRuntime.delayFor(delay);
+    if (wait === 0) show();
+    else timerRef.current = setTimeout(show, wait);
+  };
+
+  // ── Position (before paint, so there is no jump) ──────────────────────────
   useLayoutEffect(() => {
-    if (!visible || !tooltipRef.current) return;
-    const MARGIN = 8;
-    const rect   = tooltipRef.current.getBoundingClientRect();
-    if (rect.right > window.innerWidth - MARGIN) {
-      setPos((p) => ({ ...p, x: p.x - (rect.right - window.innerWidth + MARGIN) }));
-    } else if (rect.left < MARGIN) {
-      setPos((p) => ({ ...p, x: p.x + (MARGIN - rect.left) }));
-    }
-  }, [visible]);
+    if (!open || !tipRef.current || !anchorRef.current) return;
+    const tip = tipRef.current.getBoundingClientRect();
+    setPos(placeTooltip(
+      anchorRef.current.getBoundingClientRect(),
+      { width: tip.width, height: tip.height },
+      { width: window.innerWidth, height: window.innerHeight },
+      { placement },
+    ));
+  }, [open, content, shortcut, description, placement]);
 
-  // ── Hide on scroll (tooltip becomes stale when content scrolls away) ───────
+  // ── Global dismissal while visible ─────────────────────────────────────────
   useEffect(() => {
-    if (!visible) return;
-    const hide = () => { wasVisibleRef.current = false; setVisible(false); };
-    window.addEventListener("scroll", hide, { capture: true, passive: true });
-    return () => window.removeEventListener("scroll", hide, { capture: true });
-  }, [visible]);
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") hide(); };
+    const opts = { capture: true, passive: true } as const;
+    document.addEventListener("keydown", onKey, true);
+    document.addEventListener("pointerdown", hide, opts);
+    window.addEventListener("scroll", hide, opts);
+    window.addEventListener("resize", hide);
+    window.addEventListener("blur", hide);
+    return () => {
+      document.removeEventListener("keydown", onKey, true);
+      document.removeEventListener("pointerdown", hide, opts);
+      window.removeEventListener("scroll", hide, opts);
+      window.removeEventListener("resize", hide);
+      window.removeEventListener("blur", hide);
+    };
+  }, [open, hide]);
 
-  // Cleanup on unmount
-  useEffect(() => () => clearTimer(), []);
+  // Suppressed while open (e.g. the trigger's popover just opened) → close now.
+  useEffect(() => { if (disabled) hide(); }, [disabled, hide]);
 
-  // ── Compose event handlers with any existing ones on the child ────────────
+  useEffect(() => () => hide(), [hide]);
+
+  // ── Compose handlers with any the child already has ────────────────────────
   const cp = children.props as Record<string, unknown>;
-  type ME = React.MouseEvent; type FE = React.FocusEvent;
+  const call = (name: string, e: unknown) => (cp[name] as ((e: unknown) => void) | undefined)?.(e);
+  const describedBy = [cp["aria-describedby"] as string | undefined, open ? id : undefined]
+    .filter(Boolean).join(" ") || undefined;
+
   const composed: React.HTMLAttributes<HTMLElement> = {
-    onMouseEnter(e: ME) { open(e.currentTarget as Element); (cp.onMouseEnter as ((e: ME) => void) | undefined)?.(e); },
-    onMouseLeave(e: ME) { close();                          (cp.onMouseLeave as ((e: ME) => void) | undefined)?.(e); },
-    onFocus(e: FE)      { open(e.currentTarget as Element); (cp.onFocus      as ((e: FE) => void) | undefined)?.(e); },
-    onBlur(e: FE)       { close();                          (cp.onBlur       as ((e: FE) => void) | undefined)?.(e); },
+    onMouseEnter(e) { schedule(e.currentTarget); call("onMouseEnter", e); },
+    onMouseLeave(e) { hide(); call("onMouseLeave", e); },
+    onMouseDown(e)  { hide(); call("onMouseDown", e); },
+    onFocus(e)      { if (isFocusVisible(e.currentTarget)) schedule(e.currentTarget); call("onFocus", e); },
+    onBlur(e)       { hide(); call("onBlur", e); },
+    onKeyDown(e)    { if (e.key === "Escape") hide(); call("onKeyDown", e); },
+    "aria-describedby": describedBy,
   };
 
   return (
     <>
       {React.cloneElement(children, composed)}
-      {visible && createPortal(
+      {open && createPortal(
         <div
-          ref={tooltipRef}
-          className={`app-tooltip${pos.above ? " app-tooltip--above" : ""}`}
+          ref={tipRef}
+          id={id}
+          role="tooltip"
+          className={`app-tooltip app-tooltip--${pos?.placement ?? placement}`}
           style={{
-            position:      "fixed",
-            left:          pos.x,
-            top:           pos.y,
-            transform:     pos.above ? "translate(-50%, -100%)" : "translateX(-50%)",
+            position: "fixed",
+            top: pos?.top ?? 0,
+            left: pos?.left ?? 0,
+            visibility: pos ? undefined : "hidden",
             pointerEvents: "none",
           }}
         >
-          <span className="app-tooltip-label">{content}</span>
-          {shortcut && <kbd className="app-tooltip-kbd">{shortcut}</kbd>}
+          <div className="app-tooltip-row">
+            <span className="app-tooltip-label">{content}</span>
+            {shortcut && <KeybindingLabel shortcut={shortcut} />}
+          </div>
+          {description && <div className="app-tooltip-desc">{description}</div>}
         </div>,
         document.body,
       )}

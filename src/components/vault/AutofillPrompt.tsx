@@ -6,13 +6,13 @@ import { FillChoice } from "./autofillBodies";
 import { useVaultStore } from "../../store/vaultStore";
 import { toast } from "../../lib/toast";
 import {
-  clearTrust, credentialsFor, decideTrusted, indexOfAccount, isFallbackRequest, isTrusted, lookalikeWarning, scanLogins,
-  trustHost, type LoginMatch,
+  clearTrust, decideTrusted, fillReply, indexOfAccount, isFallbackRequest, isTrusted, lookalikeWarning, matchesForIntent, scanLogins,
+  trustHost, validIntent, type LoginMatch,
 } from "../../lib/autofill";
 import type { Lookalike } from "../../lib/lookalike";
 
 /** `account`: optional vault-relative path the extension asks for (from an earlier `choose` reply). */
-interface Req { id: string; host: string; account?: string; fallback?: boolean }
+interface Req { id: string; host: string; account?: string; intent?: unknown; fallback?: boolean }
 
 const reply = (id: string, payload: unknown) => invoke("autofill_reply", { id, payload });
 
@@ -43,10 +43,12 @@ export function AutofillPrompt() {
       if (vault.unlocked && isTrusted(r.host)) {
         try {
           const scan = await scanLogins(r.host);
-          const d = decideTrusted(scan.matches, r.account);
-          if (d.kind === "no_match") { await reply(r.id, { error: "no_match" }); warnLookalike(r.host, scan.lookalike); }
+          const usable = matchesForIntent(scan.matches, validIntent(r.intent));
+          const d = decideTrusted(usable, r.account);
+          if (scan.matches.length && !usable.length) await reply(r.id, { error: "no_code" });
+          else if (d.kind === "no_match") { await reply(r.id, { error: "no_match" }); warnLookalike(r.host, scan.lookalike); }
           else if (d.kind === "choose") await reply(r.id, { choose: d.options });
-          else await reply(r.id, { ok: true, ...(await credentialsFor(d.match)) });
+          else await reply(r.id, await fillReply(d.match, validIntent(r.intent)));
         } catch {
           await reply(r.id, { error: "failed" });
         }
@@ -57,8 +59,10 @@ export function AutofillPrompt() {
         return;
       }
       try {
-        const { matches: found, lookalike } = await scanLogins(r.host);
-        if (!found.length) { await reply(r.id, { error: "no_match" }); warnLookalike(r.host, lookalike); return; }
+        const { matches: all, lookalike } = await scanLogins(r.host);
+        if (!all.length) { await reply(r.id, { error: "no_match" }); warnLookalike(r.host, lookalike); return; }
+        const found = matchesForIntent(all, validIntent(r.intent));
+        if (!found.length) { await reply(r.id, { error: "no_code" }); return; }
         setMatches(found); setPick(Math.max(0, indexOfAccount(found, r.account))); setTrust(false); setReq(r);
       } catch {
         await reply(r.id, { error: "failed" });
@@ -96,7 +100,7 @@ export function AutofillPrompt() {
     setBusy(true);
     try {
       if (trust) trustHost(req.host);
-      await reply(req.id, { ok: true, ...(await credentialsFor(matches[pick])) });
+      await reply(req.id, await fillReply(matches[pick], validIntent(req.intent)));
     } finally { setBusy(false); done(); }
   };
 
@@ -105,14 +109,14 @@ export function AutofillPrompt() {
     <Dialog onClose={() => void deny()} zClassName="z-[80]" size="sm" role="alertdialog" defaultFocus="cancel"
             title="Fill login in your browser?" icon="shield">
       <DialogBody
-        message={<>Your browser is on <strong>{req.host}</strong> and asked for a saved login.</>}
+        message={<>Your browser is on <strong>{req.host}</strong> and asked for {validIntent(req.intent) ? "the 2FA code of " : ""}a saved login.</>}
         detail="Only allow this if you just pressed Fill there."
       >
         <FillChoice host={req.host} matches={matches} pick={pick} onPick={setPick} trust={trust} onTrust={setTrust} />
       </DialogBody>
       <DialogFooter>
         <DialogButton cancel onClick={() => void deny()}>Deny</DialogButton>
-        <DialogButton variant="primary" disabled={busy} onClick={() => void allow()}>Allow</DialogButton>
+        <DialogButton variant="primary" loading={busy} loadingText="Filling…" onClick={() => void allow()}>Allow</DialogButton>
       </DialogFooter>
     </Dialog>
   );

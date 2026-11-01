@@ -10,11 +10,15 @@ mod vault;
 mod vault_backup;
 mod vault_core;
 mod vault_db;
+mod vault_hlc; // 0.9.0 sync: HLC stamps + device id
+mod vault_merge; // 0.9.0 sync: pure merge engine (P1)
 mod profile;
 mod session_lock;
 mod hello; // 0.7.0 hello
 // 0.7.0 quick search
 mod quick_search;
+// 0.9.0 vault sync: storage providers (P2) + orchestrator (P3)
+mod sync;
 #[cfg(desktop)]
 use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem},
@@ -635,7 +639,9 @@ pub fn run() {
             .plugin(quick_search::plugin())
     };
 
-    let builder = builder.manage(vault::VaultState::default());
+    let builder = builder
+        .manage(vault::VaultState::default())
+        .manage(sync::commands::SyncManager::default());
 
     #[cfg(desktop)]
     let builder = builder.invoke_handler(tauri::generate_handler![
@@ -716,6 +722,19 @@ pub fn run() {
         quick_search::quick_search_reopen,
         quick_search::quick_search_index,
         quick_search::vault_fingerprint,
+        // 0.9.0 vault sync (P3)
+        sync::commands::sync_status,
+        sync::commands::sync_connect,
+        sync::commands::sync_disconnect,
+        sync::commands::sync_remote_info,
+        sync::commands::sync_enable,
+        sync::commands::sync_join,
+        sync::commands::sync_adopt_remote,
+        sync::commands::sync_now,
+        sync::commands::sync_disable,
+        sync::commands::sync_devices,
+        sync::commands::sync_remove_device,
+        sync::commands::sync_set_device_name,
     ]);
 
     #[cfg(not(desktop))]
@@ -792,6 +811,19 @@ pub fn run() {
         quick_search::quick_search_reopen,
         quick_search::quick_search_index,
         quick_search::vault_fingerprint,
+        // 0.9.0 vault sync (P3)
+        sync::commands::sync_status,
+        sync::commands::sync_connect,
+        sync::commands::sync_disconnect,
+        sync::commands::sync_remote_info,
+        sync::commands::sync_enable,
+        sync::commands::sync_join,
+        sync::commands::sync_adopt_remote,
+        sync::commands::sync_now,
+        sync::commands::sync_disable,
+        sync::commands::sync_devices,
+        sync::commands::sync_remove_device,
+        sync::commands::sync_set_device_name,
     ]);
 
     #[cfg(desktop)]
@@ -836,6 +868,9 @@ pub fn run() {
 
             // 0.7.0 quick search
             quick_search::start(app.handle());
+
+            // 0.9.0 vault sync: per-device settings, change hook, scheduler
+            sync::commands::start(app.handle());
 
             #[cfg(desktop)]
             setup_tray(app)?;

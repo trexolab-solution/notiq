@@ -1,0 +1,96 @@
+<!doctype html>
+<!--
+  Sign-up forms whose password fields carry limits: the Notiq generator must make a
+  password the site keeps unchanged (never cut) and that follows its rules.
+    cd browser-extension/test-pages && python -m http.server 8000
+    http://localhost:8000/signup-rules.html
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Notiq test page: sign-up with password rules</title>
+<style>
+  :root { color-scheme: light dark; --fg: #1f2328; --bg: #f6f7f9; --card: #fff; --line: #d0d7de; --accent: #6366f1; }
+  @media (prefers-color-scheme: dark) { :root { --fg: #e6edf3; --bg: #0d1117; --card: #161b22; --line: #30363d; } }
+  body { margin: 0; padding: 24px 16px 60px; font: 15px/1.45 system-ui, sans-serif; color: var(--fg); background: var(--bg); }
+  main { max-width: 980px; margin: 0 auto; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
+  form { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 18px; }
+  h2 { font-size: 16px; margin: 0 0 4px; }
+  .hint { font-size: 13px; opacity: .7; margin: 0 0 14px; }
+  label { display: block; font-size: 13px; margin: 10px 0 4px; }
+  input { box-sizing: border-box; width: 100%; padding: 9px 10px; font: inherit; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: inherit; }
+  button { margin-top: 14px; width: 100%; padding: 10px; border: 0; border-radius: 8px; background: var(--accent); color: #fff; font: inherit; font-weight: 600; cursor: pointer; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Sign-up forms with password rules</h1>
+  <div class="grid">
+    <form id="max16" onsubmit="return false">
+      <h2>1. maxlength=16</h2>
+      <p class="hint">The generated password must be 16 characters, in both fields.</p>
+      <label for="m-email">Email</label>
+      <input id="m-email" type="email" autocomplete="email">
+      <label for="m-pass">New password</label>
+      <input id="m-pass" type="password" autocomplete="new-password" maxlength="16">
+      <label for="m-pass2">Confirm password</label>
+      <input id="m-pass2" type="password" autocomplete="new-password" maxlength="16">
+      <button type="submit">Create account</button>
+    </form>
+
+    <form id="rules" onsubmit="return false">
+      <h2>2. passwordrules</h2>
+      <p class="hint">minlength 8, maxlength 14, lower + upper + digit required, only <code>-_.</code> as symbols.</p>
+      <label for="r-email">Email</label>
+      <input id="r-email" type="email" autocomplete="email">
+      <label for="r-pass">New password</label>
+      <input id="r-pass" type="password" autocomplete="new-password"
+             passwordrules="minlength: 8; maxlength: 14; required: lower; required: upper; required: digit; allowed: [-_.]">
+      <label for="r-pass2">Confirm password</label>
+      <input id="r-pass2" type="password" autocomplete="new-password">
+      <button type="submit">Create account</button>
+    </form>
+
+    <form id="pattern" onsubmit="return false">
+      <h2>3. pattern, letters and digits only</h2>
+      <p class="hint"><code>pattern="[A-Za-z0-9]{8,12}"</code>: 12 characters, no symbols.</p>
+      <label for="p-email">Email</label>
+      <input id="p-email" type="email" autocomplete="email">
+      <label for="p-pass">New password</label>
+      <input id="p-pass" type="password" autocomplete="new-password" pattern="[A-Za-z0-9]{8,12}">
+      <button type="submit">Create account</button>
+    </form>
+
+    <form id="impossible" onsubmit="return false">
+      <h2>4. impossible rules</h2>
+      <p class="hint">minlength 30 but maxlength 10: Notiq warns and fills its default password, cut to the 10-character maximum.</p>
+      <label for="i-email">Email</label>
+      <input id="i-email" type="email" autocomplete="email">
+      <label for="i-pass">New password</label>
+      <input id="i-pass" type="password" autocomplete="new-password" minlength="30" maxlength="10">
+      <button type="submit">Create account</button>
+    </form>
+
+    <form id="jscut" onsubmit="return false">
+      <h2>5. script cuts to 10</h2>
+      <p class="hint">No maxlength attribute; a script keeps only the first 10 characters. Notiq retries at 10.</p>
+      <label for="j-email">Email</label>
+      <input id="j-email" type="email" autocomplete="email">
+      <label for="j-pass">New password</label>
+      <input id="j-pass" type="password" autocomplete="new-password">
+      <label for="j-pass2">Confirm password</label>
+      <input id="j-pass2" type="password" autocomplete="new-password">
+      <button type="submit">Create account</button>
+    </form>
+  </div>
+</main>
+<script>
+  for (const id of ["j-pass", "j-pass2"]) {
+    const f = document.getElementById(id);
+    f.addEventListener("input", () => { if (f.value.length > 10) f.value = f.value.slice(0, 10); });
+  }
+</script>
+</body>
+</html>

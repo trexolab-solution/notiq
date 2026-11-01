@@ -251,7 +251,7 @@ export function ImportDialog({ onClose }: { onClose: () => void }) {
         {stage === "pick" && (
           <DialogFooter>
             <DialogButton cancel onClick={onClose}>Cancel</DialogButton>
-            <DialogButton variant="primary" disabled={busy} onClick={() => void pickFile()}>{busy ? "Reading…" : "Choose CSV file…"}</DialogButton>
+            <DialogButton variant="primary" loading={busy} loadingText="Reading…" onClick={() => void pickFile()}>Choose CSV file…</DialogButton>
           </DialogFooter>
         )}
         {stage === "review" && map && counts && (

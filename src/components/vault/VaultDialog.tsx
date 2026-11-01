@@ -1,17 +1,24 @@
 import { useEffect, useState } from "react";
-import { KeyRound, Lock, Copy, Printer } from "lucide-react";
+import { KeyRound, Lock, Copy, Printer, Cloud, ShieldPlus } from "lucide-react";
 import { Dialog, DialogBody, DialogButton, DialogCheckbox, DialogFooter } from "../ui/Dialog";
 import { Input } from "../ui/Input";
 import { PasswordInput } from "../ui/PasswordInput";
 import { Button } from "../ui/Button";
 import { RestoreBackupDialog } from "./RestoreBackupDialog";
 import { RecoveryKitDialog } from "./RecoveryKitDialog"; // 0.7.0 recovery kit
+import { SyncSetupHost } from "./sync/SyncSetupHost";
+import { SyncOnboardingDialog } from "./sync/SyncOnboardingDialog";
+import { useSyncStatus, useSyncStore } from "../../lib/vaultSync";
+import { isCreatingForSync, startSyncSetup } from "../../lib/syncSetupFlow";
+import { shouldOfferSyncOnboarding } from "../../lib/syncLifecycle";
+import { initVaultSyncEvents } from "../../lib/vaultSyncEvents";
 import { toast } from "../../lib/toast";
 import { initVaultStateSync, useVaultStore, type VaultDialogMode } from "../../store/vaultStore";
 import { useAppStore } from "../../store";
 import { useVaultAutoLock } from "../../hooks/useVaultAutoLock";
 import { useVaultSessionLock } from "../../hooks/useVaultSessionLock";
-import { copySecret } from "../../lib/secureCopy";
+import { copySecretTimed } from "../../lib/secureCopy";
+import { clipboardClearLabel } from "../../lib/vaultPrefs";
 import { vaultCreate, vaultUnlockWithRecovery, vaultErrorMessage } from "../../lib/vault";
 import { useVaultUnlock } from "./unlock/useVaultUnlock";
 import { VaultUnlockActions, VaultUnlockBody } from "./unlock/VaultUnlockForm";
@@ -24,13 +31,24 @@ export function VaultDialog() {
   useEffect(() => { void useVaultStore.getState().refresh(); }, []);
   // Follow an unlock done in the autofill prompt window (and its saved logins).
   useEffect(() => initVaultStateSync("main"), []);
+  // Vault Sync: live status, the one conflict notification, refreshing after remote changes.
+  useEffect(() => initVaultSyncEvents(), []);
   // This component is mounted once for the whole app, so it also hosts the
   // vault's global behaviour (idle / close-to-tray auto-lock).
   useVaultAutoLock();
   useVaultSessionLock();
+  // After creating a NEW vault: the optional "Use this vault on your other PCs?" step. It lives here (not in
+  // the setup dialog) so the setup finishes — and whoever waited for the vault continues — first.
+  const [offerSync, setOfferSync] = useState(false);
   // key={mode} remounts on mode switch so passwords never leak between steps.
   return (
-    mode === "unlock" ? <UnlockDialog key={mode} /> : mode ? <VaultDialogInner key={mode} mode={mode} /> : null
+    <>
+      {mode === "unlock" ? <UnlockDialog key={mode} />
+        : mode ? <VaultDialogInner key={mode} mode={mode} onCreated={() => setOfferSync(true)} /> : null}
+      {offerSync && !mode && <SyncOnboardingDialog onClose={() => setOfferSync(false)} />}
+      {/* Vault Sync setup steps (connect → Drive check → open / create / upload / two vaults). */}
+      <SyncSetupHost />
+    </>
   );
 }
 
@@ -65,7 +83,7 @@ function UnlockDialog() {
 type SetupMode = Exclude<VaultDialogMode, "unlock" | null>;
 
 /** Setting up a new vault, or resetting the master password with the recovery key. */
-function VaultDialogInner({ mode }: { mode: SetupMode }) {
+function VaultDialogInner({ mode, onCreated }: { mode: SetupMode; onCreated?: () => void }) {
   const [password, setPassword] = useState("");
   const [confirm, setConfirm]   = useState("");
   const [recoveryInput, setRecoveryInput] = useState("");
@@ -76,6 +94,12 @@ function VaultDialogInner({ mode }: { mode: SetupMode }) {
   const [saved, setSaved] = useState(false);
   const [restoring, setRestoring] = useState(false);
   const [showKit, setShowKit] = useState(false); // 0.7.0 recovery kit
+  // Hide "Use my vault from Google Drive" only once we know this build has no Google sign-in.
+  const syncStatus = useSyncStatus();
+  // Opened by the sync flow's "Create a new vault" (Drive is known to be empty): no Drive card, and sync turns on
+  // by itself afterwards instead of asking "Use this vault on your other PCs?".
+  const [forSync] = useState(isCreatingForSync);
+  const driveAvailable = syncStatus?.configured !== false && !forSync;
 
   const validate = (): string | null => {
     if (password.length < MIN_LEN) return `Password must be at least ${MIN_LEN} characters`;
@@ -110,9 +134,13 @@ function VaultDialogInner({ mode }: { mode: SetupMode }) {
 
   const copyKey = async () => {
     if (!recoveryKey) return;
-    // copySecret keeps it out of clipboard history and clears it after 20 s; it shows its own error toast on failure.
-    if (await copySecret(recoveryKey, "Recovery key", { quiet: true })) {
-      toast.info("Recovery key copied — it clears from the clipboard in 20 s. Paste it somewhere safe now.");
+    // copySecretTimed keeps it out of clipboard history and clears it after the user's setting; it shows its own
+    // error toast on failure.
+    const secs = await copySecretTimed(recoveryKey, "Recovery key", { quiet: true });
+    if (secs !== null) {
+      toast.info(secs > 0
+        ? `Recovery key copied — it clears from the clipboard in ${clipboardClearLabel(secs)}. Paste it somewhere safe now.`
+        : "Recovery key copied. Paste it somewhere safe now.");
     }
   };
 
@@ -146,7 +174,10 @@ function VaultDialogInner({ mode }: { mode: SetupMode }) {
             onClick={async () => {
               setShowKit(false);
               setRecoveryKey(null);
+              const sync = await useSyncStore.getState().refresh();
+              const syncFlowContinues = isCreatingForSync(); // read before succeed() hands control back to the flow
               await succeed();
+              if (!syncFlowContinues && shouldOfferSyncOnboarding(sync)) onCreated?.();
             }}
           >
             Done
@@ -174,6 +205,7 @@ function VaultDialogInner({ mode }: { mode: SetupMode }) {
     <Dialog onClose={cancel} zClassName="z-[70]" size="sm" onSubmit={submit} title={title}
             icon={mode === "recover" ? <KeyRound size={16} /> : <Lock size={16} />}>
       <DialogBody>
+        {mode === "setup" && driveAvailable && <SetupChoice onUseDrive={openDriveFromSetup} />}
         <p className="dlg-detail dlg-detail--block mb-4">
           {mode === "setup" && "Choose a master password. It encrypts your locked notes on this device and is never stored or sent anywhere."}
           {mode === "recover" && "Enter the recovery key you saved at setup, then choose a new master password."}
@@ -212,20 +244,51 @@ function VaultDialogInner({ mode }: { mode: SetupMode }) {
       </DialogBody>
       <DialogFooter
         start={mode === "setup" ? (
-          <button
-            type="button"
-            className="dlg-link"
-            onClick={() => setRestoring(true)}
-          >
+          <button type="button" className="dlg-link" onClick={() => setRestoring(true)}>
             Restore from backup file
           </button>
         ) : undefined}
       >
         <DialogButton cancel onClick={cancel}>Cancel</DialogButton>
-        <DialogButton type="submit" variant="primary" disabled={busy}>
-          {busy ? "Working…" : mode === "setup" ? "Create vault" : "Reset & unlock"}
+        <DialogButton type="submit" variant="primary" loading={busy}
+                      loadingText={mode === "setup" ? "Creating…" : "Resetting…"}>
+          {mode === "setup" ? "Create vault" : "Reset & unlock"}
         </DialogButton>
       </DialogFooter>
     </Dialog>
+  );
+}
+
+/**
+ * "Use my vault from Google Drive" on the setup screen: hand over to the one sync setup flow. Whoever waited for
+ * the vault (e.g. opening a locked note) continues when that flow ends.
+ */
+function openDriveFromSetup() {
+  useVaultStore.getState().setDialog(null);
+  void startSyncSetup({ fromSetup: true });
+}
+
+/**
+ * Top of the setup screen: "Create a new vault" (this form) next to "Use my vault from Google Drive" as an
+ * equal-weight choice card, so someone setting up a second PC doesn't create a separate vault by mistake.
+ */
+export function SetupChoice({ onUseDrive }: { onUseDrive: () => void }) {
+  const card = "flex-1 min-w-0 flex flex-col items-start gap-1 rounded-md p-2.5 text-left border";
+  return (
+    <div className="flex gap-2 mb-4" role="group" aria-label="How to set up the vault">
+      <div className={`${card} border-[var(--color-primary)] bg-[var(--color-bg-tertiary)]`} aria-current="step">
+        <ShieldPlus size={15} className="text-[var(--color-primary)]" aria-hidden />
+        <span className="text-[12.5px] font-semibold text-[var(--color-text)]">Create a new vault</span>
+        <span className="text-[11px] leading-snug text-[var(--color-text-muted)]">Start fresh on this PC.</span>
+      </div>
+      <button
+        type="button" onClick={onUseDrive} data-testid="setup-use-drive"
+        className={`${card} cursor-pointer border-[var(--color-border)] hover:border-[var(--color-primary)] hover:bg-[var(--color-bg-tertiary)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-primary)]`}
+      >
+        <Cloud size={15} className="text-[var(--color-text-muted)]" aria-hidden />
+        <span className="text-[12.5px] font-semibold text-[var(--color-text)]">Use my vault from Google Drive</span>
+        <span className="text-[11px] leading-snug text-[var(--color-text-muted)]">Already syncing on another PC.</span>
+      </button>
+    </div>
   );
 }

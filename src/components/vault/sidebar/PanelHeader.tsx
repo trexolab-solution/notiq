@@ -3,6 +3,8 @@ import { createPortal } from "react-dom";
 import { FileUp, Lock, LockOpen, ShieldCheck } from "lucide-react";
 import { VaultHealthDialog } from "../VaultHealthDialog";
 import { ImportDialog } from "../ImportDialog";
+import { SyncBadge } from "./SyncBadge";
+import { Tooltip } from "../../ui/Tooltip";
 
 /** "Secure Vault" title row; `actions` go on the right. When unlocked it also offers Vault health and Import. */
 export function PanelHeader({ unlocked, actions }: { unlocked: boolean; actions?: ReactNode }) {
@@ -13,17 +15,21 @@ export function PanelHeader({ unlocked, actions }: { unlocked: boolean; actions?
       {unlocked
         ? <LockOpen size={14} className="shrink-0 text-[var(--color-primary)]" aria-hidden />
         : <Lock size={14} className="shrink-0 text-[var(--color-text-muted)]" aria-hidden />}
-      <h2 className="ml-1.5 flex-1 truncate text-xs font-semibold text-[var(--color-text)]">Secure Vault</h2>
+      <h2 className="ml-1.5 min-w-0 truncate whitespace-nowrap text-xs font-semibold text-[var(--color-text)]" title="Secure Vault">Vault</h2>
+      <SyncBadge />
+      <span className="min-w-0 flex-1" />
       {unlocked && (
         <>
-          <button type="button" className="vt-icon-btn" title="Vault health — check for weak, reused and old passwords"
-                  aria-label="Vault health" onClick={() => setDialog("health")}>
-            <ShieldCheck size={14} />
-          </button>
-          <button type="button" className="vt-icon-btn" title="Import logins from a CSV file" aria-label="Import logins"
-                  onClick={() => setDialog("import")}>
-            <FileUp size={14} />
-          </button>
+          <Tooltip content="Vault health" description="Check for weak, reused and old passwords">
+            <button type="button" className="vt-icon-btn" aria-label="Vault health" onClick={() => setDialog("health")}>
+              <ShieldCheck size={14} />
+            </button>
+          </Tooltip>
+          <Tooltip content="Import logins from a CSV file">
+            <button type="button" className="vt-icon-btn" aria-label="Import logins" onClick={() => setDialog("import")}>
+              <FileUp size={14} />
+            </button>
+          </Tooltip>
         </>
       )}
       {actions}

@@ -1,0 +1,139 @@
+<!doctype html>
+<!--
+  Address / contact forms for identity autofill. The Notiq icon appears in the text fields of the first
+  three forms (address or contact forms); clicking it lists your identities (when Notiq is unlocked) and Notiq
+  asks you to approve. Right-click any field for Notiq > Fill identity / Fill login / Generate password.
+    cd browser-extension/test-pages && python -m http.server 8000
+    http://localhost:8000/identity.html
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Notiq test page: identity</title>
+<style>
+  :root { color-scheme: light dark; --fg: #1f2328; --bg: #f6f7f9; --card: #fff; --line: #d0d7de; --accent: #6366f1; }
+  @media (prefers-color-scheme: dark) { :root { --fg: #e6edf3; --bg: #0d1117; --card: #161b22; --line: #30363d; } }
+  body { margin: 0; padding: 24px 16px 60px; font: 15px/1.45 system-ui, sans-serif; color: var(--fg); background: var(--bg); }
+  main { max-width: 1100px; margin: 0 auto; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; }
+  form { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 18px; }
+  h2 { font-size: 16px; margin: 0 0 4px; }
+  .hint { font-size: 13px; opacity: .7; margin: 0 0 14px; }
+  label { display: block; font-size: 13px; margin: 10px 0 4px; }
+  input, select, textarea { box-sizing: border-box; width: 100%; padding: 9px 10px; font: inherit; border: 1px solid var(--line);
+    border-radius: 8px; background: transparent; color: inherit; }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .trap { position: absolute; left: -9999px; }
+  button { margin-top: 14px; width: 100%; padding: 10px; border: 0; border-radius: 8px; background: var(--accent); color: #fff;
+    font: inherit; font-weight: 600; cursor: pointer; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Delivery details</h1>
+  <div class="grid">
+    <!-- Amazon.in-style: labels and ids only (no autocomplete), state list, landmark (not filled). -->
+    <form id="india" onsubmit="return false">
+      <h2>1. Add a new address (India)</h2>
+      <p class="hint">Labels only, like many Indian checkouts.</p>
+      <label for="in-country">Country/Region</label>
+      <select id="in-country" name="countryCode"><option value="">Select</option><option value="IN">India</option><option value="NP">Nepal</option></select>
+      <label for="in-name">Full name (First and Last name)</label>
+      <input id="in-name" name="enterAddressFullName">
+      <label for="in-mobile">Mobile number</label>
+      <input id="in-mobile" name="enterAddressPhoneNumber" type="tel" maxlength="10">
+      <label for="in-pin">Pincode</label>
+      <input id="in-pin" name="enterAddressPostalCode" placeholder="6 digits [0-9] PIN code" maxlength="6">
+      <label for="in-line1">Flat, House no., Building, Company, Apartment</label>
+      <input id="in-line1" name="enterAddressLine1">
+      <label for="in-line2">Area, Street, Sector, Village</label>
+      <input id="in-line2" name="enterAddressLine2">
+      <label for="in-landmark">Landmark</label>
+      <input id="in-landmark" name="landmark" placeholder="E.g. near apollo hospital">
+      <div class="row">
+        <div><label for="in-city">Town/City</label><input id="in-city" name="enterAddressCity"></div>
+        <div><label for="in-state">State</label>
+          <select id="in-state" name="enterAddressStateOrRegion"><option value="">Choose a state</option>
+            <option value="KA">KARNATAKA</option><option value="KL">KERALA</option><option value="MH">MAHARASHTRA</option></select></div>
+      </div>
+      <input type="hidden" id="in-hidden" name="city" value="">
+      <input class="trap" id="in-offscreen-ok" name="nickname" autocomplete="nickname" tabindex="-1">
+      <div style="display:none"><label for="in-trap">Address</label><input id="in-trap" name="address"></div>
+      <button type="submit">Use this address</button>
+    </form>
+
+    <!-- Shopify-style: autocomplete tokens, a street textarea is not used; email + phone. -->
+    <form id="tokens" onsubmit="return false">
+      <h2>2. Shipping address (autocomplete tokens)</h2>
+      <p class="hint">Tagged with <code>autocomplete</code>, given / family name split.</p>
+      <label for="t-email">Email</label>
+      <input id="t-email" type="email" name="email" autocomplete="shipping email">
+      <div class="row">
+        <div><label for="t-first">First name</label><input id="t-first" name="firstName" autocomplete="shipping given-name"></div>
+        <div><label for="t-last">Last name</label><input id="t-last" name="lastName" autocomplete="shipping family-name"></div>
+      </div>
+      <label for="t-addr1">Address</label>
+      <input id="t-addr1" name="address1" autocomplete="shipping address-line1">
+      <label for="t-addr2">Apartment, suite, etc. (optional)</label>
+      <input id="t-addr2" name="address2" autocomplete="shipping address-line2">
+      <div class="row">
+        <div><label for="t-city">City</label><input id="t-city" name="city" autocomplete="shipping address-level2"></div>
+        <div><label for="t-zip">PIN code</label><input id="t-zip" name="postalCode" autocomplete="shipping postal-code"></div>
+      </div>
+      <label for="t-state">State</label>
+      <input id="t-state" name="zone" autocomplete="shipping address-level1">
+      <label for="t-country">Country</label>
+      <input id="t-country" name="country" autocomplete="shipping country" maxlength="2">
+      <label for="t-phone">Phone</label>
+      <input id="t-phone" type="tel" name="phone" autocomplete="shipping tel">
+      <button type="submit">Continue to shipping</button>
+    </form>
+
+    <!-- Flipkart-style: textarea for the address (holds line 1, since there is a locality field). -->
+    <form id="textarea" onsubmit="return false">
+      <h2>3. Address with a text box</h2>
+      <p class="hint">Locality is line 2; the text box gets line 1.</p>
+      <label for="f-name">Name</label>
+      <input id="f-name" name="name">
+      <label for="f-phone">10-digit mobile number</label>
+      <input id="f-phone" name="phone" type="tel" maxlength="10">
+      <label for="f-pin">Pincode</label>
+      <input id="f-pin" name="pincode" maxlength="6">
+      <label for="f-locality">Locality</label>
+      <input id="f-locality" name="addressLine2">
+      <label for="f-address">Address (Area and Street)</label>
+      <textarea id="f-address" name="addressLine1" rows="3"></textarea>
+      <label for="f-alt">Alternate Phone (Optional)</label>
+      <input id="f-alt" name="alternatePhone" type="tel">
+      <button type="submit">Save and deliver here</button>
+    </form>
+
+    <!-- Not identity forms: no identity icon here (the login form gets the login icon). -->
+    <form id="newsletter" onsubmit="return false">
+      <h2>4. Newsletter (no identity icon)</h2>
+      <label for="n-email">Email</label>
+      <input id="n-email" type="email" name="email">
+      <button type="submit">Subscribe</button>
+    </form>
+    <form id="login" onsubmit="return false">
+      <h2>5. Login (login icon, never identity)</h2>
+      <label for="l-email">Email</label>
+      <input id="l-email" type="email" name="email" autocomplete="username">
+      <label for="l-pass">Password</label>
+      <input id="l-pass" type="password" name="password" autocomplete="current-password">
+      <label for="l-phone">Phone (for account recovery)</label>
+      <input id="l-phone" type="tel" name="phone">
+      <label for="l-city">City</label>
+      <input id="l-city" name="city">
+      <button type="submit">Sign in</button>
+    </form>
+  </div>
+</main>
+<script>
+  // Some checkouts rebuild the state list when the country changes: the state is filled after it.
+  window.__countryChanges = 0;
+  document.getElementById("in-country").addEventListener("change", () => { window.__countryChanges++; });
+</script>
+</body>
+</html>

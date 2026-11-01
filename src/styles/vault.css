@@ -5,6 +5,17 @@
   width: 248px; flex-shrink: 0; display: flex; flex-direction: column; min-height: 0;
   background: var(--color-bg-secondary); border-right: 1px solid var(--color-border);
   color: var(--color-text); font-size: 12px;
+  position: relative;
+}
+/* Right-edge sash (VS Code style): drag to resize, double-click to reset, arrow keys when focused. */
+.vt-resize-handle {
+  position: absolute; top: 0; right: -3px; width: 6px; height: 100%;
+  cursor: col-resize; z-index: 5; background: transparent; touch-action: none;
+  transition: background 0.12s;
+}
+.vt-resize-handle:hover, .vt-resize-handle.is-dragging, .vt-resize-handle:focus-visible {
+  background: color-mix(in srgb, var(--color-primary) 55%, transparent);
+  outline: none;
 }
 
 .vt-icon-btn {
@@ -13,6 +24,10 @@
   color: var(--color-text-muted); background: transparent; border: none;
   transition: background 0.1s, color 0.1s;
 }
+.vt-sync-badge { margin-left: 2px; }
+.vt-sync-badge--synced svg { color: var(--color-success); }
+.vt-sync-badge--offline { color: var(--color-warning); }
+.vt-sync-badge--problem { color: var(--color-danger); }
 .vt-icon-btn:hover, .vt-icon-btn[aria-expanded="true"] { color: var(--color-text); background: var(--color-bg-tertiary); }
 .vt-icon-btn:focus-visible,
 .vt-chip:focus-visible,
@@ -84,6 +99,7 @@
 .vt-row-icon.k-card   { color: color-mix(in srgb, var(--color-danger) 65%, var(--color-text-muted)); }
 .vt-row-icon.k-wifi   { color: color-mix(in srgb, var(--color-primary) 60%, var(--color-success) 40%); }
 .vt-row-icon.k-codes  { color: color-mix(in srgb, var(--color-accent) 50%, var(--color-warning) 50%); }
+.vt-row-icon.k-identity { color: color-mix(in srgb, var(--color-primary) 55%, var(--color-accent) 45%); }
 .vt-row-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; }
 .vt-row-tags { display: flex; gap: 3px; flex-shrink: 1; min-width: 0; max-width: 45%; overflow: hidden; }
 .vt-row-tag {

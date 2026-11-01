@@ -56,6 +56,9 @@ pub enum VaultError {
     /// Authentication failed: wrong key or the file was modified.
     Tampered,
     Crypto,
+    /// The password is wrong for the current `vault.json` but opens the previous one, which a
+    /// synced device replaced (0.9.0 sync). The text is a stable code the frontend matches.
+    PasswordChangedElsewhere,
 }
 
 impl std::fmt::Display for VaultError {
@@ -70,6 +73,7 @@ impl std::fmt::Display for VaultError {
             Self::VaultMismatch => write!(f, "This file belongs to a different vault"),
             Self::Tampered => write!(f, "File could not be verified (wrong key or modified)"),
             Self::Crypto => write!(f, "Cryptographic operation failed"),
+            Self::PasswordChangedElsewhere => write!(f, "PASSWORD_CHANGED_ELSEWHERE"),
         }
     }
 }
@@ -117,6 +121,15 @@ pub struct VaultMeta {
     pub pw_wrap: String,
     /// hex — nonce || ciphertext of the vault key under the recovery key.
     pub rec_wrap: String,
+    /// 0.9.0 sync: when the password was last changed or reset (the changing device's clock, Unix
+    /// ms). Absent in metas written before 0.9.0 and in a vault that was never re-wrapped; never
+    /// serialised when absent, so such a `vault.json` stays byte-for-byte what it was. Inside
+    /// `vault.meta` it is covered by the envelope (SHA-256 of the JSON), so it can't be forged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub changed_at_ms: Option<u64>,
+    /// 0.9.0 sync: the sync device id of the device that made that change (tie-break).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub changed_by: Option<String>,
 }
 
 impl VaultMeta {
@@ -128,6 +141,21 @@ impl VaultMeta {
 
     pub fn to_json(&self) -> String {
         serde_json::to_string_pretty(self).expect("meta serialises")
+    }
+
+    /// Records a password change / recovery reset made now on `device` (0.9.0 sync: between two
+    /// concurrent changes the later one wins). The stamp never goes backwards from the change this
+    /// meta replaces, so a device whose clock was set back still orders its own changes, and a
+    /// change made after adopting another device's change is always later than it.
+    pub fn stamp_change(&mut self, now_ms: u64, device: Option<&str>) {
+        let floor = self.changed_at_ms.map_or(0, |t| t.saturating_add(1));
+        self.changed_at_ms = Some(now_ms.max(floor));
+        self.changed_by = device.map(str::to_string);
+    }
+
+    /// `(changed_at_ms, changed_by)` when the meta carries a change stamp.
+    pub fn change_stamp(&self) -> Option<(u64, &str)> {
+        self.changed_at_ms.map(|t| (t, self.changed_by.as_deref().unwrap_or("")))
     }
 
     pub fn from_json(s: &str) -> Result<Self> {
@@ -166,6 +194,8 @@ pub fn create_vault(password: &str, kdf: KdfParams) -> Result<(VaultMeta, VaultK
         salt: hex_encode(&salt),
         pw_wrap: hex_encode(&wrap(&kek, &aad(AAD_WRAP_PW, &vault_id), &key)?),
         rec_wrap: hex_encode(&wrap(&recovery, &aad(AAD_WRAP_REC, &vault_id), &key)?),
+        changed_at_ms: None,
+        changed_by: None,
     };
     Ok((meta, key, format_recovery_key(&recovery)))
 }
@@ -177,6 +207,22 @@ pub fn unlock_with_password(meta: &VaultMeta, password: &str) -> Result<VaultKey
     let blob = hex_decode(&meta.pw_wrap).ok_or(VaultError::BadMeta("pw_wrap"))?;
     let kek = derive_kek(password, &salt, &meta.kdf)?;
     unwrap(&kek, &aad(AAD_WRAP_PW, &vault_id), &blob).ok_or(VaultError::WrongPassword)
+}
+
+/// Password unlock that tells a stale password apart (0.9.0 sync): when `password` fails on
+/// `meta` but unwraps `previous` (the `vault.json` a synced password change replaced), the error
+/// is [`VaultError::PasswordChangedElsewhere`] instead of `WrongPassword`. The old password
+/// never unlocks anything.
+pub fn unlock_with_password_or_previous(meta: &VaultMeta, previous: Option<&VaultMeta>, password: &str) -> Result<VaultKey> {
+    match unlock_with_password(meta, password) {
+        Err(VaultError::WrongPassword) => match previous {
+            Some(p) if p != meta && p.vault_id == meta.vault_id && unlock_with_password(p, password).is_ok() => {
+                Err(VaultError::PasswordChangedElsewhere)
+            }
+            _ => Err(VaultError::WrongPassword),
+        },
+        other => other,
+    }
 }
 
 pub fn unlock_with_recovery(meta: &VaultMeta, recovery: &str) -> Result<VaultKey> {
@@ -259,6 +305,35 @@ pub fn open(key: &VaultKey, vault_id: &[u8; VAULT_ID_LEN], data: &[u8]) -> Resul
         .decrypt(XNonce::from_slice(nonce), Payload { msg: ct, aad: &data[..header_len] })
         .map_err(|_| VaultError::Tampered)?;
     Ok((ext, Zeroizing::new(pt)))
+}
+
+// ─── Generic sealing with caller-supplied associated data (0.9.0 sync) ───────
+
+/// Encrypts `plaintext` under `key` with XChaCha20-Poly1305 and a fresh random nonce, binding
+/// `aad` (authenticated, not stored). Output: `nonce[24] || ciphertext+tag`.
+pub fn seal_aad(key: &[u8; KEY_LEN], aad: &[u8], plaintext: &[u8]) -> Result<Vec<u8>> {
+    let mut nonce = [0u8; NONCE_LEN];
+    OsRng.fill_bytes(&mut nonce);
+    let cipher = XChaCha20Poly1305::new(Key::from_slice(key));
+    let ct = cipher
+        .encrypt(XNonce::from_slice(&nonce), Payload { msg: plaintext, aad })
+        .map_err(|_| VaultError::Crypto)?;
+    let mut out = Vec::with_capacity(NONCE_LEN + ct.len());
+    out.extend_from_slice(&nonce);
+    out.extend_from_slice(&ct);
+    Ok(out)
+}
+
+/// Opens [`seal_aad`] output; any change to `data` or a different `aad`/`key` is `Tampered`.
+pub fn open_aad(key: &[u8; KEY_LEN], aad: &[u8], data: &[u8]) -> Result<Zeroizing<Vec<u8>>> {
+    if data.len() < NONCE_LEN + 16 {
+        return Err(VaultError::Corrupt("sealed object too short"));
+    }
+    let cipher = XChaCha20Poly1305::new(Key::from_slice(key));
+    cipher
+        .decrypt(XNonce::from_slice(&data[..NONCE_LEN]), Payload { msg: &data[NONCE_LEN..], aad })
+        .map(Zeroizing::new)
+        .map_err(|_| VaultError::Tampered)
 }
 
 // ─── Failed-attempt throttle ─────────────────────────────────────────────────
@@ -634,6 +709,53 @@ mod tests {
         b.pw_wrap = a.pw_wrap.clone();
         b.salt = a.salt.clone();
         assert_eq!(unlock_with_password(&b, PW).unwrap_err(), VaultError::WrongPassword);
+    }
+
+    #[test]
+    fn seal_aad_binds_the_associated_data() {
+        let (_, key, _) = vault();
+        let sealed = seal_aad(&key, b"ctx-1", b"payload").unwrap();
+        assert_eq!(&open_aad(&key, b"ctx-1", &sealed).unwrap()[..], b"payload");
+        assert_eq!(open_aad(&key, b"ctx-2", &sealed).unwrap_err(), VaultError::Tampered);
+        let mut bad = sealed.clone();
+        *bad.last_mut().unwrap() ^= 1;
+        assert_eq!(open_aad(&key, b"ctx-1", &bad).unwrap_err(), VaultError::Tampered);
+        assert!(matches!(open_aad(&key, b"ctx-1", &sealed[..10]), Err(VaultError::Corrupt(_))));
+        assert_ne!(seal_aad(&key, b"ctx-1", b"payload").unwrap(), sealed, "fresh nonce");
+    }
+
+    #[test]
+    fn previous_meta_tells_a_password_changed_elsewhere_apart() {
+        let (meta, key, _) = vault();
+        let newer = rewrap_password(&meta, &key, "the new password").unwrap();
+        assert_eq!(unlock_with_password_or_previous(&newer, Some(&meta), PW).unwrap_err(), VaultError::PasswordChangedElsewhere);
+        assert_eq!(VaultError::PasswordChangedElsewhere.to_string(), "PASSWORD_CHANGED_ELSEWHERE");
+        assert_eq!(*unlock_with_password_or_previous(&newer, Some(&meta), "the new password").unwrap(), *key);
+        assert_eq!(unlock_with_password_or_previous(&newer, Some(&meta), "neither of them").unwrap_err(), VaultError::WrongPassword);
+        assert_eq!(unlock_with_password_or_previous(&newer, None, PW).unwrap_err(), VaultError::WrongPassword);
+        // A previous meta of ANOTHER vault never produces the hint.
+        let (other, _, _) = create_vault(PW, FAST).unwrap();
+        assert_eq!(unlock_with_password_or_previous(&newer, Some(&other), PW).unwrap_err(), VaultError::WrongPassword);
+    }
+
+    #[test]
+    fn change_stamp_is_optional_monotonic_and_old_json_stays_identical() {
+        let (meta, key, _) = create_vault(PW, FAST).unwrap();
+        let json = meta.to_json();
+        assert!(!json.contains("changed_at_ms") && !json.contains("changed_by"), "no new keys until a change");
+        assert_eq!(VaultMeta::from_json(&json).unwrap().to_json(), json, "an old vault.json round-trips unchanged");
+        assert_eq!(meta.change_stamp(), None);
+        let mut m = rewrap_password(&meta, &key, "the new password").unwrap();
+        m.stamp_change(1_000, Some("dev-a"));
+        assert_eq!(m.change_stamp(), Some((1_000, "dev-a")));
+        let back = VaultMeta::from_json(&m.to_json()).unwrap();
+        assert_eq!(back, m);
+        // A clock set back never orders a later change before the one it replaces.
+        m.stamp_change(500, Some("dev-b"));
+        assert_eq!(m.change_stamp(), Some((1_001, "dev-b")));
+        // An unknown device keeps an empty tie-break.
+        m.stamp_change(5_000, None);
+        assert_eq!(m.change_stamp(), Some((5_000, "")));
     }
 
     #[test]

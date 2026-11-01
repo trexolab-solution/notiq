@@ -1,6 +1,6 @@
 [package]
 name = "notiq"
-version = "0.8.3"
+version = "0.9.0"
 description = "Notiq — a smart note-taking application"
 authors = ["TrexoLab <trexolab@outlook.com>"]
 edition = "2021"
@@ -25,6 +25,10 @@ serde_json = "1"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
 keyring = { version = "3.0", features = ["apple-native", "windows-native", "sync-secret-service", "crypto-rust"] }
 futures-util = "0.3"
+# 0.9.0 vault sync (src/sync/): provider trait objects, OAuth/PKCE encoding, timers + loopback listener
+async-trait = "0.1"
+base64 = "0.22"
+tokio = { version = "1", features = ["rt", "time", "net", "sync", "io-util"] }
 # Secure Vault (see src/vault_core.rs)
 argon2 = "0.5"
 chacha20poly1305 = "0.10"
@@ -51,3 +55,7 @@ windows-sys = { version = "0.61", features = ["Win32_UI_Shell", "Win32_UI_Window
 # Versions must match what wry/tauri already pull in (see Cargo.lock).
 webview2-com = "0.39"
 windows = { version = "0.62", features = ["Win32_Foundation", "Foundation", "Security_Credentials", "Security_Cryptography", "Storage_Streams"] }
+
+[dev-dependencies]
+# 0.9.0 sync: property tests for the vault merge engine (vault_merge.rs)
+proptest = { version = "1", default-features = false, features = ["std"] }

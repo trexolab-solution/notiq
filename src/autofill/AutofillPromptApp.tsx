@@ -5,9 +5,9 @@ import { flushSync } from "react-dom";
 import { invoke } from "@tauri-apps/api/core";
 import { emitTo, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
-import { CreditCard, KeyRound, Lock, TriangleAlert, X } from "lucide-react";
+import { CreditCard, IdCard, KeyRound, Lock, TriangleAlert, X } from "lucide-react";
 import { DialogButton, DialogFooter, DialogIcon } from "../components/ui/DialogParts";
-import { CardChoice, FillChoice, SaveFields } from "../components/vault/autofillBodies";
+import { CardChoice, FillChoice, IdentityChoice, SaveFields } from "../components/vault/autofillBodies";
 import { useVaultUnlock } from "../components/vault/unlock/useVaultUnlock";
 import { VaultUnlockActions, VaultUnlockBody } from "../components/vault/unlock/VaultUnlockForm";
 import { useDialogBehaviour } from "../components/ui/useDialogBehaviour";
@@ -18,9 +18,11 @@ import { ERR_LOCKED, vaultStatus } from "../lib/vault";
 import { nameError } from "../lib/vaultTree";
 import { LOOKALIKE_REASON_TEXT } from "../lib/lookalike";
 import {
-  cardReply, clearTrust, credentialsFor, isFallbackRequest, isTrusted, saveLogin, scanCards, scanLogins, setVaultRootResolver,
-  trustHost, type SaveRequest,
+  cardReply, clearTrust, fillReply, hasSaveChoice, isFallbackRequest, isTrusted, saveLogin, scanCards, scanLogins, setVaultRootResolver,
+  trustHost, validIntent, type SaveRequest,
 } from "../lib/autofill";
+import { identityReply, scanIdentities, validAccount } from "../lib/autofill";
+import { answerList, answerUsernameCopy, copyForExtension, COPY_LABEL, validCopyWhat, type PopupDeps } from "../lib/autofillPopup";
 import { fitWindowSize, sizeChanged } from "./fitWindowSize";
 import { splitHost } from "./hostParts";
 import {
@@ -50,6 +52,14 @@ async function promptVaultRoot(): Promise<string> {
 }
 
 const nextTask = () => new Promise<void>((r) => setTimeout(r, 0));
+
+/** The toolbar popup's silent requests (list, username copy): no window, no unlock offer. */
+const popupDeps: PopupDeps = {
+  prepare: promptVaultRoot,
+  unlocked: async () => (await vaultStatus()).unlocked,
+  scan: async (host) => (await scanLogins(host)).matches,
+  lockedError: ERR_LOCKED,
+};
 
 export default function AutofillPromptApp() {
   // No clipboard permission in this window: just keep the webview's menu out.
@@ -139,10 +149,21 @@ export default function AutofillPromptApp() {
         await reply(e.id, cardReply(e.card));
         dispatch({ type: "answered" });
         return;
+      case "scanIdentities":
+        try {
+          dispatch({ type: "identitiesScanned", identities: await scanIdentities() });
+        } catch (err) {
+          dispatch(err === ERR_LOCKED ? { type: "vaultLocked" } : { type: "failed" });
+        }
+        return;
+      case "releaseIdentity":
+        await reply(e.id, identityReply(e.identity));
+        dispatch({ type: "answered" });
+        return;
       case "release":
         try {
           if (e.trustHost) trustHost(e.trustHost);
-          await reply(e.id, { ok: true, ...(await credentialsFor(e.match)) });
+          await reply(e.id, e.copy ? await copyForExtension(e.match, e.copy) : await fillReply(e.match, e.intent));
         } catch {
           await reply(e.id, { error: "failed" });
         }
@@ -202,10 +223,11 @@ export default function AutofillPromptApp() {
     const subs = [
       listen<{ themeId: string }>("theme-changed", (e) => applyTheme(e.payload.themeId as ThemeId)),
       // A global `listen` also hears events Rust sent to the main window; those (fallback) are not ours.
-      listen<FillReq & { fallback?: boolean }>("autofill:request", (e) => {
+      listen<Omit<FillReq, "intent"> & { intent?: unknown; fallback?: boolean }>("autofill:request", (e) => {
         if (isFallbackRequest(e.payload)) return;
         const { id, host, account } = e.payload;
-        accept({ kind: "fill", req: { id, host, ...(account ? { account } : {}) } });
+        const intent = validIntent(e.payload.intent);
+        accept({ kind: "fill", req: { id, host, ...(account ? { account } : {}), ...(intent ? { intent } : {}) } });
       }),
       listen<SaveRequest & { fallback?: boolean }>("autofill:save", (e) => {
         if (isFallbackRequest(e.payload)) return;
@@ -216,6 +238,25 @@ export default function AutofillPromptApp() {
       listen<{ id: string; host: string }>("autofill:card", (e) => {
         const { id, host } = e.payload;
         accept({ kind: "card", req: { id, host } });
+      }),
+      // Identity requests too (prompt window only; `account` only pre-selects the identity).
+      listen<{ id: string; host: string; account?: unknown }>("autofill:identity", (e) => {
+        const { id, host } = e.payload;
+        const account = validAccount(e.payload.account);
+        accept({ kind: "identity", req: { id, host, ...(account ? { account } : {}) } });
+      }),
+      // The toolbar popup (0.9.0). `list` and a username copy are answered silently; a password / code copy is
+      // a fill job (same approval: prompt or the site's trust window) whose release copies instead of replying.
+      listen<{ id: string; host: string }>("autofill:list", (e) => {
+        const { id, host } = e.payload;
+        void answerList(popupDeps, host).then((r) => reply(id, r));
+      }),
+      listen<{ id: string; host: string; account: string; what: unknown }>("autofill:copy", (e) => {
+        const { id, host, account } = e.payload;
+        const what = validCopyWhat(e.payload.what);
+        if (!what || !account) { void reply(id, { error: "bad_request" }); return; }
+        if (what === "username") { void answerUsernameCopy(popupDeps, host, account).then((r) => reply(id, r)); return; }
+        accept({ kind: "fill", req: { id, host, account, copy: what, ...(what === "code" ? { intent: "code" as const } : {}) } });
       }),
       listen<{ id: string }>("autofill:cancel", (e) => {
         queue.current = dropFromQueue(queue.current, e.payload.id);
@@ -263,7 +304,8 @@ export default function AutofillPromptApp() {
         <Panel key={`checking-${state.job.req.id}`} refs={refs} host={state.job.req.host} icon="shield" onClose={deny}
                sub="Vault unlocked." footer={<DialogButton cancel onClick={deny}>Cancel</DialogButton>}>
           <p className="af-detail" role="status">
-            {state.job.kind === "card" ? "Looking for saved cards…" : "Looking for saved logins for this site…"}
+            {state.job.kind === "card" ? "Looking for saved cards…"
+              : state.job.kind === "identity" ? "Looking for saved identities…" : "Looking for saved logins for this site…"}
           </p>
         </Panel>
       );
@@ -273,12 +315,19 @@ export default function AutofillPromptApp() {
       const { job, matches, pick, trust, busy } = state;
       return (
         <Panel key={`request-${job.req.id}`} refs={refs} host={job.req.host} icon="shield"
-               sub="The Notiq extension in your browser wants to fill a saved login." onClose={deny} defaultFocus="cancel"
+               sub={job.req.copy
+                 ? `The Notiq extension in your browser wants Notiq to copy the ${COPY_LABEL[job.req.copy]} of a saved login.`
+                 : job.req.intent === "code"
+                 ? "The Notiq extension in your browser wants the 2FA code of a saved login."
+                 : "The Notiq extension in your browser wants to fill a saved login."}
+               onClose={deny} defaultFocus="cancel"
                footer={<>
                  <DialogButton cancel onClick={deny} disabled={busy}>Deny</DialogButton>
-                 <DialogButton variant="primary" disabled={busy} onClick={() => dispatch({ type: "allow" })}>Allow</DialogButton>
+                 <DialogButton variant="primary" loading={busy} loadingText={job.req.copy ? "Copying…" : "Filling…"} onClick={() => dispatch({ type: "allow" })}>Allow</DialogButton>
                </>}>
-          <p className="af-detail">Only allow this if you just pressed Fill on this site.</p>
+          <p className="af-detail">
+            {job.req.copy ? "Only allow this if you just pressed Copy in the Notiq extension." : "Only allow this if you just pressed Fill on this site."}
+          </p>
           <FillChoice host={job.req.host} matches={matches} pick={pick} disabled={busy}
                       onPick={(index) => dispatch({ type: "pick", index })}
                       trust={trust} onTrust={(on) => dispatch({ type: "trust", on })} />
@@ -292,10 +341,28 @@ export default function AutofillPromptApp() {
                sub="The Notiq extension in your browser wants to fill a payment card." onClose={deny} defaultFocus="cancel"
                footer={<>
                  <DialogButton cancel onClick={deny} disabled={busy}>Deny</DialogButton>
-                 <DialogButton variant="primary" disabled={busy} onClick={() => dispatch({ type: "allow" })}>Fill card</DialogButton>
+                 <DialogButton variant="primary" loading={busy} loadingText="Filling…" onClick={() => dispatch({ type: "allow" })}>Fill card</DialogButton>
                </>}>
           <p className="af-detail">Only allow this if you just pressed Fill on this site&rsquo;s checkout.</p>
           <CardChoice cards={cards} pick={pick} disabled={busy} onPick={(index) => dispatch({ type: "pick", index })} />
+        </Panel>
+      );
+    }
+    case "identity": {
+      const { job, identities, pick, busy } = state;
+      return (
+        <Panel key={`identity-${job.req.id}`} refs={refs} host={job.req.host} icon={<IdCard size={16} />}
+               sub="The Notiq extension in your browser wants to fill your details into a form on this site." onClose={deny}
+               defaultFocus="cancel"
+               footer={<>
+                 <DialogButton cancel onClick={deny} disabled={busy}>Deny</DialogButton>
+                 <DialogButton variant="primary" loading={busy} loadingText="Filling…" onClick={() => dispatch({ type: "allow" })}>Fill</DialogButton>
+               </>}>
+          <p className="af-detail">
+            Name, email, phone and address go to <strong className="af-host-inline">{job.req.host}</strong>. Only allow
+            this if you just asked to fill a form there.
+          </p>
+          <IdentityChoice identities={identities} pick={pick} disabled={busy} onPick={(index) => dispatch({ type: "pick", index })} />
         </Panel>
       );
     }
@@ -304,17 +371,24 @@ export default function AutofillPromptApp() {
       const update = plan.kind === "update";
       const nameErr = update ? null : nameError(name);
       const confirm = () => dispatch({ type: "confirmSave", nameOk: !nameErr });
+      const choice = hasSaveChoice(plan);
       return (
         <Panel key={`save-${job.req.id}`} refs={refs} host={job.req.host} icon={<KeyRound size={16} />}
                sub={update ? "The Notiq extension wants to update a saved password." : "The Notiq extension wants to save a new login."}
                onClose={deny}
                footer={<>
                  <DialogButton cancel onClick={deny} disabled={busy}>Not now</DialogButton>
-                 <DialogButton variant="primary" disabled={busy || !!nameErr} onClick={confirm}>{update ? "Update" : "Save"}</DialogButton>
+                 {update && choice && (
+                   <DialogButton disabled={busy} onClick={() => dispatch({ type: "saveAsNew", on: true })}>Save as new</DialogButton>
+                 )}
+                 <DialogButton variant="primary" disabled={!!nameErr} loading={busy} loadingText={update ? "Updating…" : "Saving…"}
+                               onClick={confirm}>{update ? "Update" : "Save"}</DialogButton>
                </>}>
           <p className="af-detail">Only save it if you just signed in on this site.</p>
-          <SaveFields req={job.req} plan={plan} name={name} nameError={nameErr} reveal={reveal}
+          <SaveFields req={job.req} plan={plan} name={name} nameError={nameErr} reveal={reveal} disabled={busy}
                       onName={(value) => dispatch({ type: "name", value })} onReveal={() => dispatch({ type: "reveal" })}
+                      onTarget={(index) => dispatch({ type: "saveTarget", index })}
+                      onSaveAsNew={(on) => dispatch({ type: "saveAsNew", on })}
                       onEnter={confirm} />
         </Panel>
       );
@@ -418,9 +492,14 @@ function LockedStage({ refs, job, dispatch, onDeny }: LockedProps) {
       await win.setFocus().catch(() => {});
     },
   });
-  const what = job.kind === "fill" ? "fill a saved login" : job.kind === "card" ? "fill a payment card" : "save a login";
-  const submitLabel = job.kind === "fill" ? "Unlock & fill" : job.kind === "card" ? "Unlock & pick card" : "Unlock & save";
-  const purpose = job.kind === "fill" ? "unlock and fill it" : job.kind === "card" ? "unlock and pick a card" : "unlock and save it";
+  const copy = job.kind === "fill" ? job.req.copy : undefined;
+  const what = copy ? `copy the ${COPY_LABEL[copy]} of a saved login`
+    : job.kind === "fill" ? (job.req.intent === "code" ? "fill a 2FA code" : "fill a saved login")
+    : job.kind === "card" ? "fill a payment card" : job.kind === "identity" ? "fill your details (identity)" : "save a login";
+  const submitLabel = copy ? "Unlock & copy" : job.kind === "fill" ? "Unlock & fill" : job.kind === "card" ? "Unlock & pick card"
+    : job.kind === "identity" ? "Unlock & pick identity" : "Unlock & save";
+  const purpose = copy ? "unlock and copy it" : job.kind === "fill" ? "unlock and fill it" : job.kind === "card" ? "unlock and pick a card"
+    : job.kind === "identity" ? "unlock and pick an identity" : "unlock and save it";
   return (
     <Panel refs={refs} host={job.req.host} icon={<Lock size={16} />} onClose={onDeny} onSubmit={u.submit}
            sub={`The Notiq extension wants to ${what}.`}

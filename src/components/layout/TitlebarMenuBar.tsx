@@ -133,6 +133,7 @@ export function TitlebarMenuBar({
         <Tooltip content="New Note" shortcut="Ctrl+N">
           <button
             className="titlebar-tool-btn"
+            aria-label="New note"
             onMouseDown={(e) => e.nativeEvent.stopPropagation()}
             onClick={() => addTab()}
           >
@@ -144,6 +145,7 @@ export function TitlebarMenuBar({
           <button
             className="titlebar-tool-btn tb-p2"
             onMouseDown={(e) => e.nativeEvent.stopPropagation()}
+            aria-label="Open files"
             onClick={onOpenMultiple}
           >
             <Files size={14} strokeWidth={1.8} />
@@ -154,6 +156,7 @@ export function TitlebarMenuBar({
           <button
             className="titlebar-tool-btn tb-p3"
             onMouseDown={(e) => e.nativeEvent.stopPropagation()}
+            aria-label="Open folder"
             onClick={onOpenFolder}
           >
             <FolderOpen size={14} strokeWidth={1.8} />
@@ -167,6 +170,7 @@ export function TitlebarMenuBar({
             className={`titlebar-tool-btn${isNote && activeTab?.isDirty ? " is-dirty" : ""}`}
             disabled={!isNote || !activeTab?.isDirty}
             onMouseDown={(e) => e.nativeEvent.stopPropagation()}
+            aria-label="Save"
             onClick={() => activeTab && saveTabToFile(activeTab.id)}
           >
             <Save size={14} strokeWidth={1.8} />
@@ -178,6 +182,7 @@ export function TitlebarMenuBar({
             className={`titlebar-tool-btn tb-p3${hasDirty ? " is-dirty" : ""}`}
             disabled={!hasDirty}
             onMouseDown={(e) => e.nativeEvent.stopPropagation()}
+            aria-label="Save all"
             onClick={handleSaveAll}
           >
             <SaveAll size={14} strokeWidth={1.8} />
@@ -191,6 +196,7 @@ export function TitlebarMenuBar({
             className="titlebar-tool-btn tb-p3"
             disabled={!isMd}
             onMouseDown={(e) => e.nativeEvent.stopPropagation()}
+            aria-label="Export as PDF"
             onClick={() => activeTab && exportToPDF(activeTab.title, activeTab.content)}
           >
             <FileDown size={14} strokeWidth={1.8} />

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Hash, X } from "lucide-react";
+import { Tooltip } from "../../ui/Tooltip";
 
 interface Props {
   tags: { tag: string; count: number }[];
@@ -30,18 +31,18 @@ export function TagBar({ tags, selected, onToggle, onClear }: Props) {
       {visible.map(({ tag, count }) => {
         const active = isSel(tag);
         return (
-          <button
-            key={tag}
-            type="button"
-            className={`vt-chip${active ? " is-active" : ""}`}
-            aria-pressed={active}
-            title={`${active ? "Remove filter" : "Show only"} “${tag}” (${count})`}
-            onClick={() => onToggle(tag)}
-          >
-            <Hash size={10} aria-hidden />
-            <span className="vt-chip-label">{tag}</span>
-            <span className="vt-chip-count">{count}</span>
-          </button>
+          <Tooltip key={tag} content={`${active ? "Remove filter" : "Show only"} “${tag}” (${count})`}>
+            <button
+              type="button"
+              className={`vt-chip${active ? " is-active" : ""}`}
+              aria-pressed={active}
+              onClick={() => onToggle(tag)}
+            >
+              <Hash size={10} aria-hidden />
+              <span className="vt-chip-label">{tag}</span>
+              <span className="vt-chip-count">{count}</span>
+            </button>
+          </Tooltip>
         );
       })}
       {hidden > 0 && (
@@ -53,9 +54,11 @@ export function TagBar({ tags, selected, onToggle, onClear }: Props) {
         <button type="button" className="vt-chip" onClick={() => setShowAll(false)}>Less</button>
       )}
       {selected.length > 0 && (
-        <button type="button" className="vt-chip" onClick={onClear} title="Clear tag filter">
-          <X size={10} aria-hidden /> Clear
-        </button>
+        <Tooltip content="Clear tag filter">
+          <button type="button" className="vt-chip" onClick={onClear}>
+            <X size={10} aria-hidden /> Clear
+          </button>
+        </Tooltip>
       )}
     </div>
   );

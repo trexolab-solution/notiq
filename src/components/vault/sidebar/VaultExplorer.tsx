@@ -10,6 +10,8 @@ import {
 } from "../../../lib/vaultTree";
 import { ContextMenu } from "../../ui/ContextMenu";
 import { ConfirmDialog } from "../../ui/ConfirmDialog";
+import { Tooltip } from "../../ui/Tooltip";
+import { InlineLoading } from "../../ui/Loading";
 import * as A from "./actions";
 import { useExpanded, useSortMode, useStarredOpen } from "./prefs";
 import { PanelHeader } from "./PanelHeader";
@@ -228,7 +230,9 @@ export function VaultExplorer({ root, items, trash, loading, error, reload, foot
     </CreateRow>
   );
 
-  const emptyState = loading ? null : error ? (
+  const emptyState = loading ? (
+    <div className="vt-empty"><InlineLoading label="Loading items…" className="items-center" /></div>
+  ) : error ? (
     <div className="vt-empty" role="alert">
       <div className="vt-empty-title text-[var(--color-danger)]">Couldn't read the vault</div>
       <div className="mb-2 break-words">{error}</div>
@@ -266,23 +270,31 @@ export function VaultExplorer({ root, items, trash, loading, error, reload, foot
         actions={
           <>
             <NewEntryMenu targetLabel={targetLabel} onPick={(k) => startCreate(k, targetFolder)} />
-            <button type="button" className="vt-icon-btn" title={`New folder in ${targetLabel}`} aria-label="New folder"
-                    onClick={() => startCreate("folder", targetFolder)}>
-              <FolderPlus size={14} />
-            </button>
-            <button
-              type="button"
-              className="vt-icon-btn"
-              title={sort === "name" ? "Sorted by name — switch to recently modified" : "Sorted by recently modified — switch to name"}
-              aria-label={sort === "name" ? "Sort by recently modified" : "Sort by name"}
-              onClick={() => setSort(sort === "name" ? "modified" : "name")}
+            <Tooltip content={`New folder in ${targetLabel}`}>
+              <button type="button" className="vt-icon-btn" aria-label="New folder"
+                      onClick={() => startCreate("folder", targetFolder)}>
+                <FolderPlus size={14} />
+              </button>
+            </Tooltip>
+            <Tooltip
+              content={sort === "name" ? "Sorted by name" : "Sorted by recently modified"}
+              description={sort === "name" ? "Click to sort by recently modified" : "Click to sort by name"}
             >
-              {sort === "name" ? <ArrowDownAZ size={14} /> : <Clock size={14} />}
-            </button>
-            <button type="button" className="vt-icon-btn" title="Lock vault now" aria-label="Lock vault now"
-                    onClick={() => void useAppStore.getState().lockVault()}>
-              <Lock size={13} />
-            </button>
+              <button
+                type="button"
+                className="vt-icon-btn"
+                aria-label={sort === "name" ? "Sort by recently modified" : "Sort by name"}
+                onClick={() => setSort(sort === "name" ? "modified" : "name")}
+              >
+                {sort === "name" ? <ArrowDownAZ size={14} /> : <Clock size={14} />}
+              </button>
+            </Tooltip>
+            <Tooltip content="Lock vault now">
+              <button type="button" className="vt-icon-btn" aria-label="Lock vault now"
+                      onClick={() => void useAppStore.getState().lockVault()}>
+                <Lock size={13} />
+              </button>
+            </Tooltip>
           </>
         }
       />
@@ -358,16 +370,17 @@ export function VaultExplorer({ root, items, trash, loading, error, reload, foot
       )}
 
       <div className="vt-footer">
-        <button
-          type="button"
-          className={`vt-footer-row${showTrash ? " is-active" : ""}`}
-          aria-pressed={showTrash}
-          onClick={() => setShowTrash((v) => !v)}
-          title="Deleted items are kept for 30 days"
-        >
-          <Trash2 size={13} aria-hidden /> Trash
-          {trashCount > 0 && <span className="vt-count">{trashCount}</span>}
-        </button>
+        <Tooltip content="Deleted items are kept for 30 days" placement="top">
+          <button
+            type="button"
+            className={`vt-footer-row${showTrash ? " is-active" : ""}`}
+            aria-pressed={showTrash}
+            onClick={() => setShowTrash((v) => !v)}
+          >
+            <Trash2 size={13} aria-hidden /> Trash
+            {trashCount > 0 && <span className="vt-count">{trashCount}</span>}
+          </button>
+        </Tooltip>
         {footer}
       </div>
 

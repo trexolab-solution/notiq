@@ -11,6 +11,7 @@ const TEXT = {
   not_https: "Autofill only works on secure (https) pages.",
   no_fields: "Couldn't find a login form on this page.",
   stale: "That list of logins expired. Try again.",
+  extension_outdated: "This version of Notiq needs a newer Notiq Autofill extension. Update the extension, then try again.",
 };
 const chooser = document.getElementById("choose");
 
@@ -28,18 +29,27 @@ function setStatus(state, text, title) {
   statusText.textContent = text;
   status.title = title || "";
 }
-try {
-  chrome.runtime.sendMessage({ type: "ping" }, (res) => {
-    if (chrome.runtime.lastError || !res) { setStatus("off", "Notiq not running"); return; }
-    if (res.ok) setStatus("on", "Notiq running");
-    else if (res.error === "no_host") setStatus("off", "Notiq not running", TEXT.no_host);
-    else setStatus("off", "Notiq not running", TEXT.app_not_running);
-  });
-} catch { setStatus("off", "Notiq not running"); }
+let extVersion = "";
 try {
   const v = chrome.runtime.getManifest().version;
-  if (typeof v === "string") document.getElementById("version").textContent = `Notiq Autofill v${v}`;
+  if (typeof v === "string") { extVersion = v; document.getElementById("version").textContent = `Notiq Autofill v${v}`; }
 } catch { /* no manifest (test stub) */ }
+// Locked vault / version mismatch: a short status plus, when the user has to do something, a notice
+// above the Fill button (text only). The background also drops any held multi-step password here
+// when Notiq is locked or closed.
+const notice = document.getElementById("notice");
+function showNotice(text) { notice.textContent = text || ""; notice.hidden = !text; }
+try {
+  chrome.runtime.sendMessage({ type: "ping" }, (res) => {
+    if (chrome.runtime.lastError || !res) { setStatus("off", "Notiq not running"); loadSite("off"); return; }
+    const s = NS ? NS.appStatus(res, extVersion) : { state: res.ok ? "on" : "off", text: res.ok ? "Notiq running" : "Notiq not running", detail: "" };
+    if (s.state === "off") setStatus("off", s.text, res.error === "no_host" ? TEXT.no_host : TEXT.app_not_running);
+    // The header names the lock state: "Notiq unlocked" / "Notiq is locked".
+    else setStatus(s.state, s.state === "on" ? "Notiq unlocked" : s.text, s.detail);
+    if (s.state === "locked" || s.state === "update_app" || s.state === "update_ext") showNotice(s.detail);
+    loadSite(s.state); // this site's logins (below)
+  });
+} catch { setStatus("off", "Notiq not running"); }
 // The real shortcut (the user may have changed or removed it in the browser's shortcut settings).
 const shortcut = document.getElementById("shortcut");
 try {
@@ -171,3 +181,188 @@ showIcon.addEventListener("change", () => chrome.storage.local.set({ showIcon: s
 suggestOnFocus.addEventListener("change", () => chrome.storage.local.set({ suggestOnFocus: suggestOnFocus.checked }));
 // Refresh the app's theme now (the background caches it; the change arrives via storage).
 try { chrome.runtime.sendMessage({ type: "theme" }, () => void chrome.runtime.lastError); } catch { /* ignore */ }
+
+// ---------- this site's logins (0.9.0) ----------
+// Titles + usernames of the logins that match the active tab's site, from the app (popupkit.js validates and
+// filters). Row: fill (normal approval in Notiq) + copy username / password / 2FA code (Notiq copies it; the
+// value never reaches the extension) + open in Notiq. Rendered with textContent only.
+const NP = globalThis.NotiqPopup;
+const site = document.getElementById("site");
+const siteTitle = document.getElementById("siteTitle");
+const siteCount = document.getElementById("siteCount");
+const filter = document.getElementById("filter");
+const accList = document.getElementById("accList");
+const siteState = document.getElementById("siteState");
+let accounts = [];
+let lastState = "";
+
+const SVG_NS = "http://www.w3.org/2000/svg";
+const ICONS = {
+  username: ["c:12,8,4", "M4 21c0-4 4-6 8-6s8 2 8 6"],
+  password: ["c:7.5,15.5,4.5", "M10.7 12.3 20 3", "M16.5 6.5l3 3", "M14 9l2 2"],
+  code: ["c:12,13,8", "M12 9v4l2.5 2", "M9 2h6"],
+  open: ["M14 4h6v6", "M20 4l-9 9", "M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"],
+};
+const TIPS = { username: "Copy username", password: "Copy password", code: "Copy 2FA code", open: "Open in Notiq" };
+function icon(name) {
+  const svg = document.createElementNS(SVG_NS, "svg");
+  for (const [k, v] of Object.entries({ viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": "2",
+    "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true" })) svg.setAttribute(k, v);
+  for (const d of ICONS[name]) {
+    let el;
+    if (d.startsWith("c:")) {
+      const [cx, cy, r] = d.slice(2).split(",");
+      el = document.createElementNS(SVG_NS, "circle");
+      el.setAttribute("cx", cx); el.setAttribute("cy", cy); el.setAttribute("r", r);
+    } else {
+      el = document.createElementNS(SVG_NS, "path");
+      el.setAttribute("d", d);
+    }
+    svg.appendChild(el);
+  }
+  return svg;
+}
+
+function say(text, cls = "") { msg.className = cls; msg.textContent = text || ""; }
+const actionError = (res) => (NP ? NP.actionText(res && res.error) : "Something went wrong.");
+
+function siteMessage(text) { siteState.textContent = text || ""; }
+
+function renderAccounts() {
+  const shown = NP.filterAccounts(accounts, filter.value);
+  accList.textContent = "";
+  filter.hidden = !accounts.length;
+  siteCount.textContent = accounts.length > 1 ? (shown.length === accounts.length ? `${accounts.length}` : `${shown.length} of ${accounts.length}`) : "";
+  for (const a of shown) accList.appendChild(accountRow(a));
+  if (!accounts.length) siteMessage(NP.listText("empty"));
+  else if (!shown.length) siteMessage(`No logins match “${filter.value.trim().slice(0, 60)}”.`);
+  else siteMessage("");
+}
+
+function accountRow(a) {
+  const li = document.createElement("li");
+  const text = NP.rowText(a);
+  const names = NP.labels(a);
+  const main = document.createElement("button");
+  main.type = "button";
+  main.className = "acc-main";
+  main.setAttribute("aria-label", names.fill);
+  main.title = "Fill on this page";
+  const t = document.createElement("span");
+  t.className = "t";
+  t.textContent = text.title;
+  const u = document.createElement("span");
+  u.className = "u";
+  u.textContent = text.sub;
+  main.append(t, u);
+  main.addEventListener("click", () => fillAccount(a));
+  li.appendChild(main);
+  for (const what of ["username", "password", "code", "open"]) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "ico";
+    b.dataset.action = what;
+    b.setAttribute("aria-label", names[what]);
+    b.title = what === "code" && !a.totp ? "No 2FA code saved" : TIPS[what];
+    b.appendChild(icon(what));
+    if ((what === "code" && !a.totp) || (what === "username" && !a.username)) b.disabled = true;
+    b.addEventListener("click", () => (what === "open" ? openAccount(a) : copyAccount(a, what, b)));
+    li.appendChild(b);
+  }
+  return li;
+}
+
+// Something about the list changed in the app (a stale account): load it again.
+function reloadSite() { if (lastState === "on") loadSite("on"); }
+
+function fillAccount(a) {
+  say("Waiting for your approval in Notiq…");
+  chrome.runtime.sendMessage({ type: "popupFill", account: a.account }, (res) => {
+    if (chrome.runtime.lastError) { say(TEXT.app_not_running, "err"); return; }
+    if (res && res.ok) { say("Filled.", "ok"); setTimeout(() => window.close(), 700); return; }
+    say(actionError(res), "err");
+    if (res && res.error === "stale") reloadSite();
+  });
+}
+
+function copyAccount(a, what, btn) {
+  // A password or code copy may need your OK in Notiq (which can close this popup; the copy still happens).
+  say(what === "username" ? "Copying…" : "Waiting for your approval in Notiq…");
+  chrome.runtime.sendMessage({ type: "copy", account: a.account, what }, (res) => {
+    if (chrome.runtime.lastError) { say(TEXT.app_not_running, "err"); return; }
+    if (res && res.ok) {
+      say(NP.copiedText(what, res.clearAfter), "ok");
+      btn.classList.add("done");
+      setTimeout(() => btn.classList.remove("done"), 1500);
+      return;
+    }
+    say(actionError(res), "err");
+    if (res && res.error === "stale") reloadSite();
+  });
+}
+
+function openAccount(a) {
+  say("Opening in Notiq…");
+  chrome.runtime.sendMessage({ type: "open", account: a.account }, (res) => {
+    if (chrome.runtime.lastError) { say(TEXT.app_not_running, "err"); return; }
+    if (res && res.ok) { window.close(); return; }
+    say(actionError(res), "err");
+    if (res && res.error === "stale") reloadSite();
+  });
+}
+
+// `state`: the header's appStatus state. Only an unlocked, compatible Notiq is asked for the list.
+const STATE_ERROR = { off: "app_not_running", locked: "locked", update_app: "unknown_op", update_ext: "extension_outdated" };
+function loadSite(state) {
+  if (!NP) return;
+  lastState = state;
+  site.hidden = false;
+  if (state !== "on") {
+    accounts = [];
+    renderAccounts();
+    siteMessage(NP.listText(STATE_ERROR[state] || "app_not_running"));
+    return;
+  }
+  siteMessage("Loading your logins for this site…");
+  chrome.runtime.sendMessage({ type: "list" }, (res) => {
+    if (chrome.runtime.lastError || !res) { accounts = []; renderAccounts(); siteMessage(NP.listText("app_not_running")); return; }
+    if (typeof res.host === "string" && res.host) {
+      siteTitle.textContent = `Logins for ${res.host.slice(0, 253)}`;
+      siteTitle.title = res.host.slice(0, 253);
+    }
+    const list = res.ok ? NP.validAccounts(res.accounts) : null;
+    accounts = list || [];
+    renderAccounts();
+    if (!list) { siteMessage(NP.listText(res.ok ? "malformed" : res.error)); return; }
+    // Ready to type a filter (or press Enter to fill the first login).
+    if (accounts.length && (document.activeElement === document.body || !document.activeElement)) filter.focus();
+  });
+}
+
+filter.addEventListener("input", renderAccounts);
+filter.addEventListener("keydown", (e) => {
+  const first = accList.querySelector(".acc-main");
+  if (e.key === "ArrowDown" && first) { e.preventDefault(); first.focus(); }
+  else if (e.key === "Enter" && first) { e.preventDefault(); first.click(); }
+});
+accList.addEventListener("keydown", (e) => {
+  const rows = [...accList.children];
+  const li = document.activeElement && document.activeElement.closest ? document.activeElement.closest("li") : null;
+  const at = rows.indexOf(li);
+  if (at < 0) return;
+  const cells = [...li.querySelectorAll("button")];
+  const col = cells.indexOf(document.activeElement);
+  if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+    const enabled = cells.filter((c) => !c.disabled);
+    const k = enabled.indexOf(document.activeElement);
+    const next = enabled[k + (e.key === "ArrowRight" ? 1 : -1)];
+    if (next) { e.preventDefault(); next.focus(); }
+    return;
+  }
+  if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(e.key)) return;
+  e.preventDefault();
+  const to = NP.nextRow(e.key, at, rows.length);
+  if (to < 0) { if (!filter.hidden) filter.focus(); return; }
+  const target = [...rows[to].querySelectorAll("button")];
+  (target[col] && !target[col].disabled ? target[col] : target[0]).focus();
+});

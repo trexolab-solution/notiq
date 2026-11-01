@@ -17,6 +17,7 @@ use serde::{Deserialize, Serialize};
 use zeroize::{Zeroize, Zeroizing};
 
 use crate::vault_core::{self as vc, VaultKey, VAULT_ID_LEN};
+use crate::vault_hlc::{Hlc, Removal};
 
 pub const DB_FILE: &str = "vault.nqdb";
 /// `ext` stored (authenticated) in the sealed header, to tell a DB from a legacy manifest.
@@ -24,13 +25,17 @@ pub const DB_EXT: &str = "db";
 const BAK_PREFIX: &str = "vault.nqdb.bak";
 const BAK_KEEP: usize = 3;
 const BAK_EVERY_SECS: u64 = 10 * 60;
-/// One-time copy of a format-1 database, made before the first save that upgrades it.
+/// One-time copy of a format-1 database, made before the first save that upgrades it
+/// (later formats get `vault.nqdb.v{N}.bak`, see [`upgrade_bak_path`]).
 const V1_BAK: &str = "vault.nqdb.v1.bak";
 const NQV: &str = ".nqv";
 
 /// Current on-disk format. 1 = 0.6.0 (notes, folders, tags, stars, trash);
-/// 2 = 0.7.0 (+ per-entry revision history and attachments).
-pub const DB_VERSION: u32 = 2;
+/// 2 = 0.7.0 (+ per-entry revision history and attachments);
+/// 3 = 0.9.0 (+ sync metadata: HLC stamps, trash/delete registers, kept tombstones).
+pub const DB_VERSION: u32 = 3;
+/// How long tombstones and removed attachments are kept (so deletions reach other devices).
+pub const TOMBSTONE_KEEP_MS: u64 = 180 * 24 * 60 * 60 * 1000;
 /// Revisions kept per note (newest first).
 pub const MAX_HISTORY: usize = 10;
 pub const MAX_ATTACH_BYTES: u64 = 5 * 1024 * 1024;
@@ -47,6 +52,12 @@ pub struct Revision {
     pub ext: String,
     #[serde(default)]
     pub content: String,
+    /// Stamp of the version this records (`None` for revisions made before stamps existed).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stamp: Option<Hlc>,
+    /// Device whose version lost a sync merge; `None` = normal history.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub conflict_from: Option<String>,
 }
 
 impl Drop for Revision {
@@ -68,9 +79,16 @@ pub struct Attachment {
     /// Unix ms when it was attached.
     #[serde(default)]
     pub added: u64,
-    /// Standard base64 (with padding) of the file's bytes.
+    /// Standard base64 (with padding) of the file's bytes. Empty once removed.
     #[serde(default)]
     pub data: String,
+    /// When it was added (attachments are immutable; the id is unique).
+    #[serde(default)]
+    pub stamp: Hlc,
+    /// Set when removed: the attachment is invisible everywhere and its data is wiped;
+    /// the record is kept [`TOMBSTONE_KEEP_MS`] so the removal reaches other devices.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub removed: Option<Hlc>,
 }
 
 impl Drop for Attachment {
@@ -90,6 +108,10 @@ pub struct AttachmentMeta {
 }
 
 impl Attachment {
+    pub fn is_live(&self) -> bool {
+        self.removed.is_none()
+    }
+
     pub fn meta(&self) -> AttachmentMeta {
         AttachmentMeta { id: self.id.clone(), name: self.name.clone(), mime: self.mime.clone(), size: self.size, added: self.added }
     }
@@ -118,7 +140,8 @@ pub struct Entry {
     pub content: String,
     /// Unix milliseconds of the last change.
     pub updated: u64,
-    /// Tombstone: kept so deletions reach other devices; content is cleared.
+    /// Tombstone: kept so deletions reach other devices; content, history and attachments
+    /// are cleared. Always agrees with `tomb` (see [`Entry::fix_flags`]).
     #[serde(default)]
     pub deleted: bool,
     #[serde(default)]
@@ -129,13 +152,33 @@ pub struct Entry {
     #[serde(default)]
     pub starred: bool,
     /// Unix ms when moved to the recycle bin; `Some` = trashed (hidden from normal views).
+    /// Always agrees with `trash` (see [`Entry::fix_flags`]). A tombstone keeps it while its
+    /// trash register applies (views ignore it: see `is_trashed`), so the bin time survives
+    /// sync merges in any order.
     #[serde(default)]
     pub trashed_at: Option<u64>,
     /// Earlier contents, newest first, at most [`MAX_HISTORY`]. Never set on folders.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub history: Vec<Revision>,
+    /// Removed attachments stay here (data wiped) until they expire; see [`Attachment::is_live`].
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub attachments: Vec<Attachment>,
+    /// Content register: stamp of the last change to ext/content (when it actually changed),
+    /// attachment add/remove, history restore, restore from the bin, creation.
+    #[serde(default)]
+    pub stamp: Hlc,
+    /// Meta register: stamp of the last change to path (rename/move), tags or star, restore
+    /// from the bin, creation. Kept apart from `stamp` so a rename on one device and an edit on
+    /// another both survive a sync. Missing (pre-0.9.0 data) = `stamp`, see [`Db::normalise`].
+    #[serde(default)]
+    pub meta_stamp: Hlc,
+    /// Recycle-bin register: trashed while `trash.over >= version()`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trash: Option<Removal>,
+    /// Permanent-delete register: a tombstone while `tomb.over >= stamp` (content only: a
+    /// tombstone's text is wiped, so a rename the deleter didn't see can't bring it back).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tomb: Option<Removal>,
 }
 
 /// Dropping an entry (purge, empty trash, lock) wipes its content; revisions and
@@ -151,6 +194,7 @@ impl Entry {
         Entry {
             id, path: path.into(), ext: String::new(), content: String::new(), updated, deleted: false, dir,
             tags: vec![], starred: false, trashed_at: None, history: vec![], attachments: vec![],
+            stamp: Hlc::default(), meta_stamp: Hlc::default(), trash: None, tomb: None,
         }
     }
 
@@ -159,13 +203,82 @@ impl Entry {
         !self.deleted && self.trashed_at.is_none()
     }
 
+    /// In the recycle bin (and not a tombstone).
+    pub fn is_trashed(&self) -> bool {
+        !self.deleted && self.trashed_at.is_some()
+    }
+
+    /// The entry's version: the newer of its content and meta registers. The trash applies
+    /// only to versions its device had seen (`trash.over >= version`).
+    pub fn version(&self) -> &Hlc {
+        std::cmp::max(&self.stamp, &self.meta_stamp)
+    }
+
+    /// Does the permanent-delete register apply to the current content? (Not to the meta
+    /// register: a delete wipes the text, which a later rename alone can't restore.)
+    pub fn tomb_applies(&self) -> bool {
+        self.tomb.as_ref().is_some_and(|r| r.applies_to(&self.stamp))
+    }
+
+    /// Does the trash register apply to the current version?
+    pub fn trash_applies(&self) -> bool {
+        self.trash.as_ref().is_some_and(|r| r.applies_to(self.version()))
+    }
+
+    /// Makes `deleted` / `trashed_at` (what views read) agree with the `tomb` / `trash` registers.
+    /// A trashed entry keeps its `trashed_at` ms; one that lacks it takes the trash stamp's wall.
+    pub fn fix_flags(&mut self) {
+        self.deleted = self.tomb_applies();
+        self.trashed_at = if self.trash_applies() {
+            Some(self.trashed_at.unwrap_or_else(|| self.trash.as_ref().map_or(0, |t| t.at.wall)))
+        } else {
+            None
+        };
+    }
+
+    /// Live attachments (removed ones are invisible everywhere).
+    pub fn live_attachments(&self) -> impl Iterator<Item = &Attachment> {
+        self.attachments.iter().filter(|a| a.is_live())
+    }
+
+    /// Turns this entry into a tombstone over its current version: content, history and
+    /// attachments are wiped (they zeroise themselves); the record stays.
+    fn entomb(&mut self, at: &Hlc) {
+        self.tomb = Some(Removal { over: self.stamp.clone(), at: at.clone() });
+        self.fix_flags();
+        self.wipe();
+    }
+
+    /// Wipes content, history and attachments (each zeroises itself).
+    fn wipe(&mut self) {
+        self.content.zeroize();
+        self.content = String::new();
+        self.history.clear();
+        self.attachments.clear();
+    }
+
     /// Saves the current (ext, content) as the newest revision before it is replaced.
-    /// Folders and empty content are not recorded; a repeat of the newest revision is skipped.
+    /// Folders and empty content are not recorded; a repeat of the newest revision is not
+    /// stored twice, it just takes the newer stamp as normal history (so a sync delete that only saw the older
+    /// copy can't drop this version; see `vault_merge`).
     fn push_revision(&mut self) {
         if self.dir || self.content.is_empty() { return; }
-        if self.history.first().is_some_and(|r| r.ext == self.ext && r.content == self.content) { return; }
-        self.history.insert(0, Revision { updated: self.updated, ext: self.ext.clone(), content: self.content.clone() });
-        self.history.truncate(MAX_HISTORY); // dropped revisions zeroise themselves
+        let stamp = (!self.stamp.is_zero()).then(|| self.stamp.clone());
+        if let Some(r) = self.history.first_mut().filter(|r| r.ext == self.ext && r.content == self.content) {
+            if stamp > r.stamp { r.stamp = stamp; r.updated = self.updated; r.conflict_from = None; }
+            return;
+        }
+        self.history.insert(0, Revision { updated: self.updated, ext: self.ext.clone(), content: self.content.clone(), stamp, conflict_from: None });
+        cap_history(&mut self.history);
+    }
+}
+
+/// Keeps at most [`MAX_HISTORY`] revisions, dropping the oldest normal revision first and
+/// conflict revisions only when nothing else is left. Dropped revisions zeroise themselves.
+pub fn cap_history(h: &mut Vec<Revision>) {
+    while h.len() > MAX_HISTORY {
+        let i = h.iter().rposition(|r| r.conflict_from.is_none()).unwrap_or(h.len() - 1);
+        h.remove(i);
     }
 }
 
@@ -178,6 +291,12 @@ pub struct Db {
     /// Set once the old per-note `.nqv` files have been imported on this vault.
     #[serde(default)]
     pub legacy_imported: bool,
+    /// The last stamp this database's clock issued or observed.
+    #[serde(default)]
+    pub clock: Hlc,
+    /// This installation's device id (not stored; set after load, see `vault_hlc`).
+    #[serde(skip)]
+    pub device: String,
     /// Format version the data was loaded from (not stored). Below [`DB_VERSION`], the
     /// first save keeps a one-time copy of the old file (see [`save_db`]).
     #[serde(skip)]
@@ -204,7 +323,7 @@ fn item(e: &Entry) -> ListItem {
     ListItem {
         rel: e.path.clone(), ext: e.ext.clone(), updated: e.updated, dir: e.dir,
         tags: e.tags.clone(), starred: e.starred, trashed_at: e.trashed_at,
-        attachments: e.attachments.len() as u32, history: e.history.len() as u32,
+        attachments: e.live_attachments().count() as u32, history: e.history.len() as u32,
     }
 }
 
@@ -290,6 +409,13 @@ impl Db {
         Db { v: DB_VERSION, loaded_v: DB_VERSION, ..Db::default() }
     }
 
+    /// Issues a fresh stamp from this database's clock (strictly above every stamp it holds;
+    /// a merge raises it with `clock.observe(&remote)` first).
+    pub fn tick(&mut self) -> Hlc {
+        self.clock = self.clock.next(now_ms(), &self.device);
+        self.clock.clone()
+    }
+
     fn live_id(&self, rel: &str, dir: bool) -> Option<&str> {
         self.entries.values().find(|e| e.is_live() && e.dir == dir && e.path == rel).map(|e| e.id.as_str())
     }
@@ -312,13 +438,21 @@ impl Db {
         if self.live_id(rel, true).is_some() {
             return Err("A folder with that name already exists".into());
         }
-        let id = self.live_id(rel, false).map(str::to_string).unwrap_or_else(new_id);
+        let existing = self.live_id(rel, false).map(str::to_string);
+        let changed = existing.as_ref().is_none_or(|id| { let e = &self.entries[id]; e.ext != ext || e.content != content });
+        let stamp = if changed { Some(self.tick()) } else { None };
+        let created = existing.is_none();
+        let id = existing.unwrap_or_else(new_id);
         let e = self.entries.entry(id.clone()).or_insert_with(|| Entry::blank(id, rel, false, 0));
-        if e.ext != ext || e.content != content {
-            e.push_revision();
-            e.ext = ext.into();
-            e.content.zeroize();
-            e.content = content.into();
+        if let Some(s) = stamp {
+            if created { e.meta_stamp = s.clone(); }
+            if e.ext != ext || e.content != content {
+                e.push_revision();
+                e.ext = ext.into();
+                e.content.zeroize();
+                e.content = content.into();
+            }
+            e.stamp = s;
         }
         e.updated = now_ms();
         Ok(())
@@ -331,26 +465,20 @@ impl Db {
         if self.live_id(rel, true).is_some() { return Ok(()); }
         if self.live_id(rel, false).is_some() { return Err("A note with that name already exists".into()); }
         let id = new_id();
-        self.entries.insert(id.clone(), Entry::blank(id, rel, true, now_ms()));
+        let mut e = Entry::blank(id.clone(), rel, true, now_ms());
+        e.stamp = self.tick();
+        e.meta_stamp = e.stamp.clone();
+        self.entries.insert(id, e);
         Ok(())
     }
 
-    /// Delete a note, or a folder with everything in it. Only tests use this now; the app trashes (see `trash`).
+    /// Delete a note, or a folder with everything in it (to tombstones). Only tests use this now;
+    /// the app trashes (see `trash`).
     #[cfg(test)]
     pub fn delete(&mut self, rel: &str) -> Result<(), String> {
         let prefix = format!("{rel}/");
-        let now = now_ms();
-        let mut hit = false;
-        for e in self.entries.values_mut().filter(|e| !e.deleted) {
-            if e.path == rel || (e.path.starts_with(&prefix)) {
-                e.deleted = true;
-                e.content.zeroize();
-                e.content = String::new();
-                e.updated = now;
-                hit = true;
-            }
-        }
-        if hit { Ok(()) } else { Err("Nothing to delete".into()) }
+        let n = self.entomb_where(|e| e.path == rel || e.path.starts_with(&prefix));
+        if n > 0 { Ok(()) } else { Err("Nothing to delete".into()) }
     }
 
     /// Rename/move a note or folder (a folder carries everything under it).
@@ -366,19 +494,17 @@ impl Db {
         }
         let prefix = format!("{from}/");
         let now = now_ms();
-        let mut hit = false;
-        for e in self.entries.values_mut().filter(|e| e.is_live()) {
-            if e.path == from {
-                e.path = to.into();
-                e.updated = now;
-                hit = true;
-            } else if let Some(rest) = e.path.strip_prefix(&prefix) {
-                e.path = format!("{to}/{rest}");
-                e.updated = now;
-                hit = true;
-            }
+        if !self.entries.values().any(|e| e.is_live() && (e.path == from || e.path.starts_with(&prefix))) {
+            return Err("Nothing to rename".into());
         }
-        if hit { Ok(()) } else { Err("Nothing to rename".into()) }
+        let stamp = self.tick();
+        for e in self.entries.values_mut().filter(|e| e.is_live()) {
+            let np = if e.path == from { to.to_string() } else if let Some(rest) = e.path.strip_prefix(&prefix) { format!("{to}/{rest}") } else { continue };
+            e.path = np;
+            e.updated = now;
+            e.meta_stamp = stamp.clone();
+        }
+        Ok(())
     }
 
     /// Notes and folders (explicit and implied by note paths), folders first by path order.
@@ -400,7 +526,7 @@ impl Db {
     pub fn list_trash(&self) -> Vec<ListItem> {
         let mut out: BTreeMap<(String, bool), ListItem> = BTreeMap::new();
         let mut implied: BTreeMap<String, u64> = BTreeMap::new();
-        for e in self.entries.values().filter(|e| !e.deleted && e.trashed_at.is_some()) {
+        for e in self.entries.values().filter(|e| e.is_trashed()) {
             out.insert((e.path.clone(), e.dir), item(e));
             for d in parent_dirs(&e.path) {
                 let t = implied.entry(d).or_insert(0);
@@ -429,8 +555,12 @@ impl Db {
     pub fn trash_at(&mut self, rel: &str, now: u64) -> Result<(), String> {
         let ids = self.live_ids_under(rel);
         if ids.is_empty() { return Err("Nothing to delete".into()); }
+        let at = self.tick();
         for id in ids {
-            if let Some(e) = self.entries.get_mut(&id) { e.trashed_at = Some(now); }
+            if let Some(e) = self.entries.get_mut(&id) {
+                e.trashed_at = Some(now);
+                e.trash = Some(Removal { over: e.version().clone(), at: at.clone() });
+            }
         }
         Ok(())
     }
@@ -440,7 +570,7 @@ impl Db {
     pub fn restore(&mut self, rel: &str) -> Result<(), String> {
         let prefix = format!("{rel}/");
         let mut ids: Vec<(String, String)> = self.entries.values()
-            .filter(|e| !e.deleted && e.trashed_at.is_some() && (e.path == rel || e.path.starts_with(&prefix)))
+            .filter(|e| e.is_trashed() && (e.path == rel || e.path.starts_with(&prefix)))
             .map(|e| (e.path.clone(), e.id.clone())).collect();
         if ids.is_empty() { return Err("Nothing to restore".into()); }
         ids.sort();
@@ -450,6 +580,7 @@ impl Db {
         } else {
             rel.to_string()
         };
+        let stamp = self.tick(); // above every trash.over: the restore beats the trash
         for (path, id) in ids {
             let mut np = match path.strip_prefix(rel) { Some(rest) => format!("{root}{rest}"), None => path.clone() };
             let is_dir = self.entries[&id].dir;
@@ -459,49 +590,80 @@ impl Db {
             let e = self.entries.get_mut(&id).expect("id from the same map");
             e.path = np;
             e.trashed_at = None;
+            e.stamp = stamp.clone(); // `trash` stays as a register; it no longer applies
+            e.meta_stamp = stamp.clone();
         }
         Ok(())
     }
 
-    fn remove_where(&mut self, f: impl Fn(&Entry) -> bool) -> usize {
-        let ids: Vec<String> = self.entries.values().filter(|e| f(e)).map(|e| e.id.clone()).collect();
+    /// Turns every non-tombstone entry matching `f` into a tombstone (one removal stamp).
+    fn entomb_where(&mut self, f: impl Fn(&Entry) -> bool) -> usize {
+        let ids: Vec<String> = self.entries.values().filter(|e| !e.deleted && f(e)).map(|e| e.id.clone()).collect();
+        if ids.is_empty() { return 0; }
+        let at = self.tick();
         for id in &ids {
-            self.entries.remove(id); // Drop zeroises content, history and attachments
+            self.entries.get_mut(id).expect("id from the same map").entomb(&at);
         }
         ids.len()
     }
 
-    /// Permanently remove a TRASHED note or folder tree (no tombstone). Live entries are never touched.
+    /// Permanently delete a TRASHED note or folder tree (it becomes a tombstone with its content,
+    /// history and attachments wiped). Live entries are never touched.
     pub fn purge(&mut self, rel: &str) -> Result<(), String> {
         let prefix = format!("{rel}/");
-        let n = self.remove_where(|e| e.trashed_at.is_some() && (e.path == rel || e.path.starts_with(&prefix)));
+        let n = self.entomb_where(|e| e.is_trashed() && (e.path == rel || e.path.starts_with(&prefix)));
         if n == 0 { Err("Only items in the recycle bin can be deleted permanently".into()) } else { Ok(()) }
     }
 
     pub fn empty_trash(&mut self) -> usize {
-        self.remove_where(|e| e.trashed_at.is_some())
+        self.entomb_where(Entry::is_trashed)
     }
 
-    /// Permanently drop entries trashed more than 30 days before `now`.
+    /// Permanently delete (to tombstones) entries trashed more than 30 days before `now`.
     pub fn purge_expired(&mut self, now: u64) -> usize {
-        self.remove_where(|e| e.trashed_at.map(|t| now.saturating_sub(t) > TRASH_KEEP_MS).unwrap_or(false))
+        self.entomb_where(|e| e.trashed_at.is_some_and(|t| now.saturating_sub(t) > TRASH_KEEP_MS))
     }
 
-    /// Drop legacy sync tombstones (nothing syncs any more).
-    pub fn drop_tombstones(&mut self) -> usize {
-        self.remove_where(|e| e.deleted)
+    /// Forgets tombstones and removed attachments whose removal is older than
+    /// [`TOMBSTONE_KEEP_MS`]. Returns how many records were dropped.
+    pub fn drop_expired_tombstones(&mut self, now: u64) -> usize {
+        let old = |at: &Hlc| now.saturating_sub(at.wall) > TOMBSTONE_KEEP_MS;
+        let ids: Vec<String> = self.entries.values()
+            .filter(|e| e.deleted && e.tomb.as_ref().is_none_or(|t| old(&t.at)))
+            .map(|e| e.id.clone()).collect();
+        let mut n = ids.len();
+        for id in &ids { self.entries.remove(id); }
+        for e in self.entries.values_mut() {
+            let before = e.attachments.len();
+            e.attachments.retain(|a| a.removed.as_ref().is_none_or(|r| !old(r)));
+            n += before - e.attachments.len();
+        }
+        n
+    }
+
+    /// Live entry (note first, then folder) at `rel`.
+    fn live_any(&self, rel: &str, what: &str) -> Result<String, String> {
+        Ok(self.live_id(rel, false).or_else(|| self.live_id(rel, true)).ok_or(format!("Nothing to {what}"))?.to_string())
     }
 
     pub fn set_tags(&mut self, rel: &str, tags: Vec<String>) -> Result<(), String> {
         let tags = normalize_tags(tags);
-        let id = self.live_id(rel, false).or_else(|| self.live_id(rel, true)).ok_or("Nothing to tag")?.to_string();
-        self.entries.get_mut(&id).expect("live id").tags = tags;
+        let id = self.live_any(rel, "tag")?;
+        if self.entries[&id].tags == tags { return Ok(()); }
+        let stamp = self.tick();
+        let e = self.entries.get_mut(&id).expect("live id");
+        e.tags = tags;
+        e.meta_stamp = stamp;
         Ok(())
     }
 
     pub fn set_starred(&mut self, rel: &str, starred: bool) -> Result<(), String> {
-        let id = self.live_id(rel, false).or_else(|| self.live_id(rel, true)).ok_or("Nothing to star")?.to_string();
-        self.entries.get_mut(&id).expect("live id").starred = starred;
+        let id = self.live_any(rel, "star")?;
+        if self.entries[&id].starred == starred { return Ok(()); }
+        let stamp = self.tick();
+        let e = self.entries.get_mut(&id).expect("live id");
+        e.starred = starred;
+        e.meta_stamp = stamp;
         Ok(())
     }
 
@@ -546,14 +708,15 @@ impl Db {
 
     // ─── attachments ─────────────────────────────────────────────────────────
 
-    /// Bytes of attachment data held by the whole vault (recycle bin included).
+    /// Bytes of attachment data held by the whole vault (recycle bin included; removed
+    /// attachments and tombstones hold none).
     pub fn attachments_total(&self) -> u64 {
-        self.entries.values().flat_map(|e| e.attachments.iter()).map(|a| a.size).sum()
+        self.entries.values().filter(|e| !e.deleted).flat_map(|e| e.live_attachments()).map(|a| a.size).sum()
     }
 
     pub fn attach_add(&mut self, rel: &str, name: &str, data_b64: &str) -> Result<AttachmentMeta, String> {
         let name = sanitize_attachment_name(name)?;
-        if self.live_file(rel)?.attachments.len() >= MAX_ATTACH_PER_ENTRY {
+        if self.live_file(rel)?.live_attachments().count() >= MAX_ATTACH_PER_ENTRY {
             return Err(format!("A note can have at most {MAX_ATTACH_PER_ENTRY} attachments"));
         }
         let too_big = || format!("Attachments can be at most {} MB each", MAX_ATTACH_BYTES / (1024 * 1024));
@@ -570,27 +733,40 @@ impl Db {
             ));
         }
         let now = now_ms();
-        let a = Attachment { id: new_id(), mime: guess_mime(&name).into(), name, size, added: now, data: b64_encode(&bytes) };
+        let stamp = self.tick();
+        let a = Attachment {
+            id: new_id(), mime: guess_mime(&name).into(), name, size, added: now, data: b64_encode(&bytes),
+            stamp: stamp.clone(), removed: None,
+        };
         let meta = a.meta();
         let e = self.live_file_mut(rel)?;
         e.attachments.push(a);
         e.updated = now;
+        e.stamp = stamp;
         Ok(meta)
     }
 
     pub fn attach_list(&self, rel: &str) -> Result<Vec<AttachmentMeta>, String> {
-        Ok(self.live_file(rel)?.attachments.iter().map(Attachment::meta).collect())
+        Ok(self.live_file(rel)?.live_attachments().map(Attachment::meta).collect())
     }
 
     pub fn attach_get(&self, rel: &str, id: &str) -> Result<&Attachment, String> {
-        self.live_file(rel)?.attachments.iter().find(|a| a.id == id).ok_or_else(|| "That attachment no longer exists".to_string())
+        self.live_file(rel)?.live_attachments().find(|a| a.id == id).ok_or_else(|| "That attachment no longer exists".to_string())
     }
 
+    /// Removes an attachment: its data is wiped and the record kept (stamped) as a removal.
     pub fn attach_remove(&mut self, rel: &str, id: &str) -> Result<(), String> {
+        if !self.live_file(rel)?.live_attachments().any(|a| a.id == id) {
+            return Err("That attachment no longer exists".into());
+        }
+        let stamp = self.tick();
         let e = self.live_file_mut(rel)?;
-        let i = e.attachments.iter().position(|a| a.id == id).ok_or("That attachment no longer exists")?;
-        e.attachments.remove(i); // zeroised on drop
+        let a = e.attachments.iter_mut().find(|a| a.id == id && a.is_live()).expect("checked above");
+        a.data.zeroize();
+        a.data = String::new();
+        a.removed = Some(stamp.clone());
         e.updated = now_ms();
+        e.stamp = stamp;
         Ok(())
     }
 }
@@ -709,7 +885,35 @@ impl Db {
         // Older formats load through serde defaults; the next save writes the current one.
         db.loaded_v = db.v;
         db.v = DB_VERSION;
+        db.normalise();
         Ok(Some(db))
+    }
+
+    /// After loading: gives unstamped (pre-v3) entries and attachments a legacy stamp from their
+    /// `updated`/`added` time (a missing meta stamp = the content stamp), gives legacy
+    /// tombstones/trash their registers, makes the flags agree
+    /// with the registers, and raises the clock above every stamp held. Idempotent.
+    pub fn normalise(&mut self) {
+        let mut top = self.clock.clone();
+        for e in self.entries.values_mut() {
+            if e.stamp.is_zero() { e.stamp = Hlc::legacy(e.updated); }
+            if e.meta_stamp.is_zero() { e.meta_stamp = e.stamp.clone(); }
+            let v = e.version().clone();
+            if e.deleted && e.tomb.is_none() { e.tomb = Some(Removal { over: e.stamp.clone(), at: e.stamp.clone() }); }
+            if e.trashed_at.is_some() && e.trash.is_none() { e.trash = Some(Removal { over: v.clone(), at: v }); }
+            e.fix_flags();
+            if e.deleted { e.wipe(); } // a tombstone never carries data
+            for a in e.attachments.iter_mut() {
+                if a.stamp.is_zero() { a.stamp = Hlc::legacy(a.added); }
+                if a.removed.is_some() && !a.data.is_empty() { a.data.zeroize(); a.data = String::new(); }
+                top.observe(&a.stamp);
+                if let Some(r) = &a.removed { top.observe(r); }
+            }
+            top.observe(&e.stamp);
+            top.observe(&e.meta_stamp);
+            for r in [&e.trash, &e.tomb].into_iter().flatten() { top.observe(&r.over); top.observe(&r.at); }
+        }
+        self.clock = top;
     }
 }
 
@@ -723,6 +927,12 @@ pub fn v1_bak_path(root: &Path) -> PathBuf {
     root.join(V1_BAK)
 }
 
+/// One-time pre-upgrade copy for a database loaded from format `v`: `vault.nqdb.v{v}.bak`
+/// (format 0/1 both use the 0.7.0 name `vault.nqdb.v1.bak`).
+pub fn upgrade_bak_path(root: &Path, v: u32) -> PathBuf {
+    if v <= 1 { v1_bak_path(root) } else { root.join(format!("{DB_FILE}.v{v}.bak")) }
+}
+
 fn bak_path(root: &Path, n: usize) -> PathBuf {
     root.join(format!("{BAK_PREFIX}.{n}"))
 }
@@ -731,10 +941,11 @@ fn mtime_secs(p: &Path) -> Option<u64> {
     fs::metadata(p).ok()?.modified().ok()?.duration_since(SystemTime::UNIX_EPOCH).ok().map(|d| d.as_secs())
 }
 
-/// After loading: forget legacy tombstones and purge anything trashed over 30 days ago.
+/// After loading: forget tombstones and removed attachments older than 180 days. The 30-day
+/// trash purge is left to the caller (`VaultState::with_db`), which first gives the DB its
+/// device id so the new tombstones carry it.
 fn tidy(mut db: Db) -> Db {
-    db.drop_tombstones();
-    db.purge_expired(now_ms());
+    db.drop_expired_tombstones(now_ms());
     db
 }
 
@@ -778,12 +989,13 @@ pub fn save(root: &Path, bytes: &[u8]) -> Result<(), String> {
 }
 
 /// Seals `db` and writes it (see [`save`]). The first save of a database loaded from an
-/// older format first copies the existing file to `vault.nqdb.v1.bak` (never overwriting
-/// one that is already there), so the upgrade can always be undone by hand.
+/// older format first copies the existing file to `vault.nqdb.v{N}.bak` (see
+/// [`upgrade_bak_path`]; never overwriting one that is already there), so the upgrade can
+/// always be undone by hand.
 pub fn save_db(root: &Path, db: &mut Db, key: &VaultKey, vault_id: &[u8; VAULT_ID_LEN]) -> Result<(), String> {
     let bytes = db.seal(key, vault_id)?;
     if db.loaded_v < DB_VERSION {
-        let (main, bak) = (db_path(root), v1_bak_path(root));
+        let (main, bak) = (db_path(root), upgrade_bak_path(root, db.loaded_v));
         if main.exists() && !bak.exists() {
             fs::copy(&main, &bak).map_err(|e| format!("Couldn't back up the old vault database before upgrading it: {e}"))?;
         }
@@ -912,10 +1124,14 @@ mod tests {
         assert_eq!(db.entries.len(), 2);
         db.trash("a.nqv").unwrap();
         db.purge("a.nqv").unwrap();
-        assert_eq!(db.entries.len(), 1, "removed outright, no tombstone");
+        // 0.9.0: kept as a tombstone (for sync), invisible everywhere
+        assert_eq!(db.entries.values().filter(|e| !e.deleted).count(), 1);
+        assert!(db.list_trash().is_empty() && db.get("a.nqv").is_none());
+        assert!(db.purge("a.nqv").is_err(), "a tombstone can't be purged again");
         db.trash("F").unwrap();
         db.purge("F").unwrap();
-        assert!(db.entries.is_empty());
+        assert!(db.entries.values().all(|e| e.deleted && e.content.is_empty()));
+        assert!(db.list().is_empty() && db.list_trash().is_empty());
     }
 
     #[test]
@@ -925,7 +1141,9 @@ mod tests {
         db.put("b.nqv", "md", "2").unwrap();
         db.trash("a.nqv").unwrap();
         assert_eq!(db.empty_trash(), 1);
-        assert!(db.get("b.nqv").is_some() && db.list_trash().is_empty() && db.entries.len() == 1);
+        assert!(db.get("b.nqv").is_some() && db.list_trash().is_empty());
+        assert_eq!(db.entries.values().filter(|e| !e.deleted).count(), 1, "the other one is a tombstone");
+        assert_eq!(db.empty_trash(), 0, "tombstones aren't in the trash");
     }
 
     #[test]
@@ -1009,16 +1227,23 @@ mod tests {
     }
 
     #[test]
-    fn load_drops_tombstones() {
+    fn load_keeps_recent_tombstones_and_drops_old_ones() {
         let (k, id) = keys();
         let dir = std::env::temp_dir().join(format!("nqdb-ts-{}", new_id()));
         fs::create_dir_all(&dir).unwrap();
         let mut db = Db::new();
         db.put("a.nqv", "md", "x").unwrap();
         db.put("b.nqv", "md", "y").unwrap();
+        db.put("c.nqv", "md", "z").unwrap();
         db.delete("b.nqv").unwrap();
+        db.delete("c.nqv").unwrap();
+        let old = now_ms() - TOMBSTONE_KEEP_MS - 1;
+        db.entries.values_mut().filter(|e| e.path == "c.nqv").for_each(|e| e.tomb.as_mut().unwrap().at.wall = old);
         save(&dir, &db.seal(&k, &id).unwrap()).unwrap();
-        assert_eq!(load(&dir, &k, &id).unwrap().entries.len(), 1);
+        let back = load(&dir, &k, &id).unwrap();
+        assert_eq!(back.entries.len(), 2, "b's tombstone stays, c's (older than 180 days) is dropped");
+        assert!(back.entries.values().any(|e| e.path == "b.nqv" && e.deleted && e.content.is_empty()));
+        assert_eq!(rels(back.list()), vec!["a.nqv"]);
         fs::remove_dir_all(&dir).ok();
     }
 
@@ -1107,7 +1332,7 @@ mod tests {
         db.loaded_v = 1;
         save_db(&dir, &mut db, &k, &id).unwrap();
         assert_eq!(fs::read(v1_bak_path(&dir)).unwrap(), b"keep me");
-        // A v2 database never makes one.
+        // A current-format database never makes one.
         let dir2 = tmpdir("mig2");
         let mut db = Db::new();
         db.put("a.nqv", "md", "x").unwrap();
@@ -1131,7 +1356,7 @@ mod tests {
         assert_eq!(e.attachments, db.get("a.nqv").unwrap().attachments);
         assert_eq!(back.attach_list("a.nqv").unwrap(), vec![m]);
 
-        let future = r#"{"v":3,"newTopLevel":{"x":1},"entries":{"i1":{"id":"i1","path":"a.nqv","ext":"md","content":"x","updated":5,
+        let future = r#"{"v":99,"newTopLevel":{"x":1},"entries":{"i1":{"id":"i1","path":"a.nqv","ext":"md","content":"x","updated":5,
             "colour":"red","history":[{"updated":1,"ext":"md","content":"o","author":"me"}],
             "attachments":[{"id":"0123456789abcdef0123456789abcdef","name":"f.txt","mime":"text/plain","size":2,"added":3,"data":"aGk=","sha":"zz"}]}}}"#;
         let sealed = vc::seal(&k, &id, DB_EXT, future.as_bytes()).unwrap();
@@ -1221,7 +1446,9 @@ mod tests {
         db.purge_expired(TRASH_KEEP_MS + 10);
         db.trash("c.nqv").unwrap();
         db.empty_trash();
-        assert!(db.entries.is_empty());
+        // 0.9.0: three tombstones remain, holding no content, history or attachments
+        assert_eq!(db.entries.len(), 3);
+        assert!(db.entries.values().all(|e| e.deleted && e.tomb.is_some() && e.content.is_empty() && e.history.is_empty() && e.attachments.is_empty()));
         assert_eq!(db.attachments_total(), 0);
     }
 
@@ -1312,5 +1539,260 @@ mod tests {
         assert_eq!(b64_decode(&a.data).unwrap().as_slice(), data.as_slice());
         assert!(bak_path(&dir, 1).exists(), ".bak.1 rotation still happens");
         fs::remove_dir_all(&dir).ok();
+    }
+
+    // ─── 0.9.0: format v3 (sync metadata) ────────────────────────────────────
+
+    fn entry<'a>(db: &'a Db, path: &str) -> &'a Entry {
+        db.entries.values().find(|e| e.path == path).unwrap()
+    }
+
+    #[test]
+    fn every_live_change_bumps_the_stamp_and_no_ops_do_not() {
+        let mut db = Db::new();
+        db.device = "dev1".into();
+        db.put("a.nqv", "md", "1").unwrap();
+        let mut last = entry(&db, "a.nqv").stamp.clone();
+        assert!(!last.is_zero() && last.device == "dev1");
+        assert_eq!(entry(&db, "a.nqv").meta_stamp, last, "creation sets both registers");
+        // `meta`: rename/tags/star bump only the meta register, everything else only the content one
+        let mut bumped = |db: &Db, path: &str, what: &str, meta: bool| {
+            let e = entry(db, path);
+            let (s, other) = if meta { (e.meta_stamp.clone(), e.stamp.clone()) } else { (e.stamp.clone(), e.meta_stamp.clone()) };
+            assert!(s > last, "{what} must bump its stamp");
+            assert!(other < s, "{what} must not bump the other register");
+            assert_eq!(db.clock, s, "the clock is the last issued stamp");
+            assert_eq!(*e.version(), s);
+            last = s;
+        };
+        db.put("a.nqv", "md", "2").unwrap();
+        bumped(&db, "a.nqv", "content", false);
+        db.put("a.nqv", "txt", "2").unwrap();
+        bumped(&db, "a.nqv", "ext", false);
+        db.set_tags("a.nqv", vec!["t".into()]).unwrap();
+        bumped(&db, "a.nqv", "tags", true);
+        db.set_starred("a.nqv", true).unwrap();
+        bumped(&db, "a.nqv", "star", true);
+        let m = db.attach_add("a.nqv", "f.txt", &b64_encode(b"hi")).unwrap();
+        bumped(&db, "a.nqv", "attachment add", false);
+        let a = &entry(&db, "a.nqv").attachments[0];
+        assert!(a.stamp == entry(&db, "a.nqv").stamp && a.removed.is_none());
+        db.attach_remove("a.nqv", &m.id).unwrap();
+        bumped(&db, "a.nqv", "attachment remove", false);
+        db.rename("a.nqv", "b.nqv").unwrap();
+        bumped(&db, "b.nqv", "rename", true);
+        db.history_restore("b.nqv", 1).unwrap();
+        bumped(&db, "b.nqv", "history restore", false);
+        db.trash("b.nqv").unwrap();
+        db.restore("b.nqv").unwrap();
+        let r = entry(&db, "b.nqv");
+        assert!(r.stamp > last && r.meta_stamp == r.stamp && db.clock == r.stamp, "restore sets both registers");
+
+        // no-ops: same ext+content, same tags, same star
+        let (s, m, u) = (entry(&db, "b.nqv").stamp.clone(), entry(&db, "b.nqv").meta_stamp.clone(), entry(&db, "b.nqv").updated);
+        let e = entry(&db, "b.nqv");
+        let (ext, content) = (e.ext.clone(), e.content.clone());
+        db.put("b.nqv", &ext, &content).unwrap();
+        db.set_tags("b.nqv", vec!["#T".into()]).unwrap();
+        db.set_starred("b.nqv", true).unwrap();
+        assert_eq!((&entry(&db, "b.nqv").stamp, &entry(&db, "b.nqv").meta_stamp), (&s, &m), "no-op changes keep the stamps");
+        assert!(entry(&db, "b.nqv").updated >= u);
+
+        // new entries are stamped: mkdir, empty put, duplicate; a moved folder stamps its children
+        db.mkdir("D").unwrap();
+        db.put("D/e.nqv", "", "").unwrap();
+        let d = db.duplicate("b.nqv").unwrap();
+        for p in ["D", "D/e.nqv", d.as_str()] { assert!(!entry(&db, p).stamp.is_zero() && !entry(&db, p).meta_stamp.is_zero(), "{p}"); }
+        let before = entry(&db, "D/e.nqv").meta_stamp.clone();
+        db.rename("D", "E").unwrap();
+        assert!(entry(&db, "E/e.nqv").meta_stamp > before && entry(&db, "E").meta_stamp == entry(&db, "E/e.nqv").meta_stamp);
+        // revisions record the stamp of the version they hold
+        let h = &entry(&db, "b.nqv").history;
+        assert!(!h.is_empty() && h.iter().all(|r| r.stamp.is_some() && r.conflict_from.is_none()));
+    }
+
+    #[test]
+    fn trash_sets_the_register_and_restore_beats_it() {
+        let mut db = Db::new();
+        db.put("a.nqv", "md", "x").unwrap();
+        let s0 = entry(&db, "a.nqv").stamp.clone();
+        db.trash("a.nqv").unwrap();
+        let e = entry(&db, "a.nqv");
+        let t = e.trash.clone().unwrap();
+        assert!(t.over == s0 && t.at > s0 && e.trash_applies() && e.is_trashed());
+        assert_eq!(e.stamp, s0, "trash isn't a live change");
+        // the register covers the entry's version, the newer of its two stamps
+        let mut d2 = Db::new();
+        d2.put("m.nqv", "md", "x").unwrap();
+        d2.set_tags("m.nqv", vec!["t".into()]).unwrap();
+        d2.trash("m.nqv").unwrap();
+        let m = entry(&d2, "m.nqv");
+        assert!(m.meta_stamp > m.stamp && m.trash.as_ref().unwrap().over == m.meta_stamp && m.is_trashed());
+        db.restore("a.nqv").unwrap();
+        let e = entry(&db, "a.nqv");
+        assert!(e.stamp > t.over && !e.trash_applies() && e.is_live());
+        assert_eq!(e.trash, Some(t), "the register stays; it just no longer applies");
+        // flags follow the registers (e.g. after a merge)
+        let mut e = e.clone();
+        e.fix_flags();
+        assert!(e.is_live());
+        e.trash.as_mut().unwrap().over = e.stamp.clone();
+        e.fix_flags();
+        assert!(e.is_trashed() && e.trashed_at.is_some());
+        e.tomb = Some(Removal { over: e.stamp.clone(), at: e.stamp.clone() });
+        e.fix_flags();
+        assert!(e.deleted && !e.is_trashed() && !e.is_live());
+    }
+
+    #[test]
+    fn permanent_deletes_become_tombstones_that_expire_after_180_days() {
+        let mut db = Db::new();
+        db.put("old.nqv", "md", "1").unwrap();
+        db.put("old.nqv", "md", "2").unwrap();
+        db.attach_add("old.nqv", "f.bin", &b64_encode(&[1u8; 100])).unwrap();
+        db.put("live.nqv", "md", "3").unwrap();
+        db.trash_at("old.nqv", 1).unwrap();
+        let s = entry(&db, "old.nqv").stamp.clone();
+        let now = now_ms();
+        assert_eq!(db.purge_expired(now), 1);
+        assert_eq!(db.purge_expired(now), 0, "a tombstone is never converted twice");
+        let e = entry(&db, "old.nqv");
+        let tomb = e.tomb.clone().unwrap();
+        assert!(e.deleted && !e.is_trashed() && e.tomb_applies() && tomb.over == s && tomb.at > s);
+        assert!(e.content.is_empty() && e.history.is_empty() && e.attachments.is_empty());
+        assert!(db.list_trash().is_empty() && db.get("old.nqv").is_none() && rels(db.list()) == vec!["live.nqv"]);
+        assert_eq!(db.attachments_total(), 0);
+        // the path is free again; a new note there is a different entry
+        db.put("old.nqv", "md", "new").unwrap();
+        assert_eq!(db.entries.len(), 3);
+        db.trash("old.nqv").unwrap();
+        assert_eq!(rels(db.list_trash()), vec!["old.nqv"]);
+        db.restore("old.nqv").unwrap();
+        assert_eq!(db.get("old.nqv").unwrap().content, "new");
+
+        assert_eq!(db.drop_expired_tombstones(tomb.at.wall + TOMBSTONE_KEEP_MS), 0, "kept for 180 days");
+        assert_eq!(db.drop_expired_tombstones(tomb.at.wall + TOMBSTONE_KEEP_MS + 1), 1);
+        assert_eq!(db.entries.len(), 2);
+        assert!(db.entries.values().all(|e| !e.deleted));
+    }
+
+    #[test]
+    fn removed_attachments_are_invisible_uncounted_and_expire() {
+        let mut db = Db::new();
+        db.put("a.nqv", "md", "x").unwrap();
+        let four = b64_encode(&vec![1u8; 4 * 1024 * 1024]);
+        let ids: Vec<String> = (0..6).map(|i| db.attach_add("a.nqv", &format!("{i}"), &four).unwrap().id).collect();
+        assert!(db.attach_add("a.nqv", "f", &four).is_err(), "25 MB vault limit");
+        db.attach_remove("a.nqv", &ids[0]).unwrap();
+        let gone = entry(&db, "a.nqv").attachments.iter().find(|a| a.id == ids[0]).unwrap().clone();
+        assert!(gone.data.is_empty() && gone.removed.is_some(), "data wiped, record kept");
+        assert_eq!(db.attachments_total(), 5 * 4 * 1024 * 1024);
+        assert_eq!(db.attach_list("a.nqv").unwrap().len(), 5);
+        assert_eq!(db.list()[0].attachments, 5);
+        assert!(db.attach_get("a.nqv", &ids[0]).is_err() && db.attach_remove("a.nqv", &ids[0]).is_err());
+        db.attach_add("a.nqv", "f", &four).unwrap(); // the freed space is usable again
+        // the per-note count ignores removed ones too
+        let mut db = Db::new();
+        db.put("b.nqv", "md", "x").unwrap();
+        for i in 0..MAX_ATTACH_PER_ENTRY { db.attach_add("b.nqv", &format!("{i}"), "AA==").unwrap(); }
+        let first = db.attach_list("b.nqv").unwrap()[0].id.clone();
+        db.attach_remove("b.nqv", &first).unwrap();
+        db.attach_add("b.nqv", "again", "AA==").unwrap();
+        assert_eq!(entry(&db, "b.nqv").attachments.len(), MAX_ATTACH_PER_ENTRY + 1);
+        // removed records are forgotten after 180 days
+        let r = entry(&db, "b.nqv").attachments[0].removed.clone().unwrap();
+        assert_eq!(db.drop_expired_tombstones(r.wall + TOMBSTONE_KEEP_MS), 0);
+        assert_eq!(db.drop_expired_tombstones(r.wall + TOMBSTONE_KEEP_MS + 1), 1);
+        assert_eq!(entry(&db, "b.nqv").attachments.len(), MAX_ATTACH_PER_ENTRY);
+    }
+
+    #[test]
+    fn history_cap_drops_normal_revisions_before_conflicts() {
+        let mut db = Db::new();
+        db.put("a.nqv", "md", "c0").unwrap();
+        db.put("a.nqv", "md", "c1").unwrap();
+        db.entries.values_mut().next().unwrap().history[0].conflict_from = Some("other".into());
+        for i in 0..20 { db.put("a.nqv", "md", &format!("v{i}")).unwrap(); }
+        let h = &entry(&db, "a.nqv").history;
+        assert_eq!(h.len(), MAX_HISTORY);
+        assert_eq!(h.last().unwrap().content, "c0", "the old conflict revision survives");
+        assert_eq!(h[0].content, "v18");
+        let mut all: Vec<Revision> = (0..12).map(|i| Revision {
+            updated: i, ext: "md".into(), content: format!("{i}"), stamp: None, conflict_from: Some("x".into()),
+        }).collect();
+        cap_history(&mut all);
+        assert_eq!(all.len(), MAX_HISTORY);
+        assert_eq!(all.last().unwrap().content, "9", "only conflicts: the oldest go");
+    }
+
+    /// A 0.7.0 database (format 2) as that version wrote it.
+    const V2_FIXTURE: &str = r#"{"v":2,"legacy_imported":true,"entries":{
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa":{"id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","path":"a.nqv","ext":"md","content":"now","updated":1800000000000,"deleted":false,"dir":false,"tags":[],"starred":false,"trashed_at":null,
+            "history":[{"updated":1700000000000,"ext":"md","content":"before"}],
+            "attachments":[{"id":"0123456789abcdef0123456789abcdef","name":"f.txt","mime":"text/plain","size":2,"added":1750000000000,"data":"aGk="}]},
+        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb":{"id":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","path":"bin.nqv","ext":"md","content":"trashed","updated":1700000000000,"deleted":false,"dir":false,"tags":[],"starred":false,"trashed_at":4102444800000},
+        "cccccccccccccccccccccccccccccccc":{"id":"cccccccccccccccccccccccccccccccc","path":"gone.nqv","ext":"md","content":"leak","updated":4102444800000,"deleted":true,"dir":false,"tags":[],"starred":false,"trashed_at":null}
+    }}"#;
+
+    #[test]
+    fn v2_file_migrates_to_v3_with_legacy_stamps_and_a_one_time_backup() {
+        let (k, id) = keys();
+        let dir = tmpdir("mig3");
+        let v2 = vc::seal(&k, &id, DB_EXT, V2_FIXTURE.as_bytes()).unwrap();
+        fs::write(db_path(&dir), &v2).unwrap();
+
+        let mut db = load(&dir, &k, &id).unwrap();
+        assert_eq!((db.loaded_v, db.v), (2, 3));
+        let a = entry(&db, "a.nqv");
+        assert_eq!(a.stamp, Hlc::legacy(1800000000000));
+        assert_eq!(a.meta_stamp, a.stamp, "a missing meta stamp starts as the content stamp");
+        assert_eq!(a.attachments[0].stamp, Hlc::legacy(1750000000000));
+        assert!(a.history[0].stamp.is_none() && a.trash.is_none() && a.tomb.is_none());
+        let b = entry(&db, "bin.nqv");
+        assert_eq!(b.trash, Some(Removal { over: Hlc::legacy(1700000000000), at: Hlc::legacy(1700000000000) }));
+        assert_eq!(b.trashed_at, Some(4102444800000));
+        assert_eq!(rels(db.list_trash()), vec!["bin.nqv"]);
+        let c = entry(&db, "gone.nqv"); // a legacy tombstone (recent enough to keep)
+        let t = Hlc::legacy(4102444800000);
+        assert_eq!(c.tomb, Some(Removal { over: t.clone(), at: t.clone() }));
+        assert!(c.deleted && c.content.is_empty(), "a tombstone carries no content");
+        assert_eq!(db.clock, t, "the clock starts above every stamp held");
+        assert_eq!(rels(db.list()), vec!["a.nqv"]);
+        assert!(!upgrade_bak_path(&dir, 2).exists(), "loading alone writes nothing");
+
+        db.device = "dev".into();
+        db.put("a.nqv", "md", "edited").unwrap();
+        assert!(entry(&db, "a.nqv").stamp > t, "new local stamps beat migrated ones");
+        save_db(&dir, &mut db, &k, &id).unwrap();
+        assert_eq!(upgrade_bak_path(&dir, 2), dir.join("vault.nqdb.v2.bak"));
+        assert_eq!(fs::read(upgrade_bak_path(&dir, 2)).unwrap(), v2, "backup is the untouched v2 file");
+        assert!(!v1_bak_path(&dir).exists());
+        db.put("a.nqv", "md", "again").unwrap();
+        save_db(&dir, &mut db, &k, &id).unwrap();
+        assert_eq!(fs::read(upgrade_bak_path(&dir, 2)).unwrap(), v2, "written once");
+
+        let back = load(&dir, &k, &id).unwrap();
+        assert_eq!(back.loaded_v, DB_VERSION);
+        assert!(back.device.is_empty(), "the device id never travels inside vault.nqdb");
+        assert_eq!(back.clock, db.clock, "the clock is stored");
+        assert_eq!(back.entries, db.entries);
+        // an existing copy is never overwritten
+        fs::write(upgrade_bak_path(&dir, 2), b"keep me").unwrap();
+        let mut db = Db::open(&k, &id, &v2).unwrap().unwrap();
+        save_db(&dir, &mut db, &k, &id).unwrap();
+        assert_eq!(fs::read(upgrade_bak_path(&dir, 2)).unwrap(), b"keep me");
+        assert_eq!(upgrade_bak_path(&dir, 0), v1_bak_path(&dir));
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn normalise_is_idempotent_and_wipes_data_on_tombstones() {
+        let mut db: Db = serde_json::from_str(V2_FIXTURE).unwrap();
+        db.normalise();
+        let once = db.entries.clone();
+        db.normalise();
+        assert_eq!(db.entries, once);
+        let json = serde_json::to_string(&db).unwrap();
+        assert!(json.contains("\"clock\"") && !json.contains("leak"));
     }
 }

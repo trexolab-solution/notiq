@@ -22,7 +22,8 @@
   "use strict";
 
   const NS = globalThis.NotiqShared; // shared.js, loaded just before this file
-  if (!NS) return;
+  const FK = globalThis.NotiqFill;   // fillkit.js, likewise
+  if (!NS || !FK) return;
 
   const isLocalHost = (h) => h === "localhost" || h === "127.0.0.1";
   const pageHost = () => String(location.hostname || "").toLowerCase();
@@ -30,26 +31,9 @@
   const pageSecure = () => secureUrl(location.protocol, pageHost());
   if (!pageSecure()) return;
 
-  // Conservative "same site": the top host's last two labels, or last three when
-  // it looks like example.co.uk. A bare public suffix or an IP only matches itself.
-  const SLD = new Set(["co", "com", "org", "net", "gov", "ac", "edu"]);
-  const isIp = (h) => /^[\d.]+$/.test(h) || h.includes(":");
-  function siteOf(host) {
-    const l = host.split(".");
-    if (l.length >= 3 && l[l.length - 1].length === 2 && SLD.has(l[l.length - 2])) return l.slice(-3).join(".");
-    return l.slice(-2).join(".");
-  }
-  function sameSite(host, top) {
-    host = String(host || "").toLowerCase();
-    top = String(top || "").toLowerCase();
-    if (!host || !top) return false;
-    if (host === top) return true;
-    if (isIp(top) || isIp(host)) return false;
-    const site = siteOf(top);
-    const l = site.split(".");
-    if (l.length < 2 || (l.length === 2 && l[1].length === 2 && SLD.has(l[0]))) return false;
-    return host === site || host.endsWith(`.${site}`);
-  }
+  // "Same site" = the top host's registrable domain per the Public Suffix List (shared.js).
+  // IPs and localhost only match themselves; github.io-style tenants never match each other.
+  const sameSite = NS.sameSite;
 
   const IS_TOP = window.top === window;
   let TOP_HOST = pageHost();
@@ -87,6 +71,8 @@
     stale: "That list of logins expired. Try again.",
     no_card: "No saved card in your vault.",
     no_card_fields: "Couldn't find card fields on this page.",
+    no_code: "No 2FA code saved for this site in your vault.",
+    bad_code: "The code doesn't fit these boxes.",
   };
   const GENERIC = "Something went wrong.";
   const SAVE_TEXT = { saved: "Saved to Notiq", updated: "Password updated in Notiq", unchanged: "Already saved" };
@@ -138,16 +124,55 @@
     const ac = acOf(el);
     return ac.includes("username") || ac.includes("email") || typeOf(el) === "email" || USER_HINT.test(hintOf(el));
   }
-  const precedes = (a, b) => !!(b.compareDocumentPosition(a) & Node.DOCUMENT_POSITION_PRECEDING);
-  const inputsIn = (scope) => Array.from((scope || document).querySelectorAll("input"));
+  // The items of a tree-ordered list (inputsIn) that come before `ref`. Unlike
+  // compareDocumentPosition this also orders fields in different shadow trees.
+  const beforeIn = (list, ref) => { const k = list.indexOf(ref); return k < 0 ? [] : list.slice(0, k); };
 
+  // ---------- open shadow roots ----------
+  // Web-component login forms keep their inputs in OPEN shadow roots, which
+  // querySelectorAll doesn't enter. Each scan lists the open roots under the
+  // document (NotiqFill.shadowRoots: bounded depth and count; our own closed
+  // overlay is never entered); while there are none, lookups stay plain
+  // querySelectorAll. New roots are watched for mutations, and their submit and
+  // scroll events (which don't leave a shadow root) are listened to as well.
+  let shadowList = [];
+  const hookedRoots = new WeakSet();
+  const skipOwn = (h) => h === shadowHost;
+  function refreshShadows() {
+    shadowList = FK.shadowRoots(document, { skip: skipOwn });
+    for (const sr of shadowList) {
+      if (hookedRoots.has(sr)) continue;
+      hookedRoots.add(sr);
+      try { mo.observe(sr, MO_OPTS); } catch { /* not observable */ }
+      sr.addEventListener("submit", onSubmit, true);
+      sr.addEventListener("scroll", schedulePosition, { capture: true, passive: true });
+    }
+  }
+  const deepAll = (scope, sel) => (shadowList.length
+    ? FK.deepQuery(scope || document, sel, { skip: skipOwn })
+    : Array.from((scope || document).querySelectorAll(sel)));
+  const inputsIn = (scope) => deepAll(scope, "input");
+  const activeField = () => FK.deepActive(document);
+
+  // getComputedStyle results, kept only while one scan runs (null otherwise).
+  let styleCache = null;
+  function styleOf(n) {
+    if (!styleCache) return getComputedStyle(n);
+    let cs = styleCache.get(n);
+    if (!cs) {
+      const c = getComputedStyle(n);
+      cs = { display: c.display, opacity: c.opacity, visibility: c.visibility };
+      styleCache.set(n, cs);
+    }
+    return cs;
+  }
   function shown(el, minW = 1, minH = 1) {
     if (!el || !el.isConnected || el.disabled) return false;
     const r = el.getBoundingClientRect();
     if (r.width < minW || r.height < minH) return false;
     let n = el;
-    for (let depth = 0; n && n.nodeType === 1 && depth < 12; depth++, n = n.parentElement) {
-      const cs = getComputedStyle(n);
+    for (let depth = 0; n && n.nodeType === 1 && depth < 12; depth++, n = FK.parentAcross(n)) {
+      const cs = styleOf(n);
       if (cs.display === "none" || parseFloat(cs.opacity) === 0) return false;
       if (depth === 0 && (cs.visibility === "hidden" || cs.visibility === "collapse")) return false;
     }
@@ -156,13 +181,15 @@
   const usable = (el) => shown(el, MIN_W, MIN_H) && !el.readOnly;
 
   // The form, or for formless (SPA) password fields the closest ancestor that also holds another input.
+  // The climb steps out of shadow roots, so a password inside its own web component finds the
+  // username component next to it.
   function scopeOf(field) {
     if (field.form) return field.form;
-    let n = field.parentElement;
-    for (let i = 0; n && i < 6; i++, n = n.parentElement) {
+    let n = FK.parentAcross(field);
+    for (let i = 0; n && i < 6; i++, n = FK.parentAcross(n)) {
       if (inputsIn(n).some((x) => x !== field && isTextual(x))) return n;
     }
-    return field.parentElement || document;
+    return field.parentElement || field.getRootNode() || document; // a shadow root at the top of its tree
   }
 
   // Sign-up / change-password detection.
@@ -198,6 +225,26 @@
     return runs.find((r) => r.length >= 4 && r.length <= 8 && r.some(codeLike)) || null;
   }
 
+  // Code-only pages (the 2FA step after the password page): a one-time-code field, or a
+  // run of split code boxes, on a page that shows no password field (a login page with a
+  // code field gets the code with the normal fill). Its icon asks Notiq for the matching
+  // login's code only ({type:"fill", intent:"code"}), with the usual approval.
+  const CODE_MIN_W = 80;
+  let codeFields = new Map(); // icon field -> its split boxes (array) or null for a single field; refreshed by scan()
+  const isCodeInput = (i) => (isTextual(i) || typeOf(i) === "number") && isOtp(i) && i.maxLength !== 1;
+  function detectCodeFields() {
+    const out = new Map();
+    if (anyVisiblePassword()) return out;
+    const boxes = otpBoxes();
+    if (boxes) out.set(boxes[0], boxes);
+    for (const i of inputsIn(document)) {
+      if (out.size >= 4) break;
+      if (!isCodeInput(i) || cardFields.has(i) || i.readOnly || !shown(i, CODE_MIN_W, MIN_H)) continue;
+      out.set(i, null);
+    }
+    return out;
+  }
+
   // ---------- detection ----------
   function detect() {
     const out = new Set();
@@ -208,7 +255,7 @@
     }
     // Username-first flows: the only text field of a form on a login-looking URL.
     if (LOGIN_PATH.test(location.pathname)) {
-      for (const form of Array.from(document.forms || [])) {
+      for (const form of shadowList.length ? deepAll(document, "form") : Array.from(document.forms || [])) {
         const ins = inputsIn(form);
         if (ins.some((i) => isPassword(i) && shown(i))) continue;
         const texts = ins.filter((i) => isTextual(i) && shown(i));
@@ -291,6 +338,7 @@
 .nq-ititle { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
 .nq-isub { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 2px; font-size: 11.5px; color: var(--nq-muted); font-weight: 400; }
 .nq-mstatus { padding: 8px 9px 4px; color: var(--nq-success); font-weight: 600; }
+.nq-mnote { display: block; margin-top: 3px; font-size: 11.5px; font-weight: 400; color: var(--nq-muted); }
 .nq-pw { display: block; margin: 4px 9px 6px; padding: 6px 8px; border-radius: 6px; background: var(--nq-bg2);
   font: 12.5px/1.35 ui-monospace, Consolas, monospace; word-break: break-all; user-select: all; }
 .nq-mrow { display: flex; gap: 6px; padding: 4px 2px 2px; }
@@ -382,6 +430,8 @@
   };
 
   // ---------- inline icons ----------
+  const iconLabel = (f) => (cardFields.has(f) ? "Fill card with Notiq" : codeFields.has(f) ? "Fill 2FA code with Notiq"
+    : identityFields.has(f) ? "Fill identity with Notiq" : "Fill with Notiq");
   const icons = new Map(); // field -> { wrap, btn, tip, timer }
   const ro = typeof ResizeObserver === "function" ? new ResizeObserver(() => schedulePosition()) : null;
   let filling = false;
@@ -392,7 +442,7 @@
     const btn = el("button", "nq-icon");
     btn.type = "button";
     btn.tabIndex = -1; // keyboard users have Alt+Shift+L; don't hijack the page's tab order
-    btn.title = cardFields.has(field) ? "Fill card with Notiq" : "Fill with Notiq";
+    btn.title = iconLabel(field);
     btn.setAttribute("aria-label", btn.title);
     btn.appendChild(svg("nq-key", KEY));
     btn.appendChild(el("span", "nq-spin"));
@@ -431,7 +481,7 @@
     clearTimeout(ic.timer);
     ic.wrap.className = `nq-wrap ${state}${text ? " has-tip" : ""}`;
     ic.tip.textContent = text || "";
-    const label = cardFields.has(field) ? "Fill card with Notiq" : "Fill with Notiq";
+    const label = iconLabel(field);
     ic.btn.title = label;
     ic.btn.setAttribute("aria-label", text ? `${label}: ${text}` : label);
     if (state === "done" || state === "error") {
@@ -449,31 +499,54 @@
     const vw = window.innerWidth, vh = window.innerHeight;
     for (const [field, ic] of Array.from(icons)) {
       if (!field.isConnected) { removeIcon(field); continue; }
-      const r = field.getBoundingClientRect();
-      const onScreen = r.width >= MIN_W && r.height >= MIN_H && r.bottom > 0 && r.top < vh && r.right > 0 && r.left < vw;
+      const boxes = codeFields.get(field);
+      const r = boxes ? unionRect(boxes) : field.getBoundingClientRect();
+      const minW = boxes ? 1 : codeFields.has(field) ? CODE_MIN_W : MIN_W;
+      const onScreen = r.width >= minW && r.height >= MIN_H && r.bottom > 0 && r.top < vh && r.right > 0 && r.left < vw;
       if (!onScreen) { ic.wrap.style.display = "none"; continue; }
       const size = Math.max(12, Math.min(ICON, r.height - 4));
       const pad = Math.min(8, Math.max(3, (r.height - size) / 2));
       ic.wrap.style.display = "block";
       ic.wrap.style.width = ic.wrap.style.height = `${size}px`;
-      ic.wrap.style.left = `${Math.round(r.right - size - pad)}px`;
+      // Split boxes are too small to hold it: it goes just after the last box (inside the viewport).
+      const left = boxes ? Math.min(vw - size - 2, r.right + 6) : r.right - size - pad;
+      ic.wrap.style.left = `${Math.round(left)}px`;
       ic.wrap.style.top = `${Math.round(r.top + (r.height - size) / 2)}px`;
     }
     positionMenu();
     positionSuggest();
   }
 
+  function unionRect(list) {
+    const rs = list.filter((b) => b.isConnected).map((b) => b.getBoundingClientRect());
+    if (!rs.length) return { left: 0, top: 0, right: 0, bottom: 0, width: 0, height: 0 };
+    const left = Math.min(...rs.map((x) => x.left)), right = Math.max(...rs.map((x) => x.right));
+    const top = Math.min(...rs.map((x) => x.top)), bottom = Math.max(...rs.map((x) => x.bottom));
+    return { left, top, right, bottom, width: right - left, height: bottom - top };
+  }
+
   function scan() {
+    styleCache = new Map();
+    try { scanNow(); } finally { styleCache = null; }
+  }
+  function scanNow() {
+    refreshShadows();
     cardFields = detectCards();
     maybeStepFill(); // after detectCards: a masked CVC field is never a password step
-    if (!settings.showIcon) { clearIcons(); return; }
+    if (!settings.showIcon) { codeFields = new Map(); identityFields = new Map(); clearIcons(); noteScanResult(cardFields.size > 0 || anyVisiblePassword()); return; }
     const found = detect();
+    identityFields = detectIdentities(found);
     for (const f of cardIconFields(cardFields)) found.add(f);
+    codeFields = detectCodeFields();
+    for (const f of codeFields.keys()) found.add(f);
+    for (const f of identityFields.keys()) found.add(f);
+    for (const f of menuIcons) if (f.isConnected) found.add(f); // a right-click menu action still running
     for (const f of Array.from(icons.keys())) if (!found.has(f)) removeIcon(f);
     for (const f of found) if (!icons.has(f)) addIcon(f);
+    noteScanResult(found.size > 0 || cardFields.size > 0);
     schedulePosition();
     // A field that got focus before it was detected (autofocus, SPA): suggest now.
-    if (pendingFocus && pendingFocus === document.activeElement && icons.has(pendingFocus)) {
+    if (pendingFocus && pendingFocus === activeField() && icons.has(pendingFocus)) {
       const f = pendingFocus;
       pendingFocus = null;
       maybeSuggest(f);
@@ -497,7 +570,7 @@
   function maybeSuggest(field) {
     if (quiet || !isInput(field)) return;
     const ok = NS.shouldSuggest({
-      showIcon: settings.showIcon, suggestOnFocus: settings.suggestOnFocus, detected: icons.has(field),
+      showIcon: settings.showIcon, suggestOnFocus: settings.suggestOnFocus, detected: icons.has(field) && !codeFields.has(field),
       dismissed: dismissedFields.has(field), menuOpen: !!menu, filling, typed: typedField === field,
       rect: field.getBoundingClientRect(), viewport: viewport(),
     });
@@ -568,9 +641,11 @@
     if (refocus && f.isConnected) focusQuietly(f, { preventScroll: true });
   }
   function onFocusIn(e) {
-    scheduleScan();
-    schedulePosition();
     const t = realTarget(e);
+    // Focus in an input always gets a prompt scan, and wakes a backed-off observer
+    // (a login form shown by a class/style change is found this way).
+    if (isInput(t)) wakeScans(); else scheduleScan();
+    schedulePosition();
     if (t === shadowHost) return; // focus moved into our own UI
     if (suggest && suggest.field !== t) hideSuggest();
     if (quiet || !isInput(t)) return;
@@ -659,43 +734,53 @@
   }
 
   // ---------- strong password generator (local only) ----------
-  // No look-alikes (I l 1 O o 0). Uniform choice per character by rejection
-  // sampling; a password missing a class is thrown away and drawn again, which
-  // keeps the result uniform over all valid passwords (no shuffle needed).
-  const GEN_SETS = ["ABCDEFGHJKLMNPQRSTUVWXYZ", "abcdefghijkmnpqrstuvwxyz", "23456789", "!#$%&*+-=?@^_"];
-  const GEN_ALL = GEN_SETS.join("");
-  const GEN_LEN = 20;
-  function randomIndex(n) {
-    const limit = Math.floor(0x100000000 / n) * n;
-    const buf = new Uint32Array(1);
-    for (;;) {
-      crypto.getRandomValues(buf);
-      if (buf[0] < limit) return buf[0] % n;
-    }
-  }
-  function generatePassword() {
-    for (;;) {
-      let out = "";
-      for (let i = 0; i < GEN_LEN; i++) out += GEN_ALL[randomIndex(GEN_ALL.length)];
-      if (GEN_SETS.every((set) => Array.from(out).some((c) => set.includes(c)))) return out;
-    }
-  }
-
+  // NotiqFill.generateFor (fillkit.js): 20 characters from upper/lower/digits/symbols
+  // without look-alikes, unless the site's maxlength / minlength / passwordrules /
+  // simple pattern say otherwise (then the longest allowed up to 20, never under 12
+  // unless the site's maximum is lower, only allowed characters, every required class).
+  // Constraints that can't be met fall back to the default and say so.
+  const constraintsOf = (fields) => FK.mergeConstraints(fields.map((f) => ({
+    maxLength: f.maxLength, minLength: f.minLength, rules: attr(f, "passwordrules"), pattern: attr(f, "pattern"),
+  })));
   function openNewPasswordMenu(field, info) {
     openMenu(field, "Notiq password options", (node) => {
-      node.appendChild(menuItem("Generate strong password", `${GEN_LEN} characters, filled into this form`, () => generateInto(field)));
+      const plan = FK.planPassword(constraintsOf(info.targets));
+      const len = plan.impossible ? FK.DEFAULT_LEN : plan.length;
+      const sub = plan.limited && !plan.impossible ? `${len} characters (this site's limit), filled into this form` : `${len} characters, filled into this form`;
+      node.appendChild(menuItem("Generate strong password", sub, () => generateInto(field)));
       if (info.current) {
         const cur = info.current;
         node.appendChild(menuItem("Fill saved login", "Asks Notiq for approval", () => { closeMenu(false); doFill(cur, field); }));
       }
     });
   }
-  function generateInto(field) {
-    const info = newPasswordInfo(field);
-    const targets = info ? info.targets.filter((i) => i.isConnected && usable(i)) : [];
+  // `only`: the fields to fill instead of the field's form (the right-click menu's "Generate password").
+  function generateInto(field, only) {
+    const info = only ? null : newPasswordInfo(field);
+    const targets = only ? only.filter((i) => i.isConnected && shown(i) && !i.readOnly)
+      : info ? info.targets.filter((i) => i.isConnected && usable(i)) : [];
     if (!targets.length || !menu) { closeMenu(true); setState(field, "error", TEXT.no_fields); return; }
-    let pw = generatePassword();
+    let gen = FK.generateFor(constraintsOf(targets));
+    let pw = gen.password;
     for (const t of targets) setValue(t, pw);
+    // What the page kept must be exactly what we generated (a script may cut it to its own limit):
+    // retry once at the length it kept, else clear the fields rather than leave a password nobody knows.
+    const kept = targets.map((t) => t.value);
+    if (kept.some((v) => v !== pw)) {
+      const short = kept.find((v) => v !== pw) || "";
+      if (short.length > 0 && short.length < pw.length) {
+        gen = FK.generateFor({ ...constraintsOf(targets), maxLength: short.length });
+        pw = gen.password;
+        for (const t of targets) setValue(t, pw);
+      }
+      if (targets.some((t) => t.value !== pw)) {
+        for (const t of targets) setValue(t, "");
+        pw = null;
+        closeMenu(true);
+        setState(field, "error", "This site changed the generated password. Type one yourself.");
+        return;
+      }
+    }
     setState(field, "done", "");
     // The password stays in this closure / the fields only: nothing is sent
     // until the user submits the form and the normal save offer runs.
@@ -703,6 +788,11 @@
     node.textContent = "";
     const status = el("div", "nq-mstatus", targets.length > 1 ? `Strong password filled in ${targets.length} fields` : "Strong password filled");
     status.setAttribute("role", "status");
+    if (gen.fallback) {
+      status.appendChild(el("span", "nq-mnote", "This site's password rules couldn't be met, so Notiq's default was used. Check it is accepted."));
+    } else if (gen.limited) {
+      status.appendChild(el("span", "nq-mnote", `${pw.length} characters, to fit this site's rules`));
+    }
     const box = el("span", "nq-pw");
     const row = el("div", "nq-mrow");
     const show = menuItem("Show", null, () => {
@@ -733,22 +823,29 @@
     }
     return out;
   }
-  function openChooser(anchor, field, list) {
+  // pick(choice) runs the follow-up request for the chosen login.
+  function openChooser(field, list, pick) {
     openMenu(field, "Choose a login", (node) => {
       node.appendChild(el("div", "nq-mhead", "Choose a login"));
       for (const c of list) {
         node.appendChild(menuItem(c.title || c.username || "Login", c.title ? c.username || "no username" : "",
-          () => { closeMenu(false); doFill(anchor, field, c.account); }));
+          () => { closeMenu(false); pick(c); }));
       }
     });
   }
 
   // ---------- fill (only after a trusted click on our icon) ----------
+  // Sets the value through the native setter (so React & co. notice) and fires the events a
+  // typed value would: keydown / input / keyup (composed, like real ones, so listeners outside a
+  // shadow root hear them too; some masked and React inputs only commit on a key event), then change.
   function setValue(input, value) {
     const d = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(input), "value");
     focusQuietly(input);
+    const key = value ? value[value.length - 1] : "";
+    if (key) input.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true, composed: true }));
     if (d && d.set) d.set.call(input, value); else input.value = value;
-    input.dispatchEvent(new Event("input", { bubbles: true }));
+    input.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
+    if (key) input.dispatchEvent(new KeyboardEvent("keyup", { key, bubbles: true, cancelable: true, composed: true }));
     input.dispatchEvent(new Event("change", { bubbles: true }));
   }
   function fillOtpBoxes(boxes, code) {
@@ -764,28 +861,60 @@
     });
     focusQuietly(boxes[boxes.length - 1]);
   }
-  function fillFields(anchor, cred) {
+  // cred: { username, password, code, fields?, host? }; `clicked`: the field whose icon the user clicked (if any).
+  function fillFields(anchor, cred, clicked) {
     let pw = isPassword(anchor) ? anchor : inputsIn(anchor.form || scopeOf(anchor)).find((i) => isPassword(i) && usable(i)) || null;
     let n = 0;
+    const used = new Set(); // the login's own fields: custom fields never go there
     if (pw) {
-      const before = inputsIn(scopeOf(pw)).filter((i) => i !== pw && isTextual(i) && !isOtp(i) && shown(i) && !i.readOnly && precedes(i, pw));
+      const before = beforeIn(inputsIn(scopeOf(pw)), pw).filter((i) => isTextual(i) && !isOtp(i) && shown(i) && !i.readOnly);
       const user = !isPassword(anchor) ? anchor : before[before.length - 1] || null;
-      if (user && cred.username) { setValue(user, cred.username); n++; }
-      setValue(pw, cred.password); n++;
+      if (user && cred.username) { setValue(user, cred.username); n++; used.add(user); }
+      setValue(pw, cred.password); n++; used.add(pw);
     } else if (cred.username) {
-      setValue(anchor, cred.username); n++;
+      setValue(anchor, cred.username); n++; used.add(anchor);
     }
     if (cred.code) {
       const boxes = otpBoxes();
       if (boxes && boxes.length === cred.code.length && /^[0-9A-Za-z]+$/.test(cred.code)) {
         fillOtpBoxes(boxes, cred.code); n++;
+        for (const b of boxes) used.add(b);
       } else {
         const otp = inputsIn(document).find((i) => isTextual(i) && isOtp(i) && i.maxLength !== 1 && shown(i) && !i.readOnly);
-        if (otp) { setValue(otp, cred.code); n++; }
+        if (otp) { setValue(otp, cred.code); n++; used.add(otp); }
       }
     }
+    n += fillCustomFields(cred.fields, used, clicked, cred.host, (pw || anchor).form || document);
     if (n) filled = { username: cred.username || "", password: cred.password || "" };
     return n;
+  }
+
+  // ---------- custom fields (filled with the login, by name) ----------
+  // `fields`: the login's custom fields [{ name, value, secret }], already validated by the background.
+  // A visible, editable text field whose label / aria-label / placeholder / name / id names one of them
+  // (NotiqFill.matchCustomFields: normalised whole-name match) gets its value. Never the login's own
+  // username / password / 2FA fields (`used`), never one-time-code, new-password or card fields, never a
+  // hidden field, and never a field that already holds something unless it is the one the user clicked.
+  // Secret fields only when the login was approved for this page's own site (`host`, the same rule as
+  // its password: the page and this frame are on that site). `scope`: the login's form (other forms on
+  // the page are left alone), or the whole frame for formless pages.
+  function fillCustomFields(fields, used, clicked, host, scope) {
+    if (!Array.isArray(fields) || !fields.length) return 0;
+    const ownSite = typeof host === "string" && host === topHost() && sameSite(pageHost(), host);
+    const els = deepAll(scope || document, "input, textarea").filter((el) => {
+      if (!FK.customFillable(el) || used.has(el) || cardFields.has(el) || el.readOnly || !shown(el)) return false;
+      const ac = acOf(el);
+      if (ac.includes("one-time-code") || ac.includes("new-password") || isOtp(el) || el.maxLength === 1) return false;
+      return true;
+    });
+    const plan = FK.matchCustomFields(fields, els.map((el) => ({
+      texts: FK.describeField(el), value: el.value, clicked: el === clicked, excluded: false,
+    })), { allowSecret: ownSite });
+    if (!plan.length) return 0;
+    const back = activeField();
+    for (const p of plan) setValue(els[p.field], fields[p.custom].value);
+    if (back && back.isConnected && back !== activeField()) focusQuietly(back);
+    return plan.length;
   }
   function onIconClick(field) {
     hideSuggest();
@@ -793,7 +922,9 @@
     if (menu && menu.field === field) { closeMenu(true); return; }
     closeMenu(false);
     if (filling) return;
+    if (codeFields.has(field)) { doCodeFill(field); return; }
     if (cardFields.has(field)) { doCardFill(field); return; }
+    if (identityFields.has(field)) { openIdentityChooser(field); return; }
     const info = newPasswordInfo(field);
     if (info) openNewPasswordMenu(field, info);
     else doFill(field, field);
@@ -813,7 +944,7 @@
       const list = validChoices(res.choose);
       if (!list || !field.isConnected || !anchor.isConnected || account) { setState(field, "error", GENERIC); return; }
       setState(field, "idle", "");
-      openChooser(anchor, field, list);
+      openChooser(field, list, (c) => doFill(anchor, field, c.account));
       return;
     }
     if (res.ok && typeof res.password === "string" && res.host === topHost() && field.isConnected && anchor.isConnected) {
@@ -821,13 +952,52 @@
         username: typeof res.username === "string" ? res.username : "",
         password: res.password,
         code: typeof res.code === "string" ? res.code : "",
-      });
+        fields: NS.validCustomFields(res.fields), host: res.host,
+      }, field);
       if (step && !n) send({ type: "stepCancel" });
       setState(field, n ? "done" : "error", n ? "Filled" : TEXT.no_fields);
     } else {
       if (step && res.ok) send({ type: "stepCancel" });
       setState(field, "error", res.ok ? GENERIC : errText(res.error));
     }
+  }
+
+  // ---------- one-time code only (separate 2FA page; trusted click on a code field's icon) ----------
+  // The background asks Notiq with intent "code": only logins with a 2FA secret count, the
+  // usual approval / 5-minute trust applies, and the reply carries the code, never a password.
+  async function doCodeFill(field, account) {
+    if (filling) return;
+    filling = true;
+    hideSuggest();
+    setState(field, "waiting", "Approve in Notiq");
+    const res = await send(account ? { type: "fill", intent: "code", account } : { type: "fill", intent: "code" });
+    filling = false;
+    if (res && res.choose !== undefined) {
+      const list = validChoices(res.choose);
+      if (!list || !field.isConnected || account) { setState(field, "error", GENERIC); return; }
+      setState(field, "idle", "");
+      openChooser(field, list, (c) => doCodeFill(field, c.account));
+      return;
+    }
+    if (res.ok && typeof res.code === "string" && res.host === topHost() && field.isConnected) {
+      const n = fillCode(field, res.code);
+      setState(field, n ? "done" : "error", n ? "Code filled" : TEXT.bad_code);
+    } else {
+      setState(field, "error", res.ok ? GENERIC : errText(res.error));
+    }
+  }
+  // Split boxes get one character each (the code must have exactly as many characters).
+  function fillCode(field, code) {
+    if (!/^[0-9A-Za-z]{4,10}$/.test(code)) return 0;
+    const boxes = codeFields.get(field);
+    if (boxes) {
+      if (boxes.length !== code.length || !boxes.every((b) => b.isConnected)) return 0;
+      fillOtpBoxes(boxes, code);
+      return 1;
+    }
+    if (field.maxLength > 0 && field.maxLength < code.length) return 0;
+    setValue(field, code);
+    return 1;
   }
 
   // ---------- payment cards (only after a trusted click on a card field's icon) ----------
@@ -853,7 +1023,7 @@
   }
   function detectCards() {
     const found = [];
-    for (const f of Array.from(document.querySelectorAll("input, select"))) {
+    for (const f of deepAll(document, "input, select")) {
       if (f.tagName === "INPUT" && (typeOf(f) === "hidden" || f.readOnly)) continue;
       const r = cardKindOf(f);
       if (r && shown(f)) found.push([f, r]);
@@ -907,6 +1077,237 @@
     }
   }
 
+  // ---------- identities: address / contact forms (only after a trusted click or a menu choice) ----------
+  // Fields are classified by NotiqIdentity.identityFieldKind (identity.js): autocomplete tokens first (name,
+  // given-name / family-name, email, tel, address-line1/2, street-address, address-level1/2, postal-code,
+  // country / country-name), then label / name / id / placeholder hints (incl. "PIN code", "Mobile",
+  // "Flat, House no."). A form gets icons only when it looks like an address or contact form
+  // (NotiqIdentity.isIdentityForm), has no visible password field, and the field isn't a login or card field.
+  // Clicking the icon lists the identity titles (no values) when Notiq is unlocked, else goes straight to Notiq,
+  // which always asks the user to pick an identity and shows the site. Hidden, read-only and disabled fields
+  // are never filled; the identity is kept in local variables for the fill only.
+  const NI = globalThis.NotiqIdentity; // identity.js, loaded before this file
+  const IDENTITY_TEXT = {
+    no_identity: "No saved identity in your vault. Add one in Notiq (New > Identity).",
+    no_identity_fields: "Couldn't find address or contact fields here.",
+    unknown_op: "Update Notiq to use this.",
+  };
+  const identityErr = (code) =>
+    (typeof code === "string" && Object.prototype.hasOwnProperty.call(IDENTITY_TEXT, code) ? IDENTITY_TEXT[code] : errText(code));
+  const MAX_IDENTITY_ICONS = 12; // per form
+  let identityFields = new Map(); // icon field -> kind, refreshed by scan()
+
+  function identityKindOf(f) {
+    if (!NI || !f || (f.tagName !== "INPUT" && f.tagName !== "SELECT" && f.tagName !== "TEXTAREA")) return null;
+    return NI.identityFieldKind({
+      tag: f.tagName, type: f.tagName === "INPUT" ? typeOf(f) : "", autocomplete: attr(f, "autocomplete"),
+      name: f.name, id: f.id, placeholder: attr(f, "placeholder"), label: labelOf(f),
+    });
+  }
+  // The visible, editable identity fields in `scope`, in page order: [[field, { kind, tagged }]].
+  function identityFieldsIn(scope) {
+    const out = [];
+    for (const f of deepAll(scope || document, "input, select, textarea")) {
+      if ((f.tagName === "INPUT" && typeOf(f) === "hidden") || f.readOnly || f.disabled || cardFields.has(f)) continue;
+      const r = identityKindOf(f);
+      if (r && shown(f)) out.push([f, r]);
+    }
+    return out;
+  }
+  // Icon fields of the page's address / contact forms. `loginFields`: the login fields detect() found.
+  function detectIdentities(loginFields) {
+    if (!NI) return new Map();
+    const groups = new Map();
+    for (const [f, r] of identityFieldsIn(document)) {
+      if (loginFields.has(f)) continue;
+      const key = f.form || document;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push([f, r]);
+    }
+    const out = new Map();
+    for (const [key, list] of groups) {
+      if (!NI.isIdentityForm(list.map(([, r]) => r))) continue;
+      if (inputsIn(key).some((i) => isPassword(i) && shown(i))) continue; // a sign-up / login form
+      let n = 0;
+      for (const [f, r] of list) {
+        if (n >= MAX_IDENTITY_ICONS) break;
+        if (f.tagName !== "SELECT" && usable(f)) { out.set(f, r.kind); n++; }
+      }
+    }
+    return out;
+  }
+
+  // Where an identity goes: the anchor's form; for formless pages the closest ancestor with two or more
+  // identity fields, else the page.
+  function identityScope(anchor) {
+    if (anchor.form) return anchor.form;
+    let n = FK.parentAcross(anchor);
+    for (let i = 0; n && i < 8; i++, n = FK.parentAcross(n)) {
+      if (n.nodeType === 1 && identityFieldsIn(n).length >= 2) return n;
+    }
+    return document;
+  }
+  const identityValue = (f, kind, id) => NI.identityFieldValue(kind, id, {
+    tag: f.tagName, type: f.tagName === "INPUT" ? typeOf(f) : "", maxLength: f.maxLength, autocomplete: attr(f, "autocomplete"),
+    options: f.tagName === "SELECT" ? Array.from(f.options).map((o) => ({ value: o.value, text: o.text })) : null,
+  });
+  const SECTION_TOKEN = /^(section-.+|shipping|billing)$/;
+  // Fills one form's identity fields (the first field of each kind; the country first, since forms often reload
+  // their state list when it changes). Returns how many fields were set.
+  function fillIdentityFields(anchor, id) {
+    let list = identityFieldsIn(identityScope(anchor));
+    // Shipping and billing addresses in one form: stay in the section the anchor names, if any.
+    const section = acOf(anchor).filter((t) => SECTION_TOKEN.test(t));
+    if (section.length) {
+      const same = list.filter(([f]) => section.every((t) => acOf(f).includes(t)));
+      if (same.length) list = same;
+    }
+    const kinds = NI.resolveKinds(list.map(([, r]) => r.kind));
+    const rank = (i) => (kinds[i] === "country" ? 0 : 1);
+    const order = list.map((_, i) => i).sort((a, b) => rank(a) - rank(b));
+    const done = new Set();
+    const stateLater = [];
+    let n = 0;
+    for (const i of order) {
+      const f = list[i][0], kind = kinds[i];
+      if (done.has(kind)) continue;
+      const v = identityValue(f, kind, id);
+      if (v === null) { if (kind === "state" && f.tagName === "SELECT") stateLater.push(f); continue; }
+      setValue(f, v);
+      done.add(kind);
+      n++;
+    }
+    if (stateLater.length && !done.has("state")) {
+      setTimeout(() => {
+        for (const f of stateLater) {
+          if (done.has("state") || !f.isConnected || !shown(f)) continue;
+          const v = identityValue(f, "state", id);
+          if (v !== null) { setValue(f, v); done.add("state"); }
+        }
+      }, 400);
+    }
+    if (n && anchor.isConnected) focusQuietly(anchor, { preventScroll: true });
+    return n;
+  }
+
+  async function doIdentityFill(field, account) {
+    if (filling || !NI) return;
+    filling = true;
+    hideSuggest();
+    setState(field, "waiting", "Approve in Notiq");
+    const res = await send(account ? { type: "fillIdentity", account } : { type: "fillIdentity" });
+    filling = false;
+    const id = res && res.ok && res.host === topHost() && res.identity && typeof res.identity === "object"
+      ? NI.validIdentityReply({ ...res.identity, ok: true }) : null;
+    if (id && field.isConnected) {
+      const n = fillIdentityFields(field, id);
+      setState(field, n ? "done" : "error", n ? "Filled" : IDENTITY_TEXT.no_identity_fields);
+    } else {
+      setState(field, "error", res && res.ok ? GENERIC : identityErr(res && res.error));
+    }
+  }
+
+  // The in-page chooser: the identity titles when Notiq is unlocked; otherwise (locked, closed, an older
+  // Notiq, no identities) Notiq itself asks, unlocking first if needed.
+  let identityListing = false;
+  async function openIdentityChooser(field) {
+    if (filling || identityListing || !NI) return;
+    identityListing = true;
+    const res = await send({ type: "identities" });
+    identityListing = false;
+    if (!field.isConnected || filling) return;
+    const list = res && res.ok ? NI.validIdentityList(res) : null;
+    if (!list || !list.length) { await doIdentityFill(field); return; }
+    openMenu(field, "Choose an identity", (node) => {
+      node.appendChild(el("div", "nq-mhead", "Fill identity"));
+      for (const c of list) {
+        node.appendChild(menuItem(c.title, "Asks Notiq for approval", () => { closeMenu(false); doIdentityFill(field, c.account); }));
+      }
+      node.appendChild(menuItem("Choose in Notiq…", null, () => { closeMenu(false); doIdentityFill(field); }));
+    });
+  }
+
+  // ---------- right-click menu: Notiq > Fill login · Fill 2FA code · Fill identity · Generate password ----------
+  // The background sends the choice to the frame the menu was opened in (only frames that pass the same-site
+  // check run this script). It acts on the editable field the page's context menu was opened on (a trusted
+  // event, at most 2 minutes ago), else the focused one, with the same paths as the icons.
+  const MENU_TTL = 2 * 60 * 1000;
+  const MENU_INPUT_TYPES = ["", "text", "email", "tel", "password", "number", "search", "url"];
+  let menuTarget = null; // { field, at }
+  const menuIcons = new Set(); // fields that got a temporary icon to show a menu action's progress
+  const editableField = (t) => !!t && !t.readOnly && !t.disabled &&
+    ((t.tagName === "INPUT" && MENU_INPUT_TYPES.includes(typeOf(t))) || t.tagName === "TEXTAREA");
+
+  function onContextMenu(e) {
+    if (e.isTrusted !== true) return;
+    const t = realTarget(e);
+    if (!editableField(t)) { menuTarget = null; return; }
+    menuTarget = { field: t, at: Date.now() };
+    send({ type: "menuOpening" }); // lets the background load the identity titles for the menu
+  }
+  function menuField() {
+    const m = menuTarget, now = Date.now();
+    if (m && m.field.isConnected && now - m.at < MENU_TTL && now >= m.at && editableField(m.field)) return m.field;
+    const a = activeField();
+    return editableField(a) ? a : null;
+  }
+  // The menu works on any editable field; one without an icon gets one while the request runs.
+  function withIcon(field) {
+    if (icons.has(field)) return;
+    menuIcons.add(field);
+    addIcon(field);
+    schedulePosition();
+  }
+  function menuDone(field) {
+    if (!menuIcons.has(field)) return;
+    setTimeout(() => { menuIcons.delete(field); wakeScans(); }, 5500); // the next scan drops the icon
+  }
+  function onMenuFill(msg) {
+    const field = menuField();
+    if (!field || filling) return;
+    hideSuggest();
+    nudgeTheme();
+    closeMenu(false);
+    const input = field.tagName === "INPUT";
+    const run = (p) => Promise.resolve(p).catch(() => {}).finally(() => menuDone(field));
+    switch (msg.action) {
+      case "login":
+        if (!input) return;
+        withIcon(field);
+        run(doFill(field, field));
+        return;
+      case "code": {
+        if (!input) return;
+        const boxes = otpBoxes();
+        const target = boxes && boxes.includes(field) && codeFields.has(boxes[0]) ? boxes[0] : field;
+        withIcon(target);
+        Promise.resolve(doCodeFill(target)).catch(() => {}).finally(() => menuDone(target));
+        return;
+      }
+      case "identity":
+        withIcon(field);
+        run(doIdentityFill(field, typeof msg.account === "string" && msg.account ? msg.account : undefined));
+        return;
+      case "chooseIdentity":
+        withIcon(field);
+        run(openIdentityChooser(field));
+        return;
+      case "generate": {
+        if (!input) return;
+        const info = newPasswordInfo(field);
+        openMenu(field, "Notiq password options", () => {});
+        generateInto(field, info ? info.targets : [field]);
+        return;
+      }
+    }
+  }
+  chrome.runtime.onMessage.addListener((msg, sender) => {
+    if (!sender || sender.id !== chrome.runtime.id || sender.tab) return false;
+    if (msg && msg.type === "menuFill" && typeof msg.action === "string") onMenuFill(msg);
+    return false;
+  });
+  document.addEventListener("contextmenu", onContextMenu, true);
+
   // ---------- multi-step logins (username page, then password page) ----------
   // On a username-only page the approved fill puts in just the username and the
   // background keeps the password (memory only, this tab + site, 2 minutes, once).
@@ -930,10 +1331,13 @@
       if (!pw.isConnected || !usable(pw) || pw.value) return;
       const username = typeof res.username === "string" ? res.username : "";
       // A username field on this step that holds a different account: not ours to fill.
-      const before = inputsIn(scopeOf(pw)).filter((i) => i !== pw && isTextual(i) && !isOtp(i) && shown(i) && !i.readOnly && precedes(i, pw));
+      const before = beforeIn(inputsIn(scopeOf(pw)), pw).filter((i) => isTextual(i) && !isOtp(i) && shown(i) && !i.readOnly);
       const user = before[before.length - 1] || null;
       if (user && user.value && user.value.trim().toLowerCase() !== username.trim().toLowerCase()) return;
-      const n = fillFields(pw, { username: user && !user.value ? username : "", password: res.password, code: "" });
+      const n = fillFields(pw, {
+        username: user && !user.value ? username : "", password: res.password, code: "",
+        fields: NS.validCustomFields(res.fields), host: res.host,
+      });
       if (n) {
         filled = { username, password: res.password };
         if (icons.has(pw)) setState(pw, "done", "Filled");
@@ -975,7 +1379,7 @@
     const pw = pickPassword(pws);
     const password = String(pw.value);
     if (!password || password.length > MAX_PW) return null;
-    const before = ins.filter((i) => isTextual(i) && !isOtp(i) && i.value && shown(i) && precedes(i, pws[0]));
+    const before = beforeIn(ins, pws[0]).filter((i) => isTextual(i) && !isOtp(i) && i.value && shown(i));
     const hiddenUser = ins.find((i) => isInput(i) && acOf(i).includes("username") && i.value && !isPassword(i));
     const username = clean((before.length && before[before.length - 1].value) || (hiddenUser && hiddenUser.value) || recentUser(), MAX_USER);
     if (filled && password === filled.password && (!username || username === filled.username)) return null;
@@ -1173,7 +1577,7 @@
     if (msg && msg.type === "checkPending" && IS_TOP) schedulePending(1200);
     // Alt+Shift+L (background): same as clicking the icon of the focused login field, else the first visible one.
     if (msg && msg.type === "fillShortcut") {
-      const active = document.activeElement;
+      const active = activeField();
       const field = icons.has(active) ? active : [...icons.keys()].find((f) => f.isConnected && shown(f));
       if (field && (active === field || document.hasFocus())) onIconClick(field);
     }
@@ -1204,27 +1608,51 @@
   });
 
   // ---------- wiring ----------
-  let scanTimer = 0, lastHref = location.href;
+  // Scans are coalesced and run when the page is idle (requestIdleCallback, else a
+  // timeout), at most one every 250 ms. A page that keeps changing but shows no login,
+  // card or code field backs off: after 6 empty scans mutations wait 1.5 s, after 15
+  // they wait 5 s, and after 30 the observer stops scanning until the user focuses an
+  // input or the URL changes (SPA route), which also scans at once. The observer
+  // ignores class / style changes (most of a busy page's churn); a form revealed that
+  // way is found on the first focus into it.
+  const SCAN_GAP = 250, EMPTY_SLOW = 6, EMPTY_SLOWER = 15, EMPTY_STOP = 30;
+  const idle = typeof requestIdleCallback === "function"
+    ? (fn) => requestIdleCallback(fn, { timeout: 600 })
+    : (fn) => setTimeout(fn, 0);
+  let scanTimer = 0, scanDue = 0, emptyScans = 0, lastHref = location.href;
+  const scanDelay = () => (emptyScans >= EMPTY_SLOWER ? 5000 : emptyScans >= EMPTY_SLOW ? 1500 : SCAN_GAP);
+  function scheduleScan(delay = scanDelay()) {
+    if (emptyScans >= EMPTY_STOP && delay > SCAN_GAP) return; // dormant until woken
+    const due = Date.now() + delay;
+    if (scanTimer) {
+      if (due >= scanDue) return; // one is already coming soon enough
+      clearTimeout(scanTimer);
+    }
+    scanDue = due;
+    scanTimer = setTimeout(() => idle(() => { scanTimer = 0; scan(); }), delay);
+  }
+  function wakeScans() {
+    emptyScans = 0;
+    scheduleScan(SCAN_GAP);
+  }
+  function noteScanResult(found) {
+    emptyScans = found ? 0 : Math.min(emptyScans + 1, EMPTY_STOP);
+  }
   function onUrlMaybeChanged() {
     if (location.href === lastHref) return;
     lastHref = location.href;
-    scheduleScan();
+    wakeScans();
     schedulePending(800);
   }
-  function scheduleScan() {
-    if (scanTimer) return; // throttle: at most one scan per 250 ms even under constant mutations
-    scanTimer = setTimeout(() => { scanTimer = 0; scan(); }, 250);
-  }
+  const MO_OPTS = { childList: true, subtree: true, attributes: true,
+    attributeFilter: ["type", "hidden", "disabled", "aria-hidden"] };
   const mo = new MutationObserver((muts) => {
     if (shadowHost && muts.every((m) => m.target === shadowHost ||
       (m.type === "childList" && [...m.addedNodes, ...m.removedNodes].every((n) => n === shadowHost)))) return;
-    scheduleScan();
     onUrlMaybeChanged();
+    scheduleScan();
   });
-  mo.observe(document.documentElement, {
-    childList: true, subtree: true, attributes: true,
-    attributeFilter: ["type", "style", "class", "hidden", "disabled", "aria-hidden"],
-  });
+  mo.observe(document.documentElement, MO_OPTS);
 
   document.addEventListener("submit", onSubmit, true);
   document.addEventListener("keydown", onKeydown, true);

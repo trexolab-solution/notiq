@@ -11,6 +11,9 @@ import { QuickSearchRow } from "./QuickSearchRow";
 import { BackupSection } from "../../vault/BackupSection";
 import { AutofillSection } from "./AutofillSection";
 import { HelloRow } from "./HelloRow";
+import { SyncSection } from "./SyncSection";
+import { SYNC_INDEX } from "./syncIndex";
+import { useSyncStatus } from "../../../lib/vaultSync";
 import { helloStatus } from "../../../lib/hello";
 import { toast } from "../../../lib/toast";
 import { useAppStore } from "../../../store";
@@ -34,6 +37,7 @@ const idleLabel = (m: number) => (m === 0 ? "Never" : m === 1 ? "1 minute" : m =
 export const VaultSection = React.memo(function VaultSection() {
   const exists   = useVaultStore((s) => s.exists);
   const unlocked = useVaultStore((s) => s.unlocked);
+  const synced   = !!useSyncStatus()?.enabled;
   useEffect(() => { void useVaultStore.getState().refresh(); }, []);
 
   const [idle, setIdle]       = useState(() => getIdleMinutes());
@@ -127,8 +131,17 @@ export const VaultSection = React.memo(function VaultSection() {
       </SettingsGroup>
 
       <SettingsGroup
+        title="Sync"
+        description="Use the same vault on all your PCs, through your own Google Drive. Everything is encrypted before it leaves this PC."
+      >
+        <SyncSection />
+      </SettingsGroup>
+
+      <SettingsGroup
         title="Backup"
-        description="Your vault lives only on this computer. Keep an encrypted copy somewhere else."
+        description={synced
+          ? "Sync keeps a copy in your Google Drive. A backup file is an extra copy you control."
+          : "Your vault lives only on this computer. Keep an encrypted copy somewhere else."}
       >
         <BackupSection />
       </SettingsGroup>
@@ -161,8 +174,8 @@ export const VaultSection = React.memo(function VaultSection() {
                      value={confirmPw} onChange={(e) => setConfirmPw(e.target.value)} />
               {error && <p role="alert" className="text-xs text-[var(--color-danger)]">{error}</p>}
               <div>
-                <Button type="submit" variant="primary" size="sm" disabled={busy || !oldPw || !newPw}>
-                  {busy ? "Working…" : "Change password"}
+                <Button type="submit" variant="primary" size="sm" disabled={!oldPw || !newPw} loading={busy} loadingText="Changing…">
+                  Change password
                 </Button>
               </div>
               <p className="text-xs text-[var(--color-text-muted)]">
@@ -219,9 +232,13 @@ export const SETTINGS_INDEX: SettingMeta[] = [
   { id: "vault.locking.auto-hide", section: "vault", group: "Locking", label: "Auto-hide revealed secrets",
     description: "Hides a shown password or key again after this time, or as soon as the window loses focus.",
     keywords: ["reveal", "show password", "hide", "timeout"] },
+  { id: "vault.locking.clipboard-clear", section: "vault", group: "Locking", label: "Clear copied secrets after",
+    description: "Empties the clipboard this long after you copy a password, code or key (in Notiq or from the browser extension), unless you have copied something else since.",
+    keywords: ["clipboard", "copy", "clear", "wipe", "password", "timeout", "extension"] },
   { id: "vault.storage.folder", section: "vault", group: "Storage", label: "Vault storage folder",
     description: "Where your encrypted vault file (vault.nqdb) is kept. Warns if the folder is synced by a cloud service.",
     keywords: ["folder", "directory", "location", "path", "vault.nqdb", "cloud", "onedrive", "dropbox", "sync", "move"] },
+  ...SYNC_INDEX,
   { id: "vault.backup.export", section: "vault", group: "Backup", label: "Export encrypted backup",
     description: "Save an encrypted copy of your vault and see when you last backed up. The file stays protected by your master password and recovery key.",
     keywords: ["backup", "last backup", "export", "save a copy", ".nqbackup", "encrypted"] },

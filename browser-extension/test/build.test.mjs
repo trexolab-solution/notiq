@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import {
   transformChrome, transformStore, transformFirefox, referencedFiles, validateBuild, crc32, createZip, FIREFOX_ID,
+  parsePslData, pslBlock, syncPsl, PSL_SOURCE,
 } from "../build.mjs";
 
 const manifest = JSON.parse(readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "manifest.json"), "utf8"));
@@ -20,7 +21,7 @@ test("store drops key, keeps service worker", () => {
 test("firefox transform", () => {
   const m = transformFirefox(manifest);
   assert.equal("key" in m, false);
-  assert.deepEqual(m.background, { scripts: ["shared.js", "background.js"] });
+  assert.deepEqual(m.background, { scripts: ["shared.js", "identity.js", "background.js"] });
   assert.equal(m.browser_specific_settings.gecko.id, FIREFOX_ID);
   assert.equal(m.browser_specific_settings.gecko.strict_min_version, "121.0");
   assert.deepEqual(m.permissions, manifest.permissions);
@@ -49,11 +50,16 @@ test("validate rejects a build without shared.js", () => {
   files.delete("shared.js");
   assert.throws(() => validateBuild(manifest, files, manifest.version), /shared\.js/);
 });
-test("content scripts load shared.js before content.js", () => {
-  assert.deepEqual(manifest.content_scripts[0].js, ["shared.js", "content.js"]);
+test("content scripts load shared.js, fillkit.js and identity.js before content.js", () => {
+  assert.deepEqual(manifest.content_scripts[0].js, ["shared.js", "fillkit.js", "identity.js", "content.js"]);
 });
-test("no new permissions in 0.4.0", () => {
-  assert.deepEqual([...manifest.permissions].sort(), ["activeTab", "nativeMessaging", "scripting", "storage"]);
+test("validate rejects a build without identity.js (the background loads it)", () => {
+  const files = fileMap(manifest);
+  files.delete("identity.js");
+  assert.throws(() => validateBuild(manifest, files, manifest.version), /identity\.js/);
+});
+test("permissions: only contextMenus added since 0.4.0 (the right-click menu)", () => {
+  assert.deepEqual([...manifest.permissions].sort(), ["activeTab", "contextMenus", "nativeMessaging", "scripting", "storage"]);
   assert.equal("host_permissions" in manifest, false);
   assert.equal("web_accessible_resources" in manifest, false);
 });
@@ -83,4 +89,31 @@ test("every file the extension needs ships in the installer resources", () => {
   const conf = JSON.parse(readFileSync(join(dir, "..", "..", "src-tauri", "tauri.conf.json"), "utf8"));
   const shipped = new Set(Object.values(conf.bundle.resources).filter((v) => v.startsWith("browser-extension/")).map((v) => v.slice("browser-extension/".length)));
   for (const f of ["manifest.json", ...referencedFiles(manifest)]) assert.ok(shipped.has(f), `${f} missing from tauri.conf.json bundle.resources`);
+});
+
+// ---------- Public Suffix List snapshot in shared.js ----------
+const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
+const pslTs = readFileSync(join(root, PSL_SOURCE), "utf8");
+const sharedJs = readFileSync(join(root, "browser-extension", "shared.js"), "utf8");
+
+test("PSL: shared.js carries the app's current table (refresh: node browser-extension/build.mjs --psl)", () => {
+  assert.equal(syncPsl(sharedJs, pslTs), sharedJs);
+});
+test("PSL: parsed table has the ICANN and private-section suffixes the same-site rule relies on", () => {
+  const d = parsePslData(pslTs);
+  assert.ok(d.second.uk.split(" ").includes("co"));
+  assert.ok(d.second.jp.split(" ").includes("co"));
+  for (const s of ["github.io", "herokuapp.com", "vercel.app", "blogspot.com", "netlify.app", "pages.dev", "web.app",
+    "firebaseapp.com", "appspot.com", "azurewebsites.net", "cloudfront.net", "s3.amazonaws.com"]) {
+    assert.ok(d.extra.includes(s), s);
+  }
+  assert.ok(d.wildcard.includes("kawasaki.jp") && d.exception.includes("city.kawasaki.jp"));
+});
+test("PSL: syncPsl replaces only the block and rejects files without one", () => {
+  const fake = ["a", "  // BEGIN PSL old", "  const PSL = {};", "  // END PSL", "b"].join("\n");
+  const out = syncPsl(fake, pslTs);
+  assert.ok(out.startsWith("a\n") && out.endsWith("\nb"));
+  assert.ok(out.includes(pslBlock(parsePslData(pslTs))));
+  assert.throws(() => syncPsl("no block", pslTs));
+  assert.throws(() => parsePslData("export const SECOND_LEVEL = {};"));
 });

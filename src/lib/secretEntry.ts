@@ -14,6 +14,8 @@ export interface FieldDef {
   format?: FieldFormat;
   /** Max characters kept (after formatting). */
   maxLength?: number;
+  /** `text` fields only: the input's type (keyboard / spell-check hint; the value is stored as typed). */
+  inputType?: "email" | "tel";
 }
 export interface KindDef { ext: string; label: string; hint: string; fields: FieldDef[] }
 
@@ -64,6 +66,22 @@ export const SECRET_KINDS: Record<string, KindDef> = {
       { key: "password", label: "Password", type: "secret" },
       { key: "security", label: "Security", type: "select", options: [...WIFI_SECURITY] },
       { key: "hidden", label: "Hidden network (doesn't broadcast its name)", type: "checkbox" },
+      { key: "notes", label: "Notes", type: "multiline" },
+    ],
+  },
+  // Contact / address details for forms (e.g. "Home", "Office"). Not tied to a site; filled with approval.
+  identity: {
+    ext: "identity", label: "Identity", hint: "Name, email, phone, address for forms",
+    fields: [
+      { key: "name", label: "Full name", type: "text", placeholder: "As you write it on forms", maxLength: 100 },
+      { key: "email", label: "Email", type: "text", inputType: "email", placeholder: "you@example.com", maxLength: 200 },
+      { key: "phone", label: "Phone", type: "text", inputType: "tel", placeholder: "+91 98765 43210", maxLength: 40 },
+      { key: "address1", label: "Address line 1", type: "text", placeholder: "Flat / house no., building, street", maxLength: 200 },
+      { key: "address2", label: "Address line 2", type: "text", placeholder: "Area, locality (optional)", maxLength: 200 },
+      { key: "city", label: "City", type: "text", maxLength: 100 },
+      { key: "state", label: "State / province", type: "text", maxLength: 100 },
+      { key: "postal", label: "PIN / ZIP code", type: "text", maxLength: 20 },
+      { key: "country", label: "Country", type: "text", placeholder: "e.g. India", maxLength: 100 },
       { key: "notes", label: "Notes", type: "multiline" },
     ],
   },

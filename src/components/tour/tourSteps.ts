@@ -53,6 +53,13 @@ export const TOUR_STEPS: TourStep[] = [
     placement: "right",
   },
   {
+    // Title bar cloud button: present whenever this build can sync (filtered out otherwise).
+    selector: '[data-tour="sync-button"]',
+    title: "Vault sync",
+    body: "Your vault's sync status lives here. Click it to connect Google Drive, sync now, or see which PCs share this vault.",
+    placement: "bottom",
+  },
+  {
     title: "You're all set 🎉",
     body: "Tip: press Ctrl+Shift+P anytime for the command palette. You can replay this tour from Settings → General.",
     placement: "center",

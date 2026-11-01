@@ -104,8 +104,8 @@ export function RecoveryKitDialog({ recoveryKey, onClose }: { recoveryKey: strin
       <DialogFooter>
         <DialogButton cancel onClick={close}>Close</DialogButton>
         {CAN_SAVE_PDF && (
-          <DialogButton icon={<FileDown size={13} />} disabled={busy} onClick={() => void savePdf()}>
-            {busy ? "Saving…" : "Save as PDF…"}
+          <DialogButton icon={<FileDown size={13} />} loading={busy} loadingText="Saving…" onClick={() => void savePdf()}>
+            Save as PDF…
           </DialogButton>
         )}
         <DialogButton variant="primary" icon={<Printer size={13} />} disabled={busy} onClick={print}>Print…</DialogButton>

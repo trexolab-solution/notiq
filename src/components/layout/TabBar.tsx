@@ -129,6 +129,7 @@ function SortableTab({
         <Tooltip content="Unpin tab">
           <button
             className="tab-pin-btn is-pinned-icon"
+            aria-label={`Unpin ${tab.title}`}
             onClick={(e) => onTogglePin(tab.id, e)}
             style={{ pointerEvents: "auto" }}
           >
@@ -141,6 +142,7 @@ function SortableTab({
           <Tooltip content="Pin tab">
             <button
               className="tab-pin-btn"
+              aria-label={`Pin ${tab.title}`}
               onClick={(e) => onTogglePin(tab.id, e)}
               style={{ pointerEvents: "auto" }}
             >
@@ -150,6 +152,7 @@ function SortableTab({
           <Tooltip content="Close" shortcut="Ctrl+W">
             <button
               className="tab-close-btn"
+              aria-label={`Close ${tab.title}`}
               onClick={(e) => onClose(tab.id, e)}
               style={{ pointerEvents: "auto" }}
             >
@@ -320,7 +323,7 @@ export const TabBar = React.memo(function TabBar({ onCloseTab }: TabBarProps) {
 
           {/* New tab */}
           <Tooltip content="New tab" shortcut="Ctrl+N">
-            <button className="tab-new-btn" onClick={() => addTab()}>
+            <button className="tab-new-btn" aria-label="New tab" onClick={() => addTab()}>
               <Plus size={12} strokeWidth={2} />
             </button>
           </Tooltip>

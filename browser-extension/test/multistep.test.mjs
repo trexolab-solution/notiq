@@ -14,6 +14,7 @@ const SHARED = readFileSync(join(dir, "shared.js"), "utf8");
 const BACKGROUND = readFileSync(join(dir, "background.js"), "utf8");
 const EXT_ID = "notiq-test-id";
 const CRED = { ok: true, username: "alice@example.com", password: "Step-Secret-1!", title: "Example" };
+const PING = { ok: true, appVersion: "0.9.0", locked: false, protocol: 2, minProtocol: 1 };
 
 function event() {
   const fns = [];
@@ -36,12 +37,12 @@ function area() {
 }
 
 // A fresh service worker. `reply(msg)` answers native messages.
-function boot(reply = (m) => (m.op === "fill" ? CRED : { error: "app_not_running" })) {
+function boot(reply = (m) => (m.op === "fill" ? CRED : m.op === "ping" ? PING : { error: "app_not_running" })) {
   const native = [];
   const onMessage = event(), onRemoved = event(), onUpdated = event();
   const chrome = {
     runtime: {
-      id: EXT_ID, lastError: undefined, onMessage,
+      id: EXT_ID, lastError: undefined, onMessage, getManifest: () => ({ version: "0.0.0-test" }),
       getURL: (p) => `chrome-extension://${EXT_ID}/${p}`,
       sendNativeMessage: (_host, msg, cb) => { native.push(msg); queueMicrotask(() => cb(reply(msg))); },
     },
@@ -57,7 +58,7 @@ function boot(reply = (m) => (m.op === "fill" ? CRED : { error: "app_not_running
   vm.runInContext(BACKGROUND, ctx);
   const sw = {
     ctx, chrome, native,
-    vaultCalls: () => native.filter((m) => m.op !== "theme"),
+    vaultCalls: () => native.filter((m) => m.op !== "theme" && m.op !== "ping"),
     advance: (ms) => { ctx.__now += ms; },
     // A content-script message from the top frame (frameId 0) of `tabId` at `url`.
     send(type, extra = {}, { tabId = 7, url = "https://accounts.example.com/signin", frameId = 0, tabUrl = url, active = true } = {}) {
@@ -175,7 +176,7 @@ test("navigating the tab to another site clears it; same-site navigation keeps i
 
 test("a locked vault, a new fill or a cancel drop the held password", async () => {
   let locked = false;
-  const sw = boot((m) => (locked ? { error: "locked" } : m.op === "fill" ? CRED : { error: "app_not_running" }));
+  const sw = boot((m) => (locked ? { error: "locked" } : m.op === "fill" ? CRED : m.op === "ping" ? PING : { error: "app_not_running" }));
   await sw.send("fill", { step: true });
   await sw.send("fill", { step: true }, { tabId: 9, url: "https://other.org/login" });
   assert.deepEqual(sw.steps().sort(), ["step:7", "step:9"]);
@@ -216,7 +217,7 @@ test("toolbar fill on a username-only tab: username now, password held for the n
     sw.chrome.tabs.query = async () => [{ id: 7, url: "https://accounts.example.com/signin", active: true }];
     sw.chrome.scripting.executeScript = async (o) => {
       if (o.func.name === "fillPage") { injected.push(JSON.parse(JSON.stringify(o.args))); return [{ frameId: 0, result: 1 }]; }
-      return [{ frameId: 0, result: hasPassword }]; // the password-field probe
+      return [{ frameId: 0, result: { origin: "https://accounts.example.com", top: true, ancestors: [], fields: true, password: hasPassword } }];
     };
     const r = await sw.ctx.fillActiveTab();
     assert.equal(r.ok, true);
@@ -230,4 +231,210 @@ test("toolbar fill on a username-only tab: username now, password held for the n
       assert.equal((await sw.send("stepFill")).password, "Step-Secret-1!");
     }
   }
+});
+
+// ---------- vault lock state (ping) ----------
+test("stepFill asks Notiq first: a locked vault or a closed app drops every held password", async () => {
+  for (const pingReply of [{ ...PING, locked: true }, { error: "app_not_running" }, { error: "no_reply" }]) {
+    let ping = PING;
+    const sw = boot((m) => (m.op === "fill" ? CRED : m.op === "ping" ? ping : { error: "x" }));
+    await sw.send("fill", { step: true });
+    await sw.send("fill", { step: true }, { tabId: 9, url: "https://other.org/login" });
+    assert.deepEqual(sw.steps().sort(), ["step:7", "step:9"]);
+    ping = pingReply;
+    assert.deepEqual(await sw.send("stepFill"), { none: true }, JSON.stringify(pingReply));
+    assert.deepEqual(sw.steps(), [], "no held password survives a lock");
+    ping = PING;
+    assert.deepEqual(await sw.send("stepFill"), { none: true }, "and unlocking again does not bring it back");
+  }
+});
+
+test("stepFill pings before every hand-out; an older app (ping without lock state) still works", async () => {
+  const sw = boot((m) => (m.op === "fill" ? CRED : m.op === "ping" ? { ok: true } : { error: "x" }));
+  await sw.send("fill", { step: true });
+  assert.equal((await sw.send("stepFill")).password, "Step-Secret-1!");
+  assert.equal(sw.native.filter((m) => m.op === "ping").length, 1);
+});
+
+test("opening the popup (ping) drops held passwords when Notiq is locked or closed, keeps them otherwise", async () => {
+  let ping = PING;
+  const sw = boot((m) => (m.op === "fill" ? CRED : m.op === "ping" ? ping : { error: "x" }));
+  const popup = () => new Promise((resolve) => {
+    const sender = { id: EXT_ID, url: `chrome-extension://${EXT_ID}/popup.html` };
+    sw.chrome.runtime.onMessage.fire({ type: "ping" }, sender, (r) => resolve(JSON.parse(JSON.stringify(r))));
+  });
+  await sw.send("fill", { step: true });
+  assert.equal((await popup()).locked, false);
+  assert.deepEqual(sw.steps(), ["step:7"]);
+  ping = { ...PING, locked: true };
+  assert.equal((await popup()).locked, true);
+  assert.deepEqual(sw.steps(), []);
+  ping = PING;
+  await sw.send("fill", { step: true });
+  ping = { error: "app_not_running" };
+  await popup();
+  assert.deepEqual(sw.steps(), []);
+});
+
+test("any reply saying locked: true drops held passwords", async () => {
+  let fillReply = CRED;
+  const sw = boot((m) => (m.op === "fill" ? fillReply : m.op === "ping" ? PING : { error: "x" }));
+  await sw.send("fill", { step: true });
+  fillReply = { error: "denied", locked: true };
+  await sw.send("fill", {}, { tabId: 9, url: "https://other.org/login" });
+  await new Promise((r) => setTimeout(r, 0));
+  assert.deepEqual(sw.steps(), []);
+});
+
+test("every native request names the extension version and protocol", async () => {
+  const sw = boot();
+  await sw.send("fill", { step: true });
+  await sw.send("stepFill");
+  assert.ok(sw.native.length >= 2);
+  for (const m of sw.native) {
+    assert.equal(m.protocol, sw.ctx.NotiqShared.PROTOCOL);
+    assert.equal(m.ext, "0.0.0-test");
+  }
+});
+
+// ---------- toolbar fill: secrets only to eligible frames ----------
+const TOP = "https://accounts.example.com";
+const probe = (origin, extra = {}) => ({ origin, top: false, ancestors: [TOP], fields: true, password: true, ...extra });
+const FRAMES = [
+  { frameId: 0, documentId: "D0", result: { origin: TOP, top: true, ancestors: [], fields: true, password: true } },
+  { frameId: 1, documentId: "D1", result: probe("https://login.example.com") }, // same site: yes
+  { frameId: 2, documentId: "D2", result: probe("https://evil.org") }, // other site: no
+  { frameId: 3, documentId: "D3", result: probe("https://cdn.example.com", { fields: false }) }, // no fields: no
+  { frameId: 4, documentId: "D4", result: probe("https://sso.example.com", { ancestors: ["https://evil.org", TOP] }) }, // cross-site parent: no
+  { frameId: 5, documentId: "D5", result: probe("http://login.example.com") }, // not https: no
+  { frameId: 6, documentId: "D6", result: probe("https://deep.example.com", { ancestors: ["https://login.example.com", TOP] }) }, // yes
+  { frameId: 7, documentId: "D7", result: probe("https://example.com.evil.org") }, // look-alike: no
+];
+
+function toolbarBoot(frames) {
+  const sw = boot();
+  const calls = [];
+  sw.chrome.tabs.query = async () => [{ id: 7, url: `${TOP}/signin`, active: true }];
+  sw.chrome.scripting.executeScript = async (o) => {
+    calls.push(JSON.parse(JSON.stringify({ target: o.target, func: o.func.name, args: o.args })));
+    if (o.func.name === "probeFrame") return frames;
+    const byDoc = !!o.target.documentIds;
+    const ids = byDoc ? o.target.documentIds : o.target.frameIds;
+    return frames.filter((f) => ids.includes(byDoc ? f.documentId : f.frameId)).map((f) => ({ frameId: f.frameId, documentId: f.documentId, result: 1 }));
+  };
+  return { sw, calls };
+}
+
+test("toolbar fill: the all-frames probe carries no secret; the login goes only to eligible documents", async () => {
+  const { sw, calls } = toolbarBoot(FRAMES);
+  const r = await sw.ctx.fillActiveTab();
+  assert.equal(r.ok, true);
+  assert.equal(calls.length, 2);
+  const [p, f] = calls;
+  assert.equal(p.func, "probeFrame");
+  assert.equal(p.target.allFrames, true);
+  assert.equal(p.args, undefined, "the probe gets no arguments at all");
+  assert.equal(f.func, "fillPage");
+  assert.equal(f.target.allFrames, undefined, "the fill is never injected into every frame");
+  assert.deepEqual(f.target.documentIds, ["D0", "D1", "D6"]);
+  assert.equal(f.args[1].password, "Step-Secret-1!");
+  assert.equal(f.args[2].top, TOP);
+  assert.deepEqual([...f.args[2].allowed].sort(), [TOP, "https://deep.example.com", "https://login.example.com"]);
+  for (const c of calls) if (c.target.allFrames) assert.ok(!JSON.stringify(c).includes("Step-Secret-1!"));
+});
+
+test("toolbar fill: frameIds when the browser reports no documentId (Firefox)", async () => {
+  const frames = FRAMES.map(({ documentId, ...f }) => f);
+  const { sw, calls } = toolbarBoot(frames);
+  assert.equal((await sw.ctx.fillActiveTab()).ok, true);
+  assert.deepEqual(calls[1].target.frameIds, [0, 1, 6]);
+  assert.equal(calls[1].target.documentIds, undefined);
+});
+
+test("toolbar fill: no eligible frame means no injection with the login", async () => {
+  const { sw, calls } = toolbarBoot([FRAMES[2], FRAMES[3], FRAMES[4]]);
+  assert.deepEqual(JSON.parse(JSON.stringify(await sw.ctx.fillActiveTab())), { error: "no_fields" });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].func, "probeFrame");
+  assert.deepEqual(sw.steps(), []);
+});
+
+test("toolbar fill: a cross-site frame's password field does not make it a one-step page", async () => {
+  const frames = [
+    { frameId: 0, result: { origin: TOP, top: true, ancestors: [], fields: true, password: false } },
+    { frameId: 2, result: probe("https://evil.org", { password: true }) },
+  ];
+  const { sw, calls } = toolbarBoot(frames);
+  assert.equal((await sw.ctx.fillActiveTab()).ok, true);
+  assert.equal(calls[1].args[1].password, "", "username-only: the password is held, not injected");
+  assert.deepEqual(calls[1].target.frameIds, [0]);
+  assert.deepEqual(sw.steps(), ["step:7"]);
+});
+
+// fillPage's own frame guard, run against a fake frame (no DOM needed: reaching the DOM means "allowed").
+function runFillPage(sw, { origin, hostname, top, ancestors }, scope, host = "accounts.example.com") {
+  const win = {};
+  win.top = top ? win : {};
+  const ctx = vm.createContext({
+    window: win,
+    location: { origin, hostname, ancestorOrigins: ancestors },
+    document: { querySelectorAll: () => { throw new Error("REACHED"); } },
+  });
+  try {
+    return vm.runInContext(`(${sw.ctx.fillPage.toString()})`, ctx)(host, { username: "u", password: "p" }, scope);
+  } catch (e) {
+    if (e.message === "REACHED") return "filled";
+    throw e;
+  }
+}
+
+test("fillPage re-checks the frame it lands in (it may have navigated since the probe)", () => {
+  const sw = boot();
+  const scope = { top: TOP, allowed: [TOP, "https://login.example.com"] };
+  const topFrame = { origin: TOP, hostname: "accounts.example.com", top: true };
+  assert.equal(runFillPage(sw, topFrame, scope), "filled");
+  assert.equal(runFillPage(sw, { ...topFrame, origin: "https://evil.org", hostname: "evil.org" }, scope), 0);
+  assert.equal(runFillPage(sw, topFrame, undefined), 0, "no scope, no fill");
+  const sub = { origin: "https://login.example.com", hostname: "login.example.com", top: false, ancestors: [TOP] };
+  assert.equal(runFillPage(sw, sub, scope), "filled");
+  assert.equal(runFillPage(sw, { ...sub, origin: "https://evil.org", hostname: "evil.org" }, scope), 0);
+  assert.equal(runFillPage(sw, { ...sub, ancestors: ["https://evil.org", TOP] }, scope), 0);
+  assert.equal(runFillPage(sw, { ...sub, ancestors: ["https://login.example.com"] }, scope), 0, "outermost must be the top origin");
+  assert.equal(runFillPage(sw, { ...sub, ancestors: undefined }, scope), 0, "no ancestorOrigins (Firefox): subframes are never filled");
+});
+
+// ---------- code-only fills (a separate 2FA page) ----------
+test("code intent: the request carries intent 'code' and the reply never holds a password", async () => {
+  // An older app that ignores the intent sends the whole login.
+  const sw = boot((m) => (m.op === "fill" ? { ...CRED, code: "123456" } : { error: "app_not_running" }));
+  const r = await sw.send("fill", { intent: "code" });
+  assert.deepEqual(r, { ok: true, host: "accounts.example.com", title: "Example", username: "alice@example.com", code: "123456" });
+  assert.deepEqual(JSON.parse(JSON.stringify(sw.vaultCalls())), [{ op: "fill", host: "accounts.example.com", intent: "code", ext: "0.0.0-test", protocol: sw.ctx.NotiqShared.PROTOCOL }]);
+});
+
+test("code intent: no or malformed code -> no_code; an unknown intent is refused before asking Notiq", async () => {
+  for (const code of [undefined, "", "12", "12 34 56", "<b>1</b>", 123456]) {
+    const sw = boot((m) => (m.op === "fill" ? { ...CRED, code } : { error: "x" }));
+    assert.deepEqual(await sw.send("fill", { intent: "code" }), { error: "no_code" }, String(code));
+  }
+  const sw = boot();
+  assert.deepEqual(await sw.send("fill", { intent: "password" }), { error: "bad_request" });
+  assert.equal(sw.vaultCalls().length, 0);
+});
+
+test("code intent: the app's errors and chooser pass through; a held step password survives", async () => {
+  const sw = boot((m) => (m.op === "fill" && m.intent === "code" ? { error: "no_code" } : m.op === "fill" ? CRED : { error: "x" }));
+  await sw.send("fill", { step: true });
+  assert.deepEqual(sw.steps(), ["step:7"]);
+  assert.deepEqual(await sw.send("fill", { intent: "code" }), { error: "no_code" });
+  assert.deepEqual(sw.steps(), ["step:7"], "a code request does not drop the username-first hand-off");
+
+  const choose = [{ account: "Logins/a.nqv", title: "A", username: "a" }, { account: "Logins/b.nqv", title: "B", username: "b" }];
+  const sw2 = boot((m) => (m.op === "fill" ? (m.account ? { ok: true, username: "b", title: "B", code: "654321", password: "pw" } : { choose }) : { error: "x" }));
+  const c = await sw2.send("fill", { intent: "code" });
+  assert.deepEqual(c.choose, choose);
+  const r = await sw2.send("fill", { intent: "code", account: "Logins/b.nqv" });
+  assert.equal(r.code, "654321");
+  assert.equal("password" in r, false);
+  assert.deepEqual(JSON.parse(JSON.stringify(sw2.vaultCalls()[1])), { op: "fill", host: "accounts.example.com", account: "Logins/b.nqv", intent: "code", ext: "0.0.0-test", protocol: sw2.ctx.NotiqShared.PROTOCOL });
 });

@@ -10,14 +10,38 @@
 //! (or a short, per-site trust window the user opted into in that dialog).
 //!
 //! Protocol (extension → host → app, one JSON object per message):
-//! * `{op:"ping"}` → `{ok:true}` (never starts the app)
+//! * `{op:"ping"}` → `{ok:true, appVersion, locked, protocol, minProtocol}` (never starts the app). `locked` is the
+//!   vault's lock state; the extension drops any held multi-step password when it is `true`.
 //! * `{op:"theme"}` → `{ok:true, theme:{id,mode,bg,...}|null}` from `autofill-theme.json` (never starts the app, no token)
 //! * `{op:"launch"}` → `{ok:true}` once the app answers (starts it if needed) or `{error:"app_not_running"}`
 //! * `{op:"fill", host, account?}` → `{ok:true, username, password, title, code?}` | `{choose:[{account,title,username}]}`
 //!   | `{error}`. `account` is a vault entry's relative path from an earlier `choose`.
+//!   Since 0.9.0 the reply may also carry `fields:[{name,value,secret}]`, that login's custom fields, which the
+//!   extension fills by name (secret ones only on the login's own site); older extensions ignore it.
+//!   With `intent:"code"` (a separate 2FA page) only logins with a TOTP secret count and the reply is
+//!   `{ok:true, username, title, code}` (never the password) or `{error:"no_code"}`.
 //! * `{op:"save", host, url, username, password, title}` → `{ok:true, status}` | `{error}`
 //! * `{op:"fill_card", host, origin}` → `{ok:true, title, name, number, exp_month, exp_year, csc}` | `{error}`.
 //!   Always asks the user (no trust window) and is never handled by the main-window fallback.
+//! * `{op:"fill_identity", host, origin, account?}` → `{ok:true, title, name, email, phone, address1, address2, city,
+//!   state, postal, country}` | `{error}`. Same origin rule and routing as `fill_card`; the user always picks the
+//!   identity (`account`, from `identities`, only pre-selects it).
+//! * `{op:"identities"}` → `{ok:true, identities:[{account, title}]}` (file names of Identity entries only, at most
+//!   20) | `{error:"locked"}`. Answered by the app itself without any window, only while the vault is unlocked;
+//!   never starts the app. Used for the browser's right-click menu.
+//! * Toolbar popup (0.9.0; older apps answer `{error:"unknown_op"}`). None of these starts the app or uses the
+//!   main-window fallback; see "Popup ops" below for the gating:
+//!   * `{op:"list", host}` → `{ok:true, accounts:[{account,title,username,totp}]}` | `{error}`: titles and usernames
+//!     of the logins that match `host` only (never a secret), only while the vault is unlocked, no prompt.
+//!   * `{op:"copy", host, account, what:"username"|"password"|"code"}` → `{ok:true, copied, clearAfter}` | `{error}`:
+//!     the APP copies the value (kept out of clipboard history, cleared after the user's setting); the value never
+//!     reaches the extension. Password / code: approved like a fill (prompt, or the site's trust window).
+//!   * `{op:"open", host, account}` → `{ok:true}`: brings Notiq forward and opens that entry.
+//!
+//! Every request from protocol-2 extensions also carries `ext` (the extension's version) and `protocol`
+//! (its [`PROTOCOL`] number; missing = 1). Compatibility: the app serves extensions with
+//! `protocol >= MIN_EXTENSION_PROTOCOL` (others get `{error:"extension_outdated", appVersion, minProtocol}`), and
+//! the extension needs `app protocol >= its MIN_APP_PROTOCOL` (`browser-extension/shared.js`), read from `ping`.
 
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read, Write};
@@ -35,6 +59,13 @@ use crate::native_host_reg::LastRequest;
 use crate::vault::atomic_write;
 
 pub const HOST_NAME: &str = crate::profile::PROD_IDENTIFIER;
+/// Version of the extension ⇄ app message protocol. Keep equal to `PROTOCOL` in `browser-extension/shared.js`
+/// (a test checks it). 1: the original messages. 2: `ping` reports `appVersion`/`locked`/`protocol`/`minProtocol`,
+/// requests carry `ext`/`protocol`, and an outdated extension is told so.
+pub const PROTOCOL: u64 = 2;
+/// Oldest extension protocol this app still serves (an extension that sends no `protocol` is protocol 1).
+/// Raise it only when a change would make older extensions misbehave; they are then asked to update.
+pub const MIN_EXTENSION_PROTOCOL: u64 = 1;
 /// Chromium extension IDs allowed to talk to the native host (the manifest's `allowed_origins` and the host's own
 /// origin check). Empty slots are skipped; fill them in once the store listings exist.
 pub const EXTENSION_IDS: &[&str] = &[
@@ -323,6 +354,16 @@ pub fn validate_account(v: Option<&Value>) -> Result<Option<String>, &'static st
     Ok(Some(s.clone()))
 }
 
+/// Validates the optional `intent` of a `fill` request. Missing / `null` → a normal fill;
+/// `"code"` → only the TOTP code of the matching login; anything else is refused.
+pub fn validate_intent(v: Option<&Value>) -> Result<Option<&'static str>, &'static str> {
+    match v {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::String(s)) if s == "code" => Ok(Some("code")),
+        Some(_) => Err("bad_request"),
+    }
+}
+
 /// A page host as the extension sends it: lower-case letters, digits, dots and dashes, 1..=253 chars.
 fn valid_host(host: &str) -> bool {
     !host.is_empty()
@@ -360,15 +401,101 @@ pub fn validate_fill_card(req: &Value) -> Result<String, &'static str> {
     Ok(host.to_string())
 }
 
+// ─── Identities (browser right-click menu + in-page identity icon) ────────────
+
+/// Strict validation of an untrusted `fill_identity` message: the `fill_card` origin rule plus an optional
+/// `account` (an identity's vault path from an earlier `identities` reply). Returns `(host, account)`.
+pub fn validate_fill_identity(req: &Value) -> Result<(String, Option<String>), &'static str> {
+    let host = validate_fill_card(req)?;
+    let account = validate_account(req.get("account"))?;
+    Ok((host, account))
+}
+
+/// Most identities listed for the right-click menu.
+pub const MAX_IDENTITIES: usize = 20;
+const IDENTITY_EXT: &str = "identity";
+
+/// `identities` reply from the vault listing: live Identity entries only, titled by their file name (control
+/// characters dropped, at most 60 characters), sorted by title, at most [`MAX_IDENTITIES`]. No field values.
+pub fn identities_reply(items: &[crate::vault_db::ListItem]) -> Value {
+    let mut out: Vec<(String, String)> = items
+        .iter()
+        .filter(|i| !i.dir && i.ext == IDENTITY_EXT && i.trashed_at.is_none())
+        .filter_map(|i| {
+            let rel = i.rel.replace('\\', "/");
+            let lower = rel.to_ascii_lowercase();
+            let stem = rel.get(..rel.len().checked_sub(4)?).filter(|_| lower.ends_with(".nqv"))?;
+            let name = stem.rsplit('/').next().unwrap_or(stem);
+            let title: String = name.chars().filter(|c| !c.is_control()).take(60).collect::<String>().trim().to_string();
+            if title.is_empty() || validate_account(Some(&json!(rel))).ok().flatten().is_none() {
+                return None;
+            }
+            Some((title, rel))
+        })
+        .collect();
+    out.sort_by(|a, b| a.0.to_lowercase().cmp(&b.0.to_lowercase()).then_with(|| a.1.cmp(&b.1)));
+    out.truncate(MAX_IDENTITIES);
+    let list: Vec<Value> = out.into_iter().map(|(title, account)| json!({ "account": account, "title": title })).collect();
+    json!({ "ok": true, "identities": list })
+}
+
+/// The protocol a request speaks: its `protocol` field, or 1 when it has none (extensions before protocol 2).
+/// Anything but a positive integer is a bad request.
+pub fn request_protocol(req: &Value) -> Result<u64, &'static str> {
+    match req.get("protocol") {
+        None | Some(Value::Null) => Ok(1),
+        Some(v) => v.as_u64().filter(|&p| p > 0).ok_or("bad_request"),
+    }
+}
+
+/// Is an extension speaking `protocol` served by this app?
+pub fn extension_supported(protocol: u64) -> bool {
+    protocol >= MIN_EXTENSION_PROTOCOL
+}
+
+/// `ping` answer: always sent (even to an outdated extension), so the extension can tell the user what to update.
+pub fn ping_reply(app_version: &str, locked: bool) -> Value {
+    json!({
+        "ok": true,
+        "appVersion": app_version,
+        "locked": locked,
+        "protocol": PROTOCOL,
+        "minProtocol": MIN_EXTENSION_PROTOCOL,
+    })
+}
+
+/// The protocol gate for every op except `ping` / `hello`: `None` = go on, `Some(reply)` = answer with this.
+pub fn protocol_gate(req: &Value, app_version: &str) -> Option<Value> {
+    match request_protocol(req) {
+        Err(e) => Some(json!({ "error": e })),
+        Ok(p) if !extension_supported(p) => Some(json!({
+            "error": "extension_outdated",
+            "appVersion": app_version,
+            "minProtocol": MIN_EXTENSION_PROTOCOL,
+        })),
+        Ok(_) => None,
+    }
+}
+
 /// Forwards a request to the UI and waits for its answer.
 fn handle(app: &AppHandle, req: Value) -> Value {
     let op = req.get("op").and_then(|v| v.as_str()).unwrap_or("");
-    // Card requests are only ever answered by the prompt window (see `await_ui`).
-    let fallback = op != "fill_card";
+    let app_version = app.package_info().version.to_string();
+    if op != "ping" && op != "hello" {
+        if let Some(reply) = protocol_gate(&req, &app_version) {
+            return reply;
+        }
+    }
+    if let Some(reply) = handle_popup(app, op, &req) {
+        return reply;
+    }
+    // Card and identity requests are only ever answered by the prompt window (see `await_ui`).
+    let fallback = op != "fill_card" && op != "fill_identity";
     let (event, payload, host) = match op {
         "ping" => {
             touch_extension();
-            return json!({ "ok": true });
+            let locked = !app.state::<crate::vault::VaultState>().is_unlocked();
+            return ping_reply(&app_version, locked);
         }
         // Liveness check used by the native host itself (not counted as the extension being seen).
         "hello" => return json!({ "ok": true }),
@@ -381,6 +508,11 @@ fn handle(app: &AppHandle, req: Value) -> Value {
             let mut payload = json!({ "host": host });
             match validate_account(req.get("account")) {
                 Ok(Some(a)) => payload["account"] = json!(a),
+                Ok(None) => {}
+                Err(e) => return json!({ "error": e }),
+            }
+            match validate_intent(req.get("intent")) {
+                Ok(Some(i)) => payload["intent"] = json!(i),
                 Ok(None) => {}
                 Err(e) => return json!({ "error": e }),
             }
@@ -404,12 +536,203 @@ fn handle(app: &AppHandle, req: Value) -> Value {
                 Err(e) => return json!({ "error": e }),
             }
         }
+        "fill_identity" => {
+            touch_extension();
+            match validate_fill_identity(&req) {
+                Ok((host, account)) => {
+                    let mut payload = json!({ "host": host });
+                    if let Some(a) = account {
+                        payload["account"] = json!(a);
+                    }
+                    ("autofill:identity", payload, host)
+                }
+                Err(e) => return json!({ "error": e }),
+            }
+        }
+        // Titles for the right-click menu: no window, nothing while locked.
+        "identities" => {
+            touch_extension();
+            let vault = app.state::<crate::vault::VaultState>();
+            if !vault.is_unlocked() {
+                return json!({ "error": "locked" });
+            }
+            return match vault.with_db_quiet(|db, _, _, _| Ok((db.list(), false))) {
+                Ok(items) => identities_reply(&items),
+                Err(_) => json!({ "error": "locked" }),
+            };
+        }
         _ => return json!({ "error": "unknown_op" }),
     };
     let reply = await_ui(app, event, payload, fallback);
     record_request(&host, &reply);
     reply
 }
+
+// ─── Popup ops (0.9.0): list / copy / open ────────────────────────────────────
+//
+// Gating (see also browser-extension/README.md):
+// * `list` needs an unlocked vault and shows no prompt. It is safe without an Allow because only the extension's
+//   own popup sends it (the background never forwards it for a page), the host is the active tab's top host
+//   (taken from the tab URL by the background, never from the page), and the reply holds only the titles and
+//   usernames of the logins that match that host, exactly what the account chooser already hands out. Logins for
+//   other sites never leave the app, and a locked vault answers `locked` without listing anything.
+// * `copy` of a password or 2FA code is approved exactly like a fill (the prompt, which may ask to unlock, or the
+//   site's 5-minute trust window). Copying the username (already shown in the list) needs an unlocked vault but
+//   no Allow. The prompt window copies the value itself; the reply is reduced here to `{ok, copied, clearAfter}`.
+// * `open` only shows Notiq and opens the entry there (nothing is returned); a locked vault asks to unlock first.
+
+/// Emitted to the prompt window: `{id, host}` → reply `{ok, accounts}`.
+const LIST_EVENT: &str = "autofill:list";
+/// Emitted to the prompt window: `{id, host, account, what}` → reply `{ok, copied, clearAfter}`.
+const COPY_EVENT: &str = "autofill:copy";
+/// The main window's existing "open this entry" listener (`src/quick/quickSearch.ts`), payload `{rel}`.
+const OPEN_ENTRY_EVENT: &str = "quick-search:open";
+/// Most logins one `list` reply may carry (a site with more is unusual; the popup filters them).
+pub const MAX_LIST: usize = 50;
+
+/// What a `copy` may copy.
+pub fn validate_copy_what(v: Option<&Value>) -> Result<&'static str, &'static str> {
+    match v.and_then(|v| v.as_str()) {
+        Some("username") => Ok("username"),
+        Some("password") => Ok("password"),
+        Some("code") => Ok("code"),
+        _ => Err("bad_request"),
+    }
+}
+
+fn popup_host(req: &Value) -> Result<String, &'static str> {
+    let host = req.get("host").and_then(|v| v.as_str()).ok_or("bad_request")?;
+    if !valid_host(host) {
+        return Err("bad_host");
+    }
+    Ok(host.to_string())
+}
+
+fn required_account(req: &Value) -> Result<String, &'static str> {
+    validate_account(req.get("account"))?.ok_or("bad_request")
+}
+
+/// `{op:"list", host}` → the host.
+pub fn validate_list(req: &Value) -> Result<String, &'static str> {
+    popup_host(req)
+}
+
+/// `{op:"copy", host, account, what}` → `(host, account, what)`.
+pub fn validate_copy(req: &Value) -> Result<(String, String, &'static str), &'static str> {
+    Ok((popup_host(req)?, required_account(req)?, validate_copy_what(req.get("what"))?))
+}
+
+/// `{op:"open", host, account}` → `(host, account)`.
+pub fn validate_open(req: &Value) -> Result<(String, String), &'static str> {
+    Ok((popup_host(req)?, required_account(req)?))
+}
+
+/// `{error}` of a UI reply as a short word (no free text reaches the extension), or `None` when it has none.
+fn error_reply(reply: &Value) -> Option<Value> {
+    reply.get("error").map(|e| {
+        let word: String =
+            e.as_str().unwrap_or("").chars().filter(|c| c.is_ascii_alphanumeric() || *c == '_').take(40).collect();
+        json!({ "error": if word.is_empty() { "failed".to_string() } else { word } })
+    })
+}
+
+/// The UI's `list` answer, reduced to what the extension may see: account ids, titles and usernames (each
+/// length-capped, control characters removed), whether a 2FA code exists, at most [`MAX_LIST`] entries.
+pub fn sanitize_list_reply(reply: &Value) -> Value {
+    if let Some(e) = error_reply(reply) {
+        return e;
+    }
+    let ok = reply.get("ok") == Some(&json!(true));
+    let Some(list) = reply.get("accounts").and_then(|a| a.as_array()).filter(|_| ok) else {
+        return json!({ "error": "failed" });
+    };
+    let cap = |v: Option<&Value>, n: usize| clean(v.and_then(|v| v.as_str()).unwrap_or("")).chars().take(n).collect::<String>();
+    let accounts: Vec<Value> = list
+        .iter()
+        .filter_map(|a| {
+            let account = validate_account(a.get("account")).ok().flatten()?;
+            Some(json!({
+                "account": account,
+                "title": cap(a.get("title"), 200),
+                "username": cap(a.get("username"), 512),
+                "totp": a.get("totp") == Some(&json!(true)),
+            }))
+        })
+        .take(MAX_LIST)
+        .collect();
+    json!({ "ok": true, "accounts": accounts })
+}
+
+/// The UI's `copy` answer, reduced to `{ok, copied, clearAfter}` (seconds, 0 = never) or `{error}`: whatever
+/// else the UI put in it (it never should hold the value) does not reach the extension.
+pub fn sanitize_copy_reply(reply: &Value, what: &str) -> Value {
+    if let Some(e) = error_reply(reply) {
+        return e;
+    }
+    if reply.get("ok") != Some(&json!(true)) {
+        return json!({ "error": "failed" });
+    }
+    let clear = reply.get("clearAfter").and_then(|v| v.as_u64()).filter(|&n| n <= 3600).unwrap_or(0);
+    json!({ "ok": true, "copied": what, "clearAfter": clear })
+}
+
+/// The popup ops; `None` for every other op.
+fn handle_popup(app: &AppHandle, op: &str, req: &Value) -> Option<Value> {
+    if !matches!(op, "list" | "copy" | "open") {
+        return None;
+    }
+    touch_extension();
+    let unlocked = || app.state::<crate::vault::VaultState>().is_unlocked();
+    let (host, reply) = match op {
+        "list" => match validate_list(req) {
+            Err(e) => return Some(json!({ "error": e })),
+            Ok(host) if !unlocked() => (host, json!({ "error": "locked" })),
+            Ok(host) => {
+                let r = await_ui(app, LIST_EVENT, json!({ "host": host }), false);
+                (host, sanitize_list_reply(&r))
+            }
+        },
+        "copy" => match validate_copy(req) {
+            Err(e) => return Some(json!({ "error": e })),
+            // The username is not behind an Allow, so it needs a vault that is already open.
+            Ok((host, _, "username")) if !unlocked() => (host, json!({ "error": "locked" })),
+            Ok((host, account, what)) => {
+                let r = await_ui(app, COPY_EVENT, json!({ "host": host, "account": account, "what": what }), false);
+                (host, sanitize_copy_reply(&r, what))
+            }
+        },
+        _ => match validate_open(req) {
+            Err(e) => return Some(json!({ "error": e })),
+            Ok((host, account)) => {
+                if let Some(w) = app.get_webview_window("main") {
+                    let _ = w.unminimize();
+                    let _ = w.show();
+                    let _ = w.set_focus();
+                }
+                let r = match app.emit_to("main", OPEN_ENTRY_EVENT, json!({ "rel": account })) {
+                    Ok(()) => json!({ "ok": true }),
+                    Err(_) => json!({ "error": "failed" }),
+                };
+                (host, r)
+            }
+        },
+    };
+    record_request(&host, &reply);
+    Some(reply)
+}
+
+/// The native host was started by the browser, which is in front while its popup is open: let the app take the
+/// foreground for `open` (Windows otherwise only flashes its taskbar button).
+#[cfg(windows)]
+fn allow_app_foreground() {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{AllowSetForegroundWindow, ASFW_ANY};
+    // SAFETY: plain call without pointers; failure only means the app may not come to the front.
+    unsafe {
+        AllowSetForegroundWindow(ASFW_ANY);
+    }
+}
+#[cfg(not(windows))]
+fn allow_app_foreground() {}
 
 /// The UI's autofill listeners are registered. Requests that arrive earlier wait briefly for it
 /// (an app launched by the extension receives the request while its webview is still loading).
@@ -801,7 +1124,7 @@ fn is_timeout(e: &std::io::Error) -> bool {
 
 /// Ops that may start Notiq when it isn't running (a user action in the browser). `ping` and `theme` never do.
 fn may_launch(op: &str) -> bool {
-    matches!(op, "fill" | "fill_card" | "save" | "launch")
+    matches!(op, "fill" | "fill_card" | "fill_identity" | "save" | "launch")
 }
 
 // ─── Theme shared with the extension ─────────────────────────────────────────
@@ -867,6 +1190,9 @@ fn forward(conn: &mut Option<Conn>, req: &Value) -> Value {
     let op = req.get("op").and_then(|v| v.as_str()).unwrap_or("");
     if op == "theme" {
         return theme_reply();
+    }
+    if op == "open" {
+        allow_app_foreground();
     }
     for attempt in 0..2 {
         if conn.is_none() {
@@ -1075,6 +1401,16 @@ mod tests {
     }
 
     #[test]
+    fn intent_validation() {
+        assert_eq!(validate_intent(None), Ok(None));
+        assert_eq!(validate_intent(Some(&json!(null))), Ok(None));
+        assert_eq!(validate_intent(Some(&json!("code"))), Ok(Some("code")));
+        for bad in [json!(""), json!("password"), json!("CODE"), json!(1), json!(true), json!(["code"]), json!({})] {
+            assert_eq!(validate_intent(Some(&bad)), Err("bad_request"), "{bad}");
+        }
+    }
+
+    #[test]
     fn outcomes_hold_no_secrets() {
         assert_eq!(outcome_of(&json!({"ok":true,"username":"me","password":"pw"})), "ok");
         assert_eq!(outcome_of(&json!({"error":"denied"})), "denied");
@@ -1118,6 +1454,59 @@ mod tests {
     }
 
     #[test]
+    fn fill_identity_uses_the_card_origin_rule_and_an_optional_account() {
+        let req = |v: Value| validate_fill_identity(&v);
+        assert_eq!(
+            req(json!({ "op": "fill_identity", "host": "shop.example.in", "origin": "https://shop.example.in" })),
+            Ok(("shop.example.in".into(), None))
+        );
+        assert_eq!(
+            req(json!({ "host": "localhost", "origin": "http://localhost:8000", "account": "Identities/Home.nqv" })),
+            Ok(("localhost".into(), Some("Identities/Home.nqv".into())))
+        );
+        assert_eq!(req(json!({ "host": "a.com", "origin": "https://a.com", "account": "" })), Ok(("a.com".into(), None)));
+        assert_eq!(req(json!({ "host": "a.com", "origin": "http://a.com" })), Err("not_https"));
+        assert_eq!(req(json!({ "host": "a.com", "origin": "https://b.com" })), Err("bad_request"));
+        assert_eq!(req(json!({ "host": "A.com", "origin": "https://a.com" })), Err("bad_host"));
+        for bad in [json!("../x.nqv"), json!("/abs.nqv"), json!("C:x"), json!(5), json!("a\u{1}b")] {
+            assert_eq!(req(json!({ "host": "a.com", "origin": "https://a.com", "account": bad })), Err("bad_request"));
+        }
+    }
+
+    #[test]
+    fn identities_reply_lists_identity_titles_only() {
+        let item = |rel: &str, ext: &str, dir: bool, trashed: bool| crate::vault_db::ListItem {
+            rel: rel.into(), ext: ext.into(), updated: 0, dir, tags: vec![], starred: false,
+            trashed_at: if trashed { Some(1) } else { None }, attachments: 0, history: 0,
+        };
+        let items = vec![
+            item("Identities/Office.nqv", "identity", false, false),
+            item("home.NQV", "identity", false, false),
+            item("Logins/bank.nqv", "login", false, false),
+            item("Cards/visa.nqv", "card", false, false),
+            item("Identities", "identity", true, false),
+            item("Old.nqv", "identity", false, true),
+            item("x/..evil.nqv", "identity", false, false),
+            item("Bad\u{7}Name.nqv", "identity", false, false),
+        ];
+        let r = identities_reply(&items);
+        assert_eq!(r["ok"], json!(true));
+        // Logins, cards, folders, trashed entries and unsafe paths are left out; sorted by title.
+        assert_eq!(
+            r["identities"],
+            json!([
+                { "account": "home.NQV", "title": "home" },
+                { "account": "Identities/Office.nqv", "title": "Office" },
+            ])
+        );
+        let many: Vec<_> = (0..30).map(|i| item(&format!("id{i:02}.nqv"), "identity", false, false)).collect();
+        let r = identities_reply(&many);
+        assert_eq!(r["identities"].as_array().unwrap().len(), MAX_IDENTITIES);
+        assert_eq!(r["identities"][0], json!({ "account": "id00.nqv", "title": "id00" }));
+        assert_eq!(identities_reply(&[]), json!({ "ok": true, "identities": [] }));
+    }
+
+    #[test]
     fn fill_card_accepts_secure_origins_only() {
         let req = |host: &str, origin: &str| json!({ "op": "fill_card", "host": host, "origin": origin });
         assert_eq!(validate_fill_card(&req("shop.example.com", "https://shop.example.com")), Ok("shop.example.com".into()));
@@ -1148,9 +1537,68 @@ mod tests {
     }
 
     #[test]
+    fn protocol_versions() {
+        // Missing / null = an extension from before protocol 2.
+        assert_eq!(request_protocol(&json!({ "op": "fill" })), Ok(1));
+        assert_eq!(request_protocol(&json!({ "op": "fill", "protocol": null })), Ok(1));
+        assert_eq!(request_protocol(&json!({ "op": "fill", "protocol": 2 })), Ok(2));
+        for bad in [json!(0), json!(-1), json!(1.5), json!("2"), json!([2]), json!({})] {
+            assert_eq!(request_protocol(&json!({ "op": "fill", "protocol": bad })), Err("bad_request"), "{bad}");
+        }
+        // The current extension and every older one down to the minimum are served; protocol 0 never is.
+        assert!((1..=PROTOCOL).contains(&MIN_EXTENSION_PROTOCOL));
+        assert!(extension_supported(PROTOCOL) && extension_supported(PROTOCOL + 1));
+        assert!(extension_supported(MIN_EXTENSION_PROTOCOL));
+        assert!(!extension_supported(MIN_EXTENSION_PROTOCOL - 1));
+        // Extensions that predate the field still work while MIN_EXTENSION_PROTOCOL is 1.
+        if MIN_EXTENSION_PROTOCOL == 1 {
+            assert_eq!(protocol_gate(&json!({ "op": "fill", "host": "example.com" }), "0.9.0"), None);
+        }
+        assert_eq!(protocol_gate(&json!({ "op": "fill", "protocol": PROTOCOL, "ext": "0.5.0" }), "0.9.0"), None);
+        assert_eq!(protocol_gate(&json!({ "op": "save", "protocol": "x" }), "0.9.0"), Some(json!({ "error": "bad_request" })));
+    }
+
+    #[test]
+    fn outdated_extension_reply() {
+        // Exercised with the real minimum when it is above 1; the reply shape is checked either way.
+        let below = MIN_EXTENSION_PROTOCOL - 1;
+        if below > 0 {
+            let r = protocol_gate(&json!({ "op": "fill", "protocol": below }), "9.9.9").unwrap();
+            assert_eq!(r, json!({ "error": "extension_outdated", "appVersion": "9.9.9", "minProtocol": MIN_EXTENSION_PROTOCOL }));
+        }
+        assert_eq!(outcome_of(&json!({ "error": "extension_outdated" })), "extension_outdated");
+    }
+
+    #[test]
+    fn ping_reports_version_lock_state_and_protocol() {
+        let r = ping_reply("0.9.0", true);
+        assert_eq!(
+            r,
+            json!({ "ok": true, "appVersion": "0.9.0", "locked": true, "protocol": PROTOCOL, "minProtocol": MIN_EXTENSION_PROTOCOL })
+        );
+        assert_eq!(ping_reply("0.9.0", false)["locked"], false);
+        assert_eq!(outcome_of(&r), "ok");
+    }
+
+    #[test]
+    fn protocol_matches_the_extension() {
+        let shared = include_str!("../../browser-extension/shared.js");
+        let num = |name: &str| -> u64 {
+            let key = format!("const {name} = ");
+            let at = shared.find(&key).expect(name) + key.len();
+            shared[at..].chars().take_while(|c| c.is_ascii_digit()).collect::<String>().parse().expect(name)
+        };
+        assert_eq!(num("PROTOCOL"), PROTOCOL, "bump both sides together");
+        assert!(PROTOCOL >= num("MIN_APP_PROTOCOL"), "this app is too old for the bundled extension");
+        assert!(num("PROTOCOL") >= MIN_EXTENSION_PROTOCOL, "the bundled extension is too old for this app");
+    }
+
+    #[test]
     fn may_launch_only_for_user_actions() {
         assert!(may_launch("fill") && may_launch("fill_card") && may_launch("save") && may_launch("launch"));
         assert!(!may_launch("ping") && !may_launch("hello") && !may_launch("theme") && !may_launch(""));
+        // A filled identity is a user action; listing titles for the menu never starts Notiq.
+        assert!(may_launch("fill_identity") && !may_launch("identities"));
     }
 
     fn sample_theme() -> Value {
@@ -1282,5 +1730,98 @@ mod tests {
         bad("title", json!("t".repeat(81)));
         bad("password", json!(5));
         assert!(validate_save(&json!({"op":"save"})).is_err());
+    }
+}
+
+#[cfg(test)]
+mod popup_tests {
+    use super::*;
+
+    #[test]
+    fn list_needs_a_valid_host() {
+        assert_eq!(validate_list(&json!({ "op": "list", "host": "example.com" })), Ok("example.com".into()));
+        assert_eq!(validate_list(&json!({ "op": "list" })), Err("bad_request"));
+        assert_eq!(validate_list(&json!({ "op": "list", "host": "" })), Err("bad_host"));
+        assert_eq!(validate_list(&json!({ "op": "list", "host": "Example.com" })), Err("bad_host"));
+        assert_eq!(validate_list(&json!({ "op": "list", "host": "a.com/x" })), Err("bad_host"));
+    }
+
+    #[test]
+    fn copy_needs_host_account_and_a_known_field() {
+        let ok = json!({ "op": "copy", "host": "example.com", "account": "Logins/Work.nqv", "what": "password" });
+        assert_eq!(validate_copy(&ok), Ok(("example.com".into(), "Logins/Work.nqv".into(), "password")));
+        for what in ["username", "password", "code"] {
+            let mut v = ok.clone();
+            v["what"] = json!(what);
+            assert_eq!(validate_copy(&v).map(|r| r.2), Ok(what));
+        }
+        let bad = |k: &str, val: Value| {
+            let mut v = ok.clone();
+            v[k] = val;
+            assert!(validate_copy(&v).is_err(), "{k}");
+        };
+        bad("what", json!("notes"));
+        bad("what", json!(""));
+        bad("what", Value::Null);
+        bad("account", json!(""));
+        bad("account", Value::Null);
+        bad("account", json!("../outside.nqv"));
+        bad("account", json!("C:/x.nqv"));
+        bad("host", json!("EVIL"));
+    }
+
+    #[test]
+    fn open_needs_host_and_account() {
+        assert_eq!(
+            validate_open(&json!({ "host": "example.com", "account": "a.nqv" })),
+            Ok(("example.com".into(), "a.nqv".into()))
+        );
+        assert!(validate_open(&json!({ "host": "example.com" })).is_err());
+        assert!(validate_open(&json!({ "account": "a.nqv" })).is_err());
+    }
+
+    #[test]
+    fn list_reply_keeps_only_names() {
+        let r = sanitize_list_reply(&json!({ "ok": true, "accounts": [
+            { "account": "Logins/Work.nqv", "title": "Work\u{7}", "username": "alice", "totp": true, "password": "SECRET" },
+            { "account": "../escape.nqv", "title": "x", "username": "y" },
+            { "account": "Logins/Home.nqv", "title": 5, "username": "bob", "totp": "yes" },
+        ] }));
+        assert_eq!(r, json!({ "ok": true, "accounts": [
+            { "account": "Logins/Work.nqv", "title": "Work", "username": "alice", "totp": true },
+            { "account": "Logins/Home.nqv", "title": "", "username": "bob", "totp": false },
+        ] }));
+        assert!(!r.to_string().contains("SECRET"));
+        let many: Vec<Value> = (0..80).map(|i| json!({ "account": format!("{i}.nqv"), "title": "t", "username": "u" })).collect();
+        assert_eq!(sanitize_list_reply(&json!({ "ok": true, "accounts": many }))["accounts"].as_array().unwrap().len(), MAX_LIST);
+        let long = sanitize_list_reply(&json!({ "ok": true, "accounts": [{ "account": "a.nqv", "title": "t".repeat(300), "username": "u" }] }));
+        assert_eq!(long["accounts"][0]["title"].as_str().unwrap().chars().count(), 200);
+    }
+
+    #[test]
+    fn list_reply_errors_are_short_words() {
+        assert_eq!(sanitize_list_reply(&json!({ "error": "locked" })), json!({ "error": "locked" }));
+        assert_eq!(sanitize_list_reply(&json!({ "error": "a b <c>" })), json!({ "error": "abc" }));
+        assert_eq!(sanitize_list_reply(&json!({ "error": 5 })), json!({ "error": "failed" }));
+        assert_eq!(sanitize_list_reply(&json!({ "accounts": [] })), json!({ "error": "failed" }));
+        assert_eq!(sanitize_list_reply(&json!({ "ok": true })), json!({ "error": "failed" }));
+        assert_eq!(sanitize_list_reply(&json!({ "ok": true, "accounts": [] })), json!({ "ok": true, "accounts": [] }));
+    }
+
+    #[test]
+    fn copy_reply_never_carries_the_value() {
+        let r = sanitize_copy_reply(&json!({ "ok": true, "clearAfter": 30, "password": "SECRET", "copied": "x" }), "password");
+        assert_eq!(r, json!({ "ok": true, "copied": "password", "clearAfter": 30 }));
+        assert_eq!(sanitize_copy_reply(&json!({ "ok": true }), "code"), json!({ "ok": true, "copied": "code", "clearAfter": 0 }));
+        assert_eq!(sanitize_copy_reply(&json!({ "ok": true, "clearAfter": 99999 }), "code")["clearAfter"], json!(0));
+        assert_eq!(sanitize_copy_reply(&json!({ "error": "denied" }), "password"), json!({ "error": "denied" }));
+        assert_eq!(sanitize_copy_reply(&json!({ "ok": false }), "password"), json!({ "error": "failed" }));
+    }
+
+    #[test]
+    fn popup_ops_never_start_the_app() {
+        for op in ["list", "copy", "open"] {
+            assert!(!may_launch(op), "{op}");
+        }
     }
 }

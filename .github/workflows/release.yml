@@ -53,6 +53,11 @@ jobs:
           # The updater signing key has no password, so pass an empty string.
           # (It is not a secret, and GitHub won't store an empty-valued secret.)
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
+          # Google Drive sync credentials, baked into the shipped app at build time
+          # (read by option_env! in src-tauri/src/sync/gdrive.rs). Builds without them
+          # just report "Google sign-in isn't configured".
+          NOTIQ_GOOGLE_CLIENT_ID: ${{ vars.NOTIQ_GOOGLE_CLIENT_ID }}
+          NOTIQ_GOOGLE_CLIENT_SECRET: ${{ secrets.NOTIQ_GOOGLE_CLIENT_SECRET }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "Notiq ${{ github.ref_name }}"

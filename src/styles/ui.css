@@ -56,48 +56,87 @@
 /* ══════════════════════════════════════════════════════════════════════════════
    CUSTOM TOOLTIP
 ══════════════════════════════════════════════════════════════════════════════ */
+/* VS Code-style hover: compact, square-ish, 1px border, soft shadow, no arrow.
+   Theme tokens only, so every colour theme (light and dark) is covered. */
+:root {
+  --tip-bg: var(--color-bg-secondary);
+  --tip-border: color-mix(in srgb, var(--color-border) 80%, var(--color-text) 20%);
+  --tip-shadow: 0 2px 8px rgba(0, 0, 0, 0.36);
+}
+[data-theme="light"] {
+  --tip-bg: var(--color-bg);
+  --tip-shadow: 0 2px 8px rgba(15, 23, 42, 0.16);
+}
 .app-tooltip {
   z-index: 99999;
+  box-sizing: border-box;
+  width: max-content;
+  max-width: min(360px, calc(100vw - 16px));
+  padding: 4px 8px;
+  border-radius: 4px;
+  background: var(--tip-bg);
+  border: 1px solid var(--tip-border);
+  box-shadow: var(--tip-shadow);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.45;
+  color: var(--color-text);
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-align: left;
+  pointer-events: none;
+  user-select: none;
+  animation: tooltip-in 100ms ease-out;
+}
+.app-tooltip--bottom { --tip-dx: 0; --tip-dy: -2px; }
+.app-tooltip--top    { --tip-dx: 0; --tip-dy: 2px; }
+.app-tooltip--right  { --tip-dx: -2px; --tip-dy: 0; }
+.app-tooltip--left   { --tip-dx: 2px; --tip-dy: 0; }
+@keyframes tooltip-in {
+  from { opacity: 0; transform: translate(var(--tip-dx, 0), var(--tip-dy, 0)); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes tooltip-fade { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .app-tooltip { animation-name: tooltip-fade; }
+}
+.app-tooltip-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.app-tooltip-label { color: var(--color-text); min-width: 0; }
+.app-tooltip-desc {
+  margin-top: 2px;
+  color: var(--color-text-muted);
+}
+/* Keybinding chips, after VS Code's .monaco-keybinding-key */
+.app-tooltip-keys {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 5px 9px;
-  border-radius: 6px;
-  background: var(--color-bg-tertiary);
-  border: 1px solid var(--color-border);
-  box-shadow: 0 4px 14px rgba(0,0,0,0.35);
-  font-size: 11.5px;
-  font-weight: 500;
-  color: var(--color-text);
+  flex-shrink: 0;
+  margin-left: auto;
   white-space: nowrap;
-  pointer-events: none;
-  animation: tooltip-in-below 0.12s ease-out;
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
+  color: var(--color-text-muted);
 }
-.app-tooltip--above {
-  animation: tooltip-in-above 0.12s ease-out;
-}
-@keyframes tooltip-in-below {
-  from { opacity: 0; transform: translateX(-50%) translateY(4px); }
-  to   { opacity: 1; transform: translateX(-50%) translateY(0); }
-}
-@keyframes tooltip-in-above {
-  from { opacity: 0; transform: translate(-50%, calc(-100% - 4px)); }
-  to   { opacity: 1; transform: translate(-50%, -100%); }
-}
-.app-tooltip-label { color: var(--color-text); }
+.app-tooltip-chord + .app-tooltip-chord { margin-left: 6px; }
+.app-tooltip-kbd-sep { padding: 0 2px; }
 .app-tooltip-kbd {
   display: inline-block;
-  padding: 1px 5px;
-  border-radius: 4px;
-  background: color-mix(in srgb, var(--color-text-muted) 12%, var(--color-bg));
-  border: 1px solid var(--color-border);
-  font-family: monospace;
-  font-size: 10px;
-  font-weight: 600;
-  color: var(--color-text-muted);
-  letter-spacing: 0.01em;
+  min-width: 8px;
+  padding: 2px 4px;
+  border-radius: 3px;
+  border: 1px solid color-mix(in srgb, var(--color-text) 18%, transparent);
+  border-bottom-color: color-mix(in srgb, var(--color-text) 28%, transparent);
+  box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--color-text) 12%, transparent);
+  background: color-mix(in srgb, var(--color-text) 8%, transparent);
+  color: var(--color-text);
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 11px;
+  text-align: center;
+  vertical-align: middle;
 }
 
 /* ══════════════════════════════════════════════════════════════════════════════
@@ -265,3 +304,25 @@
   color: var(--color-text);
   border-radius: 2px;
 }
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   LOADING STATES (components/ui/Loading.tsx): spinner, self-spinning icons,
+   inline "spinner + label". Reduced motion: a slow pulse instead of rotation.
+══════════════════════════════════════════════════════════════════════════════ */
+@keyframes nq-spin { to { transform: rotate(360deg); } }
+@keyframes nq-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+.nq-spin { animation: nq-spin 0.9s linear infinite; transform-origin: center; }
+.nq-pulse { animation: nq-pulse 1.8s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .nq-spin { animation: nq-pulse 1.8s ease-in-out infinite; }
+}
+.nq-inline-loading {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  color: var(--color-text-muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+.nq-inline-loading__row { display: inline-flex; align-items: center; gap: 6px; }
+.nq-inline-loading__hint { padding-left: 19px; font-size: 11px; opacity: 0.85; }
