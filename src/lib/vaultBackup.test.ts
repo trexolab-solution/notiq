@@ -1,8 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn(), save: vi.fn() }));
+vi.mock("@tauri-apps/plugin-fs", () => ({ stat: vi.fn() }));
 import {
-  defaultBackupName, formatBytes, mergeSummary, restoreStep, REPLACE_CONFIRM_WORD, type RestoreForm,
+  checkDroppedBackup, defaultBackupName, formatBytes, initialRestoreWizard, mergeSummary, restoreStep, restoreWizardReducer,
+  REPLACE_CONFIRM_WORD, type RestoreForm, type RestoreWizardAction,
 } from "./vaultBackup";
 
 describe("vault backup helpers", () => {
@@ -51,5 +53,89 @@ describe("mergeSummary", () => {
     expect(mergeSummary({ ...r, added: 2, updated: 1, kept_in_history: 1 }))
       .toBe("Added 2 notes, updated 1, 0 unchanged, 1 older version kept in history.");
     expect(mergeSummary({ ...r, kept_in_history: 4 })).toContain("4 older versions kept in history");
+  });
+});
+
+describe("restoreWizardReducer", () => {
+  const info = { ok: true, vault_id_hex: "ab", db_bytes: 2048, created: 1_700_000_000 };
+  const run = (...actions: RestoreWizardAction[]) => actions.reduce(restoreWizardReducer, initialRestoreWizard);
+  const checked = (path = "C:/b.nqbackup") => run({ type: "choose", path }, { type: "checked", path, info });
+
+  it("can't leave the file step until the chosen file checks out", () => {
+    expect(run({ type: "next", exists: true, unlocked: true }).step).toBe("file");
+    const checking = run({ type: "choose", path: "C:/b.nqbackup" });
+    expect(checking.checking).toBe(true);
+    expect(restoreWizardReducer(checking, { type: "next", exists: true, unlocked: true }).step).toBe("file");
+    const failed = restoreWizardReducer(checking, { type: "checkFailed", path: "C:/b.nqbackup", error: "Not a backup" });
+    expect(failed.fileError).toBe("Not a backup");
+    expect(restoreWizardReducer(failed, { type: "next", exists: true, unlocked: true }).step).toBe("file");
+    expect(restoreWizardReducer(checked(), { type: "next", exists: true, unlocked: true }).step).toBe("method");
+  });
+
+  it("ignores the result of a check for a file that is no longer chosen", () => {
+    const w = run({ type: "choose", path: "C:/old.nqbackup" }, { type: "choose", path: "C:/new.nqbackup" },
+      { type: "checked", path: "C:/old.nqbackup", info });
+    expect(w.info).toBeNull();
+    expect(w.checking).toBe(true);
+  });
+
+  it("skips the method step when no vault exists here, both ways", () => {
+    const w = restoreWizardReducer(checked(), { type: "next", exists: false, unlocked: false });
+    expect(w.step).toBe("confirm");
+    expect(restoreWizardReducer(w, { type: "back", exists: false }).step).toBe("file");
+  });
+
+  it("needs the vault unlocked to go on with Merge, not with Replace", () => {
+    const m = restoreWizardReducer(checked(), { type: "next", exists: true, unlocked: false });
+    expect(restoreWizardReducer(m, { type: "next", exists: true, unlocked: false }).step).toBe("method");
+    expect(restoreWizardReducer(m, { type: "next", exists: true, unlocked: true }).step).toBe("confirm");
+    const r = restoreWizardReducer(m, { type: "mode", mode: "replace" });
+    expect(restoreWizardReducer(r, { type: "next", exists: true, unlocked: false }).step).toBe("confirm");
+  });
+
+  it("keeps the entered state going back, but clears the password at the file step", () => {
+    let w = checked();
+    w = restoreWizardReducer(w, { type: "next", exists: true, unlocked: true });
+    w = restoreWizardReducer(w, { type: "next", exists: true, unlocked: true });
+    w = restoreWizardReducer(w, { type: "password", value: "secret" });
+    w = restoreWizardReducer(w, { type: "back", exists: true });
+    expect(w.step).toBe("method");
+    expect(w.password).toBe("secret");
+    expect(w.mode).toBe("merge");
+    w = restoreWizardReducer(w, { type: "back", exists: true });
+    expect(w.step).toBe("file");
+    expect(w.password).toBe("");
+    expect(w.path).toBe("C:/b.nqbackup");
+    expect(w.info).toBe(info);
+  });
+
+  it("stays on confirm after a failure and goes to done with the result", () => {
+    let w = checked();
+    w = restoreWizardReducer(w, { type: "next", exists: true, unlocked: true });
+    w = restoreWizardReducer(w, { type: "next", exists: true, unlocked: true });
+    w = restoreWizardReducer(w, { type: "failed", error: "Wrong" });
+    expect(w.step).toBe("confirm");
+    expect(w.error).toBe("Wrong");
+    expect(restoreWizardReducer(w, { type: "password", value: "x" }).error).toBeNull();
+    const merged = { added: 1, updated: 0, unchanged: 0, kept_in_history: 0, previous_saved_to: null };
+    const done = restoreWizardReducer(w, { type: "merged", result: merged });
+    expect(done.step).toBe("done");
+    expect(done.hadVault).toBe(true);
+    expect(restoreWizardReducer(done, { type: "back", exists: true })).toBe(done);
+  });
+});
+
+describe("checkDroppedBackup", () => {
+  const file = async () => false;
+  it("accepts exactly one .nqbackup file", async () => {
+    expect(await checkDroppedBackup(["C:/x/notiq.NQBACKUP"], file)).toEqual({ path: "C:/x/notiq.NQBACKUP" });
+  });
+  it("refuses several items, folders and other file types", async () => {
+    expect(await checkDroppedBackup(["C:/a.nqbackup", "C:/b.nqbackup"], file)).toEqual({ error: expect.stringMatching(/one backup file/) });
+    expect(await checkDroppedBackup(["C:/backups"], async () => true)).toEqual({ error: expect.stringMatching(/is a folder/) });
+    expect(await checkDroppedBackup(["C:/notes.md"], file)).toEqual({ error: expect.stringMatching(/isn't a Notiq backup/) });
+  });
+  it("leaves a failing stat to the backup check", async () => {
+    expect(await checkDroppedBackup(["C:/a.nqbackup"], async () => { throw new Error("denied"); })).toEqual({ path: "C:/a.nqbackup" });
   });
 });

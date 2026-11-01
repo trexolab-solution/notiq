@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useId, useLayoutEffect, useRef } from "react";
 import { Plus } from "lucide-react";
 import { Button } from "../ui/Button";
 import { Tooltip } from "../ui/Tooltip";
@@ -66,20 +66,8 @@ export function AddRowButton({ children, onAdd, atLimit, limitText, tooltip }: {
   );
 }
 
-/** Polite live region. `announce` replaces its text; repeating the same message still gets read. */
-export function useAnnouncer() {
-  const [msg, setMsg] = useState("");
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
-  const announce = useCallback((text: string) => {
-    setMsg("");
-    if (timer.current) clearTimeout(timer.current);
-    // A tick later, so an identical message is still a DOM change screen readers pick up.
-    timer.current = setTimeout(() => setMsg(text), 30);
-  }, []);
-  const region = <div role="status" aria-live="polite" aria-atomic="true" className="sr-only">{msg}</div>;
-  return { announce, region };
-}
+/** Moved to hooks/useAnnouncer so non-vault UI (the Stepper) can use it; re-exported for the editors. */
+export { useAnnouncer } from "../../hooks/useAnnouncer";
 
 type FocusTarget = { index: number; selector?: string } | "add";
 
@@ -133,12 +121,7 @@ export function useUndoToast() {
   }, []);
 }
 
-/** Keeps the latest value in a ref, for Undo closures that run after later edits. */
-export function useLatest<T>(v: T) {
-  const r = useRef(v);
-  r.current = v;
-  return r;
-}
+export { useLatest } from "../../hooks/useLatest";
 
 /** Inline error for a field: spread `inputProps` onto the input, add `errorClass`, render `message` below it. */
 export function useFieldError(error: string | null | undefined) {
