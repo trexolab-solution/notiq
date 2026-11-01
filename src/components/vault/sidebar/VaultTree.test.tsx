@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { buildTree, flattenTree, starredNodes } from "../../../lib/vaultTree";
 import type { VaultItem } from "../../../lib/vault";
+import { flattenGrouped } from "../../../lib/vaultSites";
 import { VaultTree } from "./VaultTree";
 import { TagBar } from "./TagBar";
 
@@ -61,6 +62,36 @@ describe("VaultTree (static render smoke test)", () => {
         onRename={noop} onTrash={noop} onMenu={noop} onMove={noop} />,
     );
     expect(html).toContain("Your vault is empty");
+  });
+});
+
+describe("VaultTree site groups", () => {
+  const logins = [item("gh1.nqv", { ext: "login" }), item("gh2.nqv", { ext: "login" }), item("one.nqv", { ext: "login" })];
+  const siteOf = (n: { rel: string }) => (n.rel.startsWith("gh") ? "github.com" : "x.com");
+  const render = (open: boolean) => renderToStaticMarkup(
+    <VaultTree
+      rows={flattenGrouped(buildTree(logins), () => open, siteOf)}
+      subtitles={new Map([["gh1.nqv", "alice"]])}
+      starred={[]} starredOpen onStarredOpen={noop} isExpanded={() => open}
+      selectedKey={null} openRels={new Set()} editingKey={null} renderEditor={() => null} creating={null}
+      empty={<p>empty</p>} onSelectKey={noop} onActivate={noop} onToggle={noop}
+      onRename={noop} onTrash={noop} onMenu={noop} onMove={noop} />,
+  );
+
+  it("renders a collapsed group row with its count, hiding the members", () => {
+    const html = render(false);
+    expect((html.match(/role="treeitem"/g) ?? []).length).toBe(2); // group + the lone login
+    expect(html).toContain("github.com");
+    expect(html).toContain('class="vt-count">2<');
+    expect(html).toContain('aria-expanded="false"');
+    expect(html).not.toContain("gh1");
+  });
+
+  it("lists the accounts with their username subtitle when expanded", () => {
+    const html = render(true);
+    expect((html.match(/role="treeitem"/g) ?? []).length).toBe(4);
+    expect(html).toContain('class="vt-row-sub">alice<');
+    expect(html).toContain('aria-level="2"');
   });
 });
 
