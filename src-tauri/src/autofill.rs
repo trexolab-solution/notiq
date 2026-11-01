@@ -858,6 +858,7 @@ fn ensure_prompt(app: &AppHandle) -> Result<(), String> {
             .center()
             .build()
             .map_err(|e| e.to_string())?;
+        crate::capture_shield::refresh(app);
     }
     if wait_for(&PROMPT_READY, PROMPT_READY_WAIT) { Ok(()) } else { Err("the prompt window did not load".into()) }
 }

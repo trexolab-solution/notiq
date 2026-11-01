@@ -401,7 +401,10 @@ fn show_window(app: &AppHandle) {
             .center()
             .build();
             match built {
-                Ok(w) => w,
+                Ok(w) => {
+                    crate::capture_shield::refresh(app);
+                    w
+                }
                 Err(e) => {
                     eprintln!("quick_search: cannot create window: {e}");
                     return;

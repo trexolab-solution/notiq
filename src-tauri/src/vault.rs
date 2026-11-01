@@ -214,6 +214,7 @@ pub fn state_payload(unlocked: bool, source: &str) -> serde_json::Value {
 
 pub(crate) fn notify_state(app: &AppHandle, unlocked: bool, source: &str) {
     let _ = app.emit(STATE_EVENT, state_payload(unlocked, source));
+    crate::capture_shield::refresh(app);
 }
 
 #[derive(Serialize)]
