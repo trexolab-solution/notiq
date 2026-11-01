@@ -2,7 +2,8 @@ import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { Dialog, DialogBody, DialogButton, DialogFooter } from "../ui/Dialog";
-import { FillChoice } from "./autofillBodies";
+import { fillAllowLabel, FillChoice } from "./autofillBodies";
+import { loginChoiceItems, showsSearch, visibleChoices } from "./autofillChoices";
 import { useVaultStore } from "../../store/vaultStore";
 import { toast } from "../../lib/toast";
 import {
@@ -32,6 +33,7 @@ export function AutofillPrompt() {
   const [pick, setPick] = useState(0);
   const [trust, setTrust] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [query, setQuery] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -63,7 +65,7 @@ export function AutofillPrompt() {
         if (!all.length) { await reply(r.id, { error: "no_match" }); warnLookalike(r.host, lookalike); return; }
         const found = matchesForIntent(all, validIntent(r.intent));
         if (!found.length) { await reply(r.id, { error: "no_code" }); return; }
-        setMatches(found); setPick(Math.max(0, indexOfAccount(found, r.account))); setTrust(false); setReq(r);
+        setMatches(found); setPick(Math.max(0, indexOfAccount(found, r.account))); setTrust(false); setQuery(""); setReq(r);
       } catch {
         await reply(r.id, { error: "failed" });
       }
@@ -93,14 +95,15 @@ export function AutofillPrompt() {
 
   if (!req) return null;
 
-  const done = () => { setReq(null); setMatches([]); setTrust(false); };
+  const done = () => { setReq(null); setMatches([]); setTrust(false); setQuery(""); };
   const deny = async () => { await reply(req.id, { error: "denied" }); done(); };
-  const allow = async () => {
-    if (busy) return;
+  /** `index`: the row to fill (Enter / double-click on a row passes it, since `pick` updates on the next render). */
+  const allow = async (index = pick) => {
+    if (busy || !matches[index]) return;
     setBusy(true);
     try {
       if (trust) trustHost(req.host);
-      await reply(req.id, await fillReply(matches[pick], validIntent(req.intent)));
+      await reply(req.id, await fillReply(matches[index], validIntent(req.intent)));
     } finally { setBusy(false); done(); }
   };
 
@@ -112,11 +115,15 @@ export function AutofillPrompt() {
         message={<>Your browser is on <strong>{req.host}</strong> and asked for {validIntent(req.intent) ? "the 2FA code of " : ""}a saved login.</>}
         detail="Only allow this if you just pressed Fill there."
       >
-        <FillChoice host={req.host} matches={matches} pick={pick} onPick={setPick} trust={trust} onTrust={setTrust} />
+        <FillChoice host={req.host} matches={matches} pick={pick} onPick={setPick} trust={trust} onTrust={setTrust} disabled={busy}
+                    onAllow={(i) => void allow(i)} query={query} onQuery={setQuery} />
       </DialogBody>
       <DialogFooter>
         <DialogButton cancel onClick={() => void deny()}>Deny</DialogButton>
-        <DialogButton variant="primary" loading={busy} loadingText="Filling…" onClick={() => void allow()}>Allow</DialogButton>
+        <DialogButton variant="primary" loading={busy} loadingText="Filling…" onClick={() => void allow()}
+                      disabled={showsSearch(matches.length) && !visibleChoices(loginChoiceItems(matches), query).length}>
+          {fillAllowLabel(matches[pick], { intent: validIntent(req.intent) })}
+        </DialogButton>
       </DialogFooter>
     </Dialog>
   );
