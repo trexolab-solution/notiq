@@ -1376,6 +1376,11 @@ mod tests {
         assert!(!origin_allowed(&a(&["chrome-extension://pppppppppppppppppppppppppppppppp/"]), &ids));
         assert!(!origin_allowed(&a(&["chrome-extension://abcdefghijklmnopabcdefghijklmnop"]), &ids));
         assert!(!origin_allowed(&a(&[]), &ids));
+        // Firefox: <manifest path> <gecko id>.
+        assert!(origin_allowed(&a(&["C:\\Notiq\\com.trexolab.notiq.firefox.json", "autofill@notiq.app"]), &ids));
+        assert!(!origin_allowed(&a(&["C:\\x\\m.json", "evil@notiq.app"]), &ids));
+        assert!(!origin_allowed(&a(&["C:\\x\\m.json", "Autofill@notiq.app"]), &ids));
+        assert!(!origin_allowed(&a(&["moz-extension://autofill@notiq.app/"]), &ids));
     }
 
     #[test]
