@@ -16,6 +16,7 @@ mod vault_merge; // 0.9.0 sync: pure merge engine (P1)
 mod profile;
 mod session_lock;
 mod hello; // 0.7.0 hello
+mod capture_shield; // 0.9.1 hide from screen capture
 // 0.7.0 quick search
 mod quick_search;
 // 0.9.0 vault sync: storage providers (P2) + orchestrator (P3)
@@ -717,6 +718,8 @@ pub fn run() {
         hello::hello_disable,
         hello::hello_unlock,
         // 0.7.0 quick search
+        capture_shield::capture_shield_get,
+        capture_shield::capture_shield_set,
         quick_search::quick_search_get,
         quick_search::quick_search_set,
         quick_search::quick_search_hide,
@@ -807,6 +810,8 @@ pub fn run() {
         hello::hello_disable,
         hello::hello_unlock,
         // 0.7.0 quick search
+        capture_shield::capture_shield_get,
+        capture_shield::capture_shield_set,
         quick_search::quick_search_get,
         quick_search::quick_search_set,
         quick_search::quick_search_hide,
@@ -868,6 +873,9 @@ pub fn run() {
             #[cfg(desktop)]
             session_lock::start(app.handle());
             // end 0.7.0 session lock
+
+            // 0.9.1 capture shield
+            capture_shield::start(app.handle());
 
             // 0.7.0 quick search
             quick_search::start(app.handle());

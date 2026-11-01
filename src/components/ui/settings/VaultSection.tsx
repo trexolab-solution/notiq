@@ -8,6 +8,7 @@ import { PasswordInput } from "../PasswordInput";
 import { PanicShortcutRow, PasswordGeneratorRow, StorageFolderRow } from "./VaultPrefRows";
 import { SessionLockRow } from "./SessionLockRow";
 import { QuickSearchRow } from "./QuickSearchRow";
+import { CaptureShieldRow } from "./CaptureShieldRow";
 import { BackupSection } from "../../vault/BackupSection";
 import { AutofillSection } from "./AutofillSection";
 import { HelloRow } from "./HelloRow";
@@ -126,6 +127,7 @@ export const VaultSection = React.memo(function VaultSection() {
 
         <PanicShortcutRow />
         <SessionLockRow />
+        <CaptureShieldRow />
       </SettingsGroup>
 
       <SettingsGroup title="Storage" description="Where the encrypted vault file lives on this computer.">
@@ -238,6 +240,9 @@ export const SETTINGS_INDEX: SettingMeta[] = [
   { id: "vault.locking.clipboard-clear", section: "vault", group: "Locking", label: "Clear copied secrets after",
     description: "Empties the clipboard this long after you copy a password, code or key (in Notiq or from the browser extension), unless you have copied something else since.",
     keywords: ["clipboard", "copy", "clear", "wipe", "password", "timeout", "extension"] },
+  { id: "vault.locking.capture-shield", section: "vault", group: "Locking", label: "Hide from screenshots and screen sharing",
+    description: "Keeps Notiq out of screenshots, screen recordings and screen sharing. While it is on, your own screen share or recording shows a black window.",
+    keywords: ["screenshot", "screen share", "screen recording", "capture", "privacy", "black window", "hide window", "teams", "zoom", "obs"] },
   { id: "vault.storage.folder", section: "vault", group: "Storage", label: "Vault storage folder",
     description: "Where your encrypted vault file (vault.nqdb) is kept. Warns if the folder is synced by a cloud service.",
     keywords: ["folder", "directory", "location", "path", "vault.nqdb", "cloud", "onedrive", "dropbox", "sync", "move"] },

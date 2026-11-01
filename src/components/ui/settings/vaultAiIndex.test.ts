@@ -21,6 +21,7 @@ const VAULT_FILES = [
   "components/ui/settings/VaultSection.tsx",
   "components/ui/settings/VaultPrefRows.tsx",
   "components/ui/settings/SessionLockRow.tsx",
+  "components/ui/settings/CaptureShieldRow.tsx",
   "components/ui/settings/QuickSearchRow.tsx",
   "components/ui/settings/HelloRow.tsx",
   "components/ui/settings/AutofillSection.tsx",
