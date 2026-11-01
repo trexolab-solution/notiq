@@ -1,9 +1,9 @@
-import { useState } from "react";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { ChevronRight, Eye, EyeOff, History, type LucideIcon } from "lucide-react";
 import { Button } from "../ui/Button";
 import { Tooltip } from "../ui/Tooltip";
-import { HistoryDialog } from "./HistoryDialog";
 import { EntrySaveButton } from "./EntrySaveButton";
+import { HistoryPanel } from "./HistoryPanel";
 import type { Tab } from "../../types";
 import { clipboardClearLabel, getClipboardClearSeconds } from "../../lib/vaultPrefs";
 
@@ -11,6 +11,41 @@ import { clipboardClearLabel, getClipboardClearSeconds } from "../../lib/vaultPr
 
 export const fieldLabel = "block text-xs mb-1 text-[var(--color-text-muted)]";
 export const textArea = "w-full rounded-md px-2.5 py-2 text-sm bg-[var(--color-bg-tertiary)] border border-[var(--color-border)] outline-none focus:border-[var(--color-primary)]";
+
+/** Lets the header's History button toggle the panel that `EntryLayout` renders beside the form. */
+const HistoryToggle = createContext<{ open: boolean; toggle: () => void } | null>(null);
+
+/**
+ * Root of a structured entry editor: the form in its own scroll area on the left and, while open, the
+ * History panel on the right (overlaying the form when the tab is too narrow for both).
+ */
+export function EntryLayout({ tab, children }: { tab: Tab; children: React.ReactNode }) {
+  // Keyed by tab: an editor instance can be reused when switching between entries of the same kind.
+  const [openFor, setOpenFor] = useState<string | null>(null);
+  const open = openFor === tab.id && !!tab.filePath;
+  const rootRef = useRef<HTMLDivElement>(null);
+  const [width, setWidth] = useState(0);
+
+  useEffect(() => {
+    const el = rootRef.current;
+    if (!open || !el) return;
+    setWidth(el.clientWidth);
+    const obs = new ResizeObserver(() => setWidth(el.clientWidth));
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, [open]);
+
+  const toggle = () => setOpenFor((id) => (id === tab.id ? null : tab.id));
+
+  return (
+    <HistoryToggle.Provider value={{ open, toggle }}>
+      <div ref={rootRef} data-tour="editor" className="relative flex-1 min-h-0 flex bg-[var(--color-editor-bg)]">
+        <div className="flex-1 min-w-0 overflow-y-auto">{children}</div>
+        {open && <HistoryPanel key={tab.filePath} tab={tab} containerWidth={width} onClose={() => setOpenFor(null)} />}
+      </div>
+    </HistoryToggle.Provider>
+  );
+}
 
 /** Editor title row: kind icon + name, and the History button on the right. */
 export function EntryHeader({ icon: Icon, title, tab, badge }: {
@@ -20,7 +55,7 @@ export function EntryHeader({ icon: Icon, title, tab, badge }: {
   /** Small label after the title (e.g. the detected card network). */
   badge?: string | null;
 }) {
-  const [historyOpen, setHistoryOpen] = useState(false);
+  const history = useContext(HistoryToggle);
   return (
     <div className="flex items-center gap-2">
       <Icon size={18} style={{ color: "var(--color-primary)" }} />
@@ -33,11 +68,12 @@ export function EntryHeader({ icon: Icon, title, tab, badge }: {
       <div className="flex-1" />
       <EntrySaveButton tab={tab} />
       <Tooltip content="Earlier saved versions of this entry">
-        <Button size="sm" icon={<History size={13} />} disabled={!tab.filePath} onClick={() => setHistoryOpen(true)}>
+        <Button size="sm" icon={<History size={13} />} disabled={!tab.filePath || !history}
+                aria-pressed={history?.open ?? false} onClick={history?.toggle}
+                className="aria-pressed:bg-[var(--color-bg-tertiary)] aria-pressed:text-[var(--color-text)]">
           History
         </Button>
       </Tooltip>
-      {historyOpen && <HistoryDialog tab={tab} onClose={() => setHistoryOpen(false)} />}
     </div>
   );
 }

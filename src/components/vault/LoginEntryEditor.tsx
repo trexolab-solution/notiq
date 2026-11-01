@@ -11,7 +11,7 @@ import { Tooltip } from "../ui/Tooltip";
 import { CustomFieldsEditor } from "./CustomFieldsEditor";
 import { AttachmentsPanel } from "./AttachmentsPanel";
 import { PasskeysList } from "./PasskeysList";
-import { EntryHeader, SaveHint } from "./EntryParts";
+import { EntryHeader, EntryLayout, SaveHint } from "./EntryParts";
 import {
   extraUrlError, hostOf, MAX_LOGIN_URLS, parseLogin, serializeLogin, totpCode, totpRemaining, type LoginEntry,
 } from "../../lib/loginEntry";
@@ -47,7 +47,7 @@ export function LoginEntryEditor({ tab }: { tab: Tab }) {
   const row = "flex items-center gap-2";
 
   return (
-    <div data-tour="editor" className="flex-1 min-h-0 overflow-y-auto bg-[var(--color-editor-bg)]">
+    <EntryLayout tab={tab}>
       <div className="max-w-xl mx-auto px-6 py-8 flex flex-col gap-4 text-[var(--color-text)]">
         <EntryHeader icon={KeyRound} title="Login" tab={tab} />
 
@@ -116,7 +116,7 @@ export function LoginEntryEditor({ tab }: { tab: Tab }) {
         <AttachmentsPanel tab={tab} />
         <SaveHint />
       </div>
-    </div>
+    </EntryLayout>
   );
 }
 
