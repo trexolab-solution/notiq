@@ -39,11 +39,6 @@
   });
   syncToggle();
 
-  /* ── Header state ────────────────────────────────────────── */
-  var head = $(".site-head");
-  var onScroll = function () { head.classList.toggle("is-scrolled", scrollY > 8); };
-  addEventListener("scroll", onScroll, { passive: true }); onScroll();
-
   /* ── OS detection for the primary download ──────────────── */
   (function () {
     var p = "";
@@ -65,21 +60,6 @@
       $("#heroDownloadLabel").textContent = "Get it for your desktop";
     }
   })();
-
-  /* ── Scroll reveal with stagger ─────────────────────────── */
-  if (!reduce && "IntersectionObserver" in window) {
-    var revealIO = new IntersectionObserver(function (entries) {
-      var shown = entries.filter(function (e) { return e.isIntersecting; }).map(function (e) { return e.target; });
-      shown.forEach(function (el, i) {
-        el.style.setProperty("--d", Math.min(i, 6) * 90 + "ms");
-        el.classList.add("in");
-        revealIO.unobserve(el);
-      });
-    }, { threshold: 0.12, rootMargin: "0px 0px -6% 0px" });
-    $$(".reveal").forEach(function (el) { revealIO.observe(el); });
-  } else {
-    $$(".reveal").forEach(function (el) { el.classList.add("in"); });
-  }
 
   /* ── Visibility gating: demos run only on screen and in a visible tab ── */
   var watched = [];
@@ -157,7 +137,7 @@
 
   /* ── Hero: write → preview → lock → sealed, looping ──────── */
   (function () {
-    var win = $("#heroWin"), stage = $("#heroStage"), hero = $(".hero");
+    var win = $("#heroWin");
     var src = $("#heroSrc"), prev = $("#heroPrev"), hex = $("#heroHex");
     var tabIcon = $("#heroTabIcon use"), vaultIcon = $("#heroVaultIcon use");
     var status = $("#heroStatus"), wordsEl = $("#heroWords");
@@ -170,25 +150,6 @@
     hex.textContent = hexLines(4);
 
     if (reduce) return; // static: the written note is already in the markup
-
-    // pointer tilt + cursor glow (fine pointers only)
-    if (matchMedia("(pointer: fine)").matches) {
-      var glow = $(".hero-glow"), raf = 0, px = 0, py = 0;
-      hero.addEventListener("pointermove", function (e) {
-        px = e.clientX; py = e.clientY;
-        if (!raf) raf = requestAnimationFrame(function () {
-          raf = 0;
-          var hr = hero.getBoundingClientRect();
-          glow.style.transform = "translate3d(" + (px - hr.left) + "px," + (py - hr.top) + "px,0)";
-          var r = stage.getBoundingClientRect();
-          var dx = (px - (r.left + r.width / 2)) / r.width, dy = (py - (r.top + r.height / 2)) / r.height;
-          dx = Math.max(-1, Math.min(1, dx)); dy = Math.max(-1, Math.min(1, dy));
-          win.style.transform = "rotateY(" + (dx * 5).toFixed(2) + "deg) rotateX(" + (-dy * 4).toFixed(2) + "deg)";
-        });
-        hero.classList.add("has-pointer");
-      });
-      hero.addEventListener("pointerleave", function () { hero.classList.remove("has-pointer"); win.style.transform = ""; });
-    }
 
     var p = player(win);
     function scrambleText(text, k) { // replace a growing share of glyphs with hex
@@ -585,7 +546,7 @@
       });
     });
 
-    // copy buttons with 20 s clipboard countdown
+    // copy buttons with 30 s clipboard countdown (the app default)
     var note = $("#clipNote"), defaultNote = note.textContent, clipTimer = 0, clipTick = 0, activeRing = null;
     $$("#credDemo .cp").forEach(function (b) {
       var label = b.getAttribute("data-label");
@@ -606,11 +567,11 @@
         b.setAttribute("aria-label", label + " copied");
         var c = $(".ring circle", b);
         c.style.transition = "none"; c.style.strokeDashoffset = "0"; void c.getBoundingClientRect();
-        c.style.transition = "stroke-dashoffset 20s linear"; c.style.strokeDashoffset = "100";
+        c.style.transition = "stroke-dashoffset 30s linear"; c.style.strokeDashoffset = "100";
         activeRing = b;
         setTimeout(function () { b.classList.remove("tip-on"); b.setAttribute("data-tip", "Copy " + label); b.setAttribute("aria-label", "Copy " + label); }, 1500);
         clearInterval(clipTick); clearTimeout(clipTimer);
-        var left = 20, name = label.charAt(0).toUpperCase() + label.slice(1);
+        var left = 30, name = label.charAt(0).toUpperCase() + label.slice(1);
         var feet = $$("#credDemo .cred-foot");
         var setNote = function (t, live) { note.textContent = t; note.classList.toggle("is-live", !!live); };
         setNote(name + " copied. Clipboard clears in " + left + " s.", true);
@@ -624,7 +585,7 @@
           try { if (copied) navigator.clipboard.writeText("").catch(function () {}); } catch (e) { /* ignore */ }
           setNote("Clipboard cleared.", false);
           setTimeout(function () { setNote(defaultNote, false); }, 3000);
-        }, 20000);
+        }, 30000);
         void feet;
       });
     });
@@ -814,6 +775,60 @@
         hexEl.innerHTML = html.trim();
         if (t++ % 12 === 0) { steps.forEach(function (s, n) { s.classList.toggle("on", n <= stepI); }); stepI = (stepI + 1) % (steps.length + 1); }
         await p.sleep(130);
+      }
+    })();
+  })();
+
+  /* ── Sync map: packets travel only while on screen ──────── */
+  (function () {
+    var map = $(".sync-map");
+    if (!map || reduce) return;
+    player(map, function (a) { map.classList.toggle("is-playing", a); });
+  })();
+
+  /* ── Autofill: approve → filled → right-click menu → toolbar popup ── */
+  (function () {
+    var win = $("#afWin"), tabs = $$("#afDemo .af-tabs button"), cap = $("#afCap");
+    var user = $("#afUser"), pass = $("#afPass");
+    var caps = {
+      approve: cap.innerHTML,
+      filled: "Filled from Notiq, including the current 2-step code when the site asks for one. Tick <b>Allow this site for 5 minutes</b> to skip the prompt on that site.",
+      menu: "Right-click any field and choose Notiq: fill a login, a 2FA code or an identity, or generate a password that follows the site’s rules.",
+      popup: "The toolbar popup lists this site’s logins. Copying goes through the Notiq app, which clears the clipboard after your setting."
+    };
+    var run = 0, took = false, p = player(win);
+    function show(scene) {
+      run++;
+      win.setAttribute("data-scene", scene);
+      win.classList.remove("is-filled", "is-press");
+      user.value = ""; pass.value = "";
+      tabs.forEach(function (t) { t.setAttribute("aria-pressed", String(t.getAttribute("data-scene") === scene)); });
+      cap.innerHTML = caps[scene];
+    }
+    async function approve(id) { // press Allow, then fill the form
+      await p.sleep(1800); if (id !== run) return;
+      win.classList.add("is-press");
+      await p.sleep(260); if (id !== run) return;
+      win.classList.remove("is-press"); win.classList.add("is-filled");
+      user.value = "octo-dev@example.com"; pass.value = "Vt7#qe-Lm2!pXr9w";
+      cap.innerHTML = caps.filled;
+    }
+    tabs.forEach(function (t) {
+      t.addEventListener("click", function () {
+        took = true;
+        var scene = t.getAttribute("data-scene");
+        show(scene);
+        if (scene === "approve" && !reduce) approve(run);
+      });
+    });
+    show("approve");
+    if (reduce) return;
+    (async function () {
+      var order = ["approve", "menu", "popup"];
+      for (var n = 0; !took; n = (n + 1) % order.length) {
+        show(order[n]);
+        if (order[n] === "approve") { await approve(run); if (took) return; await p.sleep(2600); }
+        else await p.sleep(4200);
       }
     })();
   })();
