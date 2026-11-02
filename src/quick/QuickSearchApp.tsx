@@ -302,7 +302,7 @@ export default function QuickSearchApp() {
       className="h-screen flex flex-col overflow-hidden bg-[var(--color-bg-secondary)] text-[var(--color-text)] border border-[var(--color-border)]"
       onKeyDown={onKeyDown}
     >
-      <div className="flex items-center gap-2 px-3 py-2.5 border-b border-[var(--color-border)]" data-tauri-drag-region>
+      <div className="flex items-center gap-2 px-3 py-2.5 border-b border-[var(--color-border)] focus-within:border-[color-mix(in_srgb,var(--color-primary)_55%,transparent)] transition-colors motion-reduce:transition-none" data-tauri-drag-region>
         <Search size={16} className="text-[var(--color-text-muted)] shrink-0" aria-hidden />
         <input
           ref={inputRef}
@@ -312,7 +312,7 @@ export default function QuickSearchApp() {
           aria-label="Search the vault"
           placeholder={phase === "ready" ? "Search vault by name, tag or site…" : "Notiq quick search"}
           disabled={phase !== "ready"}
-          className="flex-1 bg-transparent outline-none text-sm placeholder:text-[var(--color-text-muted)]"
+          className="flex-1 min-w-0 bg-transparent outline-none! text-sm placeholder:text-[var(--color-text-muted)]"
           value={query}
           onChange={(e) => { setQuery(e.target.value); setMsg(null); }}
         />
