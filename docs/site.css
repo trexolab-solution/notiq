@@ -38,7 +38,7 @@
 /* centred copy, then the app window full width, dropping into the next band */
 .hero-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 48px; }
 .hero-copy { display: flex; flex-direction: column; align-items: center; text-align: center; max-width: 860px; margin: 0 auto; }
-.eyebrow { display: inline-flex; align-items: center; gap: 10px; margin: 0 0 24px; padding: 6px 14px; border: 1px solid var(--line); border-radius: 999px; background: color-mix(in srgb, var(--surface) 70%, transparent); color: var(--ink-2); font-size: 14px; font-weight: 500; line-height: 1.4; }
+.eyebrow { display: inline-flex; align-items: center; gap: 10px; margin: 0 0 24px; padding: 8px 16px; border: 1px solid var(--line); border-radius: 999px; background: color-mix(in srgb, var(--surface) 70%, transparent); color: var(--ink-2); font-size: 14px; font-weight: 500; line-height: 1.4; }
 .eyebrow-dot { width: 7px; height: 7px; flex: none; border-radius: 50%; background: var(--gold); box-shadow: 0 0 0 4px color-mix(in srgb, var(--gold) 22%, transparent); }
 .hero h1 { font-size: clamp(2.5rem, 6vw, 4.75rem); line-height: 1.02; letter-spacing: -.04em; font-weight: 740; margin: 0; max-width: 15ch; text-wrap: balance; }
 .lead { font-size: clamp(1.04rem, 1.3vw, 1.15rem); color: var(--ink-2); max-width: 44ch; margin: 0 0 28px; line-height: 1.6; }
