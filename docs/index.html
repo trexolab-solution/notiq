@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Notiq: Markdown Editor with Encrypted Vault | Offline, Open Source</title>
 <meta name="description" content="Free, open-source desktop Markdown editor with a whiteboard, knowledge graph and an encrypted vault for passwords and SSH keys. No account, no telemetry.">
+<meta name="robots" content="index,follow,max-image-preview:large">
 <link rel="canonical" href="https://trexolab-solution.github.io/notiq/">
 <link rel="icon" href="favicon.ico" sizes="any">
 <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
@@ -12,28 +13,87 @@
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Notiq">
 <meta property="og:url" content="https://trexolab-solution.github.io/notiq/">
-<meta property="og:title" content="Notiq — local-first notes with a sealed vault">
+<meta property="og:title" content="Notiq: Markdown editor with an encrypted vault">
 <meta property="og:description" content="A fast Markdown editor, whiteboard and knowledge graph for your desktop. Passwords, SSH keys and private notes are sealed in one encrypted file on your machine. Optional sync to your own Google Drive is encrypted first.">
 <meta property="og:image" content="https://trexolab-solution.github.io/notiq/og.png">
+<meta property="og:image:type" content="image/png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Notiq desktop Markdown editor with its encrypted Secure Vault">
+<meta property="og:locale" content="en_US">
 <meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Notiq: Markdown editor with an encrypted vault">
+<meta name="twitter:description" content="Offline, open-source Markdown editor with a whiteboard, knowledge graph and an encrypted vault for passwords and SSH keys.">
+<meta name="twitter:image" content="https://trexolab-solution.github.io/notiq/og.png">
+<meta name="twitter:image:alt" content="Notiq desktop Markdown editor with its encrypted Secure Vault">
 <meta name="color-scheme" content="dark light">
 <meta name="theme-color" content="#0a1222">
 <script type="application/ld+json">
 {
   "@context": "https://schema.org",
-  "@type": "SoftwareApplication",
-  "name": "Notiq",
-  "description": "Local-first desktop Markdown editor with a whiteboard, knowledge graph, embedded terminal and an encrypted vault for passwords, SSH keys and private notes.",
-  "url": "https://trexolab-solution.github.io/notiq/",
-  "image": "https://trexolab-solution.github.io/notiq/og.png",
-  "applicationCategory": "ProductivityApplication",
-  "operatingSystem": "Windows, Linux",
-  "softwareVersion": "0.9.3",
-  "license": "https://opensource.org/licenses/MIT",
-  "downloadUrl": "https://github.com/trexolab-solution/notiq/releases/latest",
-  "codeRepository": "https://github.com/trexolab-solution/notiq",
-  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
-  "publisher": { "@type": "Organization", "name": "TrexoLab" }
+  "@graph": [
+    {
+      "@type": "SoftwareApplication",
+      "@id": "https://trexolab-solution.github.io/notiq/#app",
+      "name": "Notiq",
+      "description": "Local-first desktop Markdown editor with a whiteboard, knowledge graph, embedded terminal and an encrypted vault for passwords, SSH keys and private notes.",
+      "url": "https://trexolab-solution.github.io/notiq/",
+      "image": "https://trexolab-solution.github.io/notiq/og.png",
+      "screenshot": "https://trexolab-solution.github.io/notiq/og.png",
+      "inLanguage": "en",
+      "applicationCategory": "ProductivityApplication",
+      "applicationSubCategory": "Markdown editor and password manager",
+      "operatingSystem": "Windows, Linux",
+      "softwareVersion": "0.9.3",
+      "isAccessibleForFree": true,
+      "license": "https://github.com/trexolab-solution/notiq/blob/main/LICENSE",
+      "downloadUrl": "https://github.com/trexolab-solution/notiq/releases/latest",
+      "codeRepository": "https://github.com/trexolab-solution/notiq",
+      "sameAs": [
+        "https://github.com/trexolab-solution/notiq"
+      ],
+      "featureList": [
+        "Markdown editor with live preview and split view",
+        "Whiteboard and knowledge graph",
+        "Encrypted vault for passwords, SSH keys, cards and private notes",
+        "Two-step (TOTP) codes",
+        "Browser autofill extension",
+        "Optional end-to-end encrypted sync to Google Drive",
+        "Works offline, no account, no telemetry"
+      ],
+      "offers": {
+        "@type": "Offer",
+        "price": "0",
+        "priceCurrency": "USD"
+      },
+      "author": {
+        "@id": "https://trexolab-solution.github.io/notiq/#org"
+      },
+      "publisher": {
+        "@id": "https://trexolab-solution.github.io/notiq/#org"
+      }
+    },
+    {
+      "@type": "WebSite",
+      "@id": "https://trexolab-solution.github.io/notiq/#website",
+      "url": "https://trexolab-solution.github.io/notiq/",
+      "name": "Notiq",
+      "inLanguage": "en",
+      "publisher": {
+        "@id": "https://trexolab-solution.github.io/notiq/#org"
+      }
+    },
+    {
+      "@type": "Organization",
+      "@id": "https://trexolab-solution.github.io/notiq/#org",
+      "name": "TrexoLab",
+      "url": "https://github.com/trexolab-solution",
+      "logo": "https://trexolab-solution.github.io/notiq/logo.png",
+      "sameAs": [
+        "https://github.com/trexolab-solution"
+      ]
+    }
+  ]
 }
 </script>
 <script>
@@ -135,8 +195,9 @@
 <!-- ═════════════ HERO ═════════════ -->
 <section class="hero sealed-field" aria-labelledby="hero-title">
   <div class="container hero-grid">
-    <h1 id="hero-title">Your notes and secrets, kept on your own machine.</h1>
-    <div class="hero-side">
+    <div class="hero-copy">
+      <p class="eyebrow"><span class="eyebrow-dot" aria-hidden="true"></span>Open-source Markdown editor with an encrypted vault</p>
+      <h1 id="hero-title">Your notes and secrets, kept on your own machine.</h1>
       <p class="lead">Notiq is a fast desktop Markdown editor, whiteboard and knowledge graph. Passwords, SSH keys and private notes go into a Secure Vault: one encrypted file on your computer. It leaves your PC only if you turn on sync, and then only encrypted.</p>
       <div class="cta">
         <a class="btn btn-gold btn-lg" id="heroDownload" href="https://github.com/trexolab-solution/notiq/releases/latest"><svg class="i"><use href="#i-download"/></svg><span id="heroDownloadLabel">Download Notiq</span></a>
@@ -681,7 +742,7 @@ nothing to commit, working tree clean
       <li><svg class="i" aria-hidden="true"><use href="#i-cmd"/></svg><span><b>Command palette</b> <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>P</kbd></span></li>
       <li><svg class="i" aria-hidden="true"><use href="#i-sticky"/></svg><span><b>Sticky notes</b> that float above other windows</span></li>
       <li><svg class="i" aria-hidden="true"><use href="#i-palette"/></svg><span><b>13 themes</b>, light and dark</span></li>
-      <li><svg class="i" aria-hidden="true"><use href="#i-command"/></svg><span><b>Windows, macOS, Linux</b> from one codebase</span></li>
+      <li><svg class="i" aria-hidden="true"><use href="#i-command"/></svg><span><b>Windows, Linux and macOS</b> from one codebase (macOS builds from source)</span></li>
     </ul>
   </div>
 </section>
