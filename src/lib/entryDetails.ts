@@ -3,6 +3,7 @@ import { LOGIN_EXT, loginUrls, parseLogin, type LoginEntry } from "./loginEntry"
 import { isChecked, parseSecret, SECRET_KINDS, type SecretEntry } from "./secretEntry";
 import { formatCardNumber } from "./cardEntry";
 import type { CustomField } from "./customFields";
+import { parseKeyFiles } from "./sshKeyImport";
 
 /**
  * Read-only "details" of one vault entry for the autofill window's details view (desktop UI only:
@@ -39,6 +40,10 @@ function customRows(custom: CustomField[] | undefined): DetailRow[] {
     .map(({ f, i }) => ({ id: `custom-${i}`, label: f.label.trim() || `Field ${i + 1}`, value: f.value, secret: f.secret }));
 }
 
+/** An SSH entry's extra key files, one masked multiline row each. */
+const keyFileRows = (e: SecretEntry): DetailRow[] => e.kind !== "ssh" ? [] :
+  parseKeyFiles(e.fields.keyFiles).map((k) => ({ id: `keyfile-${k.id}`, label: k.name, value: k.value, secret: true, multiline: true }));
+
 export function loginDetails(e: LoginEntry): EntryDetails {
   const sites = loginUrls(e);
   return {
@@ -60,7 +65,7 @@ export function secretDetails(e: SecretEntry): EntryDetails {
   const def = SECRET_KINDS[e.kind];
   const rows: DetailRow[] = [];
   for (const f of def?.fields ?? []) {
-    if (f.key === "notes") continue;
+    if (f.key === "notes" || f.internal) continue;
     const raw = e.fields[f.key] ?? "";
     if (f.type === "checkbox") { if (isChecked(raw)) rows.push({ id: f.key, label: f.label, value: "Yes", secret: false }); continue; }
     if (!raw) continue;
@@ -76,7 +81,7 @@ export function secretDetails(e: SecretEntry): EntryDetails {
     kind: e.kind,
     title: e.title.trim() || fallbackTitle,
     sites: [],
-    rows: [...rows, ...customRows(e.custom)],
+    rows: [...rows, ...keyFileRows(e), ...customRows(e.custom)],
     totp: "",
     notes: e.fields.notes ?? "",
   };

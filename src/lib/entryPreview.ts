@@ -2,6 +2,7 @@ import { LOGIN_EXT, parseLogin } from "./loginEntry";
 import { parseSecret, SECRET_KINDS } from "./secretEntry";
 import { CODES_EXT, parseCodes } from "./recoveryCodes";
 import type { CustomField } from "./customFields";
+import { parseKeyFiles } from "./sshKeyImport";
 
 /** One labelled value of a stored entry, for read-only previews (e.g. version history). */
 export interface PreviewRow { label: string; value: string; secret: boolean }
@@ -38,12 +39,13 @@ export function previewRows(ext: string, content: string): PreviewRow[] {
     rows = [
       { label: "Name", value: e.title, secret: false },
       ...SECRET_KINDS[ext].fields
-        .filter((f) => !(ext === "ssh" && f.key === "auth"))
+        .filter((f) => !f.internal && !(ext === "ssh" && f.key === "auth"))
         .map((f) => ({
           label: f.label,
           value: f.type === "checkbox" ? (e.fields[f.key] === "true" ? "Yes" : "") : e.fields[f.key] ?? "",
           secret: f.type === "secret" || f.type === "multiline-secret",
         })),
+      ...(ext === "ssh" ? parseKeyFiles(e.fields.keyFiles).map((k) => ({ label: k.name, value: k.value, secret: true })) : []),
       ...customRows(e.custom),
     ];
   } else {
