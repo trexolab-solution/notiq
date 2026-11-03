@@ -28,7 +28,7 @@ import {
   trustHost, validIntent, type SaveRequest,
 } from "../lib/autofill";
 import { identityReply, scanIdentities, validAccount } from "../lib/autofill";
-import { answerList, answerUsernameCopy, copyForExtension, COPY_LABEL, validCopyWhat, type PopupDeps } from "../lib/autofillPopup";
+import { answerList, answerSaveCheck, answerUsernameCopy, copyForExtension, COPY_LABEL, validCopyWhat, type PopupDeps } from "../lib/autofillPopup";
 import {
   hasExcludedPasskey, passkeyReply, savePasskey, scanPasskeys, toCreateReq, toGetReq,
 } from "../lib/passkeys";
@@ -276,8 +276,14 @@ export default function AutofillPromptApp() {
       }),
       listen<SaveRequest & { fallback?: boolean }>("autofill:save", (e) => {
         if (isFallbackRequest(e.payload)) return;
-        const { id, host, url, username, password, title } = e.payload;
-        accept({ kind: "save", req: { id, host, url, username, password, title } });
+        const { id, host, url, username, password, title, current } = e.payload;
+        accept({ kind: "save", req: { id, host, url, username, password, title, ...(typeof current === "string" && current ? { current } : {}) } });
+      }),
+      // Should the page offer Save, Update or nothing? Answered silently (no window, no unlock offer).
+      listen<{ id: string; host: string; username: string; password: string; current?: unknown }>("autofill:save-check", (e) => {
+        const { id, host, username, password, current } = e.payload;
+        const req = { host, username, password, ...(typeof current === "string" && current ? { current } : {}) };
+        void answerSaveCheck(popupDeps, req).then((r) => reply(id, r));
       }),
       // Card requests come only to this window (Rust has no main-window fallback for them).
       listen<{ id: string; host: string }>("autofill:card", (e) => {

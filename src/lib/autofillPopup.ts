@@ -1,5 +1,5 @@
 import { totpCode } from "./loginEntry";
-import { indexOfAccount, type LoginMatch } from "./autofill";
+import { indexOfAccount, planSave, saveCheckReply, type LoginMatch } from "./autofill";
 import { copySecretTimed } from "./secureCopy";
 
 /**
@@ -86,6 +86,14 @@ async function withUnlockedMatches<T>(deps: PopupDeps, host: string, then: (m: L
     return { error: err === deps.lockedError ? "locked" : "failed" };
   }
 }
+
+/**
+ * Answers the extension's `save_check` silently (never shows the window, never offers to unlock): should the
+ * page offer Save, Update or nothing for this submitted login? The comparison with the saved passwords happens
+ * here, in the app; the reply carries only the decision (see `saveCheckReply`).
+ */
+export const answerSaveCheck = (deps: PopupDeps, req: { host: string; username: string; password: string; current?: string }) =>
+  withUnlockedMatches(deps, req.host, (matches) => saveCheckReply(planSave(matches, req)));
 
 /** Answers `list` silently: never shows the window, never offers to unlock. */
 export const answerList = (deps: PopupDeps, host: string) => withUnlockedMatches(deps, host, listReply);

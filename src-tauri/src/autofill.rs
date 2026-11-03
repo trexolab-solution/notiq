@@ -20,7 +20,15 @@
 //!   extension fills by name (secret ones only on the login's own site); older extensions ignore it.
 //!   With `intent:"code"` (a separate 2FA page) only logins with a TOTP secret count and the reply is
 //!   `{ok:true, username, title, code}` (never the password) or `{error:"no_code"}`.
-//! * `{op:"save", host, url, username, password, title}` → `{ok:true, status}` | `{error}`
+//! * `{op:"save", host, url, username, password, title, current?}` → `{ok:true, status}` | `{error}`. `current`
+//!   (a change-password form's old password) only helps pick the login to update.
+//! * `{op:"save_check", host, username, password, current?}` → `{ok:true, action:"none"|"update"|"save", choices}`
+//!   | `{error:"locked"|…}`: whether the page should offer nothing (that login is already saved), "Update password?"
+//!   or "Save login?". Compared with the vault inside the app (no window); only while unlocked; never starts the app.
+//!   Older apps answer `{error:"unknown_op"}` and the extension shows its generic offer.
+//! * Every request from a private (incognito) tab carries `incognito:true`. While Settings → Vault → Browser
+//!   autofill → "Allow autofill in private windows" is off it is answered `{error:"incognito_off"}` (not `ping`,
+//!   `hello`, `theme`); `ping` reports the setting as `incognito`.
 //! * `{op:"fill_card", host, origin}` → `{ok:true, title, name, number, exp_month, exp_year, csc}` | `{error}`.
 //!   Always asks the user (no trust window) and is never handled by the main-window fallback.
 //! * `{op:"fill_identity", host, origin, account?}` → `{ok:true, title, name, email, phone, address1, address2, city,
@@ -232,6 +240,7 @@ fn record_request(host: &str, reply: &Value) {
 
 /// Starts the local listener and publishes `{port, token}` for the native host.
 pub fn start(app: &AppHandle) {
+    INCOGNITO_ALLOWED.store(incognito_from_disk(), Ordering::Release);
     let Ok(dir) = app.path().app_data_dir() else { return };
     let Ok(listener) = TcpListener::bind(("127.0.0.1", 0)) else { return };
     let Ok(port) = listener.local_addr().map(|a| a.port()) else { return };
@@ -300,6 +309,8 @@ pub struct SaveReq {
     pub username: String,
     pub password: String,
     pub title: String,
+    /// A change-password form's current (old) password, used only to find the login to update. Optional.
+    pub current: Option<String>,
 }
 
 fn clean(s: &str) -> String {
@@ -338,7 +349,111 @@ pub fn validate_save(req: &Value) -> Result<SaveReq, &'static str> {
         username,
         password: password.to_string(),
         title,
+        current: validate_current(req.get("current"))?,
     })
+}
+
+/// The optional `current` password of a `save` / `save_check` (a change-password form's old password):
+/// missing / `null` / `""` -> none; otherwise a string of at most 1024 bytes.
+pub fn validate_current(v: Option<&Value>) -> Result<Option<String>, &'static str> {
+    match v {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::String(s)) if s.is_empty() => Ok(None),
+        Some(Value::String(s)) if s.len() <= 1024 => Ok(Some(s.clone())),
+        Some(_) => Err("bad_request"),
+    }
+}
+
+/// A validated `save_check` request: what the save offer would save, to be compared with the vault.
+#[derive(Debug, PartialEq)]
+pub struct SaveCheckReq {
+    pub host: String,
+    pub username: String,
+    pub password: String,
+    pub current: Option<String>,
+}
+
+/// Strict validation of an untrusted `save_check` message (`{host, username, password, current?}`). Same limits
+/// as `save`; no url or title (nothing is written). Never logs the password.
+pub fn validate_save_check(req: &Value) -> Result<SaveCheckReq, &'static str> {
+    let get = |k: &str| req.get(k).and_then(|v| v.as_str());
+    let host = get("host").ok_or("bad_request")?;
+    if !valid_host(host) {
+        return Err("bad_request");
+    }
+    let username = clean(get("username").unwrap_or(""));
+    let password = get("password").ok_or("bad_request")?;
+    if username.chars().count() > 256 || password.is_empty() || password.len() > 1024 {
+        return Err("bad_request");
+    }
+    Ok(SaveCheckReq {
+        host: host.to_string(),
+        username,
+        password: password.to_string(),
+        current: validate_current(req.get("current"))?,
+    })
+}
+
+/// What a save offer should be, as the prompt window decided it from the vault: `none` (this exact login is
+/// already saved: no offer), `update` (same username, other password: "Update password?") or `save` (a new
+/// login). The UI's answer is reduced to `{ok, action, choices}` (`choices`: how many logins an update could go
+/// to, 1..=20; 0 otherwise) or `{error}`; anything else it holds does not reach the extension.
+pub fn sanitize_save_check_reply(reply: &Value) -> Value {
+    if let Some(e) = error_reply(reply) {
+        return e;
+    }
+    let action = reply.get("action").and_then(|v| v.as_str()).unwrap_or("");
+    if reply.get("ok") != Some(&json!(true)) || !matches!(action, "none" | "update" | "save") {
+        return json!({ "error": "failed" });
+    }
+    let choices = if action == "update" { reply.get("choices").and_then(|v| v.as_u64()).unwrap_or(1).clamp(1, 20) } else { 0 };
+    json!({ "ok": true, "action": action, "choices": choices })
+}
+
+// ─── Private (incognito) windows ─────────────────────────────────────────────
+//
+// Settings → Vault → Browser autofill → "Allow autofill in private (incognito) windows", off by default. Kept in
+// `<app-data>/autofill_incognito.json` (`{"allow":true}`) so the native host (a bare process) can read it too.
+// The extension flags every request that comes from a private tab with `incognito:true`; while the setting is
+// off the app (and the native host, before it would start the app) answers those with `{error:"incognito_off"}`.
+// `ping` reports the setting (`incognito`) so the extension can stay quiet in private tabs on its own.
+
+const INCOGNITO_FILE: &str = "autofill_incognito.json";
+static INCOGNITO_ALLOWED: AtomicBool = AtomicBool::new(false);
+
+/// The stored setting; anything but `{"allow":true}` is off.
+pub fn parse_incognito_doc(raw: &str) -> bool {
+    raw.len() <= 256
+        && serde_json::from_str::<Value>(raw.trim()).ok().and_then(|v| v.get("allow").and_then(|b| b.as_bool())) == Some(true)
+}
+
+fn incognito_from_disk() -> bool {
+    data_dir_plain()
+        .and_then(|d| std::fs::read_to_string(d.join(INCOGNITO_FILE)).ok())
+        .is_some_and(|raw| parse_incognito_doc(&raw))
+}
+
+/// `None` = go on; `Some(reply)` = a private-window request while autofill there is off. `ping`, `hello` and
+/// `theme` carry nothing from the page and are always answered.
+pub fn incognito_gate(req: &Value, allowed: bool) -> Option<Value> {
+    let op = req.get("op").and_then(|v| v.as_str()).unwrap_or("");
+    if matches!(op, "ping" | "hello" | "theme") || allowed || req.get("incognito") != Some(&json!(true)) {
+        return None;
+    }
+    Some(json!({ "error": "incognito_off" }))
+}
+
+#[tauri::command]
+pub fn autofill_incognito_get() -> bool {
+    INCOGNITO_ALLOWED.load(Ordering::Acquire)
+}
+
+#[tauri::command]
+pub fn autofill_incognito_set(allow: bool) -> Result<(), String> {
+    let dir = data_dir_plain().ok_or("no_data_dir")?;
+    atomic_write(&dir.join(INCOGNITO_FILE), json!({ "allow": allow }).to_string().as_bytes())?;
+    INCOGNITO_ALLOWED.store(allow, Ordering::Release);
+    Ok(())
 }
 
 /// Validates the optional `account` of a `fill` request: a vault entry's relative path.
@@ -464,13 +579,14 @@ pub fn extension_supported(protocol: u64) -> bool {
 }
 
 /// `ping` answer: always sent (even to an outdated extension), so the extension can tell the user what to update.
-pub fn ping_reply(app_version: &str, locked: bool) -> Value {
+pub fn ping_reply(app_version: &str, locked: bool, incognito: bool) -> Value {
     json!({
         "ok": true,
         "appVersion": app_version,
         "locked": locked,
         "protocol": PROTOCOL,
         "minProtocol": MIN_EXTENSION_PROTOCOL,
+        "incognito": incognito,
     })
 }
 
@@ -496,6 +612,10 @@ fn handle(app: &AppHandle, req: Value) -> Value {
             return reply;
         }
     }
+    if let Some(reply) = incognito_gate(&req, INCOGNITO_ALLOWED.load(Ordering::Acquire)) {
+        touch_extension();
+        return reply;
+    }
     if let Some(reply) = handle_popup(app, op, &req) {
         return reply;
     }
@@ -514,7 +634,7 @@ fn handle(app: &AppHandle, req: Value) -> Value {
         "ping" => {
             touch_extension();
             let locked = !app.state::<crate::vault::VaultState>().is_unlocked();
-            return ping_reply(&app_version, locked);
+            return ping_reply(&app_version, locked, INCOGNITO_ALLOWED.load(Ordering::Acquire));
         }
         // Liveness check used by the native host itself (not counted as the extension being seen).
         "hello" => return json!({ "ok": true }),
@@ -540,13 +660,33 @@ fn handle(app: &AppHandle, req: Value) -> Value {
         "save" => {
             touch_extension();
             match validate_save(&req) {
-                Ok(s) => (
-                    "autofill:save",
-                    json!({ "host": s.host, "url": s.url, "username": s.username, "password": s.password, "title": s.title }),
-                    s.host.clone(),
-                ),
+                Ok(s) => {
+                    let mut payload =
+                        json!({ "host": s.host, "url": s.url, "username": s.username, "password": s.password, "title": s.title });
+                    if let Some(c) = s.current {
+                        payload["current"] = json!(c);
+                    }
+                    ("autofill:save", payload, s.host.clone())
+                }
                 Err(e) => return json!({ "error": e }),
             }
+        }
+        // Should the page offer Save, Update or nothing? Answered by the prompt window without showing it, only
+        // while the vault is open (the vault holds the logins to compare with); never starts the app.
+        "save_check" => {
+            touch_extension();
+            let s = match validate_save_check(&req) {
+                Ok(s) => s,
+                Err(e) => return json!({ "error": e }),
+            };
+            if !app.state::<crate::vault::VaultState>().is_unlocked() {
+                return json!({ "error": "locked" });
+            }
+            let mut payload = json!({ "host": s.host, "username": s.username, "password": s.password });
+            if let Some(c) = s.current {
+                payload["current"] = json!(c);
+            }
+            return sanitize_save_check_reply(&await_ui(app, SAVE_CHECK_EVENT, payload, false));
         }
         "fill_card" => {
             touch_extension();
@@ -600,6 +740,8 @@ fn handle(app: &AppHandle, req: Value) -> Value {
 //   no Allow. The prompt window copies the value itself; the reply is reduced here to `{ok, copied, clearAfter}`.
 // * `open` only shows Notiq and opens the entry there (nothing is returned); a locked vault asks to unlock first.
 
+/// Emitted to the prompt window: `{id, host, username, password, current?}` → reply `{ok, action, choices}`.
+const SAVE_CHECK_EVENT: &str = "autofill:save-check";
 /// Emitted to the prompt window: `{id, host}` → reply `{ok, accounts}`.
 const LIST_EVENT: &str = "autofill:list";
 /// Emitted to the prompt window: `{id, host, account, what}` → reply `{ok, copied, clearAfter}`.
@@ -1240,6 +1382,10 @@ fn forward(conn: &mut Option<Conn>, req: &Value) -> Value {
     if op == "theme" {
         return theme_reply();
     }
+    // A private-window request while that is off: refused here too, so it never starts the app.
+    if let Some(reply) = incognito_gate(req, incognito_from_disk()) {
+        return reply;
+    }
     if op == "open" {
         allow_app_foreground();
     }
@@ -1636,12 +1782,14 @@ mod tests {
 
     #[test]
     fn ping_reports_version_lock_state_and_protocol() {
-        let r = ping_reply("0.9.0", true);
+        let r = ping_reply("0.9.0", true, false);
         assert_eq!(
             r,
-            json!({ "ok": true, "appVersion": "0.9.0", "locked": true, "protocol": PROTOCOL, "minProtocol": MIN_EXTENSION_PROTOCOL })
+            json!({ "ok": true, "appVersion": "0.9.0", "locked": true, "protocol": PROTOCOL, "minProtocol": MIN_EXTENSION_PROTOCOL,
+                    "incognito": false })
         );
-        assert_eq!(ping_reply("0.9.0", false)["locked"], false);
+        assert_eq!(ping_reply("0.9.0", false, false)["locked"], false);
+        assert_eq!(ping_reply("0.9.0", false, true)["incognito"], true);
         assert_eq!(outcome_of(&r), "ok");
     }
 
@@ -1794,7 +1942,90 @@ mod tests {
         bad("password", json!("p".repeat(1025)));
         bad("title", json!("t".repeat(81)));
         bad("password", json!(5));
+        bad("current", json!(5));
+        bad("current", json!("c".repeat(1025)));
         assert!(validate_save(&json!({"op":"save"})).is_err());
+    }
+
+    #[test]
+    fn save_carries_an_optional_current_password() {
+        assert_eq!(validate_save(&good()).unwrap().current, None);
+        let mut v = good();
+        v["current"] = json!("");
+        assert_eq!(validate_save(&v).unwrap().current, None);
+        v["current"] = json!("old-pass");
+        assert_eq!(validate_save(&v).unwrap().current.as_deref(), Some("old-pass"));
+    }
+
+    #[test]
+    fn save_check_validation() {
+        let ok = json!({"op":"save_check","host":"example.com","username":"me@x.io","password":"pw","current":"old"});
+        assert_eq!(
+            validate_save_check(&ok),
+            Ok(SaveCheckReq { host: "example.com".into(), username: "me@x.io".into(), password: "pw".into(), current: Some("old".into()) })
+        );
+        let bad = |k: &str, val: Value| {
+            let mut v = ok.clone();
+            v[k] = val;
+            assert_eq!(validate_save_check(&v), Err("bad_request"), "{k}");
+        };
+        bad("host", json!("Example.com"));
+        bad("host", json!(""));
+        bad("password", json!(""));
+        bad("password", json!("p".repeat(1025)));
+        bad("username", json!("u".repeat(257)));
+        bad("current", json!(["x"]));
+        assert!(validate_save_check(&json!({"op":"save_check","host":"example.com"})).is_err());
+    }
+
+    #[test]
+    fn save_check_reply_holds_only_the_decision() {
+        let r = sanitize_save_check_reply(&json!({"ok":true,"action":"none","password":"leak"}));
+        assert_eq!(r, json!({"ok":true,"action":"none","choices":0}));
+        assert_eq!(sanitize_save_check_reply(&json!({"ok":true,"action":"save"})), json!({"ok":true,"action":"save","choices":0}));
+        assert_eq!(
+            sanitize_save_check_reply(&json!({"ok":true,"action":"update","choices":3,"username":"x"})),
+            json!({"ok":true,"action":"update","choices":3})
+        );
+        assert_eq!(sanitize_save_check_reply(&json!({"ok":true,"action":"update","choices":999}))["choices"], 20);
+        assert_eq!(sanitize_save_check_reply(&json!({"ok":true,"action":"update"}))["choices"], 1);
+        assert_eq!(sanitize_save_check_reply(&json!({"ok":true,"action":"delete"})), json!({"error":"failed"}));
+        assert_eq!(sanitize_save_check_reply(&json!({"action":"none"})), json!({"error":"failed"}));
+        assert_eq!(sanitize_save_check_reply(&json!({"error":"locked"})), json!({"error":"locked"}));
+    }
+
+    #[test]
+    fn save_check_never_starts_the_app() {
+        assert!(!may_launch("save_check"));
+    }
+
+    #[test]
+    fn incognito_requests_are_refused_while_the_setting_is_off() {
+        let off = json!({"error":"incognito_off"});
+        for op in ["fill", "save", "save_check", "fill_card", "fill_identity", "identities", "list", "copy", "open",
+                   "reuse_salt", "reuse_check", "passkey_create", "passkey_get", "launch"] {
+            let req = json!({"op": op, "host":"example.com", "incognito": true});
+            assert_eq!(incognito_gate(&req, false), Some(off.clone()), "{op}");
+            assert_eq!(incognito_gate(&req, true), None, "{op} allowed");
+            assert_eq!(incognito_gate(&json!({"op": op, "host":"example.com"}), false), None, "{op} normal window");
+            assert_eq!(incognito_gate(&json!({"op": op, "incognito": false}), false), None, "{op} flag false");
+        }
+        // Nothing from the page: always answered, so the extension can learn the setting.
+        for op in ["ping", "hello", "theme"] {
+            assert_eq!(incognito_gate(&json!({"op": op, "incognito": true}), false), None, "{op}");
+        }
+        // Only a real `true` counts as the flag.
+        assert_eq!(incognito_gate(&json!({"op":"fill","incognito":"true"}), false), None);
+    }
+
+    #[test]
+    fn incognito_setting_doc_defaults_to_off() {
+        assert!(parse_incognito_doc(r#"{"allow":true}"#));
+        assert!(parse_incognito_doc(" {\"allow\": true}\n"));
+        for raw in ["", "true", r#"{"allow":false}"#, r#"{"allow":"true"}"#, "{", r#"{"allow":1}"#] {
+            assert!(!parse_incognito_doc(raw), "{raw}");
+        }
+        assert!(!parse_incognito_doc(&format!(r#"{{"allow":true,"x":"{}"}}"#, "y".repeat(300))));
     }
 }
 
