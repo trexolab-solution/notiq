@@ -527,7 +527,48 @@
     return out.slice(-MAX_SITE_LIST);
   }
 
+  // ---------- private (incognito) windows ----------
+  // Notiq → Settings → Vault → Browser autofill → "Allow autofill in private (incognito) windows" (off by
+  // default). The app reports it in every `ping` reply (`incognito`); the background caches it in
+  // chrome.storage.local under INCOGNITO_KEY. Only an explicit true allows anything in a private tab.
+  const INCOGNITO_KEY = "incognitoAllowed";
+  const INCOGNITO_TEXT = "Autofill is off in private windows. Turn it on in Notiq → Settings → Vault → Browser autofill.";
+  // The setting as a ping reply states it: true / false, or undefined when the reply does not say (older app).
+  function pingIncognito(res) {
+    return res && typeof res === "object" && res.ok === true && typeof res.incognito === "boolean" ? res.incognito : undefined;
+  }
+  const incognitoBlocked = (isIncognito, allowed) => isIncognito === true && allowed !== true;
+  // Is this script running in a private window (content scripts and extension pages)?
+  function inPrivateContext() {
+    try { return !!(g.chrome && g.chrome.extension && g.chrome.extension.inIncognitoContext === true); } catch { return false; }
+  }
+  // Runs `start` once, as soon as private-window autofill is allowed (now, or when the setting changes later).
+  function whenPrivateAllowed(start) {
+    let started = false;
+    const go = () => { if (!started) { started = true; start(); } };
+    try {
+      g.chrome.storage.local.get({ [INCOGNITO_KEY]: false }, (s) => { if (s && s[INCOGNITO_KEY] === true) go(); });
+      g.chrome.storage.onChanged.addListener((changes, area) => {
+        if (area === "local" && changes[INCOGNITO_KEY] && changes[INCOGNITO_KEY].newValue === true) go();
+      });
+    } catch { /* no storage: stay off */ }
+  }
+
+  // ---------- save offers: Save, Update or nothing ----------
+  // The app's `save_check` answer ({ok, action, choices}): "none" (that exact login is already saved: no
+  // offer), "update" (same username, other password) or "save" (a new login); null when the app could not say
+  // (locked vault, older app, not running, anything malformed): the offer then falls back to its old wording.
+  function saveCheckAction(res) {
+    if (!res || typeof res !== "object" || res.ok !== true) return null;
+    return res.action === "none" || res.action === "update" || res.action === "save" ? res.action : null;
+  }
+  // The offer card's wording for a pending login: "update" / "save", from the app's answer when there is one,
+  // else from whether the page was a change-password form.
+  const offerKind = (action, change) => (action === "update" || action === "save" ? action : change === true ? "update" : "save");
+
   const api = Object.freeze({
+    INCOGNITO_KEY, INCOGNITO_TEXT, pingIncognito, incognitoBlocked, inPrivateContext, whenPrivateAllowed,
+    saveCheckAction, offerKind,
     COLOR_KEYS, CSS_VARS, DEFAULT_THEMES, validateTheme, resolveTheme, applyTheme, themeReplyAction, sameTheme,
     shouldSuggest, suggestPosition, rectsOverlap,
     cardFieldKind, validCardReply, cardFieldValue, pickOption,

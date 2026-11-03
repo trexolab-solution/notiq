@@ -18,9 +18,17 @@
 // Everything visible lives in ONE closed shadow root per frame, so page CSS/JS
 // cannot read or restyle it. No secret is ever written to the page DOM, a
 // page-visible object, window.postMessage or the console.
+//
+// Private (incognito) windows: nothing at all runs (no icons, menus, fills, save offers) unless Notiq allows
+// autofill there (Settings → Vault → Browser autofill; cached by the background in `incognitoAllowed`). When it
+// is turned on later, the script starts then.
 (() => {
   "use strict";
+  const NSP = globalThis.NotiqShared;
+  if (NSP && NSP.inPrivateContext()) NSP.whenPrivateAllowed(main);
+  else main();
 
+  function main() {
   const NS = globalThis.NotiqShared; // shared.js, loaded just before this file
   const FK = globalThis.NotiqFill;   // fillkit.js, likewise
   if (!NS || !FK) return;
@@ -1425,15 +1433,22 @@
     if (!password || password.length > MAX_PW) return null;
     const before = beforeIn(ins, pws[0]).filter((i) => isTextual(i) && !isOtp(i) && i.value && shown(i));
     const hiddenUser = ins.find((i) => isInput(i) && acOf(i).includes("username") && i.value && !isPassword(i));
-    const username = clean((before.length && before[before.length - 1].value) || (hiddenUser && hiddenUser.value) || recentUser(), MAX_USER);
+    // Change-password form (current + new [+ confirm]): the saved password is the new one, and the current one
+    // (only sent to Notiq, to find the login to update) comes from the current-password field.
+    const currentField = pws.find((i) => i !== pw && isCurrentPw(i)) ||
+      (pws.length >= 3 && pws[0] !== pw ? pws[0] : null) ||
+      (pws.length === 2 && pws[0] !== pw && pws[0].value !== pw.value ? pws[0] : null);
+    const change = (!!currentField || ins.some((i) => isCurrentPw(i) && shown(i))) && !isCurrentPw(pw);
+    const current = change && currentField && currentField.value && currentField.value !== password && currentField.value.length <= MAX_PW ? String(currentField.value) : "";
+    // Such pages rarely show the username: the one remembered from the sign-in, or the one Notiq filled here.
+    const signedIn = recentUser() || (change && filled && filled.username) || "";
+    const username = clean((before.length && before[before.length - 1].value) || (hiddenUser && hiddenUser.value) || signedIn, MAX_USER);
     if (filled && password === filled.password && (!username || username === filled.username)) return null;
     const now = Date.now();
     if (lastSent && lastSent.password === password && lastSent.username === username && now - lastSent.at < DEDUPE_MS) return null;
     lastSent = { username, password, at: now };
     if (username) rememberUser(username);
-    // Change-password form: the saved password is the new one; label the offer "Update".
-    const change = ins.some((i) => isCurrentPw(i) && shown(i)) && !isCurrentPw(pw);
-    const payload = { host, url: cleanUrl(), username, password, title: clean(document.title, 80), change };
+    const payload = { host, url: cleanUrl(), username, password, title: clean(document.title, 80), change, ...(current ? { current } : {}) };
     send({ type: "capture", payload });
     // SPAs often don't navigate after login; look again once the form is gone.
     // (Frames: the background asks the top frame to look.)
@@ -1523,7 +1538,9 @@
     const p = res && res.pending;
     if (!p || typeof p.host !== "string" || typeof p.username !== "string") return;
     if (bar || warn || !settings.offerSave || settings.neverSave.includes(p.host.toLowerCase()) || anyVisiblePassword()) return;
-    showBar({ host: clean(p.host, 253).toLowerCase(), username: clean(p.username, MAX_USER), change: p.change === true });
+    // `kind` is Notiq's own answer (an exact copy already saved never gets here); older backgrounds send `change`.
+    const update = NS.offerKind(p.kind, p.change) === "update";
+    showBar({ host: clean(p.host, 253).toLowerCase(), username: clean(p.username, MAX_USER), change: update });
   }
 
   function armIdle() {
@@ -1847,4 +1864,5 @@
     scan();
     schedulePending(300);
   });
+  } // main
 })();

@@ -92,8 +92,11 @@ let pageError = "";
 const panel = $("panel");
 const site = $("site");
 const help = $("help");
+// A private window while autofill there is off: only this notice (Notiq → Settings → Vault → Browser autofill).
+const PRIVATE_PANEL = { icon: "lock", title: "Private window", text: NS ? NS.INCOGNITO_TEXT : "", action: "retry", actionLabel: "Check again" };
 function renderMain() {
-  const p = NP ? NP.mainPanel({ conn: conn.state, pageError, noHost: conn.noHost, detail: conn.detail }) : null;
+  const p = pageError === "incognito_off" ? PRIVATE_PANEL
+    : NP ? NP.mainPanel({ conn: conn.state, pageError, noHost: conn.noHost, detail: conn.detail }) : null;
   panel.hidden = !p;
   btn.hidden = !!p;
   site.hidden = !!p;
@@ -149,6 +152,11 @@ function checkNotiq() {
   }
 }
 checkNotiq();
+try {
+  chrome.runtime.sendMessage({ type: "privateState" }, (r) => {
+    if (!chrome.runtime.lastError && r && r.blocked === true) setPageError("incognito_off");
+  });
+} catch { /* test stub */ }
 // The real shortcut (the user may have changed or removed it in the browser's shortcut settings).
 const shortcut = $("shortcut");
 try {
@@ -228,7 +236,7 @@ function setSiteHost(host) {
   siteHost.classList.toggle("none", !h);
   siteChip.title = h;
 }
-const PAGE_ERRORS = new Set(["not_https", "bad_url"]);
+const PAGE_ERRORS = new Set(["not_https", "bad_url", "incognito_off"]);
 function setPageError(error) {
   const next = PAGE_ERRORS.has(error) ? error : "";
   if (next === pageError) return;
