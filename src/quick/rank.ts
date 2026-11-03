@@ -123,7 +123,7 @@ export function copyFields(ext: string, content: string): { main: CopyField | nu
   if (kind) {
     // Any other structured kind: first filled secret field / first filled text field.
     const s = parseSecret(ext, content).fields;
-    const sec = kind.fields.find((d) => (d.type === "secret" || d.type === "multiline-secret") && s[d.key]);
+    const sec = kind.fields.find((d) => !d.internal && (d.type === "secret" || d.type === "multiline-secret") && s[d.key]);
     const txt = kind.fields.find((d) => d.type === "text" && s[d.key]);
     return { main: sec ? f(sec.label, s[sec.key]) : null, secondary: txt ? f(txt.label, s[txt.key]) : null };
   }

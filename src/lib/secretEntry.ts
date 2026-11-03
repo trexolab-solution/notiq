@@ -16,6 +16,8 @@ export interface FieldDef {
   maxLength?: number;
   /** `text` fields only: the input's type (keyboard / spell-check hint; the value is stored as typed). */
   inputType?: "email" | "tel";
+  /** Stored and edited only by a dedicated editor (e.g. JSON); generic views and editors skip it. */
+  internal?: boolean;
 }
 export interface KindDef { ext: string; label: string; hint: string; fields: FieldDef[] }
 
@@ -31,6 +33,10 @@ export const SECRET_KINDS: Record<string, KindDef> = {
       { key: "password", label: "Password (if any)", type: "secret" },
       { key: "privateKey", label: "Private key", type: "multiline-secret", placeholder: "-----BEGIN OPENSSH PRIVATE KEY-----" },
       { key: "passphrase", label: "Key passphrase", type: "secret" },
+      { key: "publicKey", label: "Public key", type: "multiline", placeholder: "ssh-ed25519 AAAA… user@host" },
+      // Extra key files kept with the entry: JSON [{id,name,size,value}] (lib/sshKeyImport). Typed as a
+      // secret so anything that ignores `internal` still treats it as one.
+      { key: "keyFiles", label: "Other key files", type: "multiline-secret", internal: true },
       // Used by the dedicated SSH editor (src/components/vault/SshEntryEditor.tsx):
       { key: "auth", label: "Sign-in method", type: "text" },
       { key: "jump", label: "Jump host", type: "text", placeholder: "user@bastion.example.com" },

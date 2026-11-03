@@ -114,7 +114,7 @@ export function SecretEntryEditor({ tab, kind }: { tab: Tab; kind: string }) {
           <label className={fieldLabel} htmlFor="se-title">Name</label>
           <Input id="se-title" value={entry.title} onChange={(e) => save({ ...entry, title: e.target.value })} />
         </div>
-        {def.fields.filter((f) => !hiddenField(entry, f.key)).map((f) => (
+        {def.fields.filter((f) => !f.internal && !hiddenField(entry, f.key)).map((f) => (
           <Field key={f.key} kind={kind} def={f} value={entry.fields[f.key] ?? ""}
                  onChange={(v) => save({ ...entry, fields: { ...entry.fields, [f.key]: v } })} />
         ))}
