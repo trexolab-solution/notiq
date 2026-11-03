@@ -6,7 +6,7 @@ import { useEscapeKey } from "../../../hooks/useEscapeKey";
 import { EntryIcon } from "./EntryIcon";
 import { Tooltip } from "../../ui/Tooltip";
 
-/** Header "+" dropdown: every entry type. Creates in the selected folder. */
+/** Header "+" dropdown: every entry type. Creates in the target folder (selection-based; root when none). */
 export function NewEntryMenu({ targetLabel, onPick }: { targetLabel: string; onPick: (k: NewEntryKind) => void }) {
   const [open, setOpen] = useState(false);
   const wrap = useRef<HTMLDivElement>(null);
@@ -36,12 +36,12 @@ export function NewEntryMenu({ targetLabel, onPick }: { targetLabel: string; onP
 
   return (
     <div className="relative" ref={wrap}>
-      <Tooltip content="New secret…" disabled={open}>
+      <Tooltip content="New item…" description={`Creates in ${targetLabel}`} disabled={open}>
         <button
           ref={trigger}
           type="button"
           className="vt-icon-btn"
-          aria-label="New secret"
+          aria-label={`New item in ${targetLabel}`}
           aria-haspopup="menu"
           aria-expanded={open}
           onClick={() => setOpen((v) => !v)}

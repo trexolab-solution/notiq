@@ -1,8 +1,9 @@
 import { memo, useCallback, type MouseEvent, type ReactNode } from "react";
 import { useDraggable, useDroppable } from "@dnd-kit/core";
-import { ChevronRight, Ellipsis, Star } from "lucide-react";
+import { ChevronRight, Ellipsis, SquareArrowOutUpRight, Star } from "lucide-react";
 import type { TreeNode } from "../../../lib/vaultTree";
 import { isTextFieldTarget } from "../../../lib/contextMenu/target";
+import { Tooltip } from "../../ui/Tooltip";
 import { EntryIcon, kindLabel } from "./EntryIcon";
 
 export const INDENT = 14;
@@ -29,7 +30,12 @@ interface Props {
   subtitle?: string;
   /** Replaces the name with an inline editor. */
   editor?: ReactNode;
+  /** New things are created in this folder (the selected entry's folder) — a softer highlight. */
+  isTarget?: boolean;
+  /** Click (Ctrl/Cmd+click and middle-click included — the handler reads the event). */
   onSelect: (key: string, node: TreeNode, e: MouseEvent) => void;
+  /** Open an entry in a new permanent tab (double-click, hover button). */
+  onOpenNew: (key: string, node: TreeNode) => void;
   onToggle: (rel: string) => void;
   onMenu: (key: string, node: TreeNode, x: number, y: number) => void;
   setRef: (key: string, el: HTMLDivElement | null) => void;
@@ -37,8 +43,8 @@ interface Props {
 
 /** One file-tree row: chevron, type icon, name, compact tags, star and a "more" button. */
 export const VaultRow = memo(function VaultRow({
-  rowKey, node, depth, expanded, selected, isOpen, isDrop, dropFolder, showPath, subtitle, editor,
-  onSelect, onToggle, onMenu, setRef,
+  rowKey, node, depth, expanded, selected, isOpen, isDrop, dropFolder, showPath, subtitle, editor, isTarget,
+  onSelect, onOpenNew, onToggle, onMenu, setRef,
 }: Props) {
   const drag = useDraggable({
     id: rowKey,
@@ -82,10 +88,17 @@ export const VaultRow = memo(function VaultRow({
       aria-label={`${node.name}, ${kindLabel(node.kind)}${node.starred ? ", starred" : ""}`}
       tabIndex={selected ? 0 : -1}
       title={editor ? undefined : tooltip}
-      className={`vt-row${selected ? " is-selected" : ""}${isOpen ? " is-open" : ""}${isDrop ? " is-drop" : ""}${drag.isDragging ? " is-dragging" : ""}`}
+      className={`vt-row${selected ? " is-selected" : ""}${isTarget ? " is-target" : ""}${isOpen ? " is-open" : ""}${isDrop ? " is-drop" : ""}${drag.isDragging ? " is-dragging" : ""}`}
       style={{ paddingLeft: 4 + depth * INDENT }}
       onPointerDown={editor ? undefined : pointerDown}
       onClick={(e) => onSelect(rowKey, node, e)}
+      // Middle-click opens an entry in a new tab (and must not start the browser's autoscroll).
+      onMouseDown={(e) => { if (e.button === 1 && !node.dir) e.preventDefault(); }}
+      onAuxClick={(e) => { if (e.button === 1 && !node.dir && !editor) { e.preventDefault(); onSelect(rowKey, node, e); } }}
+      onDoubleClick={(e) => {
+        if (node.dir || editor || isTextFieldTarget(e.target)) return;
+        onOpenNew(rowKey, node);
+      }}
       onContextMenu={(e) => {
         if (isTextFieldTarget(e.target)) return; // inline rename box: text menu instead
         e.preventDefault(); e.stopPropagation(); onMenu(rowKey, node, e.clientX, e.clientY);
@@ -117,12 +130,28 @@ export const VaultRow = memo(function VaultRow({
             </span>
           )}
           {node.starred && !showPath && <Star size={11} className="vt-row-star" fill="currentColor" aria-hidden />}
+          {!node.dir && (
+            <Tooltip content="Open in new tab" shortcut="Ctrl+Click">
+              <button
+                type="button"
+                className="vt-icon-btn vt-row-more"
+                tabIndex={-1}
+                aria-label={`Open ${node.name} in new tab`}
+                onPointerDown={(e) => e.stopPropagation()}
+                onDoubleClick={(e) => e.stopPropagation()}
+                onClick={(e) => { e.stopPropagation(); onOpenNew(rowKey, node); }}
+              >
+                <SquareArrowOutUpRight size={12} />
+              </button>
+            </Tooltip>
+          )}
           <button
             type="button"
             className="vt-icon-btn vt-row-more"
             tabIndex={-1}
             aria-label={`More actions for ${node.name}`}
             onPointerDown={(e) => e.stopPropagation()}
+            onDoubleClick={(e) => e.stopPropagation()}
             onClick={(e) => {
               e.stopPropagation();
               const r = e.currentTarget.getBoundingClientRect();

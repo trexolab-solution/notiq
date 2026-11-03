@@ -7,6 +7,7 @@ import { ChevronRight, Star } from "lucide-react";
 import { canMoveTo, parentRel, type TreeNode } from "../../../lib/vaultTree";
 import { isGroupRow, type ListRow, type SiteGroup } from "../../../lib/vaultSites";
 import { isTextFieldTarget } from "../../../lib/contextMenu/target";
+import { openModeFromEvent, type VaultOpenMode } from "../../../lib/vaultTabs";
 import { EntryIcon } from "./EntryIcon";
 import { INDENT, VaultRow, rowDomId, type DragData, type DropData } from "./VaultRow";
 import { SiteGroupRow } from "./SiteGroupRow";
@@ -39,8 +40,12 @@ interface Props {
   creating: { parent: string; row: ReactNode } | null;
   /** Shown instead of rows (empty vault / no matches). */
   empty: ReactNode;
+  /** Folder new things go into (resolved from the selection); its row gets a soft highlight. "" = root. */
+  targetFolder?: string;
+  /** null clears the selection (empty-space click, Escape) so new things go to the vault root. */
   onSelectKey: (key: string | null) => void;
-  onActivate: (node: TreeNode, key: string) => void;
+  /** Folder: toggle. Entry: open in the preview tab, or in a new permanent tab for "permanent". */
+  onActivate: (node: TreeNode, key: string, mode?: VaultOpenMode) => void;
   onToggle: (rel: string, open?: boolean) => void;
   onRename: (key: string, node: TreeNode) => void;
   onTrash: (node: TreeNode) => void;
@@ -49,6 +54,11 @@ interface Props {
 }
 
 const ROOT_DROP_ID = "drop:root";
+
+/** The event hit a row, a button or a text field — anything but the tree's empty space. */
+export function isOnControl(target: EventTarget | null): boolean {
+  return target instanceof Element && !!target.closest('[role="treeitem"], button, input, textarea, a');
+}
 
 /** The keyboard-navigable, drag-and-drop file tree (plus the pinned Starred group). */
 export function VaultTree(p: Props) {
@@ -76,11 +86,27 @@ export function VaultTree(p: Props) {
     el?.scrollIntoView({ block: "nearest" });
   }, [selectedKey, visible]);
 
+  // Focusing the tree itself selects the first row only when it was tabbed into — not when the user
+  // clicked empty space or pressed Escape to clear the selection (that's how you target the root).
+  const treeRef = useRef<HTMLDivElement>(null);
+  const skipFocusSelect = useRef(false);
+  const clearSelection = () => {
+    onSelectKey(null);
+    skipFocusSelect.current = true;
+    treeRef.current?.focus({ preventScroll: true });
+    skipFocusSelect.current = false;
+  };
+
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     // Only rows (and the tree itself) drive navigation — not inputs or the section buttons.
     if (!(e.target as HTMLElement).matches('[role="treeitem"], [role="tree"]')) return;
     const idx = visible.findIndex((r) => r.key === selectedKey);
     const cur = idx >= 0 ? visible[idx] : null;
+    if (e.key === "Escape" && selectedKey) {
+      e.preventDefault(); e.stopPropagation();
+      clearSelection();
+      return;
+    }
     const go = (i: number) => {
       const r = visible[Math.max(0, Math.min(visible.length - 1, i))];
       if (r) selectAndFocus(r.key);
@@ -139,7 +165,7 @@ export function VaultTree(p: Props) {
       }
       case "Enter":
         e.preventDefault();
-        p.onActivate(node, cur.key);
+        p.onActivate(node, cur.key, openModeFromEvent(e));
         return;
       case "F2":
         e.preventDefault();
@@ -190,7 +216,12 @@ export function VaultTree(p: Props) {
   const onRowSelect = useCallback((key: string, node: TreeNode, e: MouseEvent) => {
     onSelectKey(key);
     (e.currentTarget as HTMLElement).focus({ preventScroll: true });
-    p.onActivate(node, key);
+    p.onActivate(node, key, openModeFromEvent(e));
+  }, [onSelectKey, p.onActivate]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const onRowOpenNew = useCallback((key: string, node: TreeNode) => {
+    onSelectKey(key);
+    p.onActivate(node, key, "permanent");
   }, [onSelectKey, p.onActivate]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const onRowMenu = useCallback((key: string, node: TreeNode, x: number, y: number) => {
@@ -231,12 +262,14 @@ export function VaultTree(p: Props) {
       depth={r.depth}
       expanded={r.node.dir && !r.starred && isExpanded(r.node.rel)}
       selected={selectedKey === r.key}
+      isTarget={!!selectedKey && !r.starred && r.node.dir && selectedKey !== r.key && p.targetFolder === r.node.rel}
       isOpen={!r.node.dir && p.openRels.has(r.node.rel.toLowerCase())}
       isDrop={!r.starred && r.node.dir && dropFolder === r.node.rel}
       dropFolder={r.starred ? null : r.node.dir ? r.node.rel : parentRel(r.node.rel)}
       showPath={r.starred}
       editor={p.editingKey === r.key ? p.renderEditor(r.node) : undefined}
       onSelect={onRowSelect}
+      onOpenNew={onRowOpenNew}
       onToggle={p.onToggle}
       onMenu={onRowMenu}
       setRef={setRef}
@@ -254,17 +287,30 @@ export function VaultTree(p: Props) {
     <DndContext sensors={sensors} collisionDetection={pointerWithin}
                 onDragStart={onDragStart} onDragOver={onDragOver} onDragEnd={onDragEnd} onDragCancel={onDragCancel}>
       <div
+        ref={treeRef}
         className={`vt-scroll${dropFolder === "" ? " is-drop-root" : ""}`}
         role="tree"
         aria-label="Vault entries"
         onKeyDown={onKeyDown}
+        onMouseDown={(e) => {
+          // A click on empty space (not a row, button or the name box) clears the selection, VS Code
+          // style — New item / New folder then create at the vault root.
+          if (e.button !== 0 || isOnControl(e.target)) return;
+          skipFocusSelect.current = true;
+          requestAnimationFrame(() => { skipFocusSelect.current = false; });
+          onSelectKey(null);
+        }}
         onContextMenu={(e) => {
           if (isTextFieldTarget(e.target)) return; // inline name box: text menu instead
-          e.preventDefault(); e.stopPropagation(); p.onMenu(null, null, e.clientX, e.clientY);
+          e.preventDefault(); e.stopPropagation();
+          if (!isOnControl(e.target)) onSelectKey(null); // the background menu acts on the root
+          p.onMenu(null, null, e.clientX, e.clientY);
         }}
         onFocus={(e) => {
           // Tabbing into the tree with nothing selected lands on the first row.
-          if (e.target === e.currentTarget && !selVisible && visible[0]) selectAndFocus(visible[0].key);
+          if (e.target === e.currentTarget && !skipFocusSelect.current && !selVisible && visible[0]) {
+            selectAndFocus(visible[0].key);
+          }
         }}
         tabIndex={selVisible ? -1 : 0}
       >
