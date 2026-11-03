@@ -17,6 +17,12 @@
 //!   (`quick_search_ready`), up to `READY_WAIT_MS`; focus loss hides it from Rust (`on_window_event`),
 //!   so an outside click closes it even while the page is loading or dead; a page that was ready
 //!   but doesn't answer a show is reloaded. Every hide goes through `hide_quick`.
+//! * Window lifecycle (0.9.4): the window goes on screen only from `show_window`, i.e. the hotkey or
+//!   a `quick_search_reopen` right after the popup's own "Unlock". `OPEN` records that intent; a
+//!   guard thread (Windows) hides the window whenever it is visible without it, and closes an open
+//!   window once another window holds the foreground (on Windows, Tauri's `Focused(false)` only comes
+//!   from WebView2's LostFocus, which never fires when the page didn't get the keyboard focus). The
+//!   WebView2 controller is hidden with the window and made visible again before a show.
 
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -400,8 +406,10 @@ fn apply(_app: &AppHandle, cfg: &QuickSearchConfig) -> Result<(), String> {
 #[cfg(desktop)]
 pub fn plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
     tauri_plugin_global_shortcut::Builder::new()
-        .with_handler(|app, _shortcut, event| {
-            if event.state() == ShortcutState::Pressed {
+        .with_handler(|app, shortcut, event| {
+            // Only our own, currently registered combo opens the popup.
+            let ours = CURRENT.lock().unwrap_or_else(|p| p.into_inner()).as_ref() == Some(shortcut);
+            if ours && event.state() == ShortcutState::Pressed {
                 on_hotkey(app);
             }
         })
@@ -492,6 +500,66 @@ pub fn needs_reload(was_ready: bool, acked: bool) -> bool {
     was_ready && !acked
 }
 
+/// After a show, how long the window may stay without the foreground (activation still on its way,
+/// or refused once by Windows' foreground lock) before the guard treats it as "the user moved on".
+pub const SHOW_GRACE_MS: u64 = 1000;
+/// Another window must hold the foreground this long before the guard hides the quick window (rides
+/// out the brief "no / other foreground" moments of a focus hand-over).
+pub const BLUR_CONFIRM_MS: u64 = 250;
+/// How long after the popup's "Unlock" a successful unlock in the main window may bring it back.
+pub const REOPEN_WINDOW_MS: u64 = 5 * 60 * 1000;
+
+/// Who holds the foreground, as far as the quick window is concerned.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Foreground {
+    /// The quick window (or a popup it owns).
+    Ours,
+    /// Another window, of this app or another one.
+    Other,
+    /// No foreground window right now (a hand-over in progress, the lock screen, …).
+    None,
+}
+
+/// What the visibility guard does on one tick.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GuardAction {
+    Nothing,
+    /// Take the window off screen.
+    Hide,
+    /// Ask for the focus again (a show whose activation hasn't landed yet).
+    Refocus,
+}
+
+/// The visibility guard, one tick (pure). `open` is the user's intent (set only by a show that came
+/// from the hotkey or an explicit reopen, cleared by every hide); `visible` is what the OS reports.
+///
+/// * On screen without the user asking for it (any source: a stale show that lost a race with a
+///   hide, a WebView2 / OS quirk): hide it.
+/// * On screen as asked, but another window holds the foreground: right after the show keep asking
+///   for the focus; afterwards hide it. This is the outside-click close that doesn't depend on
+///   WebView2 reporting a focus loss (it never does when its content didn't get the focus).
+pub fn guard_step(open: bool, visible: bool, fg: Foreground, since_show_ms: u64, away_ms: u64) -> GuardAction {
+    if !visible {
+        return GuardAction::Nothing;
+    }
+    if !open {
+        return GuardAction::Hide;
+    }
+    match fg {
+        Foreground::Ours | Foreground::None => GuardAction::Nothing,
+        Foreground::Other if since_show_ms < SHOW_GRACE_MS => GuardAction::Refocus,
+        Foreground::Other if away_ms >= BLUR_CONFIRM_MS => GuardAction::Hide,
+        Foreground::Other => GuardAction::Nothing,
+    }
+}
+
+/// May `quick_search_reopen` show the popup? Only once, and only shortly after the popup itself sent
+/// the user to the main window to unlock (`requested_at_ms`). Anything else that unlocks the vault
+/// (another dialog, a sync flow, a waiter left over from long ago) never brings it back.
+pub fn reopen_allowed(requested_at_ms: u64, now_ms: u64) -> bool {
+    requested_at_ms != 0 && now_ms >= requested_at_ms && now_ms - requested_at_ms <= REOPEN_WINDOW_MS
+}
+
 // ─── window ──────────────────────────────────────────────────────────────────
 
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -505,16 +573,130 @@ static SHOW_GEN: AtomicU64 = AtomicU64::new(0);
 static ACK_GEN: AtomicU64 = AtomicU64::new(0);
 /// A show was requested and is still waiting for the page (the window isn't visible yet).
 static PENDING: AtomicBool = AtomicBool::new(false);
+/// The user wants the window on screen: set right before a show that came from the hotkey or an
+/// allowed reopen puts it up, cleared by every hide. The guard takes the window off screen whenever
+/// the OS reports it visible without this (whatever put it there).
+static OPEN: AtomicBool = AtomicBool::new(false);
+/// `mono_ms()` of the show that set `OPEN` (the guard's grace period starts there).
+static SHOWN_AT: AtomicU64 = AtomicU64::new(0);
+/// `mono_ms()` of the popup's last "Unlock" (0 = none): lets exactly one `quick_search_reopen` through.
+static UNLOCK_REQUESTED_AT: AtomicU64 = AtomicU64::new(0);
+
+/// Milliseconds on a monotonic clock, starting at 1 (so 0 can mean "never").
+fn mono_ms() -> u64 {
+    static BASE: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+    BASE.get_or_init(std::time::Instant::now).elapsed().as_millis() as u64 + 1
+}
+
+/// The WebView2 controller follows the window: hidden with it (Chromium stops rendering and can't
+/// pull the keyboard focus into an off-screen window), visible again right before it is shown, so the
+/// page repaints instead of showing a stale / blank surface.
+fn set_webview_visible(w: &tauri::WebviewWindow, visible: bool) {
+    #[cfg(windows)]
+    let _ = w.with_webview(move |pw| unsafe {
+        let c = pw.controller();
+        let _ = c.SetIsVisible(visible);
+        if visible {
+            let _ = c.NotifyParentWindowPositionChanged();
+        }
+    });
+    #[cfg(not(windows))]
+    let _ = (w, visible);
+}
+
+/// Takes the window off screen without touching the show bookkeeping (the guard uses it for a window
+/// that is visible although nobody asked for it).
+fn force_hide(app: &AppHandle, w: &tauri::WebviewWindow) {
+    let _ = w.hide();
+    set_webview_visible(w, false);
+    let _ = app.emit_to(WINDOW_LABEL, HIDDEN_EVENT, ());
+}
 
 /// Hides the quick window and tells it so (it stops its 2FA timers and forgets the codes and the
 /// query). Every hide goes through here; it also cancels a show that is still waiting.
 fn hide_quick(app: &AppHandle) {
+    OPEN.store(false, Ordering::Release);
     SHOW_GEN.fetch_add(1, Ordering::AcqRel);
     PENDING.store(false, Ordering::Release);
     if let Some(w) = app.get_webview_window(WINDOW_LABEL) {
-        let _ = w.hide();
-        let _ = app.emit_to(WINDOW_LABEL, HIDDEN_EVENT, ());
+        force_hide(app, &w);
     }
+}
+
+/// Who holds the foreground relative to the quick window `ours`.
+#[cfg(windows)]
+fn foreground_of(ours: isize) -> Foreground {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{GetAncestor, GetForegroundWindow, GA_ROOTOWNER};
+    // SAFETY: plain queries; a stale handle only yields null / another window.
+    let fg = unsafe { GetForegroundWindow() };
+    if fg.is_null() {
+        return Foreground::None;
+    }
+    let root = unsafe { GetAncestor(fg, GA_ROOTOWNER) };
+    if fg as isize == ours || root as isize == ours { Foreground::Ours } else { Foreground::Other }
+}
+
+/// Does the quick window hold the foreground? (Tauri's `is_focused` is false on Windows while the
+/// WebView2 child holds the keyboard focus, i.e. almost always, so it can't answer this.)
+#[cfg(desktop)]
+fn has_foreground(w: &tauri::WebviewWindow) -> bool {
+    #[cfg(windows)]
+    {
+        w.hwnd().is_ok_and(|h| foreground_of(h.0 as isize) == Foreground::Ours)
+    }
+    #[cfg(not(windows))]
+    {
+        w.is_focused().unwrap_or(false)
+    }
+}
+
+/// How often the guard looks at the window.
+#[cfg(windows)]
+const GUARD_TICK_MS: u64 = 150;
+
+/// The visibility guard (Windows): one thread for the app's lifetime, two cheap Win32 queries per
+/// tick, decisions in `guard_step`. It keeps the window off screen unless the user asked for it, and
+/// closes it on an outside click even when WebView2 never reports the focus loss.
+#[cfg(windows)]
+fn start_guard(app: &AppHandle) {
+    use windows_sys::Win32::UI::WindowsAndMessaging::IsWindowVisible;
+    static STARTED: AtomicBool = AtomicBool::new(false);
+    if STARTED.swap(true, Ordering::AcqRel) {
+        return;
+    }
+    let app = app.clone();
+    std::thread::spawn(move || {
+        let mut away_since: Option<u64> = None;
+        loop {
+            std::thread::sleep(std::time::Duration::from_millis(GUARD_TICK_MS));
+            let Some(w) = app.get_webview_window(WINDOW_LABEL) else { continue };
+            let Ok(h) = w.hwnd() else { continue };
+            let h = h.0 as isize;
+            // SAFETY: plain query on our own window handle.
+            let visible = unsafe { IsWindowVisible(h as _) } != 0;
+            let fg = foreground_of(h);
+            let now = mono_ms();
+            away_since = match fg {
+                Foreground::Other => Some(away_since.unwrap_or(now)),
+                _ => None,
+            };
+            let away = away_since.map_or(0, |t| now - t);
+            let open = OPEN.load(Ordering::Acquire);
+            let since_show = now.saturating_sub(SHOWN_AT.load(Ordering::Acquire));
+            match guard_step(open, visible, fg, since_show, away) {
+                GuardAction::Hide if open => {
+                    // An outside click / app switch the focus events missed: same as `on_window_event`.
+                    hide_quick(&app);
+                    forget_foreground();
+                }
+                GuardAction::Hide => force_hide(&app, &w),
+                GuardAction::Refocus => {
+                    let _ = w.set_focus();
+                }
+                GuardAction::Nothing => {}
+            }
+        }
+    });
 }
 
 #[cfg(windows)]
@@ -557,11 +739,13 @@ fn request_show(app: &AppHandle) {
 
 #[cfg(desktop)]
 fn on_hotkey(app: &AppHandle) {
+    // The user is driving the popup directly now: an older "unlock, then come back" is void.
+    UNLOCK_REQUESTED_AT.store(0, Ordering::Release);
     let w = app.get_webview_window(WINDOW_LABEL);
     let visible = w.as_ref().is_some_and(|w| w.is_visible().unwrap_or(false));
     // Pressing the shortcut again closes the window, focused or not (and cancels a pending show).
     if visible || PENDING.load(Ordering::Acquire) {
-        let focused = w.as_ref().is_some_and(|w| w.is_focused().unwrap_or(false));
+        let focused = w.as_ref().is_some_and(has_foreground);
         hide_quick(app);
         if focused { restore_foreground() } else { forget_foreground() }
         return;
@@ -596,7 +780,11 @@ fn create_window(app: &AppHandle) -> Result<tauri::WebviewWindow, String> {
         })
         .build()
         .map_err(|e| e.to_string())?;
+    // Hidden window, hidden webview: nothing renders or grabs the focus until a show.
+    set_webview_visible(&w, false);
     crate::capture_shield::refresh(app);
+    #[cfg(windows)]
+    start_guard(app);
     Ok(w)
 }
 
@@ -628,21 +816,35 @@ fn show_window(app: &AppHandle, gen: u64) {
     if !current() {
         return;
     }
+    // The only place the quick window goes on screen: a show the user asked for (hotkey / reopen).
+    SHOWN_AT.store(mono_ms(), Ordering::Release);
+    OPEN.store(true, Ordering::Release);
     let _ = w.center();
+    set_webview_visible(&w, true);
     let _ = w.unminimize();
     let _ = w.show();
     let _ = w.set_focus();
     PENDING.store(false, Ordering::Release);
+    // A hide that landed between the check above and `show()` (outside click, hotkey again, quick
+    // search turned off) must win: take the window down again instead of leaving it up unasked.
+    if !current() {
+        if !OPEN.load(Ordering::Acquire) {
+            force_hide(app, &w);
+        }
+        return;
+    }
     let _ = app.emit_to(WINDOW_LABEL, SHOWN_EVENT, ());
 
-    // Without the focus an outside click never blurs the window (nothing would close it): retry
-    // briefly in case Windows' foreground lock refused the first attempt.
+    // Without the focus an outside click never blurs the window: retry briefly in case Windows'
+    // foreground lock refused the first attempt. (On Windows the guard does this, and it also closes
+    // a window that never got the focus.)
+    #[cfg(not(windows))]
     for _ in 0..4 {
         std::thread::sleep(std::time::Duration::from_millis(100));
         if !current() {
             return;
         }
-        if w.is_focused().unwrap_or(false) {
+        if has_foreground(&w) {
             break;
         }
         let _ = w.set_focus();
@@ -721,21 +923,30 @@ pub fn quick_search_hide(app: AppHandle, restore: bool) {
 /// The quick window's page listens for its events: sent after mount and in answer to every
 /// `quick-search:shown`. A show waits for it (no blank window) and a missing answer after a show
 /// means the page died (it is then reloaded). Ignored for every other window.
+///
+/// Answers whether the window is on screen at the user's request: a page that (re)loaded while it is
+/// (a show that timed out waiting, a reload) missed the `shown` event and must act on it. This never
+/// shows the window; only `show_window` does.
 #[tauri::command]
-pub fn quick_search_ready(window: tauri::Window) {
-    if window.label() == WINDOW_LABEL {
-        READY.store(true, Ordering::Release);
-        ACK_GEN.store(SHOW_GEN.load(Ordering::Acquire), Ordering::Release);
+pub fn quick_search_ready(window: tauri::Window) -> bool {
+    if window.label() != WINDOW_LABEL {
+        return false;
     }
+    READY.store(true, Ordering::Release);
+    ACK_GEN.store(SHOW_GEN.load(Ordering::Acquire), Ordering::Release);
+    OPEN.load(Ordering::Acquire)
 }
 
 /// Brings the main window forward and asks it to open an entry (`rel`) or the unlock dialog.
 #[tauri::command]
 pub fn quick_search_show_main(app: AppHandle, action: String, rel: Option<String>) -> Result<(), String> {
     hide_quick(&app);
-    // After an unlock the popup comes back (`quick_search_reopen`) and a copy should still return
-    // the focus to the original app; opening an entry ends the quick-search session.
-    if action != "unlock" {
+    // After an unlock the popup comes back (`quick_search_reopen`, once, for a short while) and a copy
+    // should still return the focus to the original app; opening an entry ends the session.
+    if action == "unlock" {
+        UNLOCK_REQUESTED_AT.store(mono_ms(), Ordering::Release);
+    } else {
+        UNLOCK_REQUESTED_AT.store(0, Ordering::Release);
         forget_foreground();
     }
     if let Some(w) = app.get_webview_window("main") {
@@ -754,8 +965,16 @@ pub fn quick_search_show_main(app: AppHandle, action: String, rel: Option<String
 }
 
 /// Shows the popup again (used by the main window once an unlock started from the popup succeeded).
+/// Honoured once, and only shortly after the popup's own "Unlock" (`reopen_allowed`): an unrelated
+/// unlock, or a stale waiter in the main window, never puts the popup on screen. Main window only.
 #[tauri::command]
-pub fn quick_search_reopen(app: AppHandle) {
+pub fn quick_search_reopen(app: AppHandle, window: tauri::Window) {
+    if window.label() != "main" {
+        return;
+    }
+    if !reopen_allowed(UNLOCK_REQUESTED_AT.swap(0, Ordering::AcqRel), mono_ms()) {
+        return;
+    }
     #[cfg(desktop)]
     request_show(&app);
     #[cfg(not(desktop))]
@@ -977,6 +1196,53 @@ mod tests {
         assert!(!needs_reload(true, true));
         assert!(!needs_reload(false, false)); // still loading: a reload would only restart it
         assert!(!needs_reload(false, true));
+    }
+
+    #[test]
+    fn guard_hides_a_window_nobody_asked_for() {
+        // Visible without a hotkey / reopen show (stale show, OS or WebView2 quirk, reload): always hidden,
+        // whoever holds the foreground and however long ago the last real show was.
+        for fg in [Foreground::Ours, Foreground::Other, Foreground::None] {
+            for since in [0, SHOW_GRACE_MS, 99_999] {
+                assert_eq!(guard_step(false, true, fg, since, 0), GuardAction::Hide, "{fg:?} {since}");
+            }
+        }
+        // Hidden: nothing to do, open or not.
+        for open in [false, true] {
+            assert_eq!(guard_step(open, false, Foreground::Other, 99_999, 99_999), GuardAction::Nothing);
+        }
+    }
+
+    #[test]
+    fn guard_closes_an_open_window_that_lost_the_foreground() {
+        // Ours (or a hand-over with no foreground): stays.
+        assert_eq!(guard_step(true, true, Foreground::Ours, 99_999, 0), GuardAction::Nothing);
+        assert_eq!(guard_step(true, true, Foreground::None, 99_999, 0), GuardAction::Nothing);
+        // Right after the show the activation may still be on its way: ask for the focus again.
+        assert_eq!(guard_step(true, true, Foreground::Other, 0, 0), GuardAction::Refocus);
+        assert_eq!(guard_step(true, true, Foreground::Other, SHOW_GRACE_MS - 1, 900), GuardAction::Refocus);
+        // Afterwards another window in front = the user clicked / switched away: hide (once confirmed).
+        assert_eq!(guard_step(true, true, Foreground::Other, SHOW_GRACE_MS, 0), GuardAction::Nothing);
+        assert_eq!(guard_step(true, true, Foreground::Other, SHOW_GRACE_MS, BLUR_CONFIRM_MS - 1), GuardAction::Nothing);
+        assert_eq!(guard_step(true, true, Foreground::Other, SHOW_GRACE_MS, BLUR_CONFIRM_MS), GuardAction::Hide);
+        assert_eq!(guard_step(true, true, Foreground::Other, 99_999, 99_999), GuardAction::Hide);
+        assert!(SHOW_GRACE_MS + BLUR_CONFIRM_MS <= 1500, "a never-focused window must not linger");
+    }
+
+    #[test]
+    fn reopen_only_right_after_the_popups_own_unlock() {
+        assert!(!reopen_allowed(0, 10)); // the popup never asked (stale waiter, other unlock flow)
+        assert!(reopen_allowed(1_000, 1_000));
+        assert!(reopen_allowed(1_000, 1_000 + REOPEN_WINDOW_MS));
+        assert!(!reopen_allowed(1_000, 1_001 + REOPEN_WINDOW_MS)); // too late: the user moved on
+        assert!(!reopen_allowed(5_000, 4_000)); // clock sanity
+    }
+
+    #[test]
+    fn mono_clock_never_reads_as_never() {
+        assert!(mono_ms() >= 1);
+        let a = mono_ms();
+        assert!(mono_ms() >= a);
     }
 
     #[test]

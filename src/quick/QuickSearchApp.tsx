@@ -18,14 +18,18 @@ import {
   codeLabel, codeTargets, copyPlan, formatCode, msUntilNextStep, NEAR_EXPIRY_SECONDS, secondsLeft, TOTP_PERIOD,
   totpStep, waitingMessage, type TotpNow,
 } from "./totp";
+import { focusTarget, INITIAL_VISIBLE, onVaultState, openOnReady, shouldPollLock, type QuickPhase } from "./lifecycle";
 
-type Phase = "loading" | "ready" | "locked" | "novault" | "error";
+type Phase = QuickPhase;
 type ThemeId = Parameters<typeof applyTheme>[0];
 
 /** Hides the window; `restore` gives the focus back to the app that was active before the hotkey. */
 const hide = (restore: boolean) => invoke("quick_search_hide", { restore }).catch(() => {});
-/** Tells Rust the page listens (after mount and on every show): it shows the window only then. */
-const ready = () => invoke("quick_search_ready").catch(() => {});
+/**
+ * Tells Rust the page listens (after mount and on every show). Resolves to whether the window is on
+ * screen at the user's request (see `openOnReady`); it never shows the window itself.
+ */
+const ready = () => invoke<boolean>("quick_search_ready").then(openOnReady, () => false);
 const showMain = (action: "open" | "unlock", rel?: string) =>
   invoke("quick_search_show_main", { action, rel: rel ?? null }).catch(() => {});
 
@@ -43,7 +47,10 @@ export default function QuickSearchApp() {
   const [query, setQuery] = useState("");
   const [sel, setSel] = useState(0);
   const [msg, setMsg] = useState<string | null>(null);
-  const [visible, setVisible] = useState(true);
+  // Created hidden; only Rust's `shown` (or `quick_search_ready` saying so) puts it on screen.
+  const [visible, setVisible] = useState(INITIAL_VISIBLE);
+  const visibleRef = useRef(INITIAL_VISIBLE);
+  useEffect(() => { visibleRef.current = visible; }, [visible]);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
   const busy = useRef(false);
@@ -107,31 +114,41 @@ export default function QuickSearchApp() {
     document.documentElement.classList.add("is-quick-search");
     applyTheme((localStorage.getItem("pref:theme") || "dark") as ThemeId);
     void refresh();
-    inputRef.current?.focus();
+    // No focus() here: the window is hidden at mount, and the focus follows `visible` (below).
+    const onShown = () => {
+      dropCodes();
+      setVisible(true);
+      visibleRef.current = true;
+      setQuery(""); setSel(0); setMsg(null);
+      void refresh();
+      requestAnimationFrame(() => inputRef.current?.focus());
+    };
     const subs = [
       listen<{ themeId: string }>("theme-changed", (e) => applyTheme(e.payload.themeId as ThemeId)),
-      listen("quick-search:shown", () => {
-        void ready();
-        dropCodes();
-        setVisible(true);
-        setQuery(""); setSel(0); setMsg(null);
-        void refresh();
-        requestAnimationFrame(() => inputRef.current?.focus());
-      }),
+      listen("quick-search:shown", () => { void ready(); onShown(); }),
       // Rust hid the window (outside click, hotkey pressed again, Alt+F4, quick search turned off,
       // entry opened): forget the codes, the query and any message.
       listen("quick-search:hidden", () => {
         setVisible(false);
+        visibleRef.current = false;
         setQuery(""); setSel(0); setMsg(null);
         dropCodes();
       }),
-      // Locked anywhere (main window, panic lock, idle lock): no code stays on screen.
-      listen<{ unlocked: boolean }>("vault:state-changed", (e) => { if (!e.payload.unlocked) lockedNow(); }),
-      // An outside click (focus loss) is handled in Rust (`on_window_event`): it works even while
-      // this page is still loading or has died, and it can't miss a focus gained before mount.
+      // Locked anywhere (main window, panic lock, idle lock): no code stays on screen, and a visible
+      // window switches to its locked state (never blank). An unlock refreshes a visible window.
+      listen<{ unlocked: boolean }>("vault:state-changed", (e) => {
+        const act = onVaultState(e.payload, visibleRef.current);
+        if (act === "lock") lockedNow();
+        else if (act === "refresh") void refresh();
+      }),
+      // An outside click (focus loss) is handled in Rust (`on_window_event` + the guard): it works even
+      // while this page is still loading or has died, and it can't miss a focus gained before mount.
     ];
     let cancelled = false;
-    void Promise.all(subs).then(() => { if (!cancelled) void ready(); }, () => { if (!cancelled) void ready(); });
+    // Ready after mount. If the window is already on screen (the show timed out waiting for this page,
+    // or the page was reloaded), the `shown` event was missed: act on it now.
+    const announce = () => { if (!cancelled) void ready().then((open) => { if (open && !cancelled) onShown(); }); };
+    void Promise.all(subs).then(announce, announce);
     return () => { cancelled = true; subs.forEach((p) => p.then((un) => un()).catch(() => {})); };
   }, [refresh, dropCodes, lockedNow]);
 
@@ -175,15 +192,17 @@ export default function QuickSearchApp() {
 
   // While locked and on screen, notice the unlock done in the main window.
   useEffect(() => {
-    if (phase !== "locked" || !visible) return;
+    if (!shouldPollLock(phase, visible)) return;
     const t = setInterval(() => void refresh(), 1000);
     return () => clearInterval(t);
   }, [phase, visible, refresh]);
 
-  // Keyboard focus follows the state: the search box when ready, else the window's button.
+  // Keyboard focus follows the state: the search box when ready, else the window's button. Never
+  // while hidden (no `autoFocus` either): a hidden window must not pull the focus.
   useEffect(() => {
-    if (!visible) return;
-    const el = phase === "ready" ? inputRef.current : document.querySelector<HTMLElement>("button");
+    const target = focusTarget(phase, visible);
+    if (!target) return;
+    const el = target === "input" ? inputRef.current : document.querySelector<HTMLElement>("button");
     el?.focus();
   }, [phase, visible]);
 
@@ -306,7 +325,6 @@ export default function QuickSearchApp() {
         <Search size={16} className="text-[var(--color-text-muted)] shrink-0" aria-hidden />
         <input
           ref={inputRef}
-          autoFocus
           spellCheck={false}
           autoComplete="off"
           aria-label="Search the vault"
@@ -328,7 +346,6 @@ export default function QuickSearchApp() {
             <p className="text-xs text-[var(--color-text-muted)]">Unlock it in Notiq; this list refreshes on its own.</p>
             <button
               type="button"
-              autoFocus
               className="px-3 py-1.5 rounded-md text-xs font-medium bg-[var(--color-primary)] text-white hover:opacity-90"
               onClick={unlock}
             >
