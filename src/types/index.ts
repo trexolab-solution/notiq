@@ -76,6 +76,9 @@ export interface Tab {
   /** Secure Vault: original file type of a `.nqv` note (e.g. "md"). Drives
    *  language / markdown mode, since the `.nqv` extension carries no type. */
   vaultExt?: string;
+  /** Secure Vault: a reusable "preview" tab (italic title, VS Code style) opened by a single click in
+   *  the vault sidebar. The next single click replaces it unless it was edited, double-clicked or pinned. */
+  isPreview?: boolean;
 }
 
 export interface GraphNode {

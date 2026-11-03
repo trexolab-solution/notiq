@@ -332,6 +332,8 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* Vault preview tab (VS Code style): replaced by the next single click in the vault sidebar. */
+.tab-item.is-preview .tab-title { font-style: italic; }
 
 .tab-close-btn {
   opacity: 0;

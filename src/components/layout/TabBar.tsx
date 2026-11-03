@@ -56,6 +56,8 @@ interface SortableTabProps {
   onEditCommit: () => void;
   onEditCancel: () => void;
   onDoubleClick: (id: string, title: string) => void;
+  /** Make a preview tab permanent. */
+  onKeep: (id: string) => void;
   onContextMenu: (e: React.MouseEvent, tab: Tab) => void;
 }
 
@@ -66,7 +68,7 @@ export interface TabBarProps {
 
 function SortableTab({
   tab, isActive, editingId, editValue,
-  onActivate, onClose, onTogglePin, onEditChange, onEditCommit, onEditCancel, onDoubleClick, onContextMenu,
+  onActivate, onClose, onTogglePin, onEditChange, onEditCommit, onEditCancel, onDoubleClick, onKeep, onContextMenu,
 }: SortableTabProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: tab.id });
 
@@ -83,7 +85,7 @@ function SortableTab({
       {...listeners}
       onClick={() => onActivate(tab.id)}
       onContextMenu={(e) => onContextMenu(e, tab)}
-      className={`tab-item${isActive ? " is-active" : ""}${isDragging ? " is-dragging" : ""}${tab.isPinned ? " is-pinned" : ""}`}
+      className={`tab-item${isActive ? " is-active" : ""}${isDragging ? " is-dragging" : ""}${tab.isPinned ? " is-pinned" : ""}${tab.isPreview ? " is-preview" : ""}`}
     >
       {/* State indicator */}
       {tab.kind === "whiteboard" ? (
@@ -113,10 +115,16 @@ function SortableTab({
           style={{ pointerEvents: "auto" }}
         />
       ) : (
-        <Tooltip content={tab.filePath ?? tab.title} delay={800} disabled={!tab.filePath}>
+        <Tooltip content={tab.filePath ?? tab.title} delay={800} disabled={!tab.filePath}
+                 description={tab.isPreview ? "Preview tab — double-click to keep it open" : undefined}>
           <span
             className="tab-title"
-            onDoubleClick={(e) => { e.stopPropagation(); if (tab.kind !== "settings") onDoubleClick(tab.id, tab.title); }}
+            onDoubleClick={(e) => {
+              e.stopPropagation();
+              // A preview tab's first double-click keeps it (VS Code); renaming is a double-click after that.
+              if (tab.isPreview) onKeep(tab.id);
+              else if (tab.kind !== "settings") onDoubleClick(tab.id, tab.title);
+            }}
           >
             {tab.title}
           </span>
@@ -175,6 +183,7 @@ export const TabBar = React.memo(function TabBar({ onCloseTab }: TabBarProps) {
   const updateTabTitle = useAppStore((s) => s.updateTabTitle);
   const reorderTabs    = useAppStore((s) => s.reorderTabs);
   const togglePinTab   = useAppStore((s) => s.togglePinTab);
+  const makeTabPermanent = useAppStore((s) => s.makeTabPermanent);
   const lockTabToVault = useAppStore((s) => s.lockTabToVault);
   const lockVault       = useAppStore((s) => s.lockVault);
   const vaultUnlocked   = useVaultStore((s) => s.unlocked);
@@ -315,6 +324,7 @@ export const TabBar = React.memo(function TabBar({ onCloseTab }: TabBarProps) {
                   onEditCommit={commitEdit}
                   onEditCancel={() => setEditingId(null)}
                   onDoubleClick={startEdit}
+                  onKeep={makeTabPermanent}
                   onContextMenu={handleContextMenu}
                 />
               );
