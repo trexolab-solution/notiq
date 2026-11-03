@@ -11,6 +11,7 @@ import { QuickSearchRow } from "./QuickSearchRow";
 import { CaptureShieldRow } from "./CaptureShieldRow";
 import { BackupSection } from "../../vault/BackupSection";
 import { AutofillSection } from "./AutofillSection";
+import { AutofillIncognitoRow } from "./AutofillIncognitoRow";
 import { HelloRow } from "./HelloRow";
 import { RecoveryKeyRow } from "./RecoveryKeyRow";
 import { SyncSection } from "./SyncSection";
@@ -197,6 +198,7 @@ export const VaultSection = React.memo(function VaultSection() {
 
       <SettingsGroup title="Browser autofill" description="Fill logins from your vault in Edge, Chrome or Brave.">
         <AutofillSection />
+        <AutofillIncognitoRow />
       </SettingsGroup>
     </div>
   );
@@ -288,4 +290,7 @@ export const SETTINGS_INDEX: SettingMeta[] = [
   { id: "vault.autofill.status", section: "vault", group: "Browser autofill", label: "Browser registration and status",
     description: "Which browsers Notiq is registered with, whether the local bridge is running, and when the extension was last seen.",
     keywords: ["status", "bridge", "extension last seen", "registered", "last request", "diagnostics"] },
+  { id: "vault.autofill.incognito", section: "vault", group: "Browser autofill", label: "Allow autofill in private (incognito) windows",
+    description: "When off, the extension does nothing in private windows and Notiq refuses its requests from there. The browser must also allow the extension in private windows.",
+    keywords: ["incognito", "private", "inprivate", "private window", "private browsing", "extension", "autofill"] },
 ];

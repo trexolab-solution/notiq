@@ -322,7 +322,11 @@ export async function fillReply(m: LoginMatch, intent?: FillIntent) {
 
 // ─── Saving a login captured in the browser ──────────────────────────────────
 
-export interface SaveRequest { id: string; host: string; url: string; username: string; password: string; title: string }
+/**
+ * `current`: a change-password form's current (old) password, when the page had one. It only helps find the
+ * login to update (the one that still holds it); it is never written.
+ */
+export interface SaveRequest { id: string; host: string; url: string; username: string; password: string; title: string; current?: string }
 /**
  * `target`: the login an update writes to. `candidates`: every saved login with this username on the
  * site, best first (set for an update, and kept when the user switches to "Save as new" so they can go
@@ -335,23 +339,41 @@ export interface SavePlan { kind: "unchanged" | "update" | "create"; target?: Lo
  * site: same username (case-insensitive; empty only equals empty) with the same
  * password → nothing; different password → update; otherwise create.
  * `existing` is expected to be the host-matched list from `findLogins`.
- * Update candidates are ordered most recently filled first (`lastUsedOf`), then most recently
- * modified, then in vault order; the first one is the pre-selected target.
+ * Change-password forms may send `current` (the old password): without a username, the logins that still
+ * hold that password are the ones to update; with one, they come first among that username's logins.
+ * Update candidates are ordered: still holding `current` first, then most recently filled (`lastUsedOf`),
+ * then most recently modified, then in vault order; the first one is the pre-selected target.
  */
 export function planSave(
   existing: LoginMatch[],
-  req: { username: string; password: string },
+  req: { username: string; password: string; current?: string },
   lastUsedOf: (m: LoginMatch) => number = loginLastUsed,
 ): SavePlan {
   const u = req.username.trim().toLowerCase();
-  const same = existing.filter((m) => m.entry.username.trim().toLowerCase() === u);
+  const current = req.current || "";
+  let same = existing.filter((m) => m.entry.username.trim().toLowerCase() === u);
+  if (!u && current) {
+    const holding = existing.filter((m) => m.entry.password === current);
+    if (holding.length) same = holding;
+  }
   if (same.some((m) => m.entry.password === req.password)) return { kind: "unchanged" };
   if (!same.length) return { kind: "create" };
   const candidates = same
-    .map((m, i) => ({ m, i, used: lastUsedOf(m) || 0, updated: m.updated ?? 0 }))
-    .sort((a, b) => b.used - a.used || b.updated - a.updated || a.i - b.i)
+    .map((m, i) => ({ m, i, cur: current && m.entry.password === current ? 1 : 0, used: lastUsedOf(m) || 0, updated: m.updated ?? 0 }))
+    .sort((a, b) => b.cur - a.cur || b.used - a.used || b.updated - a.updated || a.i - b.i)
     .map((x) => x.m);
   return { kind: "update", target: candidates[0], candidates };
+}
+
+/**
+ * The answer to the extension's `save_check` (should the page offer Save, Update or nothing?), from the plan:
+ * `none` for an unchanged login (no offer at all), `update` with how many logins it could go to (the prompt
+ * lets the user pick when there are several), else `save`. Holds no vault data.
+ */
+export function saveCheckReply(plan: SavePlan): { ok: true; action: "none" | "update" | "save"; choices: number } {
+  if (plan.kind === "unchanged") return { ok: true, action: "none", choices: 0 };
+  if (plan.kind === "update") return { ok: true, action: "update", choices: Math.min(20, Math.max(1, plan.candidates?.length ?? 1)) };
+  return { ok: true, action: "save", choices: 0 };
 }
 
 /** The plan after the user picks update candidate `index` (ignored when out of range or without candidates). */

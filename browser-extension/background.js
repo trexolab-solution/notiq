@@ -24,11 +24,38 @@ function ask(msg) {
       else {
         // Vault locked: no held password survives that.
         if (res && (res.error === "locked" || res.locked === true)) { dropAllSteps().catch(() => {}); dropIdentityMenu(); }
-        resolve(res || { error: "no_reply" });
+        const allowed = res && res.error === "incognito_off" ? false : NotiqShared.pingIncognito(res);
+        if (allowed === undefined) resolve(res || { error: "no_reply" });
+        else noteIncognito(allowed).then(() => resolve(res), () => resolve(res));
       }
     });
   });
 }
+
+// ---------- private (incognito) windows ----------
+// Notiq → Settings → Vault → Browser autofill → "Allow autofill in private (incognito) windows", off by default.
+// The app says in every ping reply (`incognito`) and with {error:"incognito_off"}; the answer is cached in
+// chrome.storage.local `incognitoAllowed` (content scripts and the popup read it from there). While it is off a
+// private tab gets nothing: content scripts there stay inert, every request from such a tab is refused here
+// with { error: "incognito_off" } (passkeys fall back to the browser), and the toolbar popup says so. Requests
+// from a private tab carry `incognito: true`, so the app refuses them too if this cache is ever wrong.
+async function noteIncognito(allowed) {
+  const key = NotiqShared.INCOGNITO_KEY;
+  const cur = (await chrome.storage.local.get({ [key]: false }))[key] === true;
+  if (cur !== allowed) await chrome.storage.local.set({ [key]: allowed });
+}
+async function incognitoAllowed() {
+  const key = NotiqShared.INCOGNITO_KEY;
+  try { return (await chrome.storage.local.get({ [key]: false }))[key] === true; } catch { return false; }
+}
+const isPrivate = (tab) => !!tab && tab.incognito === true;
+// Should this tab be left alone?
+async function blockedTab(tab) {
+  return isPrivate(tab) && !(await incognitoAllowed());
+}
+// The flag every request from a private tab carries.
+const inc = (tab) => (isPrivate(tab) ? { incognito: true } : {});
+const INCOGNITO_OFF = Object.freeze({ error: "incognito_off" });
 
 // Asks the app (never starts it) whether the vault is open. Anything but a clear "running, not locked"
 // (app closed, no host, an error) counts as locked: a closed app has a locked vault. An older app whose
@@ -248,13 +275,13 @@ const CODE_RE = /^[0-9A-Za-z]{4,10}$/;
 // { cred } | { choose } | { error }. `intent: "code"` (a separate 2FA page) asks for the
 // login's one-time code only: the cred is then { username, title, code } and never holds a
 // password, even if an older app that doesn't know the intent sends one.
-async function askFill(tabId, host, account, intent) {
+async function askFill(tabId, host, account, intent, flag = {}) {
   if (account !== undefined) {
     if (typeof account !== "string" || !account || account.length > MAX.account) return { error: "bad_request" };
     const o = offers.get(tabId);
     if (!o || o.host !== host || !(Date.now() - o.at < OFFER_TTL) || !o.accounts.has(account)) return { error: "stale" };
   }
-  const req = account !== undefined ? { op: "fill", host, account } : { op: "fill", host };
+  const req = account !== undefined ? { op: "fill", host, account, ...flag } : { op: "fill", host, ...flag };
   if (intent === "code") req.intent = "code";
   const res = await ask(req);
   if (res && res.choose !== undefined && !res.error) {
@@ -276,11 +303,12 @@ async function askFill(tabId, host, account, intent) {
 async function fillActiveTab(account) {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab || !tab.url) return { error: "no_tab" };
+  if (await blockedTab(tab)) return { ...INCOGNITO_OFF };
   const top = pageInfo(tab.url);
   if (top.error) return { error: top.error };
   const host = top.host;
   await dropStep(tab.id); // a new fill in this tab replaces any held password
-  const got = await askFill(tab.id, host, account);
+  const got = await askFill(tab.id, host, account, undefined, inc(tab));
   if (got.error) return { error: got.error };
   if (got.choose) return { choose: got.choose, host };
   const res = got.cred;
@@ -357,7 +385,7 @@ async function fillForSender(sender, msg) {
   try {
     if (!intent) await dropStep(tabId); // a new fill in this tab replaces any held password
     const account = msg && msg.account !== undefined ? msg.account : undefined;
-    const got = await askFill(tabId, info.host, account, intent);
+    const got = await askFill(tabId, info.host, account, intent, inc(sender.tab));
     if (got.error) return { error: got.error };
     if (got.choose) return { choose: got.choose, host: info.host };
     const res = got.cred;
@@ -391,7 +419,7 @@ async function fillCardForSender(sender) {
   if (fillsInFlight.has(tabId)) return { error: "busy" };
   fillsInFlight.add(tabId);
   try {
-    const res = await ask({ op: "fill_card", host: info.host, origin: info.origin });
+    const res = await ask({ op: "fill_card", host: info.host, origin: info.origin, ...inc(sender.tab) });
     if (!res || res.error) return { error: res ? String(res.error).slice(0, 40) : "no_reply" };
     const card = NotiqShared.validCardReply(res);
     return card ? { ok: true, host: info.host, card } : { error: "no_reply" };
@@ -430,9 +458,11 @@ const CAPTURE_KEYS = ["host", "url", "username", "password", "title"];
 async function onCapture(msg, sender) {
   const p = msg.payload;
   if (!p || typeof p !== "object" || Array.isArray(p)) return { error: "bad_request" };
-  if (Object.keys(p).some((k) => !CAPTURE_KEYS.includes(k) && k !== "change")) return { error: "bad_request" };
+  if (Object.keys(p).some((k) => !CAPTURE_KEYS.includes(k) && k !== "change" && k !== "current")) return { error: "bad_request" };
   if (!CAPTURE_KEYS.every((k) => typeof p[k] === "string")) return { error: "bad_request" };
   if (p.change !== undefined && typeof p.change !== "boolean") return { error: "bad_request" };
+  // A change-password form's current (old) password: only used by the app to find the login to update.
+  if (p.current !== undefined && (typeof p.current !== "string" || p.current.length > MAX.password)) return { error: "bad_request" };
   if (!p.password || p.password.length > MAX.password || p.username.length > MAX.username) return { error: "bad_request" };
   const info = pageInfo(sender.url);
   if (info.error) return { error: info.error };
@@ -449,10 +479,15 @@ async function onCapture(msg, sender) {
   const claimed = pageInfo(p.url);
   if (sender.frameId === 0 && !claimed.error && claimed.origin === info.origin) url = claimed.url;
   await purgeExpired();
+  // A save check of the previous login in this tab finishes first (it may still drop or annotate that one).
+  const checking = saveChecksInFlight.get(sender.tab.id);
+  if (checking) await checking.catch(() => {});
   await chrome.storage.session.set({
     [pendingKey(sender.tab.id)]: {
       host: top.host, url, username: str(p.username, MAX.username), password: p.password,
       title: str(p.title, MAX.title), change: p.change === true, at: Date.now(),
+      ...(p.current && p.current !== p.password ? { current: p.current } : {}),
+      ...(isPrivate(sender.tab) ? { incognito: true } : {}),
     },
   });
   if (sender.frameId !== 0) {
@@ -462,10 +497,38 @@ async function onCapture(msg, sender) {
   return { ok: true };
 }
 
+// The page wants to show the offer: first ask Notiq (once per captured login) whether this login is already saved
+// for the site (`save_check`, compared inside the app; no window, never starts Notiq). "none" drops the offer;
+// "update" / "save" set its wording. Locked, not running or an older app: the old offer (Notiq decides on Save).
+const saveChecksInFlight = new Map(); // tabId -> Promise
+async function checkSave(tabId, p) {
+  if (p.action !== undefined) return p.action;
+  if (saveChecksInFlight.has(tabId)) return saveChecksInFlight.get(tabId);
+  const run = (async () => {
+    const req = { op: "save_check", host: p.host, username: p.username, password: p.password };
+    if (p.current) req.current = p.current;
+    if (p.incognito) req.incognito = true;
+    const action = NotiqShared.saveCheckAction(await ask(req));
+    // Store the answer only on the same capture (a new login may have been captured meanwhile).
+    const key = pendingKey(tabId);
+    const now = (await chrome.storage.session.get(key))[key];
+    if (now && now.at === p.at && now.password === p.password && now.username === p.username) {
+      if (action === "none") await chrome.storage.session.remove(key);
+      else await chrome.storage.session.set({ [key]: { ...now, action } });
+    }
+    return action;
+  })();
+  saveChecksInFlight.set(tabId, run);
+  try { return await run; } finally { saveChecksInFlight.delete(tabId); }
+}
+
 async function onPending(_msg, sender) {
   const p = await readPending(sender.tab.id);
+  if (!p) return { pending: null };
+  const action = await checkSave(sender.tab.id, p);
+  if (action === "none") return { pending: null };
   // Never hand the password back to the page side.
-  return { pending: p ? { host: p.host, username: p.username, change: p.change === true } : null };
+  return { pending: { host: p.host, username: p.username, change: p.change === true, kind: NotiqShared.offerKind(action, p.change) } };
 }
 
 const SAVE_STATUS = new Set(["saved", "updated", "unchanged"]);
@@ -476,7 +539,10 @@ async function onSave(_msg, sender) {
   if (!p) return { error: "expired" };
   savesInFlight.add(tabId);
   try {
-    const res = await ask({ op: "save", host: p.host, url: p.url, username: p.username, password: p.password, title: p.title });
+    const req = { op: "save", host: p.host, url: p.url, username: p.username, password: p.password, title: p.title };
+    if (p.current) req.current = p.current;
+    if (p.incognito) req.incognito = true;
+    const res = await ask(req);
     if (res && res.ok) {
       await chrome.storage.session.remove(pendingKey(tabId));
       return { ok: true, status: SAVE_STATUS.has(res.status) ? res.status : "saved" };
@@ -620,6 +686,7 @@ function validListed(list) {
 async function popupTab() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab || typeof tab.id !== "number" || !tab.url) return { error: "no_tab" };
+  if (await blockedTab(tab)) return { ...INCOGNITO_OFF };
   const top = pageInfo(tab.url);
   return top.error ? { error: top.error } : { tab, host: top.host };
 }
@@ -630,7 +697,7 @@ async function popupList() {
   const t = await popupTab();
   if (t.error) return { error: t.error };
   popupLists.delete(t.tab.id);
-  const res = await ask({ op: "list", host: t.host });
+  const res = await ask({ op: "list", host: t.host, ...inc(t.tab) });
   if (!res || res.error || res.ok !== true) return { error: errorOf(res), host: t.host };
   const accounts = validListed(res.accounts);
   if (!accounts) return { error: "no_reply", host: t.host };
@@ -660,7 +727,7 @@ async function popupCopy(msg) {
   if (!COPY_WHAT.has(msg.what)) return { error: "bad_request" };
   const t = await popupListed(msg.account);
   if (t.error) return { error: t.error };
-  const res = await ask({ op: "copy", host: t.host, account: msg.account, what: msg.what });
+  const res = await ask({ op: "copy", host: t.host, account: msg.account, what: msg.what, ...inc(t.tab) });
   if (!res || res.error || res.ok !== true) return { error: errorOf(res) };
   const clearAfter = Number.isInteger(res.clearAfter) && res.clearAfter >= 0 && res.clearAfter <= 3600 ? res.clearAfter : 0;
   return { ok: true, copied: msg.what, clearAfter };
@@ -669,11 +736,17 @@ async function popupCopy(msg) {
 async function popupOpen(msg) {
   const t = await popupListed(msg.account);
   if (t.error) return { error: t.error };
-  const res = await ask({ op: "open", host: t.host, account: msg.account });
+  const res = await ask({ op: "open", host: t.host, account: msg.account, ...inc(t.tab) });
   return res && res.ok === true && !res.error ? { ok: true } : { error: errorOf(res) };
 }
 
-const POPUP_HANDLERS = { list: popupList, popupFill, copy: popupCopy, open: popupOpen };
+// Is the active tab a private window where autofill is off? (The popup then shows only a short notice.)
+async function popupPrivate() {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  return { ok: true, blocked: await blockedTab(tab) };
+}
+
+const POPUP_HANDLERS = { list: popupList, popupFill, copy: popupCopy, open: popupOpen, privateState: popupPrivate };
 
 // ---------- theme from the Notiq app ----------
 // {op:"theme"} -> {ok:true, theme} | {ok:true, theme:null}. Never launches the app.
@@ -723,6 +796,12 @@ const CONTENT_HANDLERS = {
   stepCancel: onStepCancel,
 };
 
+// Runs a content-script request unless it comes from a private tab while autofill there is off. A refused
+// request changes nothing (no held password, no pending save, nothing asked of Notiq).
+async function forTab(sender, run) {
+  return (await blockedTab(sender.tab)) ? { ...INCOGNITO_OFF } : run();
+}
+
 function messageTooBig(msg) {
   try { return JSON.stringify(msg).length > MAX.message; } catch { return true; }
 }
@@ -738,7 +817,7 @@ chrome.runtime.onMessage.addListener((msg, sender, send) => {
     if (sender.frameId !== 0 && (!FRAME_TYPES.has(msg.type) || !frameAllowed(sender))) return false;
     const handler = Object.prototype.hasOwnProperty.call(CONTENT_HANDLERS, msg.type) ? CONTENT_HANDLERS[msg.type] : null;
     if (!handler) return false;
-    handler(msg, sender).then(send, () => send({ error: "failed" }));
+    forTab(sender, () => handler(msg, sender)).then(send, () => send({ error: "failed" }));
     return true;
   }
 
@@ -772,9 +851,11 @@ chrome.runtime.onMessage.addListener((msg, sender, send) => {
 // With the page icon turned off there is nothing to click, so the shortcut opens the toolbar popup instead.
 chrome.commands.onCommand.addListener(async (command, tab) => {
   if (command !== "fill-login") return;
+  if (tab && (await blockedTab(tab))) return;
   if (!(await getSettings()).showIcon) { try { await chrome.action.openPopup(); } catch { /* needs a recent Chrome/Edge */ } return; }
   const send = (t) => t && typeof t.id === "number" && chrome.tabs.sendMessage(t.id, { type: "fillShortcut" }).catch(() => {});
-  if (tab) send(tab); else chrome.tabs.query({ active: true, currentWindow: true }).then(([t]) => send(t));
+  if (tab) send(tab);
+  else chrome.tabs.query({ active: true, currentWindow: true }).then(async ([t]) => { if (!(await blockedTab(t))) send(t); });
 });
 
 // Service-worker start (it also restarts after idling, hence the throttle).
@@ -808,7 +889,7 @@ async function fillIdentityForSender(sender, msg) {
   if (fillsInFlight.has(tabId)) return { error: "busy" };
   fillsInFlight.add(tabId);
   try {
-    const req = { op: "fill_identity", host: info.host, origin: info.origin };
+    const req = { op: "fill_identity", host: info.host, origin: info.origin, ...inc(sender.tab) };
     if (account) req.account = account;
     const res = await ask(req);
     if (!res || res.error) return { error: res ? String(res.error).slice(0, 40) : "no_reply" };
@@ -916,6 +997,7 @@ async function listIdentitiesForSender(sender) {
 async function onMenuClick(info, tab) {
   const id = info && typeof info.menuItemId === "string" ? info.menuItemId : "";
   if (!id.startsWith("nq-") || !tab || typeof tab.id !== "number" || tab.id < 0) return;
+  if (await blockedTab(tab)) return;
   // The tab's URL, or the page URL the click reports (always there; activeTab may not have granted tab.url yet).
   const top = pageInfo(tab.url || info.pageUrl || "");
   if (top.error) return;
@@ -952,7 +1034,7 @@ chrome.runtime.onMessage.addListener((msg, sender, send) => {
   if (!Object.prototype.hasOwnProperty.call(IDENTITY_HANDLERS, msg.type)) return false;
   if (typeof sender.tab.id !== "number" || sender.tab.id < 0 || typeof sender.url !== "string" || typeof sender.frameId !== "number") return false;
   if (sender.frameId !== 0 && !frameAllowed(sender)) return false;
-  IDENTITY_HANDLERS[msg.type](msg, sender).then(send, () => send({ error: "failed" }));
+  forTab(sender, () => IDENTITY_HANDLERS[msg.type](msg, sender)).then(send, () => send({ error: "failed" }));
   return true;
 });
 
@@ -960,8 +1042,8 @@ if (MENUS) {
   MENUS.onClicked.addListener((info, tab) => { onMenuClick(info, tab).catch(() => {}); });
   // Firefox: load the titles while the menu opens, then redraw it.
   if (MENUS.onShown) {
-    MENUS.onShown.addListener((info) => {
-      if (!info || !Array.isArray(info.contexts) || !info.contexts.includes("editable")) return;
+    MENUS.onShown.addListener((info, tab) => {
+      if (!info || !Array.isArray(info.contexts) || !info.contexts.includes("editable") || isPrivate(tab)) return;
       refreshIdentities().then(() => { try { MENUS.refresh(); } catch { /* closed meanwhile */ } }).catch(() => {});
     });
   }
@@ -1003,7 +1085,7 @@ async function reuseSaltFor(sender) {
   const now = Date.now();
   const c = reuseSaltCache;
   if (c && now - c.at < REUSE_SALT_TTL && now >= c.at) return { ok: true, salt: c.salt };
-  const res = await ask({ op: "reuse_salt" });
+  const res = await ask({ op: "reuse_salt", ...inc(sender.tab) });
   if (!res || res.ok !== true || typeof res.salt !== "string" || !SALT_RE.test(res.salt)) {
     reuseSaltCache = null;
     return { error: errorOf(res) };
@@ -1019,7 +1101,7 @@ async function reuseCheckFor(sender, msg) {
   const info = topInfo(sender);
   if (info.error) return { error: info.error };
   if ((await siteList(SITE_LISTS.trusted)).includes(info.host)) return { ok: true, site: null };
-  const res = await ask({ op: "reuse_check", host: info.host, salt: msg.salt, tag: msg.tag });
+  const res = await ask({ op: "reuse_check", host: info.host, salt: msg.salt, tag: msg.tag, ...inc(sender.tab) });
   if (res && res.error === "stale_salt") { reuseSaltCache = null; return { error: "stale_salt" }; }
   if (!res || res.ok !== true) return { error: errorOf(res) };
   const site = typeof res.site === "string" ? res.site.toLowerCase() : "";
@@ -1072,7 +1154,7 @@ chrome.runtime.onMessage.addListener((msg, sender, send) => {
     if (!Object.prototype.hasOwnProperty.call(SITE_HANDLERS, msg.type)) return false;
     if (typeof sender.tab.id !== "number" || sender.tab.id < 0 || typeof sender.url !== "string" || typeof sender.frameId !== "number") return false;
     if (sender.frameId !== 0 && !frameAllowed(sender)) return false;
-    SITE_HANDLERS[msg.type](msg, sender).then(send, () => send({ error: "failed" }));
+    forTab(sender, () => SITE_HANDLERS[msg.type](msg, sender)).then(send, () => send({ error: "failed" }));
     return true;
   }
   // Extension pages (the popup).
@@ -1130,7 +1212,7 @@ function syncPasskeyScripts() {
 async function passkeyForSender(sender, msg) {
   const fallback = { fallback: true };
   if (!NPK || !(await passkeysOn())) return fallback;
-  if (sender.tab.active === false) return fallback;
+  if (sender.tab.active === false || (await blockedTab(sender.tab))) return fallback;
   const top = NPK.passkeyOrigin(sender.tab.url);
   const frame = NPK.passkeyOrigin(sender.url);
   if (!top || !frame) return fallback;
@@ -1142,7 +1224,7 @@ async function passkeyForSender(sender, msg) {
   if (sent.error) return fallback;
   passkeysInFlight.add(tabId);
   try {
-    return NPK.pageResult(msg.kind, await ask(sent.req), sent);
+    return NPK.pageResult(msg.kind, await ask({ ...sent.req, ...inc(sender.tab) }), sent);
   } finally {
     passkeysInFlight.delete(tabId);
   }

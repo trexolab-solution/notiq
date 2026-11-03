@@ -26,6 +26,7 @@ const VAULT_FILES = [
   "components/ui/settings/HelloRow.tsx",
   "components/ui/settings/RecoveryKeyRow.tsx",
   "components/ui/settings/AutofillSection.tsx",
+  "components/ui/settings/AutofillIncognitoRow.tsx",
   "components/ui/settings/SyncSection.tsx",
   "components/vault/BackupSection.tsx",
 ];

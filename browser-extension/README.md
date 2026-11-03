@@ -84,7 +84,21 @@ Updating from 0.1: click the reload button on the extension's card. The browser 
   form the usual **Save login to Notiq?** offer appears. **Show** reveals it inside Notiq's own overlay only.
   **Fill saved login** is offered too when the form has a current-password field. Arrow keys / Enter / Esc work.
 - **Change-password forms** (current + new + confirm): the new password is captured and the offer reads
-  **Update password in Notiq?**.
+  **Update password in Notiq?**, for the username you signed in with on that site (or the one Notiq filled there).
+  The current password is sent to Notiq too (never shown or stored by the extension beyond the 90-second offer),
+  so Notiq can find the login that still has it when the page shows no username.
+- **Already saved? No offer.** Before the card appears, Notiq is asked (`save_check`) whether this exact login is
+  already saved for the site (same site rules as a fill, same username, same password): then there is no card at
+  all. Same username with another password: **Update password in Notiq?**, which updates that login (its old
+  password stays in the entry's history; with several logins for that username Notiq lets you pick one). A new
+  username: **Save login to Notiq?**. The comparison happens inside Notiq; the extension never sees a saved
+  password. While the vault is locked the card is shown as before and Notiq decides when you press Save.
+- **Private (incognito) windows:** off by default. Turn on **Allow autofill in private (incognito) windows** in
+  Notiq → Settings → Vault → Browser autofill, and also allow the extension in private windows in the browser
+  (the extension's Details page: **Allow in Incognito** / **Allow in InPrivate**; Firefox: **Run in Private
+  Windows**). While it is off the extension does nothing in a private window: no icons, menus, fills, save offers
+  or passkeys; the toolbar popup says "Autofill is off in private windows." Requests from private tabs are marked,
+  and Notiq refuses them too while the setting is off.
 - **Split code boxes:** when Notiq returns a one-time code and the page has 4–8 single-character code boxes, the
   code is typed into them digit by digit and the last box is focused.
 - **2FA code on its own page:** when the code is asked on a separate page (a one-time-code field, or split code
@@ -198,7 +212,9 @@ default dark or light colours, following your system setting.
   show "Read and change all your data on all websites". It is needed to spot login fields and notice a submitted
   login on any site you visit. The script only looks at login forms, keeps everything in its own isolated, closed
   UI, makes no network requests, and asks Notiq for nothing until you click (the password warning's check, which
-  sends no secret, runs when you leave a password field you typed into or submit its form).
+  sends no secret, runs when you leave a password field you typed into or submit its form; after you submit a
+  login, `save_check` asks the running, unlocked Notiq over the same local bridge whether it is already saved,
+  before any save card is shown).
 
 ## Privacy and security
 - Credentials only travel between the page and the Notiq app through the local native-messaging bridge, and only
@@ -253,8 +269,18 @@ default dark or light colours, following your system setting.
   login has a 2FA secret. Any other `intent` is refused (`bad_request`).
 - `{op:"fill", host, account}` → the chosen login. The extension only sends an `account` that the app offered for
   that tab and host in the last 2 minutes, once.
-- `{op:"save", host, url, username, password, title}` → `{ok:true, status:"saved"|"updated"|"unchanged"}` or `{error}`.
-- `{op:"ping"}` → `{ok:true, appVersion, locked, protocol, minProtocol}` (an app before 0.9.0 answers `{ok:true}`).
+- `{op:"save", host, url, username, password, title, current?}` → `{ok:true, status:"saved"|"updated"|"unchanged"}`
+  or `{error}`. `current` (a change-password form's old password) only helps Notiq find the login to update.
+- `{op:"save_check", host, username, password, current?}` → `{ok:true, action:"none"|"update"|"save", choices}` or
+  `{error}`: asked once per captured login before the save card is shown. Notiq compares it with the vault itself
+  (no window, unlocked vault only, never starts Notiq) and answers only the decision. `none` = that exact login is
+  already saved for the site (no card), `update` = same username, other password ("Update password in Notiq?";
+  Notiq lets you pick the login when `choices` > 1), `save` = a new login. Locked, not running or an older app
+  (`unknown_op`): the card is shown as before and Notiq decides when you press Save.
+- Requests from a private (incognito) tab carry `incognito:true`; while private-window autofill is off in Notiq the
+  app and the native host answer them `{error:"incognito_off"}`.
+- `{op:"ping"}` → `{ok:true, appVersion, locked, protocol, minProtocol, incognito}` (an app before 0.9.0 answers
+  `{ok:true}`; `incognito`: Notiq allows autofill in private windows, cached as `incognitoAllowed`).
   The popup shows "Notiq is locked", "Update Notiq" or "Update the extension" from it.
 - Every request also carries `ext` (this extension's version) and `protocol` (`PROTOCOL` in `shared.js`). The app
   has its own `PROTOCOL` and `MIN_EXTENSION_PROTOCOL` (`src-tauri/src/autofill.rs`); they are compatible when

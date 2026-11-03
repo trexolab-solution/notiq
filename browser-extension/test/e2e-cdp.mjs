@@ -95,7 +95,10 @@ const bare = (c) => { const { ext, protocol, ...rest } = c; return rest; };
 const tagged = (c) => typeof c.ext === "string" && c.ext.length > 0 && c.protocol === 2;
 // Vault requests only (theme, the lock-state ping and the password-reuse check, which carries no secret, are not).
 const REUSE_OPS = ["reuse_salt", "reuse_check"];
-const calls = async () => (await allCalls()).filter((c) => c.op !== "theme" && c.op !== "ping" && !REUSE_OPS.includes(c.op));
+// The save offer's `save_check` (asked before the card appears; the mock has no answer, so the old card shows) is
+// checked on its own (saveChecks).
+const calls = async () => (await allCalls()).filter((c) => c.op !== "theme" && c.op !== "ping" && c.op !== "save_check" && !REUSE_OPS.includes(c.op));
+const saveChecks = async () => (await allCalls()).filter((c) => c.op === "save_check");
 const reuseCalls = async () => (await allCalls()).filter((c) => REUSE_OPS.includes(c.op));
 const pings = async () => (await allCalls()).filter((c) => c.op === "ping");
 const resetCalls = () => SW("(globalThis.__calls = [], true)");
@@ -305,6 +308,11 @@ try {
   check("still nothing sent to Notiq before the user says Save", (await calls()).length === 0);
   const bar = await waitFor(barInfo, 4000);
   check("save bar shown once the password field is gone", bar && bar.text.includes("Save login to Notiq?") && bar.text.includes("localhost · bob@example.com"), JSON.stringify(bar));
+  const sc = await saveChecks();
+  check("save_check asked Notiq once before the card (host, username, password only)",
+    sc.length === 1 && tagged(sc[0]) && Object.keys(bare(sc[0])).sort().join() === "host,op,password,username" &&
+    sc[0].host === "localhost" && sc[0].username === "bob@example.com" && sc[0].password === "Typed-Secret-2!",
+    JSON.stringify(sc.map((c) => ({ ...c, password: "<redacted>" }))));
   check("save bar is a polite dialog and shows no password", bar && bar.role === "dialog" && bar.live === "polite" && !bar.text.includes("Typed-Secret-2!"));
   check("page DOM never contains the password", !(await P(`document.documentElement.outerHTML.includes("Typed-Secret-2!")`)));
   // untrusted click on Save does nothing
@@ -534,8 +542,35 @@ try {
   await mouseClick(upd.x, upd.y);
   await waitFor(async () => (await calls()).length === 1, 3000);
   const c16 = await calls();
-  check("update uses the same native save contract (no extra keys)",
-    c16.length === 1 && c16[0].op === "save" && c16[0].password === "New-Pw-22" && tagged(c16[0]) && Object.keys(bare(c16[0])).sort().join() === "host,op,password,title,url,username");
+  check("update uses the same native save contract plus the current password (no other keys)",
+    c16.length === 1 && c16[0].op === "save" && c16[0].password === "New-Pw-22" && c16[0].current === "Old-Pw-1" && tagged(c16[0]) &&
+    Object.keys(bare(c16[0])).sort().join() === "current,host,op,password,title,url,username");
+  const sc16 = await saveChecks();
+  check("change-password save_check carries the current password too",
+    sc16.length === 1 && sc16[0].password === "New-Pw-22" && sc16[0].current === "Old-Pw-1");
+
+  // 16b. Notiq says the login is already saved (no card) / that it is an update of a saved login
+  const submitSimple = async (user, pass) => {
+    await load();
+    await typeInto("s-user", user);
+    await typeInto("s-pass", pass);
+    await P(`document.querySelector("#simple button[type=submit]").scrollIntoView({block:"center"})`);
+    const b = await P(`(() => { const r = document.querySelector("#simple button[type=submit]").getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; })()`);
+    await mouseClick(b.x, b.y);
+  };
+  await resetState();
+  await mockNative({ ...NATIVE, save_check: { ok: true, action: "none", choices: 0 } });
+  await submitSimple("bob@example.com", "Typed-Secret-2!");
+  await waitFor(async () => (await saveChecks()).length === 1, 4500);
+  await sleep(1500);
+  check("already saved (save_check none): no card and nothing held", !(await barInfo()) && (await pendingEntries()).length === 0 && (await calls()).length === 0);
+  await resetState();
+  await mockNative({ ...NATIVE, save_check: { ok: true, action: "update", choices: 1 } });
+  await submitSimple("bob@example.com", "Typed-Secret-3!");
+  const bar16b = await waitFor(barInfo, 4500);
+  check("same username, other password (save_check update): 'Update password in Notiq?'",
+    bar16b && bar16b.text.includes("Update password in Notiq?") && bar16b.buttons.some((b) => b.label === "Update"), JSON.stringify(bar16b && bar16b.text));
+  await mockNative(NATIVE);
 
   // 17. Split one-time-code boxes
   await resetState();
