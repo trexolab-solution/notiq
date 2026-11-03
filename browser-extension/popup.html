@@ -239,6 +239,31 @@
   .sites li.empty { display: block; padding: 20px 16px; text-align: center; color: var(--nq-muted); border: 0; font-size: 12.5px; }
   .sites li.empty:hover { background: none; }
   .sites:has(li.empty) { border-style: dashed; background: transparent; }
+  /* password generator */
+  .gen-out { display: flex; align-items: stretch; gap: 4px; padding: 4px 4px 4px 12px; border-radius: var(--r); background: var(--surface); border: 1px solid var(--line); }
+  .gen-value { flex: 1; min-width: 0; align-self: center; padding: 6px 0; font: 14px/1.4 ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+    word-break: break-all; user-select: all; }
+  .gen-acts { display: flex; flex-direction: column; justify-content: center; gap: 2px; }
+  .gen-str { display: flex; align-items: center; gap: 8px; margin-top: -4px; font-size: 12px; color: var(--nq-muted); }
+  .gen-meter { display: flex; gap: 3px; }
+  .gen-meter i { width: 26px; height: 4px; border-radius: 2px; background: color-mix(in srgb, var(--nq-text) 14%, transparent); }
+  .gen-str[data-level="0"] i:nth-child(-n+1) { background: var(--nq-danger); }
+  .gen-str[data-level="1"] i:nth-child(-n+2) { background: var(--nq-primary); }
+  .gen-str[data-level="2"] i:nth-child(-n+3), .gen-str[data-level="3"] i { background: var(--nq-success); }
+  .gen-len { display: flex; align-items: center; gap: 12px; min-height: 42px; padding: 8px 14px; }
+  .gen-len .txt { flex: none; }
+  .gen-len input[type="range"] { flex: 1; min-width: 0; accent-color: var(--nq-primary); cursor: pointer; }
+  .gen-len .count { width: 22px; text-align: right; }
+  .gen-len .count:empty::before { content: ""; }
+  .gen-fill { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; height: 38px; border: 0; border-radius: var(--r);
+    background: var(--nq-primary); color: var(--nq-on-primary); font-weight: 600; cursor: pointer; transition: background-color .12s; }
+  .gen-fill:hover { background: var(--primary-hover); }
+  .gen-fill:disabled { opacity: .6; cursor: default; }
+  .gen-fill svg { width: 16px; height: 16px; }
+  .gen-msg { margin: -4px 0 0; font-size: 12.5px; color: var(--nq-muted); min-height: 0; }
+  .gen-msg:empty { display: none; }
+  .gen-msg.ok { color: var(--nq-success); }
+  .gen-msg.err { color: var(--nq-danger); }
   .ver { margin: auto 0 0; padding-top: 0; text-align: center; font-size: 11px; color: var(--nq-muted); }
 
   @media (prefers-reduced-motion: reduce) {
@@ -254,6 +279,9 @@
       <h1>Notiq Autofill</h1>
       <div class="status" id="status" role="status" data-state="unknown"><span class="dot" aria-hidden="true"></span><span id="statusText">Checking Notiq…</span></div>
     </div>
+    <button type="button" class="icon-btn" id="openGen" aria-label="Password generator" title="Password generator">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 21l11-11"/><path d="M14 10l-2-2 3-3 2 2z"/><path d="M19 3v4"/><path d="M17 5h4"/><path d="M8 3v2"/><path d="M7 4h2"/><path d="M20 14v3"/><path d="M18.5 15.5h3"/></svg>
+    </button>
     <button type="button" class="icon-btn" id="openSettings" aria-label="Settings" title="Settings">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
     </button>
@@ -315,6 +343,49 @@
   </main>
 </div>
 
+<!-- ===================== password generator ===================== -->
+<div class="view" id="viewGen" hidden>
+  <header class="bar">
+    <button type="button" class="icon-btn back" data-back="main" aria-label="Back" title="Back">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>
+    </button>
+    <h1 id="genTitle" tabindex="-1">Password generator</h1>
+  </header>
+  <div class="body">
+    <div class="gen-out">
+      <output id="genValue" class="gen-value" for="genLen" aria-label="Generated password" tabindex="0"></output>
+      <div class="gen-acts">
+        <button type="button" class="icon-btn" id="genRegen" aria-label="Generate a new password" title="Regenerate">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>
+        </button>
+        <button type="button" class="icon-btn" id="genCopy" aria-label="Copy password" title="Copy">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg>
+        </button>
+      </div>
+    </div>
+    <div class="gen-str" id="genStrength" data-level="3">
+      <span class="gen-meter" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+      <span id="genStrengthText">Very strong</span>
+    </div>
+    <div class="card">
+      <div class="row gen-len">
+        <label class="txt" for="genLen"><span class="ttl">Length</span></label>
+        <input type="range" id="genLen" min="8" max="64" step="1" value="20" aria-describedby="genLenVal">
+        <output id="genLenVal" class="count">20</output>
+      </div>
+      <label class="row"><span class="txt"><span class="ttl">Uppercase (A–Z)</span></span><input type="checkbox" role="switch" id="genUpper"></label>
+      <label class="row"><span class="txt"><span class="ttl">Lowercase (a–z)</span></span><input type="checkbox" role="switch" id="genLower"></label>
+      <label class="row"><span class="txt"><span class="ttl">Digits (0–9)</span></span><input type="checkbox" role="switch" id="genDigits"></label>
+      <label class="row"><span class="txt"><span class="ttl">Symbols (!@#$…)</span></span><input type="checkbox" role="switch" id="genSymbols"></label>
+      <label class="row"><span class="txt"><span class="ttl">Avoid look-alikes</span><span class="sub">Leaves out l, I, O, 0 and 1</span></span><input type="checkbox" role="switch" id="genAmbiguous"></label>
+    </div>
+    <button type="button" id="genFill" class="gen-fill" hidden>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="7.5" cy="15.5" r="4.5"/><path d="M10.7 12.3 20 3"/><path d="M16.5 6.5l3 3"/><path d="M14 9l2 2"/></svg>
+      <span>Fill password</span>
+    </button>
+    <p id="genMsg" class="gen-msg" role="status" aria-live="polite"></p>
+  </div>
+</div>
 <!-- ===================== settings ===================== -->
 <div class="view" id="viewSettings" hidden>
   <header class="bar">
@@ -397,4 +468,6 @@
 <script src="popupkit.js"></script>
 <script src="popup.js"></script>
 <script src="popup-passkeys.js"></script>
+<script src="generator.js"></script>
+<script src="popup-generator.js"></script>
 </html>

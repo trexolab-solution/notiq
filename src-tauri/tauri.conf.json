@@ -93,6 +93,8 @@
       "../browser-extension/passkey-page.js": "browser-extension/passkey-page.js",
       "../browser-extension/passkey-bridge.js": "browser-extension/passkey-bridge.js",
       "../browser-extension/popup-passkeys.js": "browser-extension/popup-passkeys.js",
+      "../browser-extension/popup-generator.js": "browser-extension/popup-generator.js",
+      "../browser-extension/generator.js": "browser-extension/generator.js",
       "../browser-extension/icon48.png": "browser-extension/icon48.png",
       "../browser-extension/icon128.png": "browser-extension/icon128.png"
     },

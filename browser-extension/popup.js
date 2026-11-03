@@ -52,8 +52,8 @@ function icon(name) {
 }
 
 // ---------- views: main (this site) / settings / the three site lists ----------
-const VIEWS = { main: $("viewMain"), settings: $("viewSettings"), never: $("viewNever"), hidden: $("viewHidden"), trusted: $("viewTrusted") };
-const PARENT = { settings: "main", never: "settings", hidden: "settings", trusted: "settings" };
+const VIEWS = { main: $("viewMain"), settings: $("viewSettings"), never: $("viewNever"), hidden: $("viewHidden"), trusted: $("viewTrusted"), gen: $("viewGen") };
+const PARENT = { gen: "main", settings: "main", never: "settings", hidden: "settings", trusted: "settings" };
 let view = "main";
 const openers = {};
 function showView(name) {
@@ -71,6 +71,7 @@ function showView(name) {
   if (target && target.isConnected && typeof target.focus === "function") target.focus();
 }
 $("openSettings").addEventListener("click", () => showView("settings"));
+$("openGen").addEventListener("click", () => showView("gen")); // the generator: popup-generator.js
 for (const b of document.querySelectorAll("[data-view]")) b.addEventListener("click", () => showView(b.dataset.view));
 for (const b of document.querySelectorAll("[data-back]")) b.addEventListener("click", () => showView(b.dataset.back));
 document.addEventListener("keydown", (e) => {
