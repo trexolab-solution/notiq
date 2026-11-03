@@ -22,6 +22,7 @@ import { ensureVaultDir } from "../lib/vaultDir";
 import { getFileName } from "../lib/pathUtils";
 import { migrateTempToSaveDir, cleanupTabTemp } from "../lib/attachments";
 import { toast } from "../lib/toast";
+import { planVaultOpen, type VaultOpenMode } from "../lib/vaultTabs";
 import { emit } from "@tauri-apps/api/event";
 import { buildPreferenceSlice, resetAllPreferences } from "./preferences";
 import { normalizeSettingsTabs, SETTINGS_TAB_TITLE, type SettingsTarget } from "../lib/tabKinds";
@@ -123,6 +124,13 @@ export interface AppState {
   saveTabToFileAs: (id: string) => Promise<boolean>;
   /** Open an already-read list of files as tabs (skips duplicates by filePath). */
   openFilesAsTabs: (files: FileEntry[]) => void;
+  /**
+   * Open a vault entry from the sidebar. "preview" reuses the clean preview tab (or makes one);
+   * "permanent" gets its own tab. An entry that's already open is just focused.
+   */
+  openVaultEntry: (file: FileEntry, mode: VaultOpenMode) => void;
+  /** Turn a preview tab into a normal (permanent) one. */
+  makeTabPermanent: (id: string) => void;
   /** Replace a tab's content with fresh disk content (external change) — keeps it clean. */
   reloadTabFromDisk: (id: string, content: string) => void;
 
@@ -419,7 +427,8 @@ export const useAppStore = create<AppState>((set, get) => {
     updateTabContent(id, content) {
       const tab = get().tabs.find((t) => t.id === id);
       if (tab?.kind === "settings") return; // Settings has no content
-      const changes: Partial<Tab> = { content, isDirty: true, updatedAt: Date.now() };
+      // An edit makes a preview tab permanent, so a later sidebar click never replaces unsaved work.
+      const changes: Partial<Tab> = { content, isDirty: true, isPreview: false, updatedAt: Date.now() };
 
       // Auto-derive title from first line for unsaved tabs (like Windows 11 Notepad)
       if (tab && !tab.filePath && tab.kind === "note") {
@@ -436,7 +445,7 @@ export const useAppStore = create<AppState>((set, get) => {
 
     updateTabTitle(id, title) {
       if (get().tabs.find((t) => t.id === id)?.kind === "settings") return; // not renameable
-      updateTab(id, { title, updatedAt: Date.now() });
+      updateTab(id, { title, isPreview: false, updatedAt: Date.now() });
       debounceGraphRebuild(() => get().rebuildGraph());
       persist();
     },
@@ -471,7 +480,7 @@ export const useAppStore = create<AppState>((set, get) => {
     togglePinTab(id) {
       set((s) => {
         const toggled = s.tabs.map((t) =>
-          t.id === id ? { ...t, isPinned: !t.isPinned } : t
+          t.id === id ? { ...t, isPinned: !t.isPinned, isPreview: false } : t
         );
         // Re-sort: pinned tabs first (preserve relative order within each group)
         const pinned = toggled.filter((t) => t.isPinned);
@@ -562,6 +571,42 @@ export const useAppStore = create<AppState>((set, get) => {
       if (newTabs.some((t) => t.vaultLocked) && useVaultStore.getState().unlocked) {
         void get().unlockVaultTabs();
       }
+    },
+
+    openVaultEntry({ path, title }, mode) {
+      const filePath = path.replace(/\\/g, "/");
+      const plan = planVaultOpen(get().tabs, filePath, mode);
+      if (plan.action === "focus") {
+        set((s) => ({
+          activeTabId: plan.tabId,
+          tabs: plan.promote ? s.tabs.map((t) => (t.id === plan.tabId ? { ...t, isPreview: false } : t)) : s.tabs,
+        }));
+        persist();
+        return;
+      }
+      // Ciphertext is never read into a tab; it opens locked and decrypts below.
+      const tab = makeTab({
+        title, content: "", filePath, isDirty: false, editorMode: get().defaultEditorMode, vaultLocked: true,
+        isPreview: plan.action === "replace" || plan.preview,
+      });
+      if (plan.action === "replace") {
+        // The old preview tab is clean (planVaultOpen checks), so nothing is lost. A fresh tab id
+        // gives the new entry clean editor state; the old one's decrypted text is scrubbed.
+        const oldId = plan.tabId;
+        set((s) => ({ tabs: s.tabs.map((t) => (t.id === oldId ? tab : t)), activeTabId: tab.id }));
+        setTimeout(() => void scrubMonacoModels([oldId]), 100);
+      } else {
+        set((s) => ({ tabs: [...s.tabs, tab], activeTabId: tab.id, sessionReady: true }));
+      }
+      debounceGraphRebuild(() => get().rebuildGraph());
+      persist();
+      if (useVaultStore.getState().unlocked) void get().unlockVaultTabs();
+    },
+
+    makeTabPermanent(id) {
+      if (!get().tabs.find((t) => t.id === id)?.isPreview) return;
+      updateTab(id, { isPreview: false });
+      persist();
     },
 
     reloadTabFromDisk(id, content) {

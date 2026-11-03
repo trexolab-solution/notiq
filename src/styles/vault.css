@@ -34,7 +34,8 @@
 .vt-icon-btn:focus-visible,
 .vt-chip:focus-visible,
 .vt-link:focus-visible { outline: 2px solid color-mix(in srgb, var(--color-primary) 60%, transparent); outline-offset: 1px; }
-.vt-icon-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.vt-icon-btn:disabled, .vt-icon-btn[aria-disabled="true"] { opacity: 0.4; cursor: not-allowed; }
+.vt-icon-btn[aria-disabled="true"]:hover { background: transparent; color: var(--color-text-muted); }
 
 /* Search */
 .vt-search {
@@ -83,8 +84,14 @@
   color: var(--color-text); contain: layout style;
 }
 .vt-row:hover { background: color-mix(in srgb, var(--color-bg-tertiary) 70%, transparent); }
-.vt-row.is-selected { background: color-mix(in srgb, var(--color-primary) 14%, var(--color-bg-tertiary)); }
+.vt-row.is-selected {
+  background: color-mix(in srgb, var(--color-primary) 14%, var(--color-bg-tertiary));
+  box-shadow: inset 2px 0 0 var(--color-primary);
+}
 .vt-row:focus-visible { box-shadow: inset 0 0 0 1px var(--color-primary); }
+.vt-row.is-selected:focus-visible { box-shadow: inset 2px 0 0 var(--color-primary), inset 0 0 0 1px var(--color-primary); }
+/* The folder "New item / New folder" will create in (the selected entry's folder). */
+.vt-row.is-target { outline: 1px dashed color-mix(in srgb, var(--color-primary) 55%, transparent); outline-offset: -1px; }
 .vt-row.is-open .vt-row-name { font-weight: 600; }
 .vt-row.is-drop { background: color-mix(in srgb, var(--color-primary) 22%, transparent); box-shadow: inset 0 0 0 1px var(--color-primary); }
 .vt-row.is-dragging { opacity: 0.45; }

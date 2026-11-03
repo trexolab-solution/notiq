@@ -33,13 +33,15 @@ export function useExpanded() {
     if (want) s.add(rel); else s.delete(rel);
   }), [update]);
   const expandAll = useCallback((rels: string[]) => update((s) => rels.forEach((r) => s.add(r))), [update]);
+  /** Close every folder and site group. */
+  const collapseAll = useCallback(() => update((s) => s.clear()), [update]);
   /** Keep expansion in sync with a rename/move (`from` → `to`, folder prefixes included). */
   const remap = useCallback((from: string, to: string) => update((s) => {
     for (const r of [...s]) {
       if (r === from || r.startsWith(from + "/")) { s.delete(r); s.add(to + r.slice(from.length)); }
     }
   }), [update]);
-  return { expanded, toggle, expandAll, remap };
+  return { expanded, toggle, expandAll, collapseAll, remap };
 }
 
 export function useSortMode() {

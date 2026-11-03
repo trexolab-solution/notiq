@@ -11,6 +11,7 @@ import {
   canMoveTo, displayName, joinRel, movedRel, nameError, nameTaken, normalizeTags, parentRel, renamedRel, toFull, toRel,
 } from "../../../lib/vaultTree";
 import { toast } from "../../../lib/toast";
+import type { VaultOpenMode } from "../../../lib/vaultTabs";
 
 /**
  * Sidebar operations. Each validates against the current list, calls the
@@ -21,9 +22,10 @@ import { toast } from "../../../lib/toast";
 
 const fail = (e: unknown) => { toast.error(vaultErrorMessage(e)); };
 
-export async function openEntry(root: string, rel: string) {
+/** Opens an entry in an editor tab: "permanent" (default) gets its own tab, "preview" reuses the preview tab. */
+export async function openEntry(root: string, rel: string, mode: VaultOpenMode = "permanent") {
   try {
-    useAppStore.getState().openFilesAsTabs([await readFileEntry(toFull(root, rel))]);
+    useAppStore.getState().openVaultEntry(await readFileEntry(toFull(root, rel)), mode);
     if (await useVaultStore.getState().ensureUnlocked()) await useAppStore.getState().unlockVaultTabs();
   } catch (e) { fail(e); }
 }

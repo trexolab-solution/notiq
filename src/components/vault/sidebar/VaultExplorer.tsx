@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ArrowDownAZ, Clock, FolderPlus, Lock, Search, Trash2, X } from "lucide-react";
+import { ArrowDownAZ, ChevronsDownUp, ChevronsUpDown, Clock, FolderPlus, Globe, Lock, Search, Trash2, X } from "lucide-react";
 import { useAppStore } from "../../../store";
 import { useVaultStore } from "../../../store/vaultStore";
 import { isVaultPath, type VaultItem } from "../../../lib/vault";
@@ -10,7 +10,9 @@ import {
   type TreeNode,
 } from "../../../lib/vaultTree";
 import { flattenGrouped, isGroupRow, searchTextOf, siteMatchReason } from "../../../lib/vaultSites";
-import { ContextMenu } from "../../ui/ContextMenu";
+import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu";
+import type { VaultOpenMode } from "../../../lib/vaultTabs";
+import { anyExpanded, relOfKey, targetFolderOf } from "./target";
 import { ConfirmDialog } from "../../ui/ConfirmDialog";
 import { Tooltip } from "../../ui/Tooltip";
 import { InlineLoading } from "../../ui/Loading";
@@ -41,12 +43,11 @@ interface Props {
 type Creating = { parent: string; kind: NewEntryKind | "folder"; suggested: string };
 type Menu = { x: number; y: number; node: TreeNode | null };
 
-/** The entry/folder rel behind a row key; null for none and for virtual site-group rows ("g:"). */
-const relOfKey = (key: string | null) => (key && !key.startsWith("g:") ? key.slice(2) : null);
+const menuIcon = (el: JSX.Element) => <span className="inline-flex">{el}</span>;
 
 /** The unlocked vault: toolbar, search, tag filter, tree, trash, and every entry action. */
 export function VaultExplorer({ root, items, trash, loading, error, reload, footer }: Props) {
-  const { expanded, toggle, expandAll, remap } = useExpanded();
+  const { expanded, toggle, expandAll, collapseAll, remap } = useExpanded();
   const [sort, setSort] = useSortMode();
   const [starredOpen, setStarredOpen] = useStarredOpen();
   const [groupBySite, setGroupBySite] = useGroupBySite();
@@ -134,12 +135,12 @@ export function VaultExplorer({ root, items, trash, loading, error, reload, foot
     }
   }, [byRel, folders, selectedKey]);
 
-  const selectedRel = relOfKey(selectedKey);
-  const selectedItem = selectedRel ? byRel.get(selectedRel.toLowerCase()) : undefined;
-  const selectedIsDir = selectedRel ? (selectedItem ? selectedItem.dir : folders.includes(selectedRel)) : false;
-  /** Folder new things go into: the selected folder, or the selected note's folder. */
-  const targetFolder = selectedRel ? (selectedIsDir ? selectedRel : parentRel(selectedRel))
-    : selectedKey?.startsWith("g:") ? parentRel(selectedKey.slice(2)) : "";
+  /** Folder new things go into: none selected → root; a folder → it; an entry → its folder. */
+  const targetFolder = targetFolderOf(selectedKey, (rel) => {
+    const it = byRel.get(rel.toLowerCase());
+    return it ? it.dir : folders.includes(rel);
+  });
+  const foldersOpen = useMemo(() => anyExpanded(expanded, folders), [expanded, folders]);
 
   // ── helpers ────────────────────────────────────────────────────────────────
   const reveal = useCallback((rel: string, select = true) => {
@@ -165,13 +166,14 @@ export function VaultExplorer({ root, items, trash, loading, error, reload, foot
     nameError(name) ?? (nameTaken(items, folder, name, except) ? "That name is already used here" : null);
 
   // ── actions ────────────────────────────────────────────────────────────────
-  const activate = useCallback((node: TreeNode, key: string) => {
+  const activate = useCallback((node: TreeNode, key: string, mode: VaultOpenMode = "preview") => {
     if (node.dir) {
       if (key.startsWith("s:")) { reveal(node.rel); toggle(node.rel, true); focusTreeSoon(); }
       else toggle(node.rel);
       return;
     }
-    void A.openEntry(root, node.rel);
+    // Single click → the reusable preview tab; Ctrl/Cmd/middle-click, double-click → a tab of its own.
+    void A.openEntry(root, node.rel, mode);
   }, [reveal, root, toggle]);
 
   const openMenu = useCallback((key: string | null, node: TreeNode | null, x: number, y: number) => {
@@ -193,7 +195,8 @@ export function VaultExplorer({ root, items, trash, loading, error, reload, foot
   }, [expandAll, items, remap, root]);
 
   const handlers: MenuHandlers = {
-    open: (n) => void A.openEntry(root, n.rel),
+    open: (n) => void A.openEntry(root, n.rel, "preview"),
+    openNewTab: (n) => void A.openEntry(root, n.rel, "permanent"),
     rename: (n) => {
       // Rename happens in the tree row (a starred row edits in place too).
       const key = selectedKey && relOfKey(selectedKey) === n.rel ? selectedKey : treeKey(n.rel);
@@ -213,7 +216,7 @@ export function VaultExplorer({ root, items, trash, loading, error, reload, foot
     create: startCreate,
     sort: setSort,
     expandAll: () => expandAll(folders),
-    collapseAll: () => { for (const f of expanded) toggle(f, false); },
+    collapseAll,
     groupBySite,
     setGroupBySite,
   };
@@ -292,35 +295,55 @@ export function VaultExplorer({ root, items, trash, loading, error, reload, foot
     </div>
   );
 
-  const targetLabel = targetFolder ? displayName(targetFolder) : "Vault";
+  const targetLabel = targetFolder ? displayName(targetFolder) : "the vault root";
   const confirmCount = confirmTrash
     ? items.filter((i) => i.rel !== confirmTrash.rel && isSameOrUnder(i.rel, confirmTrash.rel)).length
     : 0;
+
+  // Rare actions and view options live in the header's "More actions" menu.
+  const moreItems: ContextMenuItem[] = [
+    { type: "label", label: "Sort by" },
+    { type: "item", label: sort === "name" ? "Name  ✓" : "Name", icon: menuIcon(<ArrowDownAZ size={14} />), onClick: () => setSort("name") },
+    { type: "item", label: sort === "modified" ? "Recently modified  ✓" : "Recently modified", icon: menuIcon(<Clock size={14} />),
+      onClick: () => setSort("modified") },
+    { type: "separator" },
+    { type: "item", label: groupBySite ? "Group logins by website  ✓" : "Group logins by website", icon: menuIcon(<Globe size={14} />),
+      onClick: () => setGroupBySite(!groupBySite) },
+  ];
+  const collapseDisabled = filtering || folders.length === 0;
 
   return (
     <>
       <PanelHeader
         unlocked
+        moreItems={moreItems}
         actions={
           <>
+            {/* Most used first: create, then tree view, then lock; the rest is under "More actions". */}
             <NewEntryMenu targetLabel={targetLabel} onPick={(k) => startCreate(k, targetFolder)} />
-            <Tooltip content={`New folder in ${targetLabel}`}>
-              <button type="button" className="vt-icon-btn" aria-label="New folder"
+            <Tooltip content="New folder" description={`Creates in ${targetLabel}`}>
+              <button type="button" className="vt-icon-btn" aria-label={`New folder in ${targetLabel}`}
                       onClick={() => startCreate("folder", targetFolder)}>
                 <FolderPlus size={14} />
               </button>
             </Tooltip>
             <Tooltip
-              content={sort === "name" ? "Sorted by name" : "Sorted by recently modified"}
-              description={sort === "name" ? "Click to sort by recently modified" : "Click to sort by name"}
+              content={foldersOpen ? "Collapse all folders" : "Expand all folders"}
+              description={collapseDisabled ? (filtering ? "Clear the search to collapse folders" : "No folders yet") : undefined}
             >
               <button
                 type="button"
                 className="vt-icon-btn"
-                aria-label={sort === "name" ? "Sort by recently modified" : "Sort by name"}
-                onClick={() => setSort(sort === "name" ? "modified" : "name")}
+                aria-label={foldersOpen ? "Collapse all folders" : "Expand all folders"}
+                aria-pressed={!foldersOpen}
+                // aria-disabled (not disabled) so the tooltip still explains why.
+                aria-disabled={collapseDisabled || undefined}
+                onClick={() => {
+                  if (collapseDisabled) return;
+                  if (foldersOpen) collapseAll(); else expandAll(folders);
+                }}
               >
-                {sort === "name" ? <ArrowDownAZ size={14} /> : <Clock size={14} />}
+                {foldersOpen ? <ChevronsDownUp size={14} /> : <ChevronsUpDown size={14} />}
               </button>
             </Tooltip>
             <Tooltip content="Lock vault now">
@@ -389,6 +412,7 @@ export function VaultExplorer({ root, items, trash, loading, error, reload, foot
               onStarredOpen={setStarredOpen}
               isExpanded={isExpanded}
               selectedKey={selectedKey}
+              targetFolder={targetFolder}
               openRels={openRels}
               editingKey={editingKey}
               renderEditor={renderEditor}

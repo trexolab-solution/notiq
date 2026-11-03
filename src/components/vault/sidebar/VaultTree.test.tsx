@@ -1,9 +1,9 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { buildTree, flattenTree, starredNodes } from "../../../lib/vaultTree";
 import type { VaultItem } from "../../../lib/vault";
 import { flattenGrouped } from "../../../lib/vaultSites";
-import { VaultTree } from "./VaultTree";
+import { VaultTree, isOnControl } from "./VaultTree";
 import { TagBar } from "./TagBar";
 
 const item = (rel: string, o: Partial<VaultItem> = {}): VaultItem => ({
@@ -92,6 +92,43 @@ describe("VaultTree site groups", () => {
     expect((html.match(/role="treeitem"/g) ?? []).length).toBe(4);
     expect(html).toContain('class="vt-row-sub">alice<');
     expect(html).toContain('aria-level="2"');
+  });
+});
+
+describe("VaultTree selection target and row actions", () => {
+  const items = [item("Work"), item("Work/key.nqv", { ext: "secret" }), item("bank.nqv", { ext: "login" })];
+  const render = (selectedKey: string | null, targetFolder: string) => renderToStaticMarkup(
+    <VaultTree
+      rows={flattenTree(buildTree(items), () => true)}
+      starred={[]} starredOpen onStarredOpen={noop} isExpanded={() => true}
+      selectedKey={selectedKey} targetFolder={targetFolder} openRels={new Set()} editingKey={null}
+      renderEditor={() => null} creating={null} empty={<p>empty</p>} onSelectKey={noop} onActivate={noop}
+      onToggle={noop} onRename={noop} onTrash={noop} onMenu={noop} onMove={noop} />,
+  );
+
+  it("marks the folder an entry's New item would go into, but not when that folder is itself selected", () => {
+    expect(render("t:Work/key.nqv", "Work")).toContain("is-target");
+    expect(render("t:Work", "Work")).not.toContain("is-target");
+    expect(render(null, "")).not.toContain("is-target");
+    expect(render(null, "")).not.toContain("is-selected");
+  });
+
+  it("offers an 'Open in new tab' hover button on entries only", () => {
+    const html = render(null, "");
+    expect((html.match(/in new tab"/g) ?? []).length).toBe(2); // key.nqv + bank.nqv, not the folder
+    expect(html).toContain('aria-label="Open bank in new tab"');
+  });
+});
+
+describe("isOnControl (empty-space clicks clear the selection)", () => {
+  it("treats rows, buttons and fields as controls, anything else as empty space", () => {
+    // Minimal Element stand-ins: closest() is all isOnControl uses.
+    class FakeEl { constructor(private hit: boolean) {} closest() { return this.hit ? this : null; } }
+    vi.stubGlobal("Element", FakeEl);
+    expect(isOnControl(new FakeEl(true) as unknown as Element)).toBe(true);
+    expect(isOnControl(new FakeEl(false) as unknown as Element)).toBe(false);
+    expect(isOnControl(null)).toBe(false);
+    vi.unstubAllGlobals();
   });
 });
 

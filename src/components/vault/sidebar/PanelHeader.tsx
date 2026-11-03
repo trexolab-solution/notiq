@@ -1,15 +1,47 @@
-import { useCallback, useState, type ReactNode } from "react";
+import { useCallback, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { FileUp, Lock, LockOpen, ShieldCheck } from "lucide-react";
+import { Ellipsis, FileUp, Lock, LockOpen, ShieldCheck } from "lucide-react";
 import { VaultHealthDialog } from "../VaultHealthDialog";
 import { ImportDialog } from "../ImportDialog";
 import { SyncBadge } from "./SyncBadge";
 import { Tooltip } from "../../ui/Tooltip";
+import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu";
 
-/** "Secure Vault" title row; `actions` go on the right. When unlocked it also offers Vault health and Import. */
-export function PanelHeader({ unlocked, actions }: { unlocked: boolean; actions?: ReactNode }) {
+const icon = (el: JSX.Element) => <span className="inline-flex">{el}</span>;
+
+/**
+ * "Secure Vault" title row; `actions` (the frequent toolbar buttons) go on the right, followed — when
+ * unlocked — by a "More actions" menu holding the rare ones: Vault health, Import logins, plus `moreItems`.
+ */
+export function PanelHeader({ unlocked, actions, moreItems = [] }: {
+  unlocked: boolean;
+  actions?: ReactNode;
+  /** Extra entries for the "More actions" menu (view options), after the built-in ones. */
+  moreItems?: ContextMenuItem[];
+}) {
   const [dialog, setDialog] = useState<"health" | "import" | null>(null);
   const close = useCallback(() => setDialog(null), []);
+
+  const moreBtn = useRef<HTMLButtonElement>(null);
+  const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null);
+  // The outside press that closes the menu can land on the button: its click must not re-open it.
+  const closingByPress = useRef(false);
+  const openMenu = () => {
+    const r = moreBtn.current?.getBoundingClientRect();
+    if (r) setMenuAt({ x: r.right, y: r.bottom + 4 });
+  };
+  const closeMenu = () => {
+    setMenuAt(null);
+    const a = document.activeElement;
+    if (!a || a === document.body || a.closest('[role="menu"]')) moreBtn.current?.focus({ preventScroll: true });
+  };
+
+  const items: ContextMenuItem[] = [
+    { type: "item", label: "Vault health…", icon: icon(<ShieldCheck size={14} />), onClick: () => setDialog("health") },
+    { type: "item", label: "Import logins from CSV…", icon: icon(<FileUp size={14} />), onClick: () => setDialog("import") },
+    ...(moreItems.length ? [{ type: "separator" } as ContextMenuItem, ...moreItems] : []),
+  ];
+
   return (
     <div className="flex items-center gap-0.5 pl-3 pr-2 pt-2.5 pb-2">
       {unlocked
@@ -18,21 +50,31 @@ export function PanelHeader({ unlocked, actions }: { unlocked: boolean; actions?
       <h2 className="ml-1.5 min-w-0 truncate whitespace-nowrap text-xs font-semibold text-[var(--color-text)]" title="Secure Vault">Vault</h2>
       <SyncBadge />
       <span className="min-w-0 flex-1" />
-      {unlocked && (
-        <>
-          <Tooltip content="Vault health" description="Check for weak, reused and old passwords">
-            <button type="button" className="vt-icon-btn" aria-label="Vault health" onClick={() => setDialog("health")}>
-              <ShieldCheck size={14} />
-            </button>
-          </Tooltip>
-          <Tooltip content="Import logins from a CSV file">
-            <button type="button" className="vt-icon-btn" aria-label="Import logins" onClick={() => setDialog("import")}>
-              <FileUp size={14} />
-            </button>
-          </Tooltip>
-        </>
-      )}
       {actions}
+      {unlocked && (
+        <Tooltip content="More actions" description="Vault health, import, view options" disabled={!!menuAt}>
+          <button
+            ref={moreBtn}
+            type="button"
+            className="vt-icon-btn"
+            aria-label="More vault actions"
+            aria-haspopup="menu"
+            aria-expanded={!!menuAt}
+            onMouseDown={() => { closingByPress.current = !!menuAt; }}
+            onClick={() => {
+              if (closingByPress.current) { closingByPress.current = false; return; }
+              openMenu();
+            }}
+            onKeyDown={(e) => { if (e.key === "ArrowDown" && !menuAt) { e.preventDefault(); openMenu(); } }}
+          >
+            <Ellipsis size={15} />
+          </button>
+        </Tooltip>
+      )}
+      {menuAt && (
+        <ContextMenu x={menuAt.x} y={menuAt.y} align="end" autoFocusFirst label="More vault actions"
+                     items={items} onClose={closeMenu} />
+      )}
       {unlocked && dialog && createPortal(
         dialog === "health" ? <VaultHealthDialog onClose={close} /> : <ImportDialog onClose={close} />,
         document.body,
