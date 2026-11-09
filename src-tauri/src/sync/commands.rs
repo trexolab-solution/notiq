@@ -16,7 +16,7 @@ use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_opener::OpenerExt;
 use zeroize::Zeroizing;
 
-use super::engine::{self, Ctx, DeviceRow, LocalVault, Mode, Outcome, SyncError, SyncResult};
+use super::engine::{self, CycleOpts, Ctx, DeviceRow, LocalVault, Mode, Outcome, PendingDeletions, SyncError, SyncResult};
 use super::gdrive::{self, GoogleDriveProvider, OAuthClient, UrlOpener};
 use super::provider::{ProviderAuth, ProviderError, StorageProvider};
 use super::seal;
@@ -50,6 +50,17 @@ pub struct SyncStatus {
     pending: bool,
     device_id: String,
     device_name: String,
+    /// Set while `state` is `"awaitingConfirm"`: the upload the outbound guard stopped.
+    pending_deletions: Option<PendingDeletions>,
+}
+
+/// What `sync_apply_deletions` / `sync_restore_from_drive` did.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GuardChoiceResult {
+    /// The copy of the store's state written first (apply), or of it before the join (restore).
+    backup_path: Option<String>,
+    result: SyncResult,
 }
 
 #[derive(Serialize)]
@@ -75,6 +86,8 @@ enum Phase {
     Offline,
     Error,
     AuthNeeded,
+    /// The outbound guard stopped an upload; waiting for the user's choice.
+    AwaitingConfirm,
 }
 
 #[derive(Default)]
@@ -100,6 +113,8 @@ pub struct SyncManager {
     dirty: AtomicBool,
     /// Cancels the sign-in that is still waiting when `sync_connect` is called again.
     connect_cancel: Mutex<Option<Arc<tokio::sync::Notify>>>,
+    /// The upload the outbound guard stopped (memory only; the next cycle finds it again).
+    pending_deletions: Mutex<Option<PendingDeletions>>,
 }
 
 impl Default for SyncManager {
@@ -114,6 +129,7 @@ impl Default for SyncManager {
             sched: Mutex::new(Sched::default()),
             dirty: AtomicBool::new(false),
             connect_cancel: Mutex::new(None),
+            pending_deletions: Mutex::new(None),
         }
     }
 }
@@ -224,8 +240,10 @@ fn status_of(app: &AppHandle) -> SyncStatus {
             Phase::Offline => "offline",
             Phase::Error => "error",
             Phase::AuthNeeded => "authNeeded",
+            Phase::AwaitingConfirm => "awaitingConfirm",
         }
     };
+    let pending_deletions = if state == "awaitingConfirm" { lock(&mgr.pending_deletions).clone() } else { None };
     SyncStatus {
         configured: configured(),
         provider: st.provider.clone(),
@@ -237,6 +255,7 @@ fn status_of(app: &AppHandle) -> SyncStatus {
         pending: st.pending,
         device_id,
         device_name,
+        pending_deletions,
     }
 }
 
@@ -277,6 +296,19 @@ impl LocalVault for TauriLocal<'_> {
     fn change_seq(&self) -> u64 {
         self.vault.change_seq()
     }
+    fn remote_backup(&self, db: &Db, reason: &str) -> Result<Option<PathBuf>, String> {
+        let Some((key, vault_id)) = self.vault.key_copy() else { return Ok(None) };
+        let sealed = db.seal(&key, &vault_id)?;
+        drop(key);
+        let meta = std::fs::read(vault::meta_path(self.app)?).map_err(|e| e.to_string())?;
+        let dir = self.app.path().app_data_dir().map_err(|e| e.to_string())?;
+        state::write_safety_backup(&dir, &meta, &sealed, reason, vdb::now_ms()).map(Some)
+    }
+}
+
+/// Where safety backups go (shown in the guard dialog).
+fn backup_dir(app: &AppHandle) -> String {
+    app.path().app_data_dir().map(|d| d.join(state::SAFETY_DIR).to_string_lossy().into_owned()).unwrap_or_default()
 }
 
 // ─── cycle ───────────────────────────────────────────────────────────────────
@@ -292,6 +324,11 @@ fn phase_for(e: &SyncError) -> Phase {
 /// Runs one cycle. `wait = false` (scheduler) skips when one is already running; precondition
 /// failures then return `Ok(None)` quietly.
 async fn run_cycle(app: &AppHandle, mode: Mode, wait: bool) -> Result<Option<SyncResult>, String> {
+    Ok(run_cycle_with(app, mode, wait, CycleOpts::default()).await?.map(|(r, _)| r))
+}
+
+/// [`run_cycle`] with the user's choices; also returns the store-state backup it wrote.
+async fn run_cycle_with(app: &AppHandle, mode: Mode, wait: bool, opts: CycleOpts) -> Result<Option<(SyncResult, Option<PathBuf>)>, String> {
     let mgr = app.state::<SyncManager>();
     let vault = app.state::<VaultState>();
     let _guard = if wait {
@@ -330,7 +367,7 @@ async fn run_cycle(app: &AppHandle, mode: Mode, wait: bool) -> Result<Option<Syn
     let device_id = mgr.device_id(app).ok_or("The sync device id isn't set yet")?;
     let device_name = mgr.device_name();
     let mut st = mgr.st().clone();
-    let (meta_gen0, meta_pending0) = (st.meta_generation, st.meta_pending);
+    let start = Start { meta_gen: st.meta_generation, meta_pending: st.meta_pending, detached: st.detached, resume_guard: st.resume_guard };
     mgr.dirty.store(false, Ordering::SeqCst);
     mgr.set_phase(Phase::Syncing);
     notify_status(app);
@@ -338,13 +375,22 @@ async fn run_cycle(app: &AppHandle, mode: Mode, wait: bool) -> Result<Option<Syn
     let res = {
         let ctx = Ctx::new(&*drive as &dyn StorageProvider, &key, &vault_id, &device_id, &device_name, vdb::now_ms());
         let local = TauriLocal { app, vault: &vault };
-        engine::sync_once(&ctx, &local, &mut st, mode).await
+        engine::sync_once_with(&ctx, &local, &mut st, mode, opts).await
     };
     drop(key);
-    finish(app, st, res, meta_gen0, meta_pending0)
+    finish(app, st, res, start)
 }
 
-fn finish(app: &AppHandle, st: SyncState, res: Result<Outcome, SyncError>, meta_gen0: u64, meta_pending0: bool) -> Result<Option<SyncResult>, String> {
+/// Shared-state values when a cycle started (a change made meanwhile is never overwritten).
+struct Start {
+    meta_gen: u64,
+    meta_pending: bool,
+    detached: bool,
+    resume_guard: bool,
+}
+
+fn finish(app: &AppHandle, st: SyncState, res: Result<Outcome, SyncError>, start: Start) -> Result<Option<(SyncResult, Option<PathBuf>)>, String> {
+    let (meta_gen0, meta_pending0) = (start.meta_gen, start.meta_pending);
     let mgr = app.state::<SyncManager>();
     let dirty = mgr.dirty.swap(false, Ordering::SeqCst);
     {
@@ -353,7 +399,16 @@ fn finish(app: &AppHandle, st: SyncState, res: Result<Outcome, SyncError>, meta_
         sh.seen = st.seen.clone();
         sh.devices = st.devices.clone();
         sh.revisions = st.revisions.clone();
+        sh.remote_cache = st.remote_cache.clone();
         sh.meta_revision = st.meta_revision.clone();
+        // Only what the cycle itself changed (a disconnect / resume meanwhile wins).
+        if st.detached != start.detached && sh.detached == start.detached {
+            sh.detached = st.detached;
+            sh.detached_at_ms = st.detached_at_ms;
+        }
+        if st.resume_guard != start.resume_guard && sh.resume_guard == start.resume_guard {
+            sh.resume_guard = st.resume_guard;
+        }
         sh.first_sync_done = st.first_sync_done;
         if st.last_synced_ms.is_some() {
             sh.last_synced_ms = st.last_synced_ms;
@@ -379,16 +434,28 @@ fn finish(app: &AppHandle, st: SyncState, res: Result<Outcome, SyncError>, meta_
                 None => Some(o.warnings.join(" ")),
             };
             mgr.st().last_error = msg;
-            match &err {
-                Some(e) => {
+            let guard = o.pending_deletions.clone().map(|mut p| {
+                p.backup_dir = backup_dir(app);
+                p
+            });
+            match (&err, &guard) {
+                (Some(e), _) => {
                     backoff(&mut s, e);
                     mgr.set_phase(phase_for(e));
                 }
-                None => {
+                (None, Some(_)) => {
+                    s.backoff = None;
+                    s.backoff_s = 0;
+                    mgr.set_phase(Phase::AwaitingConfirm);
+                }
+                (None, None) => {
                     s.backoff = None;
                     s.backoff_s = 0;
                     mgr.set_phase(Phase::Idle);
                 }
+            }
+            if err.is_none() {
+                *lock(&mgr.pending_deletions) = guard;
             }
             if o.changed_local || o.meta_adopted {
                 let _ = app.emit(CHANGED_EVENT, serde_json::json!({}));
@@ -396,7 +463,7 @@ fn finish(app: &AppHandle, st: SyncState, res: Result<Outcome, SyncError>, meta_
             if !o.result.conflicts.is_empty() {
                 let _ = app.emit(CONFLICTS_EVENT, serde_json::json!({ "conflicts": o.result.conflicts }));
             }
-            Ok(Some(o.result))
+            Ok(Some((o.result, o.remote_backup)))
         }
         Err(e) => {
             backoff(&mut s, &e);
@@ -571,6 +638,10 @@ pub async fn sync_connect(app: AppHandle) -> Result<SyncStatus, String> {
     };
     {
         let mut st = mgr.st();
+        // Signed out before detaching existed (an older version's Disconnect): treat it as detached.
+        if st.provider.is_none() && st.vault_id.is_some() && !st.enabled && !st.detached {
+            st.detached = true;
+        }
         st.provider = Some(gdrive::PROVIDER_ID.into());
         st.account = Some(account.label);
         st.last_error = None;
@@ -603,7 +674,15 @@ pub async fn sync_disconnect(app: AppHandle) -> Result<(), String> {
         st.enabled = false;
         st.last_error = None;
         st.forget_revisions();
+        // Detach: whatever happens here from now on, reconnecting makes Google Drive the source of
+        // truth again (a Drive-first join, see engine::sync_once_with), never a silent push.
+        if st.vault_id.is_some() {
+            st.detached = true;
+            st.detached_at_ms = Some(vdb::now_ms());
+        }
+        st.resume_guard = false;
     }
+    *lock(&mgr.pending_deletions) = None;
     mgr.set_phase(Phase::Idle);
     mgr.save();
     notify_status(&app);
@@ -821,10 +900,33 @@ pub async fn sync_now(app: AppHandle) -> Result<SyncResult, String> {
 pub fn sync_disable(app: AppHandle) -> Result<(), String> {
     let mgr = app.state::<SyncManager>();
     mgr.st().enabled = false;
+    *lock(&mgr.pending_deletions) = None;
     mgr.set_phase(Phase::Idle);
     mgr.save();
     notify_status(&app);
     Ok(())
+}
+
+/// The guard dialog's "Apply deletions everywhere": backs up the store's state
+/// (`remote-before-deletes`) and the local vault, then uploads with the removals.
+#[tauri::command]
+pub async fn sync_apply_deletions(app: AppHandle) -> Result<GuardChoiceResult, String> {
+    guard_choice(&app, CycleOpts { allow_removals: true, drive_first: false }).await
+}
+
+/// The guard dialog's "Restore from Drive": a Drive-first cycle (everything live in the store
+/// but trashed / deleted here comes back; local edits and adds are kept).
+#[tauri::command]
+pub async fn sync_restore_from_drive(app: AppHandle) -> Result<GuardChoiceResult, String> {
+    guard_choice(&app, CycleOpts { allow_removals: false, drive_first: true }).await
+}
+
+async fn guard_choice(app: &AppHandle, opts: CycleOpts) -> Result<GuardChoiceResult, String> {
+    if !app.state::<VaultState>().is_unlocked() {
+        return Err(engine::ERR_LOCKED.into());
+    }
+    let (result, backup) = run_cycle_with(app, Mode::Full, true, opts).await?.unwrap_or_default();
+    Ok(GuardChoiceResult { backup_path: backup.map(|p| p.to_string_lossy().into_owned()), result })
 }
 
 /// Devices with a snapshot in the store. Names never fall back to ids: a device whose name isn't

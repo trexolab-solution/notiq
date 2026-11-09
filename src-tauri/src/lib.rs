@@ -843,6 +843,8 @@ pub fn run() {
         sync::commands::sync_devices,
         sync::commands::sync_remove_device,
         sync::commands::sync_set_device_name,
+        sync::commands::sync_apply_deletions,
+        sync::commands::sync_restore_from_drive,
     ]);
 
     #[cfg(not(desktop))]
@@ -946,6 +948,8 @@ pub fn run() {
         sync::commands::sync_devices,
         sync::commands::sync_remove_device,
         sync::commands::sync_set_device_name,
+        sync::commands::sync_apply_deletions,
+        sync::commands::sync_restore_from_drive,
     ]);
 
     #[cfg(desktop)]

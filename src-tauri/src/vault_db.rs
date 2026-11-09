@@ -676,7 +676,7 @@ impl Db {
     /// Gives the (non-tombstone) entries `ids` and their live attachments a fresh stamp, as one new
     /// local change (see [`restamp_restored`](Self::restamp_restored) for why). An entry in the
     /// recycle bin stays there: it gets a new trash register over its new version. Needs `device`.
-    fn restamp(&mut self, ids: &[String]) -> usize {
+    pub(crate) fn restamp(&mut self, ids: &[String]) -> usize {
         let ids: Vec<&String> = ids.iter().filter(|id| self.entries.get(*id).is_some_and(|e| !e.deleted)).collect();
         if ids.is_empty() { return 0; }
         // One stamp per operation; attachments first, so a delete that saw this version covers them.

@@ -65,6 +65,14 @@ pub struct SyncState {
     pub first_sync_done: bool,
     /// Names / last-seen of devices, from their snapshots.
     pub devices: BTreeMap<String, DeviceInfo>,
+    /// This PC was disconnected from the store (`sync_disconnect`) or never joined it: the next
+    /// enable against the same vault is a Drive-first join (see `engine::sync_once`).
+    pub detached: bool,
+    /// When this PC was detached (Unix ms; `None` = unknown). Local changes after it are "kept".
+    pub detached_at_ms: Option<u64>,
+    /// Sync was resumed after a pause: the first upload that would remove anything live in the
+    /// store waits for the user's confirmation (cleared by the first upload).
+    pub resume_guard: bool,
 
     // Memory only: provider revisions already merged, so unchanged objects aren't downloaded again.
     // Cleared on every unlock / app start, which gives a full re-merge per session.
@@ -72,7 +80,23 @@ pub struct SyncState {
     pub revisions: BTreeMap<String, String>,
     #[serde(skip)]
     pub meta_revision: Option<String>,
+    /// Memory only: per device, the revision and a content-free skeleton of the snapshot last read
+    /// (or uploaded). Their merge is the store's combined state, which the outbound guard checks.
+    #[serde(skip)]
+    pub remote_cache: RemoteCache,
 }
+
+/// Skeletons of the store's snapshots (see `SyncState::remote_cache`). Never compared or
+/// persisted: two states are equal whatever their caches hold.
+#[derive(Clone, Debug, Default)]
+pub struct RemoteCache(pub BTreeMap<String, (String, crate::vault_db::Db)>);
+
+impl PartialEq for RemoteCache {
+    fn eq(&self, _: &Self) -> bool {
+        true
+    }
+}
+impl Eq for RemoteCache {}
 
 impl SyncState {
     pub fn load(dir: &Path) -> SyncState {
@@ -91,6 +115,7 @@ impl SyncState {
     pub fn forget_revisions(&mut self) {
         self.revisions.clear();
         self.meta_revision = None;
+        self.remote_cache = RemoteCache::default();
     }
 
     /// Reset everything tied to one remote vault (a different vault is adopted / joined).
@@ -184,11 +209,40 @@ pub fn write_safety_backup(app_data: &Path, meta_json: &[u8], db_bytes: &[u8], r
         .map(|e| e.path())
         .filter(|p| p.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.starts_with(SAFETY_PREFIX) && n.ends_with(".nqbackup")))
         .collect();
-    all.sort();
-    while all.len() > SAFETY_KEEP {
-        let _ = fs::remove_file(all.remove(0));
+    all.sort(); // oldest first (the time is zero-padded)
+    // Routine copies rotate among themselves; each important reason keeps its own newest few.
+    let mut groups: BTreeMap<Option<String>, Vec<PathBuf>> = BTreeMap::new();
+    for p in all {
+        let r = p.file_name().and_then(|n| n.to_str()).and_then(safety_reason).filter(|r| is_important_reason(r));
+        groups.entry(r).or_default().push(p);
+    }
+    for (reason, mut files) in groups {
+        let keep = if reason.is_some() { IMPORTANT_KEEP } else { SAFETY_KEEP };
+        while files.len() > keep {
+            let _ = fs::remove_file(files.remove(0));
+        }
     }
     Ok(path)
+}
+
+/// Copies kept per important reason (see [`is_important_reason`]).
+pub const IMPORTANT_KEEP: usize = 3;
+
+/// Safety copies that routine ones never rotate away: before the first sync, before the
+/// Drive-first join, and copies of the store's state (`remote-*`).
+pub fn is_important_reason(reason: &str) -> bool {
+    reason == "first-sync" || reason == "drive-first" || reason.starts_with("remote-")
+}
+
+/// `safety-000001700000000-remote-before-deletes-2.nqbackup` → `remote-before-deletes`.
+fn safety_reason(name: &str) -> Option<String> {
+    let rest = name.strip_prefix(SAFETY_PREFIX)?.strip_suffix(".nqbackup")?;
+    let (_, reason) = rest.split_once('-')?;
+    let reason = match reason.rsplit_once('-') {
+        Some((head, n)) if !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()) => head,
+        _ => reason,
+    };
+    Some(reason.to_string())
 }
 
 /// The copy made before this device's local vault is replaced or imported (`sync_adopt_remote`).
@@ -252,7 +306,7 @@ mod tests {
         let local = write_local_vault_backup(&d, &m, &db, 1).unwrap();
         let mut paths = vec![];
         for i in 0..8u64 {
-            paths.push(write_safety_backup(&d, &m, &db, "first-sync", 1000 + i).unwrap());
+            paths.push(write_safety_backup(&d, &m, &db, "large-change", 1000 + i).unwrap());
         }
         let left: Vec<_> = fs::read_dir(d.join(SAFETY_DIR)).unwrap().flatten().map(|e| e.path()).collect();
         assert_eq!(left.len(), SAFETY_KEEP + 1);
@@ -260,6 +314,31 @@ mod tests {
         assert!(!paths[0].exists() && paths[7].exists());
         // Restorable with the normal backup format.
         assert!(crate::vault_backup::parse_container(&fs::read(&paths[7]).unwrap()).is_ok());
+        let _ = fs::remove_dir_all(d);
+    }
+
+    #[test]
+    fn important_safety_backups_survive_routine_rotation() {
+        let d = tmp("important");
+        let (m, db) = vault_files();
+        let first = write_safety_backup(&d, &m, &db, "first-sync", 1).unwrap();
+        let mut remote = vec![];
+        for i in 0..5u64 {
+            remote.push(write_safety_backup(&d, &m, &db, "remote-before-deletes", 10 + i).unwrap());
+        }
+        // Same millisecond: the "-2" suffix still counts as the same reason.
+        let dup = write_safety_backup(&d, &m, &db, "remote-before-deletes", 14).unwrap();
+        assert!(dup.to_string_lossy().ends_with("-remote-before-deletes-2.nqbackup"));
+        for i in 0..20u64 {
+            write_safety_backup(&d, &m, &db, "large-change", 100 + i).unwrap();
+        }
+        assert!(first.exists(), "first-sync copies are not rotated away by routine ones");
+        assert!(dup.exists() && remote[4].exists() && remote[3].exists());
+        assert!(!remote[0].exists(), "only the newest {IMPORTANT_KEEP} of a reason are kept");
+        let left = fs::read_dir(d.join(SAFETY_DIR)).unwrap().count();
+        assert_eq!(left, 1 + IMPORTANT_KEEP + SAFETY_KEEP);
+        assert_eq!(safety_reason("safety-000000000000001-drive-first.nqbackup").as_deref(), Some("drive-first"));
+        assert!(is_important_reason("remote-before-join") && !is_important_reason("large-change"));
         let _ = fs::remove_dir_all(d);
     }
 }
