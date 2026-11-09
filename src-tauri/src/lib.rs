@@ -843,6 +843,10 @@ pub fn run() {
         sync::commands::sync_devices,
         sync::commands::sync_remove_device,
         sync::commands::sync_set_device_name,
+        sync::markers::sync_markers_list,
+        sync::markers::sync_marker_before,
+        sync::markers::sync_marker_clear,
+        sync::markers::sync_markers_clear_all,
     ]);
 
     #[cfg(not(desktop))]
@@ -946,6 +950,10 @@ pub fn run() {
         sync::commands::sync_devices,
         sync::commands::sync_remove_device,
         sync::commands::sync_set_device_name,
+        sync::markers::sync_markers_list,
+        sync::markers::sync_marker_before,
+        sync::markers::sync_marker_clear,
+        sync::markers::sync_markers_clear_all,
     ]);
 
     #[cfg(desktop)]

@@ -1352,3 +1352,33 @@ fn a_merged_backup_survives_deletions_the_synced_copy_made_after_it() {
     let att = &db.get("c.nqv").unwrap().attachments;
     assert!(att.len() == 1 && !att[0].data.is_empty(), "the attachment comes back too");
 }
+
+#[test]
+fn a_sync_returns_markers_for_what_it_brought_in_with_device_names() {
+    use crate::vault_merge::ChangeKind;
+    let p = InMemoryProvider::new();
+    let mut a = Device::create(A, "LAPTOP");
+    a.put("shared.nqv", "v0");
+    ok(a.sync(&p));
+    let mut b = join(&p, B, "DESK", PW).unwrap();
+    // nothing new: no markers
+    assert!(ok(b.sync(&p)).markers.is_empty());
+    a.put("shared.nqv", "v1");
+    a.put("new.nqv", "hello");
+    ok(a.sync(&p));
+    let o = ok(b.sync(&p));
+    let id_of = |path: &str| b.v.db.lock().unwrap().get(path).unwrap().id.clone();
+    let mut got: Vec<(String, ChangeKind, String, bool)> =
+        o.markers.iter().map(|m| (m.id.clone(), m.kind, m.from_device.clone(), m.before.is_some())).collect();
+    got.sort_by(|x, y| x.0.cmp(&y.0));
+    let mut want = vec![
+        (id_of("shared.nqv"), ChangeKind::Updated, "LAPTOP".to_string(), true),
+        (id_of("new.nqv"), ChangeKind::Added, "LAPTOP".to_string(), false),
+    ];
+    want.sort_by(|x, y| x.0.cmp(&y.0));
+    assert_eq!(got, want);
+    // the version B had before is in the merged history
+    let db = b.v.db.lock().unwrap();
+    let m = o.markers.iter().find(|m| m.kind == ChangeKind::Updated).unwrap();
+    assert_eq!(super::markers::before_of(&o.markers, &db, &m.id), Some(("md".into(), "v0".into())));
+}

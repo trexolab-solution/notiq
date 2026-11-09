@@ -371,7 +371,8 @@ fn finish(app: &AppHandle, st: SyncState, res: Result<Outcome, SyncError>, meta_
     let mut s = lock(&mgr.sched);
     s.periodic = Some(Instant::now() + PERIOD);
     let out = match res {
-        Ok(o) => {
+        Ok(mut o) => {
+            super::markers::record_after_sync(app, std::mem::take(&mut o.markers));
             let err = o.upload_error.clone();
             let msg = match &err {
                 Some(e) => Some(e.describe()),

@@ -23,6 +23,7 @@ use std::path::PathBuf;
 
 use serde::Serialize;
 
+use super::markers::{self, Marker};
 use super::provider::{ProviderError, RemoteObject, StorageProvider};
 use super::seal::{self, RemoteMeta, Snapshot, SyncKeys, META_NAME};
 use super::state::{DeviceInfo, SyncState};
@@ -159,6 +160,8 @@ pub struct Outcome {
     pub backup: Option<PathBuf>,
     /// A newer `vault.meta` (password changed elsewhere) was adopted.
     pub meta_adopted: bool,
+    /// "Changed by sync" markers for what the merge brought in (device names resolved).
+    pub markers: Vec<Marker>,
 }
 
 struct Listing {
@@ -531,6 +534,7 @@ struct Applied {
     uploads: Vec<(String, String)>,
     gc: Vec<String>,
     seq: u64,
+    marks: Vec<Marker>,
 }
 
 /// One sync cycle. `st` is updated in place (the caller persists it).
@@ -570,7 +574,9 @@ pub async fn sync_once<L: LocalVault>(ctx: &Ctx<'_>, local: &L, st: &mut SyncSta
     let me = ctx.device_id.clone();
     let must_upload = st.pending || st.own_generation == 0 || !listing.devices.contains_key(&me);
     let applied = local.update_db(|db| {
+        let prior = combined.as_ref().map(|r| markers::prior(db, r));
         let report = combined.as_ref().map(|r| vault_merge::merge_into(db, r)).unwrap_or_default();
+        let marks = prior.map(|p| markers::collect(&p, db, &report.changes, ctx.now_ms)).unwrap_or_default();
         let renamed = resolve_collisions(db);
         let changed = report.changed || renamed > 0;
         let seq = local.change_seq();
@@ -590,9 +596,11 @@ pub async fn sync_once<L: LocalVault>(ctx: &Ctx<'_>, local: &L, st: &mut SyncSta
             }
         }
         let own = upload.then(|| seal::strip_attachment_data(db));
-        (Applied { report, renamed, own, uploads, gc, seq }, changed)
+        (Applied { report, renamed, own, uploads, gc, seq, marks }, changed)
     })?;
     record_fetched(st, &fetched);
+    out.markers = applied.marks;
+    markers::name_devices(&mut out.markers, |id| if id == me { Some(ctx.device_name.clone()) } else { device_name_of(st, id).map(str::to_string) });
     out.changed_local = applied.report.changed || applied.renamed > 0;
     out.result = SyncResult {
         added: applied.report.added,

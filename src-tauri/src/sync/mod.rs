@@ -6,6 +6,7 @@
 pub mod commands;
 pub mod engine;
 pub mod gdrive;
+pub mod markers;
 #[cfg(test)]
 pub mod memory;
 pub mod provider;
