@@ -28,6 +28,7 @@ const VAULT_FILES = [
   "components/ui/settings/AutofillSection.tsx",
   "components/ui/settings/AutofillIncognitoRow.tsx",
   "components/ui/settings/SyncSection.tsx",
+  "components/ui/settings/SyncHistoryRow.tsx",
   "components/vault/BackupSection.tsx",
 ];
 const AI_FILES = [
