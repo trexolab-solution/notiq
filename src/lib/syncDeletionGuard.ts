@@ -25,7 +25,8 @@ export function guardMessage(p: Pick<PendingDeletions, "removing" | "remoteLive"
   const first = p.reason === "resume"
     ? "This is the first sync since sync was resumed on this PC. "
     : "";
-  return `${first}Syncing this PC would remove ${p.removing}${of} in your Google Drive, and from your other devices too.`;
+  const what = p.remoteLive > 0 ? `${p.removing}${of}` : itemsText(p.removing);
+  return `${first}Syncing this PC would remove ${what} in your Google Drive, and from your other devices too.`;
 }
 
 /** The short list of names: up to 5, then "and K more" (K counts everything not listed). */

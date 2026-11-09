@@ -28,7 +28,7 @@ const k = (id: string): string[] => {
 };
 
 export const DISCONNECT_MESSAGE =
-  "This PC stops syncing. Your vault stays on this PC and in your Google Drive, and your other devices keep syncing.";
+  "Disconnecting detaches this PC: it stops syncing. Your vault stays on this PC and in your Google Drive, and your other devices keep syncing.";
 export const DISCONNECT_DETAIL =
   "When you reconnect, this PC restores from Google Drive: items still in Drive come back even if you deleted them here meanwhile, and changes you make here are kept and merged. To delete it from Drive, open Google Drive → Settings → Manage apps, find Notiq, then choose Options → \"Delete hidden app data\".";
 
