@@ -6,6 +6,7 @@ import { BusyIcon, busyIconProps } from "../../ui/Loading";
 import type { VaultItem } from "../../../lib/vault";
 import { daysUntilPurge, relativeTime, trashRoots, type TrashRoot } from "../../../lib/vaultTree";
 import { EntryIcon } from "./EntryIcon";
+import { useSyncStore } from "../../../lib/vaultSync";
 
 interface Props {
   trash: VaultItem[];
@@ -27,6 +28,8 @@ const restoreName = (busy: boolean, name: string) => {
 export function TrashView({ trash, onBack, onRestore, onPurge, onEmpty }: Props) {
   const roots = useMemo(() => trashRoots(trash), [trash]);
   const [confirm, setConfirm] = useState<Confirm>(null);
+  const syncing = useSyncStore((s) => !!(s.status?.enabled && s.status.provider));
+  const syncNote = syncing ? " They are also deleted from Google Drive and your other devices." : "";
   const [busy, setBusy] = useState<string | null>(null);
 
   const run = async (key: string, fn: () => Promise<void>) => {
@@ -109,7 +112,7 @@ export function TrashView({ trash, onBack, onRestore, onPurge, onEmpty }: Props)
       {confirm?.kind === "purge" && (
         <ConfirmDialog
           title="Delete forever?"
-          message={`“${confirm.root.name}”${confirm.root.childCount ? ` and the ${confirm.root.childCount} items inside it` : ""} will be permanently deleted. This can't be undone.`}
+          message={`“${confirm.root.name}”${confirm.root.childCount ? ` and the ${confirm.root.childCount} items inside it` : ""} will be permanently deleted. This can't be undone.${syncNote}`}
           confirmLabel="Delete forever"
           danger
           onCancel={() => setConfirm(null)}
@@ -123,7 +126,7 @@ export function TrashView({ trash, onBack, onRestore, onPurge, onEmpty }: Props)
       {confirm?.kind === "empty" && (
         <ConfirmDialog
           title="Empty trash?"
-          message={`All ${roots.length} item${roots.length === 1 ? "" : "s"} in the trash will be permanently deleted. This can't be undone.`}
+          message={`All ${roots.length} item${roots.length === 1 ? "" : "s"} in the trash will be permanently deleted. This can't be undone.${syncNote}`}
           confirmLabel="Empty trash"
           danger
           onCancel={() => setConfirm(null)}
