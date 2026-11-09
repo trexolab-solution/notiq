@@ -24,6 +24,7 @@ use std::path::PathBuf;
 use serde::Serialize;
 use zeroize::Zeroize;
 
+use super::markers::{self, Marker};
 use super::provider::{ProviderError, RemoteObject, StorageProvider};
 use super::seal::{self, RemoteMeta, Snapshot, SyncKeys, META_NAME};
 use super::state::{DeviceInfo, SyncState};
@@ -214,6 +215,8 @@ pub struct Outcome {
     pub meta_adopted: bool,
     /// The outbound guard stopped the upload; the user decides (nothing was uploaded).
     pub pending_deletions: Option<PendingDeletions>,
+    /// "Changed by sync" markers for what the merge brought in (device names resolved).
+    pub markers: Vec<Marker>,
 }
 
 struct Listing {
@@ -709,6 +712,13 @@ pub fn is_large_change(changed: usize, live: usize) -> bool {
     changed > 10 || (live >= 4 && changed * 4 > live)
 }
 
+/// An upload that removes enough of the store's live entries to ask the user first: more than 10,
+/// a quarter of them once that's at least 3, or all of them (2 or more). Removing one or two of a
+/// handful of entries is everyday use and syncs without a question.
+pub fn is_large_outbound(removing: usize, live: usize) -> bool {
+    removing > 10 || (removing >= 3 && removing * 4 > live) || (live >= 2 && removing >= live)
+}
+
 // ─── the cycle ───────────────────────────────────────────────────────────────
 
 struct Applied {
@@ -719,6 +729,7 @@ struct Applied {
     gc: Vec<String>,
     seq: u64,
     join: Option<JoinSummary>,
+    marks: Vec<Marker>,
 }
 
 /// One normal sync cycle. `st` is updated in place (the caller persists it).
@@ -789,6 +800,10 @@ pub async fn sync_once_with<L: LocalVault>(ctx: &Ctx<'_>, local: &L, st: &mut Sy
         if out.backup.is_none() && local.read_db(|db| !db.entries.is_empty())? {
             out.backup = local.safety_backup("before-deletes")?;
         }
+        // And a restore point in Drive history of this device's copy as it was (best effort).
+        if let Err(e) = super::history::checkpoint(ctx, "before-deletes").await {
+            eprintln!("[sync] history checkpoint before deletes failed: {}", e.message());
+        }
     }
 
     // Merge into the local vault (saved through the normal path when it changed).
@@ -806,11 +821,28 @@ pub async fn sync_once_with<L: LocalVault>(ctx: &Ctx<'_>, local: &L, st: &mut Sy
                 .count(),
             _ => 0,
         };
-        let report = combined.as_ref().map(|r| vault_merge::merge_into(db, r)).unwrap_or_default();
+        let prior = combined.as_ref().map(|r| markers::prior(db, r));
+        let mut report = combined.as_ref().map(|r| vault_merge::merge_into(db, r)).unwrap_or_default();
         let restored = match (&combined, drive_first) {
             (Some(r), true) => restore_from_remote(db, r),
             _ => vec![],
         };
+        // Entries the Drive-first join brought back are "Restored from Drive" (replacing any
+        // change the plain merge reported for them, e.g. "removed").
+        if !restored.is_empty() {
+            report.changes.retain(|c| !restored.contains(&c.id));
+            for id in &restored {
+                if let Some(e) = db.entries.get(id).filter(|e| !e.dir) {
+                    report.changes.push(vault_merge::EntryChange {
+                        id: id.clone(),
+                        kind: vault_merge::ChangeKind::Restored,
+                        device: e.stamp.device.clone(),
+                        before: None,
+                    });
+                }
+            }
+        }
+        let marks = prior.map(|p| markers::collect(&p, db, &report.changes, ctx.now_ms)).unwrap_or_default();
         let join = drive_first.then(|| JoinSummary {
             restored: restored.iter().filter(|id| db.entries.get(*id).is_some_and(|e| !e.dir)).count(),
             kept_local,
@@ -834,9 +866,11 @@ pub async fn sync_once_with<L: LocalVault>(ctx: &Ctx<'_>, local: &L, st: &mut Sy
             }
         }
         let own = upload.then(|| seal::strip_attachment_data(db));
-        (Applied { report, renamed, own, uploads, gc, seq, join }, changed)
+        (Applied { report, renamed, own, uploads, gc, seq, join, marks }, changed)
     })?;
     record_fetched(st, &fetched);
+    out.markers = applied.marks;
+    markers::name_devices(&mut out.markers, |id| if id == me { Some(ctx.device_name.clone()) } else { device_name_of(st, id).map(str::to_string) });
     out.changed_local = applied.report.changed || applied.renamed > 0 || applied.join.as_ref().is_some_and(|j| j.restored > 0);
     out.result = SyncResult {
         join: applied.join.clone(),
@@ -873,7 +907,7 @@ pub async fn sync_once_with<L: LocalVault>(ctx: &Ctx<'_>, local: &L, st: &mut Sy
                     return Ok(out);
                 }
                 Guard::Checked { removing, remote_live, titles } => {
-                    let large = is_large_change(removing, remote_live);
+                    let large = is_large_outbound(removing, remote_live);
                     if large || (st.resume_guard && removing > 0) {
                         st.pending = true;
                         out.pending_deletions = Some(PendingDeletions {

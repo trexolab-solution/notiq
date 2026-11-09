@@ -10,6 +10,7 @@ import {
   type SyncStatus,
 } from "./vaultSync";
 import { enableSync, type EnableOutcome } from "./vaultSyncFlows";
+import { reviewActions } from "./syncMarkers";
 import {
   FIRST_UPLOAD_DONE, countEntries, diffNewDevices, isFirstUpload, loadSeenDevices, markSyncBannerDone,
   newDeviceMessage, saveSeenDevices, seenDevicesKey, uploadingMessage,
@@ -38,7 +39,7 @@ export async function turnOnSyncWithFeedback(): Promise<EnableOutcome> {
   if (out.kind === "enabled") {
     markSyncBannerDone();
     if (first) toast.success(FIRST_UPLOAD_DONE, { source: SOURCE, detail: "Turn on sync on your other PCs, or choose \"Use my vault from Google Drive\" when you set up the vault there." });
-    else toast.success(`Sync is on. ${describeSyncResult(out.result) ?? "Your vault is up to date."}`, { source: SOURCE });
+    else toast.success(`Sync is on. ${describeSyncResult(out.result) ?? "Your vault is up to date."}`, { source: SOURCE, actions: reviewActions(out.result) });
   } else if (out.kind === "error") {
     toast.error("Couldn't turn on sync", { source: SOURCE, detail: out.error });
   }

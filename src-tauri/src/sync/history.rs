@@ -210,7 +210,6 @@ async fn keep_daily(ctx: &Ctx<'_>) -> Result<(), SyncError> {
 /// An on-demand history copy of this device's live snapshot, e.g. before a risky operation
 /// (`reason` is shortened to `[a-z0-9-]`). Returns the object name, or `None` when this device
 /// has no snapshot in the store yet. Old copies are cleaned up afterwards (best effort).
-#[allow(dead_code)] // public hook for a pre-risky-operation guard (not called yet)
 pub async fn checkpoint(ctx: &Ctx<'_>, reason: &str) -> Result<Option<String>, SyncError> {
     let name = checkpoint_name(&ctx.device_id, ctx.now_ms, reason);
     if !copy_live(ctx, &name).await? {

@@ -94,6 +94,38 @@ pub struct MergeReport {
     pub removed: usize,
     pub conflicts: Vec<MergeConflict>,
     pub collisions: Vec<PathCollision>,
+    /// Per entry: what the merge brought in (for the "changed by sync" markers). Entries that
+    /// were and stay out of view (recycle bin, tombstones) are left out; the counters above
+    /// still count them.
+    pub changes: Vec<EntryChange>,
+}
+
+/// How a merge changed one entry, seen from the local database.
+#[derive(Serialize, serde::Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ChangeKind {
+    /// Not here before.
+    Added,
+    /// Here and live before and after, but different (content, name, tags, history, ...).
+    Updated,
+    /// In the recycle bin (or deleted) here, live again after the merge.
+    Restored,
+    /// Live here, trashed or deleted after the merge.
+    Removed,
+}
+
+/// One entry the merge changed.
+#[derive(Serialize, Debug, Clone, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct EntryChange {
+    pub id: String,
+    pub kind: ChangeKind,
+    /// Device id whose change was brought in (`""` when not known, e.g. a pre-stamp version).
+    pub device: String,
+    /// Stamp of the local version the merge replaced, when the content changed (`None` for
+    /// added entries, folders and meta-only changes). The merged history keeps that version
+    /// under this stamp (normal history, or a conflict revision when it lost).
+    pub before: Option<Hlc>,
 }
 
 /// The join of two databases. `device` and `loaded_v` (not stored) come from `a`.
@@ -350,12 +382,16 @@ fn report(local: &Db, merged: &Db) -> MergeReport {
     for (id, m) in &merged.entries {
         let Some(l) = local.entries.get(id) else {
             if !m.deleted { r.added += 1; }
+            if m.is_live() {
+                r.changes.push(EntryChange { id: id.clone(), kind: ChangeKind::Added, device: m.stamp.device.clone(), before: None });
+            }
             for c in m.history.iter().filter(|c| c.conflict_from.is_some()) {
                 r.conflicts.push(MergeConflict { id: id.clone(), path: m.path.clone(), from_device: c.conflict_from.clone().unwrap_or_default() });
             }
             continue;
         };
         if l.is_live() && !m.is_live() { r.removed += 1; } else if l != m { r.updated += 1; }
+        if let Some(c) = entry_change(id, l, m) { r.changes.push(c); }
         for c in m.history.iter().filter(|c| c.conflict_from.is_some()) {
             if !l.history.iter().any(|o| ident(o) == ident(c)) {
                 r.conflicts.push(MergeConflict { id: id.clone(), path: m.path.clone(), from_device: c.conflict_from.clone().unwrap_or_default() });
@@ -364,6 +400,37 @@ fn report(local: &Db, merged: &Db) -> MergeReport {
     }
     r.collisions = path_collisions(merged);
     r
+}
+
+/// What the merge did to an entry that was here before (`None`: nothing, or nothing in view).
+fn entry_change(id: &str, l: &Entry, m: &Entry) -> Option<EntryChange> {
+    if l == m || (!l.is_live() && !m.is_live()) { return None; }
+    let content_changed = l.stamp != m.stamp;
+    let kind = match (l.is_live(), m.is_live()) {
+        (true, false) => ChangeKind::Removed,
+        (false, true) => ChangeKind::Restored,
+        _ => ChangeKind::Updated,
+    };
+    let device = match kind {
+        ChangeKind::Removed => {
+            let r = if m.deleted { &m.tomb } else { &m.trash };
+            r.as_ref().map(|r| r.at.device.clone()).unwrap_or_default()
+        }
+        _ if content_changed => m.stamp.device.clone(),
+        _ if l.meta_stamp != m.meta_stamp => m.meta_stamp.device.clone(),
+        _ => {
+            // Only the history (a version that lost) or attachments changed: name the newest
+            // thing that wasn't here before.
+            let rev = m.history.iter().filter(|c| !l.history.iter().any(|o| ident(o) == ident(c)))
+                .filter_map(|c| c.stamp.clone()).max();
+            let att = m.attachments.iter().filter(|a| !l.attachments.contains(a))
+                .map(|a| a.removed.clone().unwrap_or_default().max(a.stamp.clone())).max();
+            rev.max(att).map(|s| s.device).unwrap_or_else(|| m.version().device.clone())
+        }
+    };
+    // The version this device had, when the merge replaced its content (it stays in history).
+    let before = (kind != ChangeKind::Removed && content_changed && !l.deleted && !l.dir && !l.content.is_empty()).then(|| l.stamp.clone());
+    Some(EntryChange { id: id.into(), kind, device, before })
 }
 
 // ─── tests ───────────────────────────────────────────────────────────────────
@@ -456,6 +523,95 @@ vs
     }
 
     // ─── unit tests ──────────────────────────────────────────────────────────
+
+    fn kept(e: &Entry, stamp: &Hlc) -> Option<String> {
+        e.history.iter().find(|r| r.stamp.as_ref() == Some(stamp)).map(|r| r.content.clone())
+    }
+
+    #[test]
+    fn changes_list_an_update_and_the_replaced_version_stays_in_history() {
+        let base = base_note("v0");
+        let (mut a, b) = (fork(&base, "A"), fork(&base, "B"));
+        at(&mut a, BASE + 10);
+        a.put("n.nqv", "md", "v1").unwrap();
+        let mut lb = b.clone();
+        let before = lb.get("n.nqv").unwrap().stamp.clone();
+        let r = merge_into(&mut lb, &a);
+        let e = lb.get("n.nqv").unwrap();
+        assert_eq!(r.changes, vec![EntryChange { id: e.id.clone(), kind: ChangeKind::Updated, device: "A".into(), before: Some(before.clone()) }]);
+        assert_eq!(kept(e, &before).as_deref(), Some("v0"), "pre-sync version retrievable by its stamp");
+        // a second merge brings nothing new
+        assert!(merge_into(&mut lb, &a).changes.is_empty());
+    }
+
+    #[test]
+    fn changes_keep_a_losing_local_version_as_the_before() {
+        let base = base_note("v0");
+        let (mut a, mut b) = (fork(&base, "A"), fork(&base, "B"));
+        at(&mut b, BASE + 10);
+        b.put("n.nqv", "md", "mine").unwrap();
+        at(&mut a, BASE + 20);
+        a.put("n.nqv", "md", "theirs").unwrap();
+        let before = b.get("n.nqv").unwrap().stamp.clone();
+        let r = merge_into(&mut b, &a);
+        let e = b.get("n.nqv").unwrap();
+        assert_eq!(e.content, "theirs");
+        assert_eq!(r.changes.len(), 1);
+        assert_eq!((r.changes[0].kind, r.changes[0].device.as_str()), (ChangeKind::Updated, "A"));
+        assert_eq!(r.changes[0].before.as_ref(), Some(&before));
+        assert_eq!(kept(e, &before).as_deref(), Some("mine"));
+    }
+
+    #[test]
+    fn changes_list_added_removed_and_restored_entries() {
+        let mut base = base_note("v0");
+        base.put("t.nqv", "md", "trash me").unwrap();
+        base.put("gone.nqv", "md", "delete me").unwrap();
+        base.put("back.nqv", "md", "x").unwrap();
+        let (mut a, mut b) = (fork(&base, "A"), fork(&base, "B"));
+        at(&mut b, BASE + 10);
+        b.trash("back.nqv").unwrap(); // trashed here, edited there later: comes back
+        at(&mut a, BASE + 20);
+        a.put("new.nqv", "md", "hello").unwrap();
+        a.trash("t.nqv").unwrap();
+        a.delete("gone.nqv").unwrap();
+        a.put("back.nqv", "md", "x2").unwrap();
+        let ids: HashMap<&str, String> = ["new.nqv", "t.nqv", "gone.nqv", "back.nqv"].iter()
+            .map(|p| (*p, a.entries.values().find(|e| e.path == *p).unwrap().id.clone())).collect();
+        let back_before = b.entries[&ids["back.nqv"]].stamp.clone();
+        let r = merge_into(&mut b, &a);
+        let kind = |p: &str| r.changes.iter().find(|c| c.id == ids[p]).map(|c| (c.kind, c.device.clone(), c.before.clone()));
+        assert_eq!(kind("new.nqv"), Some((ChangeKind::Added, "A".into(), None)));
+        assert_eq!(kind("t.nqv"), Some((ChangeKind::Removed, "A".into(), None)));
+        assert_eq!(kind("gone.nqv"), Some((ChangeKind::Removed, "A".into(), None)));
+        assert_eq!(kind("back.nqv"), Some((ChangeKind::Restored, "A".into(), Some(back_before))));
+        assert_eq!(r.changes.len(), 4);
+        assert_eq!((r.added, r.removed, r.updated), (1, 2, 1), "counters unchanged");
+    }
+
+    #[test]
+    fn changes_leave_out_entries_that_stay_out_of_view() {
+        let mut base = base_note("v0");
+        base.trash("n.nqv").unwrap();
+        let (mut a, b) = (fork(&base, "A"), fork(&base, "B"));
+        at(&mut a, BASE + 10);
+        a.purge("n.nqv").unwrap(); // trashed → deleted: both out of view
+        let mut lb = b.clone();
+        let r = merge_into(&mut lb, &a);
+        assert!(r.changed && r.changes.is_empty());
+    }
+
+    #[test]
+    fn changes_name_the_renaming_device_for_a_meta_only_change() {
+        let base = base_note("v0");
+        let (mut a, b) = (fork(&base, "A"), fork(&base, "B"));
+        at(&mut a, BASE + 10);
+        a.rename("n.nqv", "m.nqv").unwrap();
+        let mut lb = b.clone();
+        let r = merge_into(&mut lb, &a);
+        assert_eq!(r.changes.len(), 1);
+        assert_eq!((r.changes[0].kind, r.changes[0].device.as_str(), r.changes[0].before.clone()), (ChangeKind::Updated, "A", None));
+    }
 
     #[test]
     fn concurrent_edits_newer_wins_and_the_loser_is_kept_as_a_conflict() {

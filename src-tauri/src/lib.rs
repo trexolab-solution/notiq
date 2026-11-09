@@ -847,6 +847,10 @@ pub fn run() {
         sync::commands::sync_restore_from_drive,
         sync::commands::history_cmd::sync_history_list,
         sync::commands::history_cmd::sync_history_restore,
+        sync::markers::sync_markers_list,
+        sync::markers::sync_marker_before,
+        sync::markers::sync_marker_clear,
+        sync::markers::sync_markers_clear_all,
     ]);
 
     #[cfg(not(desktop))]
@@ -954,6 +958,10 @@ pub fn run() {
         sync::commands::sync_restore_from_drive,
         sync::commands::history_cmd::sync_history_list,
         sync::commands::history_cmd::sync_history_restore,
+        sync::markers::sync_markers_list,
+        sync::markers::sync_marker_before,
+        sync::markers::sync_marker_clear,
+        sync::markers::sync_markers_clear_all,
     ]);
 
     #[cfg(desktop)]

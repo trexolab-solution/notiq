@@ -1327,7 +1327,7 @@ fn a_restored_backup_survives_deletions_the_synced_copy_made_after_it() {
         for path in ["a.nqv", "Folder", "c.nqv"] { db.trash(path).unwrap(); }
         db.empty_trash();
     });
-    ok(a.sync(&p));
+    a.apply_deletions(&p); // wiping the vault asks first (outbound guard)
     assert!(a.paths().is_empty());
 
     // Control: the restored file as it is (no restore marker) — the store's deletions remove it again.
@@ -1382,7 +1382,7 @@ fn a_merged_backup_survives_deletions_the_synced_copy_made_after_it() {
         for path in ["a.nqv", "Folder", "c.nqv"] { db.trash(path).unwrap(); }
         db.empty_trash();
     });
-    ok(a.sync(&p));
+    a.apply_deletions(&p); // wiping the vault asks first (outbound guard)
 
     // A second PC on the same vault, with a note of its own, has synced those deletions.
     let mut own = Db::new();
@@ -1639,4 +1639,68 @@ fn a_detached_state_survives_a_restart() {
     assert_eq!(st.detached_at_ms, Some(42));
     let old: SyncState = serde_json::from_str(r#"{"enabled":true}"#).unwrap();
     assert!(!old.detached && !old.resume_guard);
+}
+
+#[test]
+fn a_sync_returns_markers_for_what_it_brought_in_with_device_names() {
+    use crate::vault_merge::ChangeKind;
+    let p = InMemoryProvider::new();
+    let mut a = Device::create(A, "LAPTOP");
+    a.put("shared.nqv", "v0");
+    ok(a.sync(&p));
+    let mut b = join(&p, B, "DESK", PW).unwrap();
+    // nothing new: no markers
+    assert!(ok(b.sync(&p)).markers.is_empty());
+    a.put("shared.nqv", "v1");
+    a.put("new.nqv", "hello");
+    ok(a.sync(&p));
+    let o = ok(b.sync(&p));
+    let id_of = |path: &str| b.v.db.lock().unwrap().get(path).unwrap().id.clone();
+    let mut got: Vec<(String, ChangeKind, String, bool)> =
+        o.markers.iter().map(|m| (m.id.clone(), m.kind, m.from_device.clone(), m.before.is_some())).collect();
+    got.sort_by(|x, y| x.0.cmp(&y.0));
+    let mut want = vec![
+        (id_of("shared.nqv"), ChangeKind::Updated, "LAPTOP".to_string(), true),
+        (id_of("new.nqv"), ChangeKind::Added, "LAPTOP".to_string(), false),
+    ];
+    want.sort_by(|x, y| x.0.cmp(&y.0));
+    assert_eq!(got, want);
+    // the version B had before is in the merged history
+    let db = b.v.db.lock().unwrap();
+    let m = o.markers.iter().find(|m| m.kind == ChangeKind::Updated).unwrap();
+    assert_eq!(super::markers::before_of(&o.markers, &db, &m.id), Some(("md".into(), "v0".into())));
+}
+
+#[test]
+fn the_drive_first_join_marks_what_it_brought_back_as_restored() {
+    use crate::vault_merge::ChangeKind;
+    let p = InMemoryProvider::new();
+    let mut a = Device::create(A, "Laptop");
+    for n in notes(3) {
+        a.put(&n, "kept in Drive");
+    }
+    ok(a.sync(&p));
+    a.disconnect();
+    a.edit(|db| {
+        for n in notes(3) { db.trash(&n).unwrap(); }
+        db.empty_trash();
+    });
+    a.enable(&p);
+    let o = ok(a.sync(&p));
+    let mut kinds: Vec<ChangeKind> = o.markers.iter().map(|m| m.kind).collect();
+    kinds.dedup();
+    assert_eq!(o.markers.len(), 3, "one marker per item that came back");
+    assert_eq!(kinds, vec![ChangeKind::Restored]);
+}
+
+#[test]
+fn small_everyday_deletes_upload_without_asking_but_wiping_does_not() {
+    use super::engine::is_large_outbound;
+    assert!(!is_large_outbound(1, 5));
+    assert!(!is_large_outbound(2, 5));
+    assert!(is_large_outbound(3, 5));
+    assert!(is_large_outbound(2, 2), "removing everything always asks");
+    assert!(!is_large_outbound(1, 1));
+    assert!(!is_large_outbound(10, 100));
+    assert!(is_large_outbound(11, 1000));
 }

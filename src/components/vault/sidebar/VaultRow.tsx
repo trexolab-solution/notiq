@@ -32,6 +32,10 @@ interface Props {
   editor?: ReactNode;
   /** New things are created in this folder (the selected entry's folder) — a softer highlight. */
   isTarget?: boolean;
+  /** A sync brought this entry in from Drive: the dot's label ("Updated from Drive · from LAPTOP · 2 hours ago"). */
+  syncMark?: string;
+  /** A collapsed folder holding entries a sync brought in: the hollow dot's label. */
+  syncMarkInside?: string;
   /** Click (Ctrl/Cmd+click and middle-click included — the handler reads the event). */
   onSelect: (key: string, node: TreeNode, e: MouseEvent) => void;
   /** Open an entry in a new permanent tab (double-click, hover button). */
@@ -44,7 +48,7 @@ interface Props {
 /** One file-tree row: chevron, type icon, name, compact tags, star and a "more" button. */
 export const VaultRow = memo(function VaultRow({
   rowKey, node, depth, expanded, selected, isOpen, isDrop, dropFolder, showPath, subtitle, editor, isTarget,
-  onSelect, onOpenNew, onToggle, onMenu, setRef,
+  syncMark, syncMarkInside, onSelect, onOpenNew, onToggle, onMenu, setRef,
 }: Props) {
   const drag = useDraggable({
     id: rowKey,
@@ -71,7 +75,9 @@ export const VaultRow = memo(function VaultRow({
     kindLabel(node.kind),
     subtitle ?? "",
     node.tags.length ? `Tags: ${node.tags.join(", ")}` : "",
+    syncMark ?? syncMarkInside ?? "",
   ].filter(Boolean).join("\n");
+  const markLabel = syncMark ?? syncMarkInside;
 
   // dnd-kit's listeners include a keyboard handler (Space/Enter starts a drag) — the
   // tree has its own keyboard model, so only forward the pointer listener.
@@ -85,7 +91,7 @@ export const VaultRow = memo(function VaultRow({
       aria-level={depth + 1}
       aria-expanded={node.dir ? expanded : undefined}
       aria-selected={selected}
-      aria-label={`${node.name}, ${kindLabel(node.kind)}${node.starred ? ", starred" : ""}`}
+      aria-label={`${node.name}, ${kindLabel(node.kind)}${node.starred ? ", starred" : ""}${markLabel ? `, ${markLabel}` : ""}`}
       tabIndex={selected ? 0 : -1}
       title={editor ? undefined : tooltip}
       className={`vt-row${selected ? " is-selected" : ""}${isTarget ? " is-target" : ""}${isOpen ? " is-open" : ""}${isDrop ? " is-drop" : ""}${drag.isDragging ? " is-dragging" : ""}`}
@@ -123,6 +129,14 @@ export const VaultRow = memo(function VaultRow({
             {where && <span className="text-[11px] text-[var(--color-text-muted)]"> · {where}</span>}
             {subtitle && <span className="vt-row-sub">{subtitle}</span>}
           </span>
+          {markLabel && (
+            <span
+              className={`vt-sync-dot${syncMark ? "" : " is-inside"}`}
+              data-sync-mark={syncMark ? "entry" : "inside"}
+              title={markLabel}
+              aria-hidden
+            />
+          )}
           {shownTags.length > 0 && (
             <span className="vt-row-tags" aria-hidden>
               {shownTags.map((t) => <span key={t} className="vt-row-tag">{t}</span>)}

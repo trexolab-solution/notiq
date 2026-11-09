@@ -18,6 +18,7 @@ import {
 } from "../../../lib/vaultSync";
 import { useDeletionGuardUi } from "../../../lib/syncDeletionGuard";
 import { startSyncSetup, useSyncSetupStore } from "../../../lib/syncSetupFlow";
+import { reviewActions } from "../../../lib/syncMarkers";
 import { SYNC_INDEX } from "./syncIndex";
 import { deviceDisplayName } from "../../../lib/syncSurfaces";
 import { RestoreFromDateRow } from "./SyncHistoryRow";
@@ -126,7 +127,7 @@ export function SyncSection() {
     setBusy("now");
     try {
       const r = await syncNow();
-      toast.info(describeSyncResult(r) ?? "Your vault is up to date.", { source: "Vault sync" });
+      toast.info(describeSyncResult(r) ?? "Your vault is up to date.", { source: "Vault sync", actions: reviewActions(r) });
     } catch (e) {
       toast.error("Sync failed", { source: "Vault sync", detail: syncErrorMessage(e) });
     } finally {

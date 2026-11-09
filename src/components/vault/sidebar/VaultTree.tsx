@@ -11,6 +11,7 @@ import { openModeFromEvent, type VaultOpenMode } from "../../../lib/vaultTabs";
 import { EntryIcon } from "./EntryIcon";
 import { INDENT, VaultRow, rowDomId, type DragData, type DropData } from "./VaultRow";
 import { SiteGroupRow } from "./SiteGroupRow";
+import { markedInside, markerLabel, type SyncMarker } from "../../../lib/syncMarkers";
 
 /**
  * A visible, focusable row (Starred group rows and tree rows share one keyboard order). Either a real
@@ -51,6 +52,19 @@ interface Props {
   onTrash: (node: TreeNode) => void;
   onMenu: (key: string | null, node: TreeNode | null, x: number, y: number) => void;
   onMove: (rel: string, destFolder: string) => void;
+  /** "Changed by sync" markers by lower-cased rel (dots on rows and collapsed folders). */
+  marks?: Map<string, SyncMarker>;
+}
+
+/** The dot labels of a row: its own marker, or (collapsed folder) how many marked entries it holds. */
+export function rowMarkLabels(marks: Map<string, SyncMarker> | undefined, node: TreeNode, open: boolean, now = Date.now()):
+  { syncMark?: string; syncMarkInside?: string } {
+  if (!marks?.size) return {};
+  const own = marks.get(node.rel.toLowerCase());
+  if (own) return { syncMark: markerLabel(own, now) };
+  if (!node.dir || open) return {};
+  const n = markedInside(marks, node.rel);
+  return n ? { syncMarkInside: n === 1 ? "1 item changed by sync" : `${n} items changed by sync` } : {};
 }
 
 const ROOT_DROP_ID = "drop:root";
@@ -268,6 +282,7 @@ export function VaultTree(p: Props) {
       dropFolder={r.starred ? null : r.node.dir ? r.node.rel : parentRel(r.node.rel)}
       showPath={r.starred}
       editor={p.editingKey === r.key ? p.renderEditor(r.node) : undefined}
+      {...rowMarkLabels(p.marks, r.node, r.node.dir && !r.starred && isExpanded(r.node.rel))}
       onSelect={onRowSelect}
       onOpenNew={onRowOpenNew}
       onToggle={p.onToggle}

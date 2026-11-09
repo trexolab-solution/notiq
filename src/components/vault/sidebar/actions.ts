@@ -11,6 +11,7 @@ import {
   canMoveTo, displayName, joinRel, movedRel, nameError, nameTaken, normalizeTags, parentRel, renamedRel, toFull, toRel,
 } from "../../../lib/vaultTree";
 import { toast } from "../../../lib/toast";
+import { useSyncMarkersStore } from "../../../lib/syncMarkers";
 import type { VaultOpenMode } from "../../../lib/vaultTabs";
 
 /**
@@ -26,6 +27,7 @@ const fail = (e: unknown) => { toast.error(vaultErrorMessage(e)); };
 export async function openEntry(root: string, rel: string, mode: VaultOpenMode = "permanent") {
   try {
     useAppStore.getState().openVaultEntry(await readFileEntry(toFull(root, rel)), mode);
+    useSyncMarkersStore.getState().markOpened(rel); // opening an entry marks a sync change as seen
     if (await useVaultStore.getState().ensureUnlocked()) await useAppStore.getState().unlockVaultTabs();
   } catch (e) { fail(e); }
 }
