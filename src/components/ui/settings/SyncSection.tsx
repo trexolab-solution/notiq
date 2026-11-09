@@ -20,6 +20,7 @@ import { useDeletionGuardUi } from "../../../lib/syncDeletionGuard";
 import { startSyncSetup, useSyncSetupStore } from "../../../lib/syncSetupFlow";
 import { SYNC_INDEX } from "./syncIndex";
 import { deviceDisplayName } from "../../../lib/syncSurfaces";
+import { RestoreFromDateRow } from "./SyncHistoryRow";
 
 /** Search words for a row: its index keywords plus the index description (row descriptions are live text). */
 const k = (id: string): string[] => {
@@ -224,6 +225,7 @@ export function SyncSection() {
 
       {connected && <DeviceNameRow status={status} />}
       {connected && <DevicesBlock status={status} />}
+      {connected && exists && <RestoreFromDateRow />}
 
       <SettingRow id="vault.sync.limits" label="Attachment limits" keywords={k("vault.sync.limits")}
                   description={`Attachments sync too. ${ATTACHMENT_LIMITS_TEXT}`}>

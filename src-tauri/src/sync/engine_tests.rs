@@ -15,6 +15,8 @@ use crate::vault_core::{self as vc, KdfParams, VaultError, VaultKey, VaultMeta, 
 use crate::vault_db::{b64_encode, Db};
 use crate::vault_hlc::Hlc;
 
+mod history_tests; // Drive version history (sync::history)
+
 const FAST: KdfParams = KdfParams { m_kib: 64, t: 1, p: 1 };
 const PW: &str = "correct horse battery";
 const A: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";

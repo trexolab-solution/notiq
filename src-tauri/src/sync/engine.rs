@@ -903,6 +903,7 @@ pub async fn sync_once_with<L: LocalVault>(ctx: &Ctx<'_>, local: &L, st: &mut Sy
             st.detached = false;
             st.detached_at_ms = None;
         }
+        super::history::after_upload(ctx).await; // daily history copy + retention (best effort)
     } else {
         st.pending = st.pending || local.change_seq() != applied.seq;
     }

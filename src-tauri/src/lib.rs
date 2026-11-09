@@ -845,6 +845,8 @@ pub fn run() {
         sync::commands::sync_set_device_name,
         sync::commands::sync_apply_deletions,
         sync::commands::sync_restore_from_drive,
+        sync::commands::history_cmd::sync_history_list,
+        sync::commands::history_cmd::sync_history_restore,
     ]);
 
     #[cfg(not(desktop))]
@@ -950,6 +952,8 @@ pub fn run() {
         sync::commands::sync_set_device_name,
         sync::commands::sync_apply_deletions,
         sync::commands::sync_restore_from_drive,
+        sync::commands::history_cmd::sync_history_list,
+        sync::commands::history_cmd::sync_history_restore,
     ]);
 
     #[cfg(desktop)]
