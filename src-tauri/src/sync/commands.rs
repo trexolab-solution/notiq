@@ -5,6 +5,8 @@
 //! sync at a time (`run`); retryable failures back off (`RateLimited` honours its delay).
 //! Contract: the coordinator's `sync-p3-p4-contract.md`.
 
+pub mod history_cmd; // Drive version history commands (sync_history_list / sync_history_restore)
+
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};

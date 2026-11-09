@@ -627,6 +627,7 @@ pub async fn sync_once<L: LocalVault>(ctx: &Ctx<'_>, local: &L, st: &mut SyncSta
             return Ok(out);
         }
         st.pending = local.change_seq() != applied.seq;
+        super::history::after_upload(ctx).await; // daily history copy + retention (best effort)
     } else {
         st.pending = st.pending || local.change_seq() != applied.seq;
     }
