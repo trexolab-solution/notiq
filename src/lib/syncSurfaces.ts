@@ -90,6 +90,7 @@ export function badgeTooltip(s: SyncStatus | null, vaultExists: boolean): string
     case "offline": return `Offline · changes sync when you're back online${who}`;
     case "error": return `Sync problem: ${s.lastError ?? "the last sync failed"}`;
     case "authNeeded": return "Sync problem: Google needs you to sign in again";
+    case "awaitingConfirm": return "Sync is waiting for your decision before deleting items from Google Drive";
     case "locked": return "Sync paused while the vault is locked";
     default:
       return s.pending
@@ -104,7 +105,7 @@ export function badgeTooltip(s: SyncStatus | null, vaultExists: boolean): string
  * `connect` / `turnOn` start the set-up decision flow (`requestSyncSetup`); `settings` renders as a link;
  * `openStorage` opens Google's storage page (Drive full).
  */
-export type PopoverAction = "syncNow" | "retry" | "reconnect" | "connect" | "turnOn" | "unlock" | "settings" | "recheck" | "openStorage";
+export type PopoverAction = "syncNow" | "retry" | "reconnect" | "connect" | "turnOn" | "unlock" | "review" | "settings" | "recheck" | "openStorage";
 export type BadgeTone = "ok" | "busy" | "warn" | "danger" | "muted";
 
 export interface PopoverModel {
@@ -136,6 +137,7 @@ export const ACTION_LABELS: Record<PopoverAction, string> = {
   connect: "Connect Google Drive",
   turnOn: "Resume sync",
   unlock: "Unlock",
+  review: "Review…",
   settings: "Sync settings",
   recheck: "Retry",
   openStorage: "Open Drive storage",
@@ -205,6 +207,8 @@ export function popoverModel(s: SyncStatus, now = Date.now()): PopoverModel {
         : problem("Problem", "danger", s.lastError ?? "The last sync failed.", "retry");
     case "authNeeded":
       return problem("Sign-in needed", "danger", "Google sign-in expired or access was removed. Reconnect to keep syncing.", "reconnect");
+    case "awaitingConfirm":
+      return problem("Confirm", "warn", "Sync is waiting for your decision before it deletes items from Google Drive.", "review");
     case "locked":
       return {
         ...on, badge: { label: "Paused", tone: "muted" }, showDevices: false,

@@ -12,7 +12,7 @@ import { ERR_LOCKED, VAULT_ATTACH_MAX_BYTES, VAULT_ATTACH_MAX_PER_NOTE, VAULT_AT
 
 // ── Types (JSON is camelCase) ─────────────────────────────────────────────────
 
-export type SyncState = "off" | "idle" | "syncing" | "offline" | "error" | "authNeeded" | "locked";
+export type SyncState = "off" | "idle" | "syncing" | "offline" | "error" | "authNeeded" | "locked" | "awaitingConfirm";
 
 export interface SyncStatus {
   /** This build has a Google client id (else Connect is disabled with a note). */
@@ -31,11 +31,32 @@ export interface SyncStatus {
   pending: boolean;
   deviceId: string;
   deviceName: string;
+  /** Set while state is "awaitingConfirm": an upload that would remove entries from Drive waits for the user. */
+  pendingDeletions?: PendingDeletions | null;
+}
+
+export interface PendingDeletions {
+  /** Entries this sync would remove from Google Drive. */
+  removing: number;
+  /** Entries live in Google Drive right now. */
+  remoteLive: number;
+  /** Up to 8 entry names (never paths). */
+  titles: string[];
+  /** "large": many at once; "resume": the first sync after sync was resumed. */
+  reason: "large" | "resume";
+  /** Folder where the safety backups of the Drive copy go. */
+  backupDir: string;
 }
 
 export interface SyncDevice { id: string; name: string; lastSeenMs: number | null; thisDevice: boolean }
 export interface SyncConflict { path: string; fromDevice: string }
-export interface SyncResult { added: number; updated: number; removed: number; conflicts: SyncConflict[] }
+export interface JoinSummary { restored: number; keptLocal: number }
+export interface SyncResult {
+  added: number; updated: number; removed: number; conflicts: SyncConflict[];
+  /** Present after a Drive-first join or "Restore from Drive". */
+  join?: JoinSummary | null;
+}
+export interface GuardChoiceResult { backupPath: string | null; result: SyncResult }
 export interface RemoteVaultInfo { exists: boolean; sameVault: boolean | null }
 export interface AdoptResult { backupPath: string; imported: number; skipped: number; renamed: number }
 export type AdoptMode = "import" | "backupOnly";
@@ -88,6 +109,10 @@ export const syncEnable = () => invoke<SyncResult>("sync_enable");
 export const syncJoin = (password: string) => invoke<void>("sync_join", { password });
 export const syncAdoptRemote = (remotePassword: string, mode: AdoptMode, localPassword?: string) =>
   invoke<AdoptResult>("sync_adopt_remote", localPassword ? { remotePassword, mode, localPassword } : { remotePassword, mode });
+/** The user confirmed the pending deletions: the Drive copy is backed up, then the deletions apply everywhere. */
+export const syncApplyDeletions = () => invoke<GuardChoiceResult>("sync_apply_deletions");
+/** The user chose Drive over this PC: the pending deletions are dropped and the removed items come back. */
+export const syncRestoreFromDrive = () => invoke<GuardChoiceResult>("sync_restore_from_drive");
 export const syncNow = () => invoke<SyncResult>("sync_now");
 export const syncDisable = () => invoke<void>("sync_disable");
 export const syncDevices = () => invoke<SyncDevice[]>("sync_devices");
@@ -189,6 +214,11 @@ export function syncIndicator(s: SyncStatus | null, now = Date.now()): SyncIndic
       return { kind: "problem", label: "Sync problem", tooltip: `Vault sync: ${s.lastError ?? "something went wrong"}. Click for details.` };
     case "authNeeded":
       return { kind: "problem", label: "Sync problem", tooltip: "Vault sync: Google needs you to sign in again. Click to reconnect." };
+    case "awaitingConfirm": {
+      const n = s.pendingDeletions?.removing;
+      const what = n == null ? "items" : n === 1 ? "1 item" : `${n} items`;
+      return { kind: "problem", label: "Confirm deletions", tooltip: `Vault sync: waiting for your decision before deleting ${what} from Google Drive. Click to review.` };
+    }
     case "locked":
       return { kind: "locked", label: "Sync paused", tooltip: "Vault sync: paused while the vault is locked." };
     default:

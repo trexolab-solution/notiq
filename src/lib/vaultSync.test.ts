@@ -145,6 +145,16 @@ describe("status bar indicator", () => {
     expect(kind({ state: "error", lastError: "Drive said no" })).toBe("problem");
     expect(kind({ state: "authNeeded" })).toBe("problem");
     expect(kind({ state: "locked" })).toBe("locked");
+    expect(kind({ state: "awaitingConfirm" })).toBe("problem");
+  });
+
+  it("awaitingConfirm says it is waiting for a decision before deleting N items", () => {
+    const i = syncIndicator(status({
+      state: "awaitingConfirm",
+      pendingDeletions: { removing: 12, remoteLive: 14, titles: [], reason: "large", backupDir: "C:/b" },
+    }), NOW)!;
+    expect(i.label).toBe("Confirm deletions");
+    expect(i.tooltip).toContain("waiting for your decision before deleting 12 items from Google Drive");
   });
 
   it("explains itself in the tooltip", () => {

@@ -9,6 +9,7 @@ import { computePopoverPos, type PopoverPos } from "../../lib/popoverPosition";
 import { toast } from "../../lib/toast";
 import { useAppStore } from "../../store";
 import { useVaultStore } from "../../store/vaultStore";
+import { useDeletionGuardUi } from "../../lib/syncDeletionGuard";
 import { describeSyncResult, syncDevices, syncErrorMessage, syncNow, useSyncStatus, useSyncStore } from "../../lib/vaultSync";
 import {
   ACTION_LABELS, DRIVE_STORAGE_URL, OPEN_SYNC_POPOVER_EVENT, SYNC_BUTTON_SELECTOR, deviceCountLabel, isCacheFresh,
@@ -321,6 +322,7 @@ export function SyncPopoverHost() {
         setBusy(a);
         void Promise.resolve(useSyncStore.getState().refresh()).finally(() => setBusy(null));
         break;
+      case "review": close(); useDeletionGuardUi.getState().reopen(); break;
       case "unlock": close(); void useVaultStore.getState().ensureUnlocked(); break;
       case "openStorage": openUrl(DRIVE_STORAGE_URL).catch((e) => toast.error(String(e))); break;
       case "settings": close(); useAppStore.getState().openSettings("vault", syncSettingsRow(useSyncStore.getState().status)); break;
