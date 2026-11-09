@@ -15,27 +15,17 @@ export const WHATS_NEW = `# What's New in Notiq ${APP_VERSION}
 
 Thanks for updating! Here's what's new in this release.
 
-## 🗂 Vault sidebar
+## 🛡 Vault Sync, safer
 
-- **Preview tabs** — clicking a vault item opens it in a preview tab (italic title) that the next click reuses, so tabs don't pile up. Editing it, double-clicking, **Ctrl+click** or the row's "Open in new tab" button keeps it in a tab of its own.
-- **Create where you mean** — click empty space in the sidebar (or press Esc) to clear the selection, then New item or New folder creates at the vault root. The target folder is outlined.
-- **Tidier toolbar** — New item, New folder, Collapse all / Expand all and Lock up front; Vault health, Import logins from CSV, sort and grouping are under **⋯ More actions**.
+- **Fixed: data lost after reconnecting** — if you disconnected Google Drive, deleted items on this PC and reconnected, sync could delete them from Drive too. Disconnecting now detaches this PC: when you reconnect (or connect an account that holds your vault), Notiq restores from Drive first and merges, so items deleted while disconnected come back. Changes you made while disconnected are kept.
+- **Asks before deleting a lot** — if a sync would delete many items from Drive (or every item), Notiq stops and asks: **Restore from Drive** or **Apply deletions everywhere**. It also asks on the first sync after you resume a paused sync.
+- **Backups first** — before any large deletion or a reconnect, Notiq saves an encrypted copy of both this PC's vault and the Drive copy.
+- **Restore from a date** — Notiq keeps a daily copy of your vault in Drive for 30 days. Go back to any of them from **Settings → Vault → Sync → Restore from a date…**. Nothing on this PC is removed.
 
-## 🔑 SSH keys, redesigned
+## 🔵 See what came from Drive
 
-- **Import several files at once** — drop or pick key files; the private and public key each go to their own field, where you can see and edit them.
-- **Key details** — type, size, SHA256 fingerprint and comment, whether the private key has a passphrase, and whether the two keys match.
-- **Other files** — extra files are kept in a list with View, Copy and Remove (with Undo).
-
-## 🌐 Browser autofill
-
-- **No repeat prompts** — Notiq no longer offers to save a login that's already saved, and offers **Update password** when you sign in with a new password (also on change-password forms).
-- **Private windows** — a new setting under Settings → Vault → Browser autofill decides whether autofill works in private (incognito) windows. It's off by default.
-- **Password generator** in the extension's toolbar popup, with Fill password for the page you're on.
-
-## ⚡ Quick search
-
-- **Fixed:** the quick search window (Ctrl+Alt+K) could reappear on its own as a blank window after the vault locked. It now only opens when you ask, and always closes when you click elsewhere.
+- **Dots on synced items** — items added, changed or restored by sync show a small dot in the vault sidebar, with a **Recently synced** list and **Mark all as seen**.
+- **Show changes** — an entry changed by sync shows "Updated from Drive"; **Show changes** compares the version before the sync with the current one, field by field, with secrets hidden until you reveal them.
 
 ---
 
