@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ArrowDownAZ, ChevronsDownUp, ChevronsUpDown, Clock, FolderPlus, Globe, Lock, Search, Trash2, X } from "lucide-react";
+import {
+  ArrowDownAZ, CheckCheck, ChevronsDownUp, ChevronsUpDown, Clock, CloudDownload, FolderPlus, Globe, Lock, Search, Trash2, X,
+} from "lucide-react";
 import { useAppStore } from "../../../store";
 import { useVaultStore } from "../../../store/vaultStore";
 import { isVaultPath, type VaultItem } from "../../../lib/vault";
@@ -28,6 +30,8 @@ import { TagEditor } from "./TagEditor";
 import { MoveDialog } from "./MoveDialog";
 import { TrashView } from "./TrashView";
 import { buildMenu, type MenuHandlers } from "./menuItems";
+import { RecentlySyncedView } from "./RecentlySyncedView";
+import { followSyncMarkers, markerIndex, reviewList, useSyncMarkersStore } from "../../../lib/syncMarkers";
 
 interface Props {
   root: string;
@@ -117,6 +121,18 @@ export function VaultExplorer({ root, items, trash, loading, error, reload, foot
   const tags = useMemo(() => tagCounts(items), [items]);
   const folders = useMemo(() => allFolders(items), [items]);
   const trashCount = useMemo(() => trashRoots(trash).length, [trash]);
+
+  // "Changed by sync" markers: dots in the tree, the Recently synced view.
+  const syncMarkers = useSyncMarkersStore((s) => s.markers);
+  const reviewOpen = useSyncMarkersStore((s) => s.reviewOpen);
+  const setReviewOpen = useSyncMarkersStore((s) => s.setReviewOpen);
+  useEffect(() => followSyncMarkers(), []);
+  // A rename or move here changes where a marked entry is.
+  useEffect(() => { void useSyncMarkersStore.getState().refresh(); }, [items]);
+  const marks = useMemo(() => markerIndex(syncMarkers), [syncMarkers]);
+  const syncedCount = useMemo(() => reviewList(syncMarkers).length, [syncMarkers]);
+  const showReview = reviewOpen && !showTrash;
+  const markAllSeen = () => void useSyncMarkersStore.getState().clearAll();
 
   // Drop tag filters for tags that no longer exist.
   useEffect(() => {
@@ -309,6 +325,12 @@ export function VaultExplorer({ root, items, trash, loading, error, reload, foot
     { type: "separator" },
     { type: "item", label: groupBySite ? "Group logins by website  ✓" : "Group logins by website", icon: menuIcon(<Globe size={14} />),
       onClick: () => setGroupBySite(!groupBySite) },
+    { type: "separator" },
+    { type: "item", label: `Recently synced (${syncedCount})`, icon: menuIcon(<CloudDownload size={14} />),
+      onClick: () => { setShowTrash(false); setReviewOpen(true); } },
+    ...(syncedCount > 0
+      ? [{ type: "item", label: "Mark all as seen", icon: menuIcon(<CheckCheck size={14} />), onClick: markAllSeen } as ContextMenuItem]
+      : []),
   ];
   const collapseDisabled = filtering || folders.length === 0;
 
@@ -363,6 +385,14 @@ export function VaultExplorer({ root, items, trash, loading, error, reload, foot
           onRestore={(rel) => A.restoreEntry(root, rel)}
           onPurge={(rel) => A.purgeEntry(root, rel)}
           onEmpty={A.emptyTrash}
+        />
+      ) : showReview ? (
+        <RecentlySyncedView
+          markers={syncMarkers}
+          items={items}
+          onBack={() => setReviewOpen(false)}
+          onOpen={(m) => { reveal(m.rel); void A.openEntry(root, m.rel, "preview"); }}
+          onMarkAllSeen={markAllSeen}
         />
       ) : (
         <>
@@ -425,18 +455,36 @@ export function VaultExplorer({ root, items, trash, loading, error, reload, foot
               onTrash={askTrash}
               onMenu={openMenu}
               onMove={(rel, dest) => void doMove(rel, dest)}
+              marks={marks}
             />
           </div>
         </>
       )}
 
       <div className="vt-footer">
+        {/* Announced once per change of the count (screen readers); the row below is the visible part. */}
+        <span className="sr-only" role="status" aria-live="polite">
+          {syncedCount > 0 ? `${syncedCount} item${syncedCount === 1 ? "" : "s"} changed by sync` : ""}
+        </span>
+        {syncedCount > 0 && (
+          <Tooltip content="Items sync brought in from Google Drive" description="Opening an item marks it as seen" placement="top">
+            <button
+              type="button"
+              className={`vt-footer-row${showReview ? " is-active" : ""}`}
+              aria-pressed={showReview}
+              onClick={() => { setShowTrash(false); setReviewOpen(!showReview); }}
+            >
+              <span className="vt-sync-dot" aria-hidden /> Recently synced
+              <span className="vt-count">{syncedCount}</span>
+            </button>
+          </Tooltip>
+        )}
         <Tooltip content="Deleted items are kept for 30 days" placement="top">
           <button
             type="button"
             className={`vt-footer-row${showTrash ? " is-active" : ""}`}
             aria-pressed={showTrash}
-            onClick={() => setShowTrash((v) => !v)}
+            onClick={() => { setReviewOpen(false); setShowTrash((v) => !v); }}
           >
             <Trash2 size={13} aria-hidden /> Trash
             {trashCount > 0 && <span className="vt-count">{trashCount}</span>}

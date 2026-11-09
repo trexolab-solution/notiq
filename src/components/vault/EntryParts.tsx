@@ -4,6 +4,7 @@ import { Button } from "../ui/Button";
 import { Tooltip } from "../ui/Tooltip";
 import { EntrySaveButton } from "./EntrySaveButton";
 import { HistoryPanel } from "./HistoryPanel";
+import { SyncChangeBanner, type CompareRequest } from "./SyncChangeBanner";
 import type { Tab } from "../../types";
 import { clipboardClearLabel, getClipboardClearSeconds } from "../../lib/vaultPrefs";
 
@@ -16,7 +17,11 @@ export const textArea = "w-full rounded-md px-2.5 py-2 text-sm bg-[var(--color-b
  * Lets the header's History button toggle the panel that `EntryLayout` renders beside the form, and
  * tells the sticky header whether the form has scrolled under it.
  */
-const HistoryToggle = createContext<{ open: boolean; toggle: () => void; scrolled: boolean } | null>(null);
+const HistoryToggle = createContext<{
+  open: boolean; toggle: () => void; scrolled: boolean;
+  /** Opens History comparing the version a sync replaced with the current one. */
+  compare: (c: CompareRequest) => void;
+} | null>(null);
 
 /**
  * Root of a structured entry editor: the form in its own scroll area on the left and, while open, the
@@ -39,10 +44,15 @@ export function EntryLayout({ tab, children }: { tab: Tab; children: React.React
     return () => obs.disconnect();
   }, [open]);
 
-  const toggle = () => setOpenFor((id) => (id === tab.id ? null : tab.id));
+  // "Show changes" from the sync banner: History in compare mode (for this tab only).
+  const [compareReq, setCompareReq] = useState<{ tabId: string; req: CompareRequest } | null>(null);
+  const comparing = open && compareReq?.tabId === tab.id ? compareReq.req : null;
+  const toggle = () => { setCompareReq(null); setOpenFor((id) => (id === tab.id ? null : tab.id)); };
+  const compare = (req: CompareRequest) => { setCompareReq({ tabId: tab.id, req }); setOpenFor(tab.id); };
+  const close = () => { setOpenFor(null); setCompareReq(null); };
 
   return (
-    <HistoryToggle.Provider value={{ open, toggle, scrolled }}>
+    <HistoryToggle.Provider value={{ open, toggle, scrolled, compare }}>
       <div ref={rootRef} data-tour="editor" className="relative flex-1 min-h-0 flex bg-[var(--color-editor-bg)]">
         {/* `data-entry-drop`: the area files can be dropped on to attach them (AttachmentsPanel), and the
             positioned box its drop highlight is drawn over. */}
@@ -50,7 +60,10 @@ export function EntryLayout({ tab, children }: { tab: Tab; children: React.React
           <div className="flex-1 min-h-0 overflow-y-auto"
                onScroll={(e) => setScrolled(e.currentTarget.scrollTop > 0)}>{children}</div>
         </div>
-        {open && <HistoryPanel key={tab.filePath} tab={tab} containerWidth={width} onClose={() => setOpenFor(null)} />}
+        {open && (
+          <HistoryPanel key={tab.filePath} tab={tab} containerWidth={width} onClose={close}
+                        compare={comparing} onExitCompare={() => setCompareReq(null)} />
+        )}
       </div>
     </HistoryToggle.Provider>
   );
@@ -71,25 +84,28 @@ export function EntryHeader({ icon: Icon, title, tab, badge }: {
   const history = useContext(HistoryToggle);
   const stuck = !!history?.scrolled;
   return (
-    <div data-entry-header="" className={`sticky top-0 z-20 -mx-6 px-6 -my-2 py-2 flex items-center gap-2 bg-[var(--color-editor-bg)] border-b transition-colors motion-reduce:transition-none ${
-      stuck ? "border-[var(--color-border)]" : "border-transparent"}`}>
-      <Icon size={18} style={{ color: "var(--color-primary)" }} />
-      <h1 className="text-base font-semibold">{title}</h1>
-      {badge && (
-        <span className="text-[11px] px-1.5 py-0.5 rounded bg-[var(--color-bg-tertiary)] border border-[var(--color-border)] text-[var(--color-text-muted)]">
-          {badge}
-        </span>
-      )}
-      <div className="flex-1" />
-      <EntrySaveButton tab={tab} />
-      <Tooltip content="Earlier saved versions of this entry">
-        <Button size="sm" icon={<History size={13} />} disabled={!tab.filePath || !history}
-                aria-pressed={history?.open ?? false} onClick={history?.toggle}
-                className="aria-pressed:bg-[var(--color-bg-tertiary)] aria-pressed:text-[var(--color-text)]">
-          History
-        </Button>
-      </Tooltip>
-    </div>
+    <>
+      <div data-entry-header="" className={`sticky top-0 z-20 -mx-6 px-6 -my-2 py-2 flex items-center gap-2 bg-[var(--color-editor-bg)] border-b transition-colors motion-reduce:transition-none ${
+        stuck ? "border-[var(--color-border)]" : "border-transparent"}`}>
+        <Icon size={18} style={{ color: "var(--color-primary)" }} />
+        <h1 className="text-base font-semibold">{title}</h1>
+        {badge && (
+          <span className="text-[11px] px-1.5 py-0.5 rounded bg-[var(--color-bg-tertiary)] border border-[var(--color-border)] text-[var(--color-text-muted)]">
+            {badge}
+          </span>
+        )}
+        <div className="flex-1" />
+        <EntrySaveButton tab={tab} />
+        <Tooltip content="Earlier saved versions of this entry">
+          <Button size="sm" icon={<History size={13} />} disabled={!tab.filePath || !history}
+                  aria-pressed={history?.open ?? false} onClick={history?.toggle}
+                  className="aria-pressed:bg-[var(--color-bg-tertiary)] aria-pressed:text-[var(--color-text)]">
+            History
+          </Button>
+        </Tooltip>
+      </div>
+      <SyncChangeBanner path={tab.filePath} onShowChanges={history?.compare} />
+    </>
   );
 }
 

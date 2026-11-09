@@ -17,6 +17,7 @@ import {
   useSyncStatus, useSyncStore, type SyncDevice, type SyncStatus,
 } from "../../../lib/vaultSync";
 import { startSyncSetup, useSyncSetupStore } from "../../../lib/syncSetupFlow";
+import { reviewActions } from "../../../lib/syncMarkers";
 import { SYNC_INDEX } from "./syncIndex";
 import { deviceDisplayName } from "../../../lib/syncSurfaces";
 
@@ -123,7 +124,7 @@ export function SyncSection() {
     setBusy("now");
     try {
       const r = await syncNow();
-      toast.info(describeSyncResult(r) ?? "Your vault is up to date.", { source: "Vault sync" });
+      toast.info(describeSyncResult(r) ?? "Your vault is up to date.", { source: "Vault sync", actions: reviewActions(r) });
     } catch (e) {
       toast.error("Sync failed", { source: "Vault sync", detail: syncErrorMessage(e) });
     } finally {

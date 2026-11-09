@@ -1,8 +1,9 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Settings, GitBranch, PenTool, FileText, Lock } from "lucide-react";
 import { VaultPanel } from "../vault/VaultPanel";
 import { useAppStore } from "../../store";
 import { Tooltip } from "../ui/Tooltip";
+import { useSyncMarkersStore } from "../../lib/syncMarkers";
 import type { AppView } from "../../types";
 
 export type { AppView };
@@ -20,6 +21,9 @@ export const Sidebar = React.memo(function Sidebar({
   const activeTabId  = useAppStore((s) => s.activeTabId);
   const openSettings = useAppStore((s) => s.openSettings);
   const [vaultOpen, setVaultOpen] = useState(false);
+  // "Review" on a sync result opens the vault panel on its Recently synced view.
+  const reviewRequest = useSyncMarkersStore((s) => s.reviewRequest);
+  useEffect(() => { if (reviewRequest > 0) setVaultOpen(true); }, [reviewRequest]);
   const activeKind   = tabs.find((t) => t.id === activeTabId)?.kind;
   const isWbActive   = activeKind === "whiteboard";
   const isSettingsActive = activeView === "editor" && activeKind === "settings";

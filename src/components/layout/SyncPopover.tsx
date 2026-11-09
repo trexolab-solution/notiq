@@ -10,6 +10,7 @@ import { toast } from "../../lib/toast";
 import { useAppStore } from "../../store";
 import { useVaultStore } from "../../store/vaultStore";
 import { describeSyncResult, syncDevices, syncErrorMessage, syncNow, useSyncStatus, useSyncStore } from "../../lib/vaultSync";
+import { reviewActions } from "../../lib/syncMarkers";
 import {
   ACTION_LABELS, DRIVE_STORAGE_URL, OPEN_SYNC_POPOVER_EVENT, SYNC_BUTTON_SELECTOR, deviceCountLabel, isCacheFresh,
   markIndicatorTipShown, loadingModel, popoverModel, requestSyncSetup, syncSettingsRow,
@@ -65,7 +66,7 @@ export function openSyncPopover(req?: SyncPopoverRequest): void {
 export async function runSyncNow(): Promise<void> {
   try {
     const r = await syncNow();
-    toast.info(describeSyncResult(r) ?? "Your vault is up to date.", { source: "Vault sync" });
+    toast.info(describeSyncResult(r) ?? "Your vault is up to date.", { source: "Vault sync", actions: reviewActions(r) });
   } catch (e) {
     toast.error("Sync failed", { source: "Vault sync", detail: syncErrorMessage(e) });
   } finally {

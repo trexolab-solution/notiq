@@ -118,6 +118,14 @@
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 64px; flex-shrink: 1;
 }
 .vt-row-star { flex-shrink: 0; color: var(--color-primary); }
+/* "Changed by sync" dot: an entry a sync brought in from Drive (hollow on a folder holding some). */
+.vt-sync-dot {
+  flex-shrink: 0; width: 6px; height: 6px; margin: 0 2px; border-radius: 999px;
+  background: var(--color-primary); box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 22%, transparent);
+  animation: vt-sync-dot-in 0.35s ease-out;
+}
+.vt-sync-dot.is-inside { background: transparent; box-shadow: inset 0 0 0 1.5px var(--color-primary); }
+@keyframes vt-sync-dot-in { from { transform: scale(0.2); opacity: 0; } to { transform: scale(1); opacity: 1; } }
 .vt-row-more { opacity: 0; width: 20px; height: 20px; }
 .vt-row:hover .vt-row-more, .vt-row.is-selected .vt-row-more, .vt-row-more[aria-expanded="true"] { opacity: 1; }
 .vt-row-input {
@@ -201,7 +209,7 @@ button.vt-footer-row:focus-visible { outline: 2px solid color-mix(in srgb, var(-
 .vt-folder-opt:focus-visible { outline: 2px solid color-mix(in srgb, var(--color-primary) 60%, transparent); }
 
 @media (prefers-reduced-motion: reduce) {
-  .vt-row-chevron, .vt-menu { transition: none; animation: none; }
+  .vt-row-chevron, .vt-menu, .vt-sync-dot { transition: none; animation: none; }
 }
 
 /* Password generator popup + options form */
