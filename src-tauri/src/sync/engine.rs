@@ -22,6 +22,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::PathBuf;
 
 use serde::Serialize;
+use zeroize::Zeroize;
 
 use super::provider::{ProviderError, RemoteObject, StorageProvider};
 use super::seal::{self, RemoteMeta, Snapshot, SyncKeys, META_NAME};
@@ -59,6 +60,51 @@ pub struct SyncResult {
     pub updated: usize,
     pub removed: usize,
     pub conflicts: Vec<SyncConflict>,
+    /// Set by a Drive-first join / "Restore from Drive" (see [`CycleOpts::drive_first`]).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub join: Option<JoinSummary>,
+}
+
+/// What a Drive-first join did (counted in notes; folders come back too but aren't counted).
+#[derive(Serialize, Clone, Debug, Default, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct JoinSummary {
+    /// Live in the store but trashed / deleted here: brought back.
+    pub restored: usize,
+    /// Changed or added here (since this PC was detached) and kept.
+    pub kept_local: usize,
+}
+
+/// An upload the outbound guard stopped (see [`sync_once_with`]). `titles` are entry names for
+/// the local UI only: never logged, never in `lastError`.
+#[derive(Serialize, Clone, Debug, Default, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct PendingDeletions {
+    /// Entries live in the store that this upload would trash or delete.
+    pub removing: usize,
+    /// Entries live in the store now.
+    pub remote_live: usize,
+    /// Up to [`GUARD_TITLES`] names (notes first).
+    pub titles: Vec<String>,
+    /// `"large"` (a mass removal) or `"resume"` (the first upload after sync was resumed).
+    pub reason: String,
+    /// Where safety backups go (filled in by the app).
+    pub backup_dir: String,
+}
+
+/// Names a [`PendingDeletions`] carries at most.
+pub const GUARD_TITLES: usize = 8;
+
+/// Per-cycle choices (the defaults are a normal cycle).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct CycleOpts {
+    /// The user chose "Apply deletions everywhere": this cycle's removals pass the guard (after a
+    /// backup of the store's state and of the local vault).
+    pub allow_removals: bool,
+    /// Drive-first: the store is the source of truth. Everything live there but trashed or deleted
+    /// here comes back (re-stamped so it wins); local adds / edits are kept and merged. Always on
+    /// while `SyncState::detached`.
+    pub drive_first: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -122,6 +168,11 @@ pub trait LocalVault: Sync {
     fn safety_backup(&self, reason: &str) -> Result<Option<PathBuf>, String>;
     /// Counter of local (user) changes; it moves whenever the vault is changed outside sync.
     fn change_seq(&self) -> u64;
+    /// Write a `.nqbackup` safety copy of the store's combined state `db` (sealed with this
+    /// vault's key, next to the local `vault.json`). `None` when it can't be written here.
+    fn remote_backup(&self, _db: &Db, _reason: &str) -> Result<Option<PathBuf>, String> {
+        Ok(None)
+    }
 }
 
 /// Everything one cycle needs besides the local vault and the state.
@@ -157,8 +208,12 @@ pub struct Outcome {
     /// Merged and saved, but the upload failed (`pending` stays set).
     pub upload_error: Option<SyncError>,
     pub backup: Option<PathBuf>,
+    /// A copy of the store's state written before a destructive change.
+    pub remote_backup: Option<PathBuf>,
     /// A newer `vault.meta` (password changed elsewhere) was adopted.
     pub meta_adopted: bool,
+    /// The outbound guard stopped the upload; the user decides (nothing was uploaded).
+    pub pending_deletions: Option<PendingDeletions>,
 }
 
 struct Listing {
@@ -313,12 +368,26 @@ pub fn prepare_enable(st: &mut SyncState, vault_hex: &str, remote: Option<&Remot
             return Err(SyncError::RemoteVaultDifferent);
         }
     }
-    if st.vault_id.as_deref() != Some(vault_hex) {
+    let same_vault_before = st.vault_id.as_deref() == Some(vault_hex);
+    if !same_vault_before {
         let own = st.own_generation;
         st.reset_for_vault(vault_hex, if remote.is_some() { 0 } else { 1 });
         st.own_generation = own;
     }
     st.meta_generation = st.meta_generation.max(if remote.is_some() { 0 } else { 1 });
+    if remote.is_some() {
+        // The store holds this vault. Reconnecting after a disconnect (detached), or joining it for
+        // the first time from a PC that already has it: Drive-first. A resume after a pause: the
+        // first upload that removes anything waits for a confirmation.
+        let join = st.detached || !st.first_sync_done || !same_vault_before;
+        st.detached = join;
+        st.resume_guard = !join;
+    } else {
+        // Nothing to join: this PC's vault is uploaded (the setup flow asked first).
+        st.detached = false;
+        st.detached_at_ms = None;
+        st.resume_guard = false;
+    }
     st.enabled = true;
     st.pending = true;
     st.forget_revisions();
@@ -453,8 +522,126 @@ fn record_fetched(st: &mut SyncState, fetched: &[Fetched]) {
         if f.complete {
             st.revisions.insert(f.device.clone(), f.revision.clone());
         }
+        st.remote_cache.0.insert(f.device.clone(), (f.revision.clone(), skeleton(&f.snap.db)));
         st.devices.insert(f.device.clone(), DeviceInfo { name: f.snap.device_name.clone(), last_seen_ms: Some(f.snap.written_at_ms) });
     }
+}
+
+/// `db` without content, history or attachment data: enough to merge registers and tell what is
+/// live (the outbound guard), small enough to keep per device for a session.
+fn skeleton(db: &Db) -> Db {
+    let mut s = seal::strip_attachment_data(db);
+    for e in s.entries.values_mut() {
+        e.content.zeroize();
+        e.content = String::new();
+        e.history.clear(); // revisions zeroise themselves
+    }
+    s
+}
+
+/// Copies attachment data `target` lacks from `from` (same attachment ids).
+fn fill_attachment_data(target: &mut Db, from: &Db) {
+    let data: HashMap<&str, &str> = from
+        .entries
+        .values()
+        .flat_map(|e| e.attachments.iter())
+        .filter(|a| a.is_live() && !a.data.is_empty())
+        .map(|a| (a.id.as_str(), a.data.as_str()))
+        .collect();
+    for e in target.entries.values_mut() {
+        for a in e.attachments.iter_mut().filter(|a| a.is_live() && a.data.is_empty()) {
+            if let Some(d) = data.get(a.id.as_str()) {
+                a.data = (*d).to_string();
+            }
+        }
+    }
+}
+
+/// A safety copy of the store's combined state `remote` (attachment data this PC already had,
+/// and so didn't download, is filled in from the local vault). Nothing when it holds nothing.
+fn write_remote_backup<L: LocalVault>(local: &L, remote: &Db, reason: &str) -> Result<Option<PathBuf>, String> {
+    if !remote.entries.values().any(|e| !e.deleted) {
+        return Ok(None);
+    }
+    let mut copy = remote.clone();
+    local.read_db(|db| fill_attachment_data(&mut copy, db))?;
+    local.remote_backup(&copy, reason)
+}
+
+/// A name for the guard dialog: the last path segment without `.nqv`.
+fn entry_title(e: &Entry) -> String {
+    let name = e.path.rsplit('/').next().unwrap_or(&e.path);
+    split_nqv(name).0.to_string()
+}
+
+/// What the outbound guard found for an upload of `own`.
+enum Guard {
+    /// The store's combined state isn't known well enough (push-only without a full read).
+    Unknown,
+    Checked { removing: usize, remote_live: usize, titles: Vec<String> },
+}
+
+/// How many entries live in the store's combined state (the cached snapshots of every listed
+/// device) uploading `own` would trash or delete.
+///
+/// A snapshot that changed since it was cached (push-only) is checked in its cached form: this
+/// upload can only remove entries this PC knows, so an older copy errs on the side of asking. A
+/// listed device never read (unverifiable) isn't part of the combined state. Push-only before any
+/// full read this session (this PC's own snapshot not cached) can't tell: `Unknown`.
+fn outbound_removals(st: &SyncState, listing: &Listing, own: &Db, mode: Mode, me: &str) -> Guard {
+    let mut snaps: Vec<&Db> = vec![];
+    for dev in listing.devices.keys() {
+        match st.remote_cache.0.get(dev) {
+            Some((_, db)) => snaps.push(db),
+            None if mode == Mode::PushOnly && dev == me => return Guard::Unknown,
+            None => {}
+        }
+    }
+    let mut it = snaps.into_iter();
+    let Some(first) = it.next() else {
+        return Guard::Checked { removing: 0, remote_live: 0, titles: vec![] };
+    };
+    let mut remote = first.clone();
+    for s in it {
+        remote = vault_merge::merge(&remote, s);
+    }
+    let after = vault_merge::merge(&remote, &skeleton(own));
+    let remote_live = remote.entries.values().filter(|e| e.is_live()).count();
+    let mut gone: Vec<&Entry> = remote
+        .entries
+        .values()
+        .filter(|e| e.is_live() && after.entries.get(&e.id).is_none_or(|x| !x.is_live()))
+        .collect();
+    gone.sort_by(|a, b| (a.dir, &a.path).cmp(&(b.dir, &b.path)));
+    let titles = gone.iter().take(GUARD_TITLES).map(|e| entry_title(e)).collect();
+    Guard::Checked { removing: gone.len(), remote_live, titles }
+}
+
+/// Drive-first, after `remote` was merged into `db`: every entry live in `remote` but trashed or
+/// deleted in `db` comes back. A tombstone takes the store's version (its text was wiped here); a
+/// trashed entry keeps its merged content and leaves the bin. Then all of them are re-stamped as
+/// one new local change (`Db::restamp`, as a backup restore does), so the removals made here, and
+/// any copy of them elsewhere, never apply to them again. Returns the restored ids.
+pub fn restore_from_remote(db: &mut Db, remote: &Db) -> Vec<String> {
+    let ids: Vec<String> = remote
+        .entries
+        .values()
+        .filter(|r| r.is_live() && db.entries.get(&r.id).is_some_and(|l| !l.is_live()))
+        .map(|r| r.id.clone())
+        .collect();
+    for id in &ids {
+        let r = &remote.entries[id];
+        let l = db.entries.get_mut(id).expect("listed above");
+        if l.deleted {
+            *l = r.clone();
+        } else {
+            l.trash = r.trash.clone();
+            l.trashed_at = None;
+        }
+    }
+    db.clock.observe(&remote.clock);
+    db.restamp(&ids);
+    ids
 }
 
 // ─── collisions, large changes ───────────────────────────────────────────────
@@ -531,18 +718,38 @@ struct Applied {
     uploads: Vec<(String, String)>,
     gc: Vec<String>,
     seq: u64,
+    join: Option<JoinSummary>,
 }
 
-/// One sync cycle. `st` is updated in place (the caller persists it).
+/// One normal sync cycle. `st` is updated in place (the caller persists it).
+#[cfg_attr(not(test), allow(dead_code))] // the app calls `sync_once_with`
 pub async fn sync_once<L: LocalVault>(ctx: &Ctx<'_>, local: &L, st: &mut SyncState, mode: Mode) -> Result<Outcome, SyncError> {
+    sync_once_with(ctx, local, st, mode, CycleOpts::default()).await
+}
+
+/// One sync cycle with the user's choices `opts`.
+///
+/// * **Drive-first** (`opts.drive_first`, or `st.detached`: this PC reconnects after a
+///   disconnect): every snapshot is read, the store's state and the local vault are backed up
+///   (`remote-before-join`, `drive-first`), merged, and then everything live in the store but
+///   trashed / deleted here comes back ([`restore_from_remote`]); local adds and edits are kept.
+/// * **Outbound guard**: before any upload, the entries live in the store's combined state that
+///   the upload would trash or delete are counted. A large count ([`is_large_change`]), or any on
+///   the first upload after a resume (`st.resume_guard`), stops the cycle before uploading with
+///   [`Outcome::pending_deletions`]; the merge into the local vault has happened, nothing went
+///   out, `pending` stays set. `opts.allow_removals` lets the removals through after a backup of
+///   the store's state (`remote-before-deletes`).
+pub async fn sync_once_with<L: LocalVault>(ctx: &Ctx<'_>, local: &L, st: &mut SyncState, mode: Mode, opts: CycleOpts) -> Result<Outcome, SyncError> {
     let mut out = Outcome::default();
     let listing = list_all(ctx.provider).await?;
     sync_meta(ctx, local, st, listing.meta.as_ref(), &mut out).await?;
+    let drive_first = mode == Mode::Full && (opts.drive_first || st.detached);
 
-    // Download and verify what changed elsewhere.
+    // Download and verify what changed elsewhere (everything when the full store state is needed).
     let mut fetched = vec![];
     if mode == Mode::Full {
-        fetched = fetch_snapshots(ctx, st, &listing, true, &mut out.warnings).await?;
+        let use_cache = !(drive_first || opts.allow_removals);
+        fetched = fetch_snapshots(ctx, st, &listing, use_cache, &mut out.warnings).await?;
         if !fetched.is_empty() {
             let (have, removed) = local.read_db(attachment_index)?;
             fill_blobs(ctx, &listing, &have, &removed, &mut fetched, &mut out.warnings).await?;
@@ -551,7 +758,14 @@ pub async fn sync_once<L: LocalVault>(ctx: &Ctx<'_>, local: &L, st: &mut SyncSta
     let combined = combine(&fetched);
 
     // Safety copies.
-    if !st.first_sync_done {
+    if drive_first {
+        if local.read_db(|db| !db.entries.is_empty())? {
+            out.backup = local.safety_backup("drive-first")?;
+        }
+        if let Some(remote) = &combined {
+            out.remote_backup = write_remote_backup(local, remote, "remote-before-join")?;
+        }
+    } else if !st.first_sync_done {
         if local.read_db(|db| !db.entries.is_empty())? {
             out.backup = local.safety_backup("first-sync")?;
         }
@@ -563,16 +777,46 @@ pub async fn sync_once<L: LocalVault>(ctx: &Ctx<'_>, local: &L, st: &mut SyncSta
         })?;
         if is_large_change(changed, live) {
             out.backup = local.safety_backup("large-change")?;
+            out.remote_backup = write_remote_backup(local, remote, "remote-before-large-change")?;
+        }
+    }
+    if opts.allow_removals {
+        if out.remote_backup.is_none() {
+            if let Some(remote) = &combined {
+                out.remote_backup = write_remote_backup(local, remote, "remote-before-deletes")?;
+            }
+        }
+        if out.backup.is_none() && local.read_db(|db| !db.entries.is_empty())? {
+            out.backup = local.safety_backup("before-deletes")?;
         }
     }
 
     // Merge into the local vault (saved through the normal path when it changed).
     let me = ctx.device_id.clone();
-    let must_upload = st.pending || st.own_generation == 0 || !listing.devices.contains_key(&me);
+    let must_upload = st.pending || st.own_generation == 0 || !listing.devices.contains_key(&me) || drive_first;
+    let detached_at = st.detached_at_ms.unwrap_or(0);
     let applied = local.update_db(|db| {
+        // Local notes changed or added since this PC was detached that the store doesn't have.
+        let kept_local = match (&combined, drive_first) {
+            (Some(r), true) => db
+                .entries
+                .values()
+                .filter(|e| e.is_live() && !e.dir && e.version().wall >= detached_at)
+                .filter(|e| r.entries.get(&e.id).is_none_or(|x| x.version() < e.version()))
+                .count(),
+            _ => 0,
+        };
         let report = combined.as_ref().map(|r| vault_merge::merge_into(db, r)).unwrap_or_default();
+        let restored = match (&combined, drive_first) {
+            (Some(r), true) => restore_from_remote(db, r),
+            _ => vec![],
+        };
+        let join = drive_first.then(|| JoinSummary {
+            restored: restored.iter().filter(|id| db.entries.get(*id).is_some_and(|e| !e.dir)).count(),
+            kept_local,
+        });
         let renamed = resolve_collisions(db);
-        let changed = report.changed || renamed > 0;
+        let changed = report.changed || renamed > 0 || !restored.is_empty();
         let seq = local.change_seq();
         let upload = must_upload || changed;
         let mut uploads = vec![];
@@ -590,11 +834,12 @@ pub async fn sync_once<L: LocalVault>(ctx: &Ctx<'_>, local: &L, st: &mut SyncSta
             }
         }
         let own = upload.then(|| seal::strip_attachment_data(db));
-        (Applied { report, renamed, own, uploads, gc, seq }, changed)
+        (Applied { report, renamed, own, uploads, gc, seq, join }, changed)
     })?;
     record_fetched(st, &fetched);
-    out.changed_local = applied.report.changed || applied.renamed > 0;
+    out.changed_local = applied.report.changed || applied.renamed > 0 || applied.join.as_ref().is_some_and(|j| j.restored > 0);
     out.result = SyncResult {
+        join: applied.join.clone(),
         added: applied.report.added,
         updated: applied.report.updated,
         removed: applied.report.removed,
@@ -619,6 +864,32 @@ pub async fn sync_once<L: LocalVault>(ctx: &Ctx<'_>, local: &L, st: &mut SyncSta
         st.devices.retain(|id, _| *id == me || listed.contains(id));
     }
 
+    // The outbound guard: never remove many entries from the store without the user's say.
+    if let Some(own) = &applied.own {
+        if !opts.allow_removals {
+            match outbound_removals(st, &listing, own, mode, &me) {
+                Guard::Unknown => {
+                    st.pending = true; // a full cycle checks and uploads it
+                    return Ok(out);
+                }
+                Guard::Checked { removing, remote_live, titles } => {
+                    let large = is_large_change(removing, remote_live);
+                    if large || (st.resume_guard && removing > 0) {
+                        st.pending = true;
+                        out.pending_deletions = Some(PendingDeletions {
+                            removing,
+                            remote_live,
+                            titles,
+                            reason: if large { "large" } else { "resume" }.into(),
+                            backup_dir: String::new(),
+                        });
+                        return Ok(out);
+                    }
+                }
+            }
+        }
+    }
+
     // Upload: blobs first, then the snapshot that references them.
     if let Some(own) = applied.own {
         if let Err(e) = upload_own(ctx, st, own, &applied.uploads, &mut out.warnings).await {
@@ -627,6 +898,11 @@ pub async fn sync_once<L: LocalVault>(ctx: &Ctx<'_>, local: &L, st: &mut SyncSta
             return Ok(out);
         }
         st.pending = local.change_seq() != applied.seq;
+        st.resume_guard = false;
+        if drive_first {
+            st.detached = false;
+            st.detached_at_ms = None;
+        }
     } else {
         st.pending = st.pending || local.change_seq() != applied.seq;
     }
@@ -654,6 +930,7 @@ async fn upload_own(ctx: &Ctx<'_>, st: &mut SyncState, own: Db, uploads: &[(Stri
         }
     }
     let generation = st.own_generation + 1;
+    let skel = skeleton(&own);
     let snap = seal::new_snapshot(&ctx.device_id, &ctx.device_name, ctx.now_ms, generation, own);
     let sealed = seal::seal_snapshot(&ctx.keys, &snap)?;
     drop(snap);
@@ -661,6 +938,7 @@ async fn upload_own(ctx: &Ctx<'_>, st: &mut SyncState, own: Db, uploads: &[(Stri
         return Err(SyncError::Local("The vault is too large for your storage.".into()));
     }
     let obj = ctx.provider.put(&seal::device_object(&ctx.device_id), &sealed).await?;
+    st.remote_cache.0.insert(ctx.device_id.clone(), (obj.revision.clone(), skel));
     st.own_generation = generation;
     st.seen.insert(ctx.device_id.clone(), generation);
     st.revisions.insert(ctx.device_id.clone(), obj.revision);

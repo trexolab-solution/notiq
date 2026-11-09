@@ -7,6 +7,7 @@ import { ConnectWaiting } from "./ConnectWaiting";
 import { DriveVaultFields } from "./DriveVaultCard";
 import { TwoVaultsDialog } from "./AdoptRemoteDialog";
 import { InlineLoading } from "../../ui/Loading";
+import { DeletionGuardDialog } from "./DeletionGuardDialog";
 
 const Z = "z-[80]";
 
@@ -15,6 +16,15 @@ const Z = "z-[80]";
  * on `notiq:sync-start-setup` (the title bar / status bar popover's "Connect Google Drive").
  */
 export function SyncSetupHost() {
+  return (
+    <>
+      <SetupSteps />
+      <DeletionGuardDialog />
+    </>
+  );
+}
+
+function SetupSteps() {
   useEffect(() => listenForSetupRequests(), []);
 
   const s = useSyncSetupStore();

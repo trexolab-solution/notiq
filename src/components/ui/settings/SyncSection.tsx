@@ -16,6 +16,7 @@ import {
   syncDevices, syncDisable, syncDisconnect, syncErrorMessage, syncNow, syncRemoveDevice, syncSetDeviceName,
   useSyncStatus, useSyncStore, type SyncDevice, type SyncStatus,
 } from "../../../lib/vaultSync";
+import { useDeletionGuardUi } from "../../../lib/syncDeletionGuard";
 import { startSyncSetup, useSyncSetupStore } from "../../../lib/syncSetupFlow";
 import { SYNC_INDEX } from "./syncIndex";
 import { deviceDisplayName } from "../../../lib/syncSurfaces";
@@ -27,9 +28,9 @@ const k = (id: string): string[] => {
 };
 
 export const DISCONNECT_MESSAGE =
-  "Your vault stays on this PC and in your Google Drive. This PC stops syncing.";
+  "Disconnecting detaches this PC: it stops syncing. Your vault stays on this PC and in your Google Drive, and your other devices keep syncing.";
 export const DISCONNECT_DETAIL =
-  "Your synced vault stays in your Google Drive, so your other devices keep syncing. To delete it from Drive, open Google Drive → Settings → Manage apps, find Notiq, then choose Options → \"Delete hidden app data\".";
+  "When you reconnect, this PC restores from Google Drive: items still in Drive come back even if you deleted them here meanwhile, and changes you make here are kept and merged. To delete it from Drive, open Google Drive → Settings → Manage apps, find Notiq, then choose Options → \"Delete hidden app data\".";
 
 /** Re-renders every 30 s so "5 minutes ago" stays true. */
 function useNow(): number {
@@ -57,6 +58,7 @@ export function statusLine(s: SyncStatus, now: number): string {
     case "syncing": return "Syncing…";
     case "locked": return "Paused while the vault is locked. It syncs again when you unlock.";
     case "offline": return `Offline. Changes will sync when you're back online. Last synced ${relativeTime(s.lastSyncedMs, now)}.`;
+    case "awaitingConfirm": return "Waiting for your decision before deleting items from Google Drive. Choose Review.";
     case "authNeeded": return "Google needs you to sign in again. Choose Reconnect.";
     case "error": return `Problem: ${s.lastError ?? "the last sync failed"}. Last synced ${relativeTime(s.lastSyncedMs, now)}.`;
     default:
@@ -97,7 +99,7 @@ export function SyncSection() {
 
   const connected = !!status?.provider;
   const configured = !!status?.configured;
-  const problem = status?.state === "authNeeded" || status?.state === "error";
+  const problem = status?.state === "authNeeded" || status?.state === "error" || status?.state === "awaitingConfirm";
 
   // Resuming runs the same flow as connecting (unlock if needed, then merge / re-upload question / two vaults).
   // The button shows "Resuming…" while Drive is checked and merged; a question dialog ends the busy state.
@@ -207,6 +209,9 @@ export function SyncSection() {
                     description={statusLine(status, now)} danger={problem}>
           {status.state === "authNeeded" ? (
             <Button className="settings-btn-primary" variant="primary" size="sm" onClick={() => void connect()}>Reconnect</Button>
+          ) : status.state === "awaitingConfirm" ? (
+            <Button className="settings-btn-primary" variant="primary" size="sm"
+                    onClick={() => useDeletionGuardUi.getState().reopen()}>Review…</Button>
           ) : (
             <Button className="settings-btn" size="sm" icon={<RefreshCw size={12} />}
                     loading={busy === "now" || status.state === "syncing"} loadingText="Syncing…"

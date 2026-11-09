@@ -40,6 +40,7 @@ struct TestVault {
     dir: PathBuf,
     seq: AtomicU64,
     backups: Mutex<Vec<PathBuf>>,
+    remote_backups: Mutex<Vec<PathBuf>>,
 }
 
 impl LocalVault for TestVault {
@@ -69,6 +70,16 @@ impl LocalVault for TestVault {
     fn change_seq(&self) -> u64 {
         self.seq.load(Ordering::SeqCst)
     }
+    fn remote_backup(&self, db: &Db, reason: &str) -> Result<Option<PathBuf>, String> {
+        let m = self.meta.lock().unwrap().to_json().into_bytes();
+        let sealed = db.seal(&self.key, &self.vault_id)?;
+        let n = NEXT.fetch_add(1, Ordering::SeqCst);
+        let p = state::write_safety_backup(&self.dir, &m, &sealed, reason, n)?;
+        self.remote_backups.lock().unwrap().push(p.clone());
+        // What was sealed into it (checked by the tests: it opens with the vault key).
+        assert!(Db::open(&self.key, &self.vault_id, &sealed).unwrap().is_some_and(|d| d.entries.len() == db.entries.len()));
+        Ok(Some(p))
+    }
 }
 
 struct Device {
@@ -88,7 +99,7 @@ impl Device {
         Device {
             id,
             name: name.into(),
-            v: TestVault { db: Mutex::new(db), meta: Mutex::new(meta), prev: Mutex::new(None), key, vault_id, dir: tmp(), seq: AtomicU64::new(0), backups: Mutex::new(vec![]) },
+            v: TestVault { db: Mutex::new(db), meta: Mutex::new(meta), prev: Mutex::new(None), key, vault_id, dir: tmp(), seq: AtomicU64::new(0), backups: Mutex::new(vec![]), remote_backups: Mutex::new(vec![]) },
             st,
         }
     }
@@ -117,6 +128,48 @@ impl Device {
         let key = self.v.key.clone();
         let ctx = Ctx::new(p, &key, &self.v.vault_id, self.id, &self.name, crate::vault_db::now_ms());
         block_on(sync_once(&ctx, &self.v, &mut self.st, mode))
+    }
+
+    fn sync_opts(&mut self, p: &dyn StorageProvider, opts: CycleOpts) -> Result<Outcome, SyncError> {
+        let key = self.v.key.clone();
+        let ctx = Ctx::new(p, &key, &self.v.vault_id, self.id, &self.name, crate::vault_db::now_ms());
+        block_on(sync_once_with(&ctx, &self.v, &mut self.st, Mode::Full, opts))
+    }
+
+    /// The guard dialog's "Apply deletions everywhere" (`sync_apply_deletions`).
+    fn apply_deletions(&mut self, p: &dyn StorageProvider) -> Outcome {
+        ok(self.sync_opts(p, CycleOpts { allow_removals: true, drive_first: false }))
+    }
+
+    /// The guard dialog's "Restore from Drive" (`sync_restore_from_drive`).
+    fn restore_from_drive(&mut self, p: &dyn StorageProvider) -> Outcome {
+        ok(self.sync_opts(p, CycleOpts { allow_removals: false, drive_first: true }))
+    }
+
+    /// Settings → Disconnect (`sync_disconnect`): signed out, sync off, this PC detached.
+    fn disconnect(&mut self) {
+        self.st.provider = None;
+        self.st.enabled = false;
+        self.st.forget_revisions();
+        self.st.detached = true;
+        self.st.detached_at_ms = Some(crate::vault_db::now_ms());
+        self.st.resume_guard = false;
+    }
+
+    /// Settings → Pause (`sync_disable`).
+    fn pause(&mut self) {
+        self.st.enabled = false;
+    }
+
+    /// Reconnect / Resume: what `sync_enable` does before its cycle.
+    fn enable(&mut self, p: &dyn StorageProvider) {
+        let rm = block_on(fetch_meta(p)).unwrap();
+        self.st.provider = Some("gdrive".into());
+        prepare_enable(&mut self.st, &seal::vault_id_hex(&self.v.vault_id), rm.as_ref()).unwrap();
+    }
+
+    fn live_notes(&self) -> Vec<String> {
+        self.v.db.lock().unwrap().list().into_iter().filter(|i| !i.dir).map(|i| i.rel).collect()
     }
 
     fn text(&self, path: &str) -> Option<String> {
@@ -441,7 +494,8 @@ fn a_large_remote_deletion_takes_a_safety_backup_first() {
     ok(a.sync(&p));
     assert!(ok(b.sync(&p)).backup.is_none(), "a small change needs no copy");
     a.edit(|db| for i in 1..12 { db.trash(&format!("n{i:02}.nqv")).unwrap(); });
-    ok(a.sync(&p));
+    assert!(ok(a.sync(&p)).pending_deletions.is_some(), "a mass delete waits for the user");
+    a.apply_deletions(&p);
     let o = ok(b.sync(&p));
     let path = o.backup.expect("safety copy");
     assert!(path.exists() && path.to_string_lossy().contains("large-change"));
@@ -449,6 +503,11 @@ fn a_large_remote_deletion_takes_a_safety_backup_first() {
     assert_eq!(o.result.removed, 11);
     let raw = std::fs::read(path).unwrap();
     assert!(crate::vault_backup::parse_container(&raw).is_ok());
+    // A copy of the store's state is kept too.
+    let remote = o.remote_backup.expect("remote safety copy");
+    assert!(remote.to_string_lossy().contains("remote-before-large-change"));
+    // Applying the inbound deletions doesn't make B's own upload a guarded one: nothing more goes.
+    assert!(o.pending_deletions.is_none() && !b.st.pending);
 }
 
 #[test]
@@ -1351,4 +1410,231 @@ fn a_merged_backup_survives_deletions_the_synced_copy_made_after_it() {
     let db = a.v.db.lock().unwrap();
     let att = &db.get("c.nqv").unwrap().attachments;
     assert!(att.len() == 1 && !att[0].data.is_empty(), "the attachment comes back too");
+}
+
+// ─── detach / Drive-first join / outbound guard ──────────────────────────────
+
+fn notes(n: usize) -> Vec<String> {
+    (0..n).map(|i| format!("n{i:02}.nqv")).collect()
+}
+
+fn store_has_remote_copy(o: &Outcome, reason: &str) {
+    let path = o.remote_backup.as_ref().unwrap_or_else(|| panic!("a copy of the store's state ({reason})"));
+    assert!(path.exists() && path.to_string_lossy().contains(reason), "{path:?}");
+    assert!(crate::vault_backup::parse_container(&std::fs::read(path).unwrap()).is_ok());
+}
+
+#[test]
+fn reconnecting_after_disconnect_restores_everything_deleted_while_detached() {
+    // The reported bug: connect, add items, sync; disconnect; delete everything and empty the
+    // trash; reconnect the same account. It used to merge silently: the deletions won and were
+    // uploaded, leaving 0 items here AND in Drive.
+    let p = InMemoryProvider::new();
+    let mut a = Device::create(A, "Laptop");
+    for n in notes(5) {
+        a.put(&n, &format!("text of {n}"));
+    }
+    a.edit(|db| { db.attach_add("n00.nqv", "f.txt", &b64_encode(b"file")).unwrap(); });
+    ok(a.sync(&p));
+    a.disconnect();
+    a.edit(|db| {
+        for n in notes(5) { db.trash(&n).unwrap(); }
+        assert_eq!(db.empty_trash(), 5);
+    });
+    assert!(a.live_notes().is_empty());
+
+    a.enable(&p);
+    assert!(a.st.detached && !a.st.resume_guard, "a reconnect after a disconnect is a Drive-first join");
+    let o = ok(a.sync(&p));
+    assert!(o.pending_deletions.is_none());
+    assert_eq!(o.result.join, Some(JoinSummary { restored: 5, kept_local: 0 }));
+    assert_eq!(a.live_notes(), notes(5), "everything comes back here");
+    assert_eq!(a.text("n03.nqv").as_deref(), Some("text of n03.nqv"));
+    assert!(!a.v.db.lock().unwrap().get("n00.nqv").unwrap().attachments[0].data.is_empty(), "with its attachment");
+    assert!(!a.st.detached && !a.st.pending);
+    assert!(o.backup.as_ref().is_some_and(|b| b.to_string_lossy().contains("drive-first")), "local copy first");
+    store_has_remote_copy(&o, "remote-before-join");
+
+    // And in Drive: a fresh device joining from it sees every item.
+    let mut b = join(&p, B, "Desk", PW).unwrap();
+    assert_eq!(b.live_notes(), notes(5));
+    assert_eq!(b.text("n04.nqv").as_deref(), Some("text of n04.nqv"));
+    // Normal deletes after the join sync as usual.
+    a.edit(|db| db.trash("n01.nqv").unwrap());
+    assert!(ok(a.sync(&p)).pending_deletions.is_none());
+    ok(b.sync(&p));
+    assert_eq!(b.live_notes(), vec!["n00.nqv", "n02.nqv", "n03.nqv", "n04.nqv"]);
+}
+
+#[test]
+fn local_edits_and_adds_made_while_detached_are_kept_and_uploaded() {
+    let p = InMemoryProvider::new();
+    let mut a = Device::create(A, "Laptop");
+    a.put("x.nqv", "x v1");
+    a.put("y.nqv", "y");
+    a.put("gone.nqv", "deleted elsewhere");
+    ok(a.sync(&p));
+    let mut b = join(&p, B, "Desk", PW).unwrap();
+    a.disconnect();
+    // While detached: edit x, add z, trash y; meanwhile B deletes "gone" (a normal delete).
+    a.put("x.nqv", "x edited while detached");
+    a.put("z.nqv", "new while detached");
+    a.edit(|db| db.trash("y.nqv").unwrap());
+    b.edit(|db| db.trash("gone.nqv").unwrap());
+    ok(b.sync(&p));
+
+    a.enable(&p);
+    let o = ok(a.sync(&p));
+    assert_eq!(o.result.join, Some(JoinSummary { restored: 1, kept_local: 2 }));
+    assert_eq!(a.live_notes(), vec!["x.nqv", "y.nqv", "z.nqv"], "y comes back; Drive's own deletion stays");
+    assert_eq!(a.text("x.nqv").as_deref(), Some("x edited while detached"));
+    ok(b.sync(&p));
+    assert_eq!(b.live_notes(), vec!["x.nqv", "y.nqv", "z.nqv"]);
+    assert_eq!(b.text("x.nqv").as_deref(), Some("x edited while detached"));
+    assert_eq!(b.text("z.nqv").as_deref(), Some("new while detached"));
+    ok(a.sync(&p));
+    assert_eq!(a.v.db.lock().unwrap().entries, b.v.db.lock().unwrap().entries, "converged");
+}
+
+#[test]
+fn an_empty_drive_after_disconnect_uploads_this_pc_and_a_paused_resume_is_no_join() {
+    let p = InMemoryProvider::new();
+    let mut a = Device::create(A, "Laptop");
+    a.put("x.nqv", "x");
+    a.disconnect();
+    a.enable(&p); // nothing in this Drive: the existing upload flow
+    assert!(!a.st.detached);
+    ok(a.sync(&p));
+    a.pause();
+    a.enable(&p);
+    assert!(!a.st.detached && a.st.resume_guard, "pause / resume keeps today's semantics, guarded");
+}
+
+#[test]
+fn the_guard_stops_a_mass_delete_and_apply_deletions_goes_everywhere() {
+    let p = InMemoryProvider::new();
+    let mut a = Device::create(A, "A");
+    for n in notes(12) {
+        a.put(&n, "x");
+    }
+    ok(a.sync(&p));
+    let mut b = join(&p, B, "B", PW).unwrap();
+    a.edit(|db| for n in &notes(12)[1..] { db.trash(n).unwrap(); });
+    let o = ok(a.sync(&p));
+    let g = o.pending_deletions.expect("stopped before the upload");
+    assert_eq!((g.removing, g.remote_live, g.reason.as_str()), (11, 12, "large"));
+    assert_eq!(g.titles.len(), GUARD_TITLES);
+    assert_eq!(g.titles[0], "n01");
+    assert!(a.st.pending, "still waiting to upload");
+    assert!(o.warnings.iter().all(|w| !w.contains("n01")), "titles never go to lastError");
+    // Every later cycle (and the final push before lock) stops again; nothing reaches B.
+    assert!(ok(a.sync(&p)).pending_deletions.is_some());
+    assert!(ok(a.sync_mode(&p, Mode::PushOnly)).pending_deletions.is_some());
+    ok(b.sync(&p));
+    assert_eq!(b.live_notes().len(), 12);
+
+    let o = a.apply_deletions(&p);
+    store_has_remote_copy(&o, "remote-before-deletes");
+    assert!(o.pending_deletions.is_none() && !a.st.pending);
+    ok(b.sync(&p));
+    assert_eq!(b.live_notes(), vec!["n00.nqv"]);
+    let c = join(&p, C, "C", PW).unwrap();
+    assert_eq!(c.live_notes(), vec!["n00.nqv"]);
+}
+
+#[test]
+fn the_guard_choice_restore_from_drive_brings_the_entries_back() {
+    let p = InMemoryProvider::new();
+    let mut a = Device::create(A, "A");
+    for n in notes(12) {
+        a.put(&n, &format!("t {n}"));
+    }
+    ok(a.sync(&p));
+    let mut b = join(&p, B, "B", PW).unwrap();
+    a.edit(|db| {
+        for n in &notes(12)[..11] { db.trash(n).unwrap(); }
+        db.empty_trash();
+    });
+    a.put("kept.nqv", "added meanwhile");
+    assert!(ok(a.sync(&p)).pending_deletions.is_some());
+    let o = a.restore_from_drive(&p);
+    assert_eq!(o.result.join.as_ref().map(|j| j.restored), Some(11));
+    store_has_remote_copy(&o, "remote-before-join");
+    let mut all = notes(12);
+    all.insert(0, "kept.nqv".into());
+    assert_eq!(a.live_notes(), all);
+    assert_eq!(a.text("n05.nqv").as_deref(), Some("t n05.nqv"));
+    assert!(!a.st.pending);
+    ok(b.sync(&p));
+    assert_eq!(b.live_notes(), all, "the new note went out, nothing was deleted");
+}
+
+#[test]
+fn the_first_upload_after_a_resume_that_removes_anything_waits_for_confirmation() {
+    let p = InMemoryProvider::new();
+    let mut a = Device::create(A, "A");
+    for n in notes(3) {
+        a.put(&n, "x");
+    }
+    ok(a.sync(&p));
+    a.pause();
+    a.edit(|db| db.trash("n00.nqv").unwrap()); // small: no guard on its own (1 of 3)
+    a.enable(&p);
+    let g = ok(a.sync(&p)).pending_deletions.expect("first cycle after resume");
+    assert_eq!((g.removing, g.reason.as_str()), (1, "resume"));
+    assert_eq!(g.titles, vec!["n00"]);
+    a.apply_deletions(&p);
+    assert!(!a.st.resume_guard && !a.st.pending);
+    // Afterwards the same small delete goes through on its own.
+    a.edit(|db| db.trash("n01.nqv").unwrap());
+    assert!(ok(a.sync(&p)).pending_deletions.is_none());
+    let mut b = join(&p, B, "B", PW).unwrap();
+    assert_eq!(b.live_notes(), vec!["n02.nqv"]);
+
+    // A resume with nothing removed just syncs (and clears the flag).
+    b.pause();
+    b.put("b.nqv", "while paused");
+    b.enable(&p);
+    let o = ok(b.sync(&p));
+    assert!(o.pending_deletions.is_none() && !b.st.resume_guard && !b.st.pending);
+}
+
+#[test]
+fn a_normal_delete_on_a_second_device_still_propagates_everywhere() {
+    let p = InMemoryProvider::new();
+    let mut a = Device::create(A, "A");
+    for n in notes(8) {
+        a.put(&n, "x");
+    }
+    ok(a.sync(&p));
+    let mut b = join(&p, B, "B", PW).unwrap();
+    let mut c = join(&p, C, "C", PW).unwrap();
+    b.edit(|db| { db.trash("n03.nqv").unwrap(); db.empty_trash(); });
+    let o = ok(b.sync(&p));
+    assert!(o.pending_deletions.is_none(), "one of eight is a normal delete");
+    for _ in 0..2 {
+        for d in [&mut a, &mut b, &mut c] {
+            let o = ok(d.sync(&p));
+            assert!(o.pending_deletions.is_none());
+        }
+    }
+    let want: Vec<String> = notes(8).into_iter().filter(|n| n != "n03.nqv").collect();
+    for d in [&a, &b, &c] {
+        assert_eq!(d.live_notes(), want);
+        assert!(!d.st.pending);
+    }
+    assert_eq!(a.v.db.lock().unwrap().entries, b.v.db.lock().unwrap().entries);
+    assert_eq!(a.v.db.lock().unwrap().entries, c.v.db.lock().unwrap().entries);
+}
+
+#[test]
+fn a_detached_state_survives_a_restart() {
+    let d = tmp();
+    let st = SyncState { vault_id: Some("aa".into()), detached: true, detached_at_ms: Some(42), resume_guard: true, ..Default::default() };
+    st.save(&d).unwrap();
+    let st = SyncState::load(&d);
+    assert!(st.detached && st.resume_guard);
+    assert_eq!(st.detached_at_ms, Some(42));
+    let old: SyncState = serde_json::from_str(r#"{"enabled":true}"#).unwrap();
+    assert!(!old.detached && !old.resume_guard);
 }

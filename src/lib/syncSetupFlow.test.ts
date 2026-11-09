@@ -70,7 +70,9 @@ async function backend(cmd: string, args?: Record<string, unknown>): Promise<unk
       const first = !be.remote.exists;
       be.enabled = true;
       be.remote = { exists: true, sameVault: true };
-      return first ? { added: 0, updated: 0, removed: 0, conflicts: [] } : { added: 1, updated: 2, removed: 0, conflicts: [] };
+      return first
+        ? { added: 0, updated: 0, removed: 0, conflicts: [] }
+        : { added: 1, updated: 2, removed: 0, conflicts: [], join: { restored: 12, keptLocal: 3 } };
     }
     default: return null;
   }
@@ -361,11 +363,11 @@ describe("the other rows", () => {
     expect(calls("sync_enable")).toHaveLength(1);
   });
 
-  it("row 5: same vault in Drive → silent merge, toast 'Synced · 3 changes'", async () => {
+  it("row 5: same vault in Drive → Drive-first join, toast 'Restored 12 items from Drive · Kept 3 local changes'", async () => {
     Object.assign(be, { provider: "gdrive", localExists: true, unlocked: true, localItems: 5, remote: { exists: true, sameVault: true } });
     await F.startSyncSetup();
     expectSyncedUi();
-    expect(toasts()).toContain("Synced · 3 changes");
+    expect(toasts()).toContain("Restored 12 items from Drive · Kept 3 local changes");
   });
 
   it("Drive turns out empty while typing the password → Create a new vault", async () => {

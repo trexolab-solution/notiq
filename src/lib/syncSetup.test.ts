@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  decideAfterSignIn, itemsText, lastChangedText, mergedMessage, reuploadQuestion, sourceDeviceName, twoVaultsDoneMessage,
+  decideAfterSignIn, itemsText, lastChangedText, driveFirstMessage, mergedMessage, reuploadQuestion, sourceDeviceName, twoVaultsDoneMessage,
   uploadQuestion, vaultReadyMessage, wasSyncedBefore, type LocalVaultFacts,
 } from "./syncSetup";
 import type { SyncDevice } from "./vaultSync";
@@ -30,9 +30,9 @@ describe("the decision after sign-in (design/vault-sync-ux-flow.md)", () => {
     expect(decideAfterSignIn(local(0), driveEmpty)).toEqual({ kind: "upload", items: 0 });
   });
 
-  it("row 5: Drive holds the same vault → merge without asking (even an empty local vault)", () => {
-    expect(decideAfterSignIn(local(12), driveSame)).toEqual({ kind: "merge" });
-    expect(decideAfterSignIn(local(0), driveSame)).toEqual({ kind: "merge" });
+  it("row 5: Drive holds the same vault → Drive-first join without asking (even an empty local vault)", () => {
+    expect(decideAfterSignIn(local(12), driveSame)).toEqual({ kind: "driveFirst" });
+    expect(decideAfterSignIn(local(0), driveSame)).toEqual({ kind: "driveFirst" });
   });
 
   it("row 6: local vault with items + a different Drive vault → the two-vaults dialog", () => {
@@ -44,7 +44,7 @@ describe("the decision after sign-in (design/vault-sync-ux-flow.md)", () => {
     expect(decideAfterSignIn(local(42), driveEmpty, resume)).toEqual({ kind: "reupload", items: 42 });
     expect(decideAfterSignIn(local(null), driveEmpty, resume)).toEqual({ kind: "reupload", items: null });
     // The other rows don't change on a resume.
-    expect(decideAfterSignIn(local(42), driveSame, resume)).toEqual({ kind: "merge" });
+    expect(decideAfterSignIn(local(42), driveSame, resume)).toEqual({ kind: "driveFirst" });
     expect(decideAfterSignIn(local(42), driveOther, resume)).toEqual({ kind: "twoVaults", items: 42 });
     expect(decideAfterSignIn(local(null, false), driveEmpty, resume)).toEqual({ kind: "unlock" });
     expect(decideAfterSignIn(none, driveEmpty, resume)).toEqual({ kind: "create" });
@@ -110,6 +110,12 @@ describe("copy", () => {
     expect(vaultReadyMessage(null)).toBe("Vault ready · synced with Google Drive");
     expect(mergedMessage({ added: 1, updated: 2, removed: 0, conflicts: [] })).toBe("Synced · 3 changes");
     expect(mergedMessage({ added: 0, updated: 0, removed: 0, conflicts: [] })).toBe("Synced · up to date");
+    const base = { added: 0, updated: 0, removed: 0, conflicts: [] };
+    expect(driveFirstMessage({ ...base, join: { restored: 12, keptLocal: 3 } })).toBe("Restored 12 items from Drive · Kept 3 local changes");
+    expect(driveFirstMessage({ ...base, join: { restored: 1, keptLocal: 0 } })).toBe("Restored 1 item from Drive");
+    expect(driveFirstMessage({ ...base, join: { restored: 0, keptLocal: 1 } })).toBe("Kept 1 local change");
+    expect(driveFirstMessage({ ...base, join: { restored: 0, keptLocal: 0 } })).toBe("Synced with Google Drive · up to date");
+    expect(driveFirstMessage({ ...base, added: 2 })).toBe("Synced · 2 changes");
     expect(twoVaultsDoneMessage("import", 12)).toBe("Vault ready · 12 items added");
     expect(twoVaultsDoneMessage("backupOnly", 0)).toBe("Vault ready · using the Google Drive vault");
   });

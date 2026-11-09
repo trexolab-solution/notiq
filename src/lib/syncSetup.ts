@@ -25,8 +25,8 @@ export type NextStep =
    * "Upload this PC's vault (N items) again?". Never uploaded without that answer, also not with `autoUpload`.
    */
   | { kind: "reupload"; items: number | null }
-  /** Row 5: nothing to ask, merge and turn on. */
-  | { kind: "merge" }
+  /** Row 5: nothing to ask. Drive is the source of truth (items trashed here meanwhile come back); local changes are kept. */
+  | { kind: "driveFirst" }
   /** Row 6: the two-vaults dialog. */
   | { kind: "twoVaults"; items: number | null };
 
@@ -46,7 +46,7 @@ export function decideAfterSignIn(local: LocalVaultFacts, remote: RemoteVaultInf
   // Everything below reads or merges the local vault, which needs its key.
   if (!local.unlocked) return { kind: "unlock" };
   if (!remote.exists) return ctx.wasSynced ? { kind: "reupload", items: local.items } : { kind: "upload", items: local.items };
-  if (remote.sameVault === true) return { kind: "merge" };
+  if (remote.sameVault === true) return { kind: "driveFirst" };
   // A different Drive vault: an empty local vault has nothing to keep, so open the Drive vault directly.
   if (local.items === 0) return { kind: "openDrive", replaceLocal: true };
   return { kind: "twoVaults", items: local.items };
@@ -107,6 +107,17 @@ export const vaultReadyMessage = (device: string | null) =>
 export function mergedMessage(r: SyncResult): string {
   const n = r.added + r.updated + r.removed;
   return n === 0 ? "Synced · up to date" : `Synced · ${n === 1 ? "1 change" : `${n} changes`}`;
+}
+
+/** "Restored 12 items from Drive · Kept 3 local changes" after a Drive-first join / "Restore from Drive". */
+export function driveFirstMessage(r: SyncResult): string {
+  if (!r.join) return mergedMessage(r);
+  const { restored, keptLocal } = r.join;
+  const parts: string[] = [];
+  if (restored > 0) parts.push(`Restored ${itemsText(restored)} from Drive`);
+  if (keptLocal > 0) parts.push(`Kept ${keptLocal === 1 ? "1 local change" : `${keptLocal} local changes`}`);
+  if (parts.length) return parts.join(" · ");
+  return r.added + r.updated + r.removed === 0 ? "Synced with Google Drive · up to date" : mergedMessage(r);
 }
 
 /** Toast after the two-vaults dialog. */

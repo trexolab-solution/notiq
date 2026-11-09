@@ -15,7 +15,7 @@ import { HELLO_RESET_NOTE, enableSync, runAdopt, runJoin } from "./vaultSyncFlow
 import { turnOnSyncWithFeedback } from "./syncFeedback";
 import { countEntries } from "./syncLifecycle";
 import {
-  KEPT_SEPARATE_TOAST, PAUSED_TOAST, SYNC_START_SETUP_EVENT, decideAfterSignIn, mergedMessage, sourceDeviceName,
+  KEPT_SEPARATE_TOAST, PAUSED_TOAST, SYNC_START_SETUP_EVENT, decideAfterSignIn, driveFirstMessage, sourceDeviceName,
   twoVaultsDoneMessage, vaultReadyMessage, wasSyncedBefore, type LocalVaultFacts,
 } from "./syncSetup";
 import { useVaultStore } from "../store/vaultStore";
@@ -193,15 +193,15 @@ export const useSyncSetupStore = create<SetupState>((set, get) => {
         if (!ok) return end();
         return decide(mine, true);
       }
-      case "merge": {
+      case "driveFirst": {
         set({ view: { step: "idle" } });
-        toast.info("Syncing…", { id: MERGE_ID, duration: 0, source: SOURCE });
+        toast.info("Restoring from Google Drive…", { id: MERGE_ID, duration: 0, source: SOURCE });
         const out = await enableSync();
         toast.remove(MERGE_ID);
         if (!live(mine)) return;
         if (out.kind === "different") return showTwoVaults(mine);
         if (out.kind === "error") return fail(out.error);
-        toast.success(mergedMessage(out.result), { source: SOURCE });
+        toast.success(driveFirstMessage(out.result), { source: SOURCE });
         await refreshVaultUi();
         return end();
       }
