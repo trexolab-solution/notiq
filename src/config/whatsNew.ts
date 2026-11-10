@@ -15,12 +15,17 @@ export const WHATS_NEW = `# What's New in Notiq ${APP_VERSION}
 
 Thanks for updating! Here's what's new in this release.
 
-## 🔑 Autofill, redesigned
+## 🛡 Vault Sync, safer
 
-- **A simpler approval window** — when the browser asks to fill, Notiq shows a compact sheet: the site, one account (tap ⌄ to switch), a big **Fill** button and **Not now**. It opens at the size of its content, and only warns when a site looks like an imitation of the saved one. **Shift+Enter** fills and copies the 2-step code.
-- **Logins right in the page** — click a username or password field and a small menu lists your saved logins for that site. Type to filter, pick one, and Notiq still asks before it fills. Passwords never appear in the page.
-- **Strong passwords on sign-up** — focus a new-password field to get a strong password with its strength, a new one with ↻, and options for length, numbers and symbols. **Use and save** fills both password fields and saves the login to Notiq.
-- Turn the in-page menus off in the extension's popup under **Suggest on field focus**.
+- **Fixed: data lost after reconnecting** — if you disconnected Google Drive, deleted items on this PC and reconnected, sync could delete them from Drive too. Disconnecting now detaches this PC: when you reconnect (or connect an account that holds your vault), Notiq restores from Drive first and merges, so items deleted while disconnected come back. Changes you made while disconnected are kept.
+- **Asks before deleting a lot** — if a sync would delete many items from Drive (or every item), Notiq stops and asks: **Restore from Drive** or **Apply deletions everywhere**. It also asks on the first sync after you resume a paused sync.
+- **Backups first** — before any large deletion or a reconnect, Notiq saves an encrypted copy of both this PC's vault and the Drive copy.
+- **Restore from a date** — Notiq keeps a daily copy of your vault in Drive for 30 days. Go back to any of them from **Settings → Vault → Sync → Restore from a date…**. Nothing on this PC is removed.
+
+## 🔵 See what came from Drive
+
+- **Dots on synced items** — items added, changed or restored by sync show a small dot in the vault sidebar, with a **Recently synced** list and **Mark all as seen**.
+- **Show changes** — an entry changed by sync shows "Updated from Drive"; **Show changes** compares the version before the sync with the current one, field by field, with secrets hidden until you reveal them.
 
 ---
 
