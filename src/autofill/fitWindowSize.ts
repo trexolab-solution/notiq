@@ -1,7 +1,7 @@
 /** Size limits of the autofill prompt window, in logical (DPI-independent) pixels. */
 export interface WindowLimits { width: number; minHeight: number; maxHeight: number }
 
-export const PROMPT_LIMITS: WindowLimits = { width: 400, minHeight: 160, maxHeight: 600 };
+export const PROMPT_LIMITS: WindowLimits = { width: 420, minHeight: 160, maxHeight: 560 };
 
 /**
  * The window size for content measured at `contentW` × `contentH` CSS pixels (= logical pixels).

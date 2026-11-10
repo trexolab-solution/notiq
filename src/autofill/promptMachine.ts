@@ -88,8 +88,7 @@ export type PromptEvent =
   /** … or save as a new login instead (`on: false` goes back to updating). */
   | { type: "saveAsNew"; on: boolean }
   | { type: "reveal" }
-  /** `copyCode`: Shift+Enter on Fill, also copy the login's 2-step code (plain login fills of a login with 2FA only). */
-  | { type: "allow"; copyCode?: boolean }
+  | { type: "allow" }
   | { type: "confirmSave"; nameOk: boolean }
   | { type: "answered" }
   | { type: "deny" }
@@ -107,11 +106,7 @@ export type Effect =
   /** List the vault's identities, then dispatch `identitiesScanned`. */
   | { kind: "scanIdentities" }
   /** Look up the credentials of `match` (only its code for `intent: "code"`), reply `{ok, …}`, then dispatch `answered`. */
-  | {
-      kind: "release"; id: string; match: LoginMatch; trustHost: string | null; intent?: FillIntent; copy?: ApprovedCopy;
-      /** After the fill reply, also copy the login's 2-step code (timed clipboard wipe). */
-      copyCode?: boolean;
-    }
+  | { kind: "release"; id: string; match: LoginMatch; trustHost: string | null; intent?: FillIntent; copy?: ApprovedCopy }
   /** Reply with the picked card's fill data, then dispatch `answered`. */
   | { kind: "releaseCard"; id: string; card: CardMatch }
   /** Reply with the picked identity's fill data, then dispatch `answered`. */
@@ -143,7 +138,7 @@ const scanFor = (job: Job): Effect => {
     default: return { kind: "scan", host: job.req.host };
   }
 };
-const release = (job: FillJob, match: LoginMatch, trustHost: string | null): Extract<Effect, { kind: "release" }> => ({
+const release = (job: FillJob, match: LoginMatch, trustHost: string | null): Effect => ({
   kind: "release", id: job.req.id, match, trustHost, ...(job.req.intent ? { intent: job.req.intent } : {}),
   ...(job.req.copy ? { copy: job.req.copy } : {}),
 });
@@ -307,10 +302,7 @@ export function step(state: PromptState, ev: PromptEvent): Step {
       if (!match) return same(state);
       return {
         state: { ...state, busy: true },
-        effects: [{
-          ...release(state.job, match, state.trust ? state.job.req.host : null),
-          ...(ev.copyCode && !state.job.req.copy && match.entry.totp.trim() ? { copyCode: true } : {}),
-        }],
+        effects: [release(state.job, match, state.trust ? state.job.req.host : null)],
       };
     }
     case "confirmSave":
