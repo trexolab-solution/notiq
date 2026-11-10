@@ -1,5 +1,5 @@
-import { useEffect, useRef, type KeyboardEvent, type ReactNode } from "react";
-import { Info, Search, X } from "lucide-react";
+import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { Check, ChevronDown, Info, Search, X } from "lucide-react";
 import { Avatar } from "../ui/Avatar";
 import { Tooltip } from "../ui/Tooltip";
 import { DialogCheckbox } from "../ui/DialogParts";
@@ -232,6 +232,226 @@ export function ChoiceList({ label, noun, items, pick, onPick, onAllow, onDetail
           <button type="button" className="af-link-btn" onClick={() => onQuery?.("")}>Clear search</button>
         </div>
       )}
+    </div>
+  );
+}
+
+// ── Sheet picker (the autofill window's approval sheet) ─────────────────────
+
+/** The sheet's picker gets a search box from this many rows on. */
+export const SHEET_SEARCH_MIN = 5;
+export const sheetShowsSearch = (rows: number) => rows >= SHEET_SEARCH_MIN;
+
+export interface SheetPickerProps {
+  /** Accessible name of the list ("Saved logins"). */
+  label: string;
+  /** Plural noun for the search box and its messages ("logins"). */
+  noun: string;
+  items: ChoiceItem[];
+  pick: number;
+  onPick: (value: number) => void;
+  /** Double-click on an option: pick it and allow. */
+  onAllow?: (value: number) => void;
+  /** Opens the read-only details view of the selected entry. */
+  onDetails?: (value: number) => void;
+  disabled?: boolean;
+  query?: string;
+  onQuery?: (query: string) => void;
+  /** What the selected-entry row shows (default: the row's title and second line). */
+  summaryOf?: (item: ChoiceItem) => { title: ReactNode; sub: ReactNode };
+  /** Called after an option is chosen and the list collapsed (the window moves the focus to its Fill button). */
+  onChosen?: () => void;
+}
+
+/**
+ * The approval sheet's picker: one row for the selected entry and, with more than one, a chevron that opens
+ * the other entries inline as a listbox (a check on the selected one; a search box from
+ * {@link SHEET_SEARCH_MIN} entries). Choosing an option only selects it and closes the list: filling
+ * always takes the Fill button, so no keypress inside the list releases anything except a double-click.
+ *
+ * Keyboard in the list: ↑ / ↓ / Home / End move, Enter / Space choose, Escape closes the list (not the
+ * window). In the search box ↓ / Enter go to the first option.
+ */
+export function SheetPicker({
+  label, noun, items, pick, onPick, onAllow, onDetails, disabled, query = "", onQuery, summaryOf, onChosen,
+}: SheetPickerProps) {
+  const [open, setOpen] = useState(false);
+  const listRef = useRef<HTMLDivElement>(null);
+  const toggleRef = useRef<HTMLButtonElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+  const { announce, region } = useAnnouncer();
+  const many = items.length > 1;
+  const searchable = many && !!onQuery && sheetShowsSearch(items.length);
+  const q = searchable ? query : "";
+  const visible = visibleChoices(items, q);
+  const selected = items.find((i) => i.value === pick) ?? items[0];
+  const summary = selected ? (summaryOf ? summaryOf(selected) : { title: selected.title, sub: selected.sub }) : null;
+  const [active, setActive] = useState(pick);
+  const activeValue = visible.some((i) => i.value === active) ? active : visible[0]?.value;
+
+  const focusOption = (value: number | undefined) => {
+    if (value === undefined) return;
+    setActive(value);
+    listRef.current?.querySelector<HTMLElement>(`[data-option="${value}"]`)?.focus();
+  };
+
+  // On open: focus the search box, else the selected option.
+  const wasOpen = useRef(false);
+  useEffect(() => {
+    if (open && !wasOpen.current) {
+      if (searchRef.current) searchRef.current.focus();
+      else focusOption(pick);
+    }
+    wasOpen.current = open;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  const announced = useRef(q);
+  useEffect(() => {
+    if (announced.current === q) return;
+    announced.current = q;
+    announce(!q ? `${items.length} ${noun}` : visible.length ? `${visible.length} of ${items.length} ${noun}` : `No ${noun} match`);
+  }, [q, visible.length, items.length, noun, announce]);
+
+  if (!selected || !summary) return null;
+
+  const close = (focusToggle = true) => {
+    setOpen(false);
+    onQuery?.("");
+    if (focusToggle) requestAnimationFrame(() => toggleRef.current?.focus());
+  };
+  const choose = (value: number) => {
+    if (disabled) return;
+    if (value !== pick) onPick(value);
+    setOpen(false);
+    onQuery?.("");
+    announce(`Selected ${items.find((i) => i.value === value)?.title ?? ""}`);
+    if (onChosen) requestAnimationFrame(onChosen);
+    else requestAnimationFrame(() => toggleRef.current?.focus());
+  };
+  const move = (to: "next" | "prev" | "first" | "last") => {
+    if (!visible.length) return;
+    const at = visible.findIndex((i) => i.value === activeValue);
+    const n = visible.length;
+    const idx = to === "first" ? 0 : to === "last" ? n - 1
+      : at < 0 ? 0 : to === "next" ? Math.min(at + 1, n - 1) : at - 1;
+    if (idx < 0) { searchRef.current?.focus(); return; }
+    focusOption(visible[idx].value);
+  };
+
+  const onOptionKey = (e: KeyboardEvent, value: number) => {
+    const to = e.key === "ArrowDown" ? "next" : e.key === "ArrowUp" ? "prev" : e.key === "Home" ? "first" : e.key === "End" ? "last" : null;
+    if (to) { e.preventDefault(); e.stopPropagation(); move(to); return; }
+    if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); choose(value); return; }
+    if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); close(); }
+  };
+  const onSearchKey = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "ArrowDown" || e.key === "Enter") { e.preventDefault(); e.stopPropagation(); focusOption(visible[0]?.value); return; }
+    if (e.key === "ArrowUp") { e.preventDefault(); e.stopPropagation(); return; }
+    if (e.key === "Escape") {
+      e.preventDefault(); e.stopPropagation();
+      if (query) onQuery?.(""); else close();
+    }
+  };
+
+  const avatarOf = (item: ChoiceItem, size: number) => item.icon
+    ? <span aria-hidden className="nq-avatar nq-avatar--muted af-avatar" style={{ width: size, height: size }}>{item.icon}</span>
+    : <Avatar name={item.avatar} size={size} className="af-avatar" />;
+  const summaryBody = (
+    <>
+      {avatarOf(selected, 40)}
+      <span className="af-acct-text">
+        <span className="af-acct-title">{summary.title}</span>
+        {summary.sub ? <span className="af-acct-sub">{summary.sub}</span> : null}
+      </span>
+    </>
+  );
+
+  return (
+    <div className="af-picker" data-open={open ? "" : undefined}>
+      <div className="af-acct" data-many={many ? "" : undefined}>
+        {many ? (
+          <button ref={toggleRef} type="button" className="af-acct-main" data-af-nav="" disabled={disabled}
+                  aria-haspopup="listbox" aria-expanded={open} aria-controls={open ? "af-acct-list" : undefined}
+                  onClick={() => (open ? close(false) : setOpen(true))}
+                  onKeyDown={(e) => {
+                    if (!open) return;
+                    if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); close(false); }
+                    else if (e.key === "ArrowDown") {
+                      e.preventDefault(); e.stopPropagation();
+                      if (searchRef.current) searchRef.current.focus(); else focusOption(pick);
+                    }
+                  }}>
+            {summaryBody}
+            <span className="sr-only">. Choose from {items.length} {noun}</span>
+            <ChevronDown size={18} aria-hidden className="af-chev" />
+          </button>
+        ) : (
+          <div className="af-acct-main" data-single="">{summaryBody}</div>
+        )}
+        {onDetails && (
+          <Tooltip content="View details">
+            <button type="button" className="af-details-btn af-acct-details" aria-label={`View details of ${selected.title || "this entry"}`}
+                    data-af-details={selected.value} disabled={disabled}
+                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); onDetails(selected.value); }}>
+              <Info size={16} aria-hidden />
+            </button>
+          </Tooltip>
+        )}
+      </div>
+      {open && (
+        <div className="af-acct-pop">
+          {searchable && (
+            <div className="af-search">
+              <Search size={14} aria-hidden className="af-search-icon" />
+              <input ref={searchRef} type="text" spellCheck={false} autoComplete="off" role="searchbox"
+                     aria-label={`Search ${noun}`} aria-controls="af-acct-list" placeholder={`Search ${items.length} ${noun}…`}
+                     value={query} disabled={disabled}
+                     onChange={(e) => onQuery?.(e.target.value)} onKeyDown={onSearchKey} />
+              {query && (
+                <button type="button" className="af-search-clear" aria-label="Clear search" tabIndex={-1}
+                        onClick={() => { onQuery?.(""); searchRef.current?.focus(); }}>
+                  <X size={12} aria-hidden />
+                </button>
+              )}
+            </div>
+          )}
+          <div ref={listRef} id="af-acct-list" role="listbox" aria-label={label} className="af-options">
+            {visible.map((item) => {
+              const sel = item.value === pick;
+              return (
+                <div key={item.key} role="option" aria-selected={sel} aria-disabled={disabled || undefined}
+                     tabIndex={item.value === activeValue ? 0 : -1} data-option={item.value} className="af-option"
+                     onFocus={() => setActive(item.value)}
+                     onClick={() => choose(item.value)}
+                     onDoubleClick={() => { if (!disabled && onAllow) { if (item.value !== pick) onPick(item.value); setOpen(false); onAllow(item.value); } }}
+                     onKeyDown={(e) => onOptionKey(e, item.value)}>
+                  {avatarOf(item, 32)}
+                  <span className="af-row-text">
+                    <span className="af-row-title">{item.title}</span>
+                    <span className="af-row-sub">{item.sub}</span>
+                  </span>
+                  {!!item.badges?.length && (
+                    <span className="af-badges">
+                      {item.badges.map((b) => (
+                        <span key={b.label} className={`af-badge af-badge--${b.tone ?? "neutral"}`} title={b.title}>{b.label}</span>
+                      ))}
+                    </span>
+                  )}
+                  <Check size={16} aria-hidden className="af-tick" />
+                </div>
+              );
+            })}
+          </div>
+          {q && !visible.length && (
+            <div className="af-empty">
+              <span>No {noun} match &ldquo;{q.trim()}&rdquo;.</span>
+              <button type="button" className="af-link-btn" onClick={() => { onQuery?.(""); searchRef.current?.focus(); }}>Clear search</button>
+            </div>
+          )}
+        </div>
+      )}
+      {region}
     </div>
   );
 }

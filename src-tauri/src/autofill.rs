@@ -971,8 +971,8 @@ pub fn prompt_window_config(is_dev: bool) -> PromptWindowConfig {
         label: PROMPT_LABEL,
         url: "index.html#/autofill-prompt",
         title: if is_dev { "Notiq Dev Autofill" } else { "Notiq Autofill" },
-        width: 420.0,
-        height: 240.0,
+        width: 400.0,
+        height: 390.0,
         resizable: false,
         decorations: false,
         shadow: true,
@@ -1864,7 +1864,9 @@ mod tests {
         assert!(!c.visible && !c.focused, "created hidden and unfocused; it shows itself only when needed");
         assert!(c.always_on_top && c.skip_taskbar && c.shadow);
         assert!(!c.decorations && !c.resizable);
-        assert!(c.width >= 360.0 && c.width <= 480.0 && c.height >= 160.0 && c.height <= 560.0);
+        assert!(c.width >= 360.0 && c.width <= 480.0 && c.height >= 160.0 && c.height <= 600.0);
+        // The compact single-login sheet (src/autofill/fitWindowSize.ts PROMPT_LIMITS width), so the first frame needs no resize.
+        assert_eq!((c.width, c.height), (400.0, 390.0));
         assert_eq!(prompt_window_config(true).title, "Notiq Dev Autofill");
         assert_eq!(prompt_window_config(true).label, c.label);
     }
