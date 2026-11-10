@@ -15,17 +15,13 @@ export const WHATS_NEW = `# What's New in Notiq ${APP_VERSION}
 
 Thanks for updating! Here's what's new in this release.
 
-## 🛡 Vault Sync, safer
+## ↩️ Autofill back to the previous design
 
-- **Fixed: data lost after reconnecting** — if you disconnected Google Drive, deleted items on this PC and reconnected, sync could delete them from Drive too. Disconnecting now detaches this PC: when you reconnect (or connect an account that holds your vault), Notiq restores from Drive first and merges, so items deleted while disconnected come back. Changes you made while disconnected are kept.
-- **Asks before deleting a lot** — if a sync would delete many items from Drive (or every item), Notiq stops and asks: **Restore from Drive** or **Apply deletions everywhere**. It also asks on the first sync after you resume a paused sync.
-- **Backups first** — before any large deletion or a reconnect, Notiq saves an encrypted copy of both this PC's vault and the Drive copy.
-- **Restore from a date** — Notiq keeps a daily copy of your vault in Drive for 30 days. Go back to any of them from **Settings → Vault → Sync → Restore from a date…**. Nothing on this PC is removed.
+- **The 0.9.6 autofill redesign is undone.** The approval window, the login menu in web pages and the strong password card are back to how they were in 0.9.5. Reload the browser extension after updating.
 
-## 🔵 See what came from Drive
+## 🛡 Still included from 0.9.5
 
-- **Dots on synced items** — items added, changed or restored by sync show a small dot in the vault sidebar, with a **Recently synced** list and **Mark all as seen**.
-- **Show changes** — an entry changed by sync shows "Updated from Drive"; **Show changes** compares the version before the sync with the current one, field by field, with secrets hidden until you reveal them.
+- **Safer Vault Sync** — reconnecting Google Drive restores from Drive first, Notiq asks before deleting many items, keeps backups, and offers **Restore from a date** in Settings → Vault → Sync.
 
 ---
 
