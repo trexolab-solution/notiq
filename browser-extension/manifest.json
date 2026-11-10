@@ -33,7 +33,6 @@
         "shared.js",
         "fillkit.js",
         "identity.js",
-        "generator.js",
         "content.js"
       ],
       "run_at": "document_idle",

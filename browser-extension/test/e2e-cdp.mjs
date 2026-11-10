@@ -97,8 +97,7 @@ const tagged = (c) => typeof c.ext === "string" && c.ext.length > 0 && c.protoco
 const REUSE_OPS = ["reuse_salt", "reuse_check"];
 // The save offer's `save_check` (asked before the card appears; the mock has no answer, so the old card shows) is
 // checked on its own (saveChecks).
-// The in-page login menu's `list` (titles / usernames, no prompt) is checked on its own too (listCalls in 22).
-const calls = async () => (await allCalls()).filter((c) => c.op !== "theme" && c.op !== "ping" && c.op !== "save_check" && c.op !== "list" && !REUSE_OPS.includes(c.op));
+const calls = async () => (await allCalls()).filter((c) => c.op !== "theme" && c.op !== "ping" && c.op !== "save_check" && !REUSE_OPS.includes(c.op));
 const saveChecks = async () => (await allCalls()).filter((c) => c.op === "save_check");
 const reuseCalls = async () => (await allCalls()).filter((c) => REUSE_OPS.includes(c.op));
 const pings = async () => (await allCalls()).filter((c) => c.op === "ping");
@@ -167,18 +166,6 @@ const menuInfo = () => inShadow(`function () {
   return { role: m.getAttribute("role"), label: m.getAttribute("aria-label"), text: m.textContent,
     imgs: m.querySelectorAll("img").length, active: this.activeElement ? this.activeElement.textContent : null,
     items: [...m.querySelectorAll(".nq-item")].map((x) => { const r = x.getBoundingClientRect(); return { label: x.querySelector(".nq-ititle").textContent, role: x.getAttribute("role"), x: r.x + r.width / 2, y: r.y + r.height / 2 }; }) };
-}`);
-// The strong password card, with control centres in page coordinates.
-const genInfo = () => inShadow(`function () {
-  const c = this.querySelector(".nq-gencard");
-  if (!c || c.style.display === "none") return null;
-  const ctr = (x) => { const r = x.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; };
-  const pwv = c.querySelector(".nq-pwv"), range = c.querySelector("input[type=range]"), opts = c.querySelector(".nq-opts");
-  return { role: c.getAttribute("role"), text: c.textContent, pw: pwv.textContent, tinted: pwv.querySelectorAll(".d, .s").length > 0,
-    str: c.querySelector(".nq-str").textContent, use: c.querySelector(".nq-pill").textContent, small: c.querySelector(".nq-gen > .nq-small:last-child").textContent,
-    useBtn: ctr(c.querySelector(".nq-pill")), regen: ctr(c.querySelectorAll(".nq-ic")[0]), opt: ctr(c.querySelectorAll(".nq-ic")[1]),
-    optsShown: !opts.hidden, range: range.min + "-" + range.max, lenOut: c.querySelector(".nq-ln output").textContent,
-    chips: [...c.querySelectorAll(".nq-chip")].map((x) => ({ label: x.textContent, pressed: x.getAttribute("aria-pressed"), ...ctr(x) })) };
 }`);
 // The icon inside a top-document field, by the field's id.
 async function iconFor(id) {
@@ -264,11 +251,6 @@ try {
   await cdp("Emulation.setDeviceMetricsOverride", { width: 1200, height: 900, deviceScaleFactor: 1, mobile: false }, page);
 
   const NATIVE = { fill: { ok: true, username: "alice@example.com", password: "Notiq-Filled-1!", title: "Test" }, save: { ok: true, status: "saved" }, ping: { ok: true } };
-  // With this site's list for the in-page login menu (titles / usernames only) and a reply for a fill naming an account.
-  const ACCTS = [{ account: "a1", title: "Test", username: "alice@example.com", totp: true },
-    { account: "a2", title: "Work", username: "bob@example.com", totp: false }, { account: "a3", title: "Kids", username: "jamie", totp: false }];
-  const LISTED = { ...NATIVE, list: { ok: true, accounts: ACCTS },
-    fill: { ...NATIVE.fill, withAccount: { ok: true, username: "bob@example.com", password: "Bob-Filled-2!", title: "Work" } } };
   await mockNative(NATIVE);
 
   // 1. Detection + closed shadow root + no request on load
@@ -470,108 +452,70 @@ try {
   const EXTRA = `http://localhost:${PORT}/test-pages/extra.html`;
   const LOOKALIKE = /[Il1O0o]/;
 
-  // 15. Strong password card on a sign-up form
+  // 15. Password generator on a sign-up form
   await resetState();
   await mockNative(NATIVE);
   await load();
   let gi = await iconFor("u-pass");
   await mouseClick(gi.x, gi.y);
-  let g15 = await waitFor(genInfo, 1500);
-  check("new-password N button opens the 'Use strong password' card (role=dialog) with a 20-char password",
-    g15 && g15.role === "dialog" && /Use strong password/.test(g15.text) && g15.pw.length === 20 && /bits/.test(g15.str), JSON.stringify(g15 && { ...g15, pw: g15.pw.length }));
-  check("generated password: upper+lower+digit+symbol, no look-alikes (the popup generator's defaults)",
-    g15 && /[A-Z]/.test(g15.pw) && /[a-z]/.test(g15.pw) && /[0-9]/.test(g15.pw) && /[^A-Za-z0-9]/.test(g15.pw) && !LOOKALIKE.test(g15.pw));
-  check("card: digits and symbols tinted, 'Use and save', footer names the host",
-    g15 && g15.tinted && g15.use === "Use and save" && g15.small === "Fills New and Confirm password, then saves this login to Notiq for localhost.", JSON.stringify(g15 && g15.small));
-  check("the card's password is only in the closed shadow root; nothing sent to Notiq",
-    !(await P(`document.documentElement.outerHTML.includes(${JSON.stringify(g15 ? g15.pw : "x")})`)) && (await calls()).length === 0 &&
-    !JSON.stringify(await local()).includes(g15 ? g15.pw : "x"));
-  check("the card does not take focus from the field", (await P(`document.activeElement && document.activeElement.id`)) === "u-pass");
+  let m15 = await waitFor(menuInfo, 1500);
+  check("new-password icon opens a role=menu with 'Generate strong password' only (sign-up: no 'Fill saved login')",
+    m15 && m15.role === "menu" && m15.items.length === 1 && m15.items[0].label === "Generate strong password" && m15.items[0].role === "menuitem",
+    JSON.stringify(m15));
+  check("menu takes keyboard focus on its first item", m15 && m15.active && m15.active.startsWith("Generate strong password"), JSON.stringify(m15 && m15.active));
+  check("opening the menu sends nothing to Notiq", (await calls()).length === 0);
   await key("Escape", "Escape", 27);
-  await sleep(250);
-  check("Esc closes the card and keeps focus in the field", !(await genInfo()) && (await P(`document.activeElement && document.activeElement.id`)) === "u-pass");
-  // A click into the empty field (the user's own action) opens it again.
-  await clickId("u-pass");
-  g15 = await waitFor(genInfo, 1500);
-  check("clicking into the empty new-password field opens the card", !!g15);
-  await key("ArrowDown", "ArrowDown", 40);
-  await sleep(150);
-  check("ArrowDown moves into the card ('Use and save' gets focus)", (await inShadow(`function () { return this.activeElement ? this.activeElement.textContent : null; }`)) === "Use and save");
-  await key("Escape", "Escape", 27);
-  await sleep(200);
-  check("Esc from inside the card returns focus to the field", !(await genInfo()) && (await P(`document.activeElement && document.activeElement.id`)) === "u-pass");
+  await sleep(300);
+  check("Esc closes the menu and returns focus to the field", !(await menuInfo()) && (await P(`document.activeElement && document.activeElement.id`)) === "u-pass");
   gi = await iconFor("u-pass");
   await mouseClick(gi.x, gi.y);
-  g15 = await waitFor(genInfo, 1500);
-  // Regenerate: a new valid password each time.
-  const many = new Set([g15.pw]);
+  m15 = await waitFor(menuInfo, 1500);
+  await inShadow(`function () { this.querySelector(".nq-menu .nq-item").click(); }`);
+  await sleep(300);
+  check("synthetic click on 'Generate' is ignored", (await P(`document.getElementById("u-pass").value`)) === "");
+  await mouseClick(m15.items[0].x, m15.items[0].y);
+  await sleep(400);
+  const gen = await P(`({ a: document.getElementById("u-pass").value, b: document.getElementById("u-pass2").value })`);
+  check("generator fills the new-password AND confirm fields with the same value", gen.a && gen.a === gen.b, JSON.stringify({ la: gen.a.length, same: gen.a === gen.b }));
+  check("generated password: 20 chars, upper+lower+digit+symbol, no look-alikes",
+    gen.a.length === 20 && /[A-Z]/.test(gen.a) && /[a-z]/.test(gen.a) && /[0-9]/.test(gen.a) && /[^A-Za-z0-9]/.test(gen.a) && !LOOKALIKE.test(gen.a));
+  const m15b = await menuInfo();
+  check("menu confirms without showing the password", m15b && /Strong password filled in 2 fields/.test(m15b.text) && !m15b.text.includes(gen.a), JSON.stringify(m15b && m15b.text));
+  check("nothing sent to Notiq / background before submit",
+    (await calls()).length === 0 && (await pendingEntries()).length === 0 && !JSON.stringify(await local()).includes(gen.a));
+  const showBtn = m15b.items.find((i) => i.label === "Show");
+  await mouseClick(showBtn.x, showBtn.y);
+  await sleep(250);
+  const m15c = await menuInfo();
+  check("'Show' reveals the password inside the closed shadow root only",
+    m15c && m15c.text.includes(gen.a) && !(await P(`document.documentElement.outerHTML.includes(${JSON.stringify(gen.a)})`)));
+  const doneBtn = m15c.items.find((i) => i.label === "Done");
+  await mouseClick(doneBtn.x, doneBtn.y);
+  await sleep(250);
+  check("'Done' closes the menu", !(await menuInfo()));
+  // A few more generations: all valid and distinct.
+  const many = new Set([gen.a]);
   for (let k = 0; k < 4; k++) {
-    const gg = await genInfo();
-    await mouseClick(gg.regen.x, gg.regen.y);
-    await sleep(120);
-    const v = (await genInfo()).pw;
+    gi = await iconFor("u-pass");
+    await mouseClick(gi.x, gi.y);
+    const mm = await waitFor(menuInfo, 1500);
+    await mouseClick(mm.items[0].x, mm.items[0].y);
+    await sleep(250);
+    const v = await P(`document.getElementById("u-pass").value`);
     if (v.length === 20 && !LOOKALIKE.test(v) && /[A-Z]/.test(v) && /[a-z]/.test(v) && /\d/.test(v) && /[^A-Za-z0-9]/.test(v)) many.add(v);
+    await key("Escape", "Escape", 27);
   }
-  check("↻ regenerates: all valid and distinct", many.size === 5, String(many.size));
-  // Options: Numbers off, length 30, persisted under the popup generator's key.
-  let gg = await genInfo();
-  await mouseClick(gg.opt.x, gg.opt.y);
-  await sleep(150);
-  gg = await genInfo();
-  check("⚙ shows the options: length slider 8–64 and Numbers / Symbols / Avoid look-alikes",
-    gg.optsShown && gg.range === "8-64" && gg.chips.map((c) => c.label).join("|") === "Numbers|Symbols|Avoid look-alikes", JSON.stringify(gg && gg.chips));
-  await mouseClick(gg.chips[0].x, gg.chips[0].y);
-  await sleep(200);
-  gg = await genInfo();
-  check("Numbers off: no digit in the password, saved to chrome.storage.local genOptions",
-    gg && !/[0-9]/.test(gg.pw) && (await local()).genOptions && (await local()).genOptions.digits === false, JSON.stringify((await local()).genOptions));
-  await inShadow(`function () { const r = this.querySelector(".nq-gencard input[type=range]"); r.value = "30"; r.dispatchEvent(new Event("input", { bubbles: true })); }`);
-  await sleep(150);
-  check("synthetic slider input is ignored", (await genInfo()).pw.length === 20);
-  await mouseClick(gg.chips[0].x, gg.chips[0].y); // Numbers back on
-  await sleep(200);
-  await SW(`chrome.storage.local.set({ genOptions: { length: 30, lower: true, upper: true, digits: true, symbols: true, avoidAmbiguous: true } }).then(() => true)`);
-  await sleep(300);
-  gg = await genInfo();
-  check("options changed in the popup generator follow live (length 30)", gg && gg.pw.length === 30 && gg.lenOut === "30", JSON.stringify(gg && gg.lenOut));
-  await inShadow(`function () { this.querySelector(".nq-gencard .nq-pill").click(); }`);
-  await sleep(300);
-  check("synthetic click on 'Use and save' is ignored", (await P(`document.getElementById("u-pass").value`)) === "" && !!(await genInfo()));
-  await key("Escape", "Escape", 27);
-  // Use and save with the username typed first.
+  check("repeated generations are all valid and distinct", many.size === 5, String(many.size));
+  const last = await P(`document.getElementById("u-pass").value`);
   await typeInto("u-email", "gen@example.com");
-  await clickId("u-pass");
-  gg = await waitFor(genInfo, 1500);
-  const chosen = gg.pw;
-  await resetCalls();
-  await mouseClick(gg.useBtn.x, gg.useBtn.y);
-  const gen = await waitFor(async () => { const v = await P(`({ a: document.getElementById("u-pass").value, b: document.getElementById("u-pass2").value })`); return v.a ? v : null; }, 2000);
-  check("'Use and save' fills the new-password AND confirm fields with the shown password", gen && gen.a === chosen && gen.b === chosen);
-  const c15 = await waitFor(async () => { const c = await calls(); return c.find((x) => x.op === "save") ? c : null; }, 4000);
-  const save15 = c15 && c15.find((x) => x.op === "save");
-  check("…then asks Notiq to save it (the normal native save: Notiq's own Save prompt confirms)",
-    save15 && save15.password === chosen && save15.username === "gen@example.com" && save15.host === "localhost" &&
-    Object.keys(bare(save15)).sort().join() === "host,op,password,title,url,username" && c15.filter((x) => x.op === "save").length === 1, JSON.stringify(c15 && c15.map((x) => x.op)));
-  const ic15 = await waitFor(async () => ((await icons()) || []).find((i) => /Saved to Notiq/.test(i.tip)), 3000);
-  check("the field's N button reports 'Saved to Notiq'", !!ic15);
   await P(`document.querySelector("#signup button").scrollIntoView({block:"center"})`);
   const sg15 = await P(`(() => { const r = document.querySelector("#signup button").getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; })()`);
-  await resetCalls();
   await mouseClick(sg15.x, sg15.y);
-  await sleep(2500);
-  check("submitting the form afterwards: no second save offer for the same login",
-    !(await barInfo()) && (await pendingEntries()).length === 0 && (await calls()).length === 0);
-  // Never save for this site: the button only fills.
-  await resetState({ neverSave: ["localhost"] });
-  await mockNative(NATIVE);
-  await load();
-  await clickId("u-pass");
-  gg = await waitFor(genInfo, 1500);
-  check("'Never save' site: the card says 'Use password' and that saving is off",
-    gg && gg.use === "Use password" && /Saving to Notiq is off for this site/.test(gg.small), JSON.stringify(gg && gg.small));
-  await mouseClick(gg.useBtn.x, gg.useBtn.y);
-  await sleep(600);
-  check("…and fills without asking Notiq", (await P(`document.getElementById("u-pass2").value`)).length === 20 && (await calls()).length === 0);
+  const p15 = await waitFor(async () => (await pendingEntries())[0], 2000);
+  check("on submit the generated password goes through the normal capture (still nothing sent to Notiq)",
+    p15 && p15.password === last && p15.username === "gen@example.com" && p15.change === false && (await calls()).length === 0);
+  const bar15 = await waitFor(barInfo, 4500);
+  check("sign-up offer reads 'Save login to Notiq?'", bar15 && bar15.text.includes("Save login to Notiq?"));
 
   // 16. Change-password form
   await resetState();
@@ -579,8 +523,8 @@ try {
   check("extra page: change form (3) + code login (2) icons in the top frame", ((await icons()) || []).length === 5, JSON.stringify(((await icons()) || []).length));
   gi = await iconFor("c-new");
   await mouseClick(gi.x, gi.y);
-  const m16 = await waitFor(genInfo, 1500);
-  check("change form: the strong password card also offers 'Fill saved login instead'", m16 && /Fill saved login instead/.test(m16.small), JSON.stringify(m16 && m16.small));
+  const m16 = await waitFor(menuInfo, 1500);
+  check("change form menu offers Generate + 'Fill saved login'", m16 && m16.items.map((i) => i.label).join("|") === "Generate strong password|Fill saved login", JSON.stringify(m16 && m16.items));
   await key("Escape", "Escape", 27);
   await typeInto("c-cur", "Old-Pw-1");
   await typeInto("c-new", "New-Pw-22");
@@ -808,214 +752,116 @@ try {
 
 
   // ===================== 0.4.0 =====================
-  // 22. Login menu on field focus (this site's logins: titles and usernames only)
+  // 22. "Fill with Notiq" suggestion on field focus
   const suggestInfo = () => inShadow(`function () {
-    const s = this.querySelector(".nq-suggest.nq-logins");
+    const s = this.querySelector(".nq-suggest");
     if (!s || s.style.display === "none") return null;
-    const n = s.getBoundingClientRect();
-    const ctr = (x) => { const r = x.getBoundingClientRect(); return { x: r.x + r.width / 2, y: parseFloat(s.style.top) + (r.top - n.top) + r.height / 2 }; };
-    const rows = [...s.querySelectorAll("button.nq-opt")];
-    const all = s.querySelector(".nq-foot .nq-link");
-    return { text: s.textContent, role: s.getAttribute("role"), count: this.querySelectorAll(".nq-suggest").length,
-      top: parseFloat(s.style.top), left: parseFloat(s.style.left), height: n.height, width: n.width,
-      active: rows.indexOf(this.activeElement) >= 0 ? rows.indexOf(this.activeElement) : this.activeElement === all ? "all" : null,
-      foot: s.querySelector(".nq-foot").textContent, all: ctr(all),
-      rows: rows.map((b) => ({ role: b.getAttribute("role"), user: b.querySelector("b").textContent, sub: (b.querySelector("small") || {}).textContent || "",
-        letter: b.querySelector(".nq-av").textContent, badge: (b.querySelector(".nq-badge") || {}).textContent || "", ...ctr(b) })) };
+    const b = s.querySelector(".nq-sbtn");
+    const r = b.getBoundingClientRect(), n = s.getBoundingClientRect();
+    // top/left from the style (the entry animation shifts the box for a moment)
+    return { text: s.textContent, role: s.getAttribute("role"), itemRole: b.getAttribute("role"), x: r.x + r.width / 2, y: parseFloat(s.style.top) + (r.bottom - n.top) - r.height / 2,
+      top: parseFloat(s.style.top), left: parseFloat(s.style.left), width: n.width, active: this.activeElement === b, count: this.querySelectorAll(".nq-suggest").length };
   }`);
   const activeId = () => P("document.activeElement && document.activeElement.id");
-  const listCalls = async () => (await allCalls()).filter((c) => c.op === "list");
-  const clearInline = () => SW("(inlineCache.clear(), inlineLists.clear(), true)");
   await cdp("Target.activateTarget", { targetId }); // the page tab must be the active one (fills from background tabs are refused)
-  const fieldBox = (id) => P(`(() => { const r = document.getElementById(${JSON.stringify(id)}).getBoundingClientRect(); return { left: r.left, top: r.top, bottom: r.bottom, width: r.width }; })()`);
-  await mockNative(LISTED);
+  const fieldBox = (id) => P(`(() => { const r = document.getElementById(${JSON.stringify(id)}).getBoundingClientRect(); return { left: r.left, bottom: r.bottom, width: r.width }; })()`);
+  await mockNative(NATIVE);
   await resetState();
-  await clearInline();
   await load();
-  check("no menu before a field is focused, and nothing asked on page load", !(await suggestInfo()) && (await listCalls()).length === 0);
+  check("no suggestion before a field is focused", !(await suggestInfo()));
   await clickId("s-user");
-  const sg1 = await waitFor(suggestInfo, 2000);
+  const sg1 = await waitFor(suggestInfo, 1500);
   const fb1 = await fieldBox("s-user");
-  check("focusing a login field shows this site's logins right under it",
-    sg1 && sg1.rows.length === 3 && Math.abs(sg1.top - (fb1.bottom + 4)) <= 1 && Math.abs(sg1.left - fb1.left) <= 1 && sg1.count === 1,
+  check("focusing a login field shows 'Fill with Notiq' + shortcut hint right under it",
+    sg1 && sg1.text === "Fill with NotiqAlt+Shift+L" && Math.abs(sg1.top - (fb1.bottom + 4)) <= 1 && Math.abs(sg1.left - fb1.left) <= 1 && sg1.count === 1,
     JSON.stringify({ sg1, fb1 }));
-  check("rows: avatar letter, username, entry name, 2FA badge; listbox/option roles; footer 'Notiq' + 'All logins ›'",
-    sg1 && sg1.role === "listbox" && sg1.rows.every((r) => r.role === "option") && sg1.rows[0].user === "alice@example.com" &&
-    sg1.rows[0].sub === "Test" && sg1.rows[0].letter === "T" && sg1.rows[0].badge === "2FA" && sg1.rows[1].badge === "" &&
-    sg1.foot === "NotiqAll logins ›", JSON.stringify(sg1 && sg1.rows));
-  const lc = await listCalls();
-  check("the menu asked Notiq once for the list of THIS host (no fill, no secret in the menu)",
-    lc.length === 1 && lc[0].host === "localhost" && (await calls()).length === 0 && !/Filled|Secret|password/i.test(sg1.text), JSON.stringify(lc));
-  check("no password reaches the page DOM", !(await P(`document.documentElement.outerHTML.includes("Notiq-Filled-1!") || document.documentElement.outerHTML.includes("alice@example.com")`)));
-  check("focus stays in the field while the menu shows", (await activeId()) === "s-user");
-  await inShadow(`function () { const b = this.querySelector(".nq-logins .nq-opt"); b.click(); b.dispatchEvent(new MouseEvent("click", { bubbles: true, composed: true })); }`);
-  await sleep(500);
-  check("synthetic click on a row is ignored", (await calls()).length === 0 && !!(await suggestInfo()));
-  await cdp("Input.insertText", { text: "bob" }, page);
-  const sgF = await waitFor(async () => { const s = await suggestInfo(); return s && s.rows.length === 1 && s; }, 1500);
-  check("typing in the username field filters the rows", sgF && sgF.rows[0].user === "bob@example.com" && (await activeId()) === "s-user", JSON.stringify(sgF && sgF.rows));
-  await cdp("Input.insertText", { text: "zzz" }, page);
-  const sgN = await waitFor(async () => { const s = await suggestInfo(); return s && s.rows.length === 0 && s; }, 1500);
-  check("no match: 'No saved login matches …'", sgN && /No saved login matches/.test(sgN.text));
-  await P(`(() => { const u = document.getElementById("s-user"); u.select(); })()`);
-  await cdp("Input.insertText", { text: "b" }, page);
-  const sgB = await waitFor(async () => { const s = await suggestInfo(); return s && s.rows.length === 1 && s; }, 1500);
-  await mouseClick(sgB.rows[0].x, sgB.rows[0].y);
+  check("suggestion uses menu/menuitem roles and shows no vault data", sg1 && sg1.role === "menu" && sg1.itemRole === "menuitem" && !/alice|@/.test(sg1.text));
+  check("focus stays in the field while the suggestion shows", (await activeId()) === "s-user");
+  check("showing the suggestion asks Notiq for nothing", (await calls()).length === 0);
+  await inShadow(`function () { const b = this.querySelector(".nq-sbtn"); b.click(); b.dispatchEvent(new MouseEvent("click", { bubbles: true, composed: true })); }`);
+  await sleep(600);
+  check("synthetic click on the suggestion is ignored", (await calls()).length === 0 && !!(await suggestInfo()));
+  const sg1b = await suggestInfo();
+  await mouseClick(sg1b.x, sg1b.y);
+  check("a real click keeps focus in the field (no focus steal)", ["s-user", "s-pass"].includes(await activeId()));
   await waitFor(async () => (await calls()).length === 1, 3000);
   const c22 = await calls();
-  check("clicking a row runs the normal fill naming that account (Notiq still approves)",
-    c22.length === 1 && c22[0].op === "fill" && c22[0].host === "localhost" && c22[0].account === "a2", JSON.stringify(c22));
-  const v22 = await waitFor(async () => { const v = await P(`({ u: document.getElementById("s-user").value, p: document.getElementById("s-pass").value })`); return v.p === "Bob-Filled-2!" && v; }, 3000);
-  check("…and the form is filled with that login after approval", v22 && v22.u === "bob@example.com");
+  check("clicking the suggestion runs the same fill as the key icon", c22.length === 1 && c22[0].op === "fill" && c22[0].host === "localhost", JSON.stringify(c22));
+  const v22 = await waitFor(async () => { const v = await P(`document.getElementById("s-pass").value`); return v === "Notiq-Filled-1!" && v; }, 3000);
+  check("…and the form is filled after approval", !!v22);
   await sleep(300);
-  check("menu is gone after the pick and not re-opened by the fill's own focus", !(await suggestInfo()));
+  check("suggestion is gone after the click and not re-opened by the fill's own focus", !(await suggestInfo()));
 
   // keyboard
   await resetState();
   await load();
   await clickId("s-user");
-  await waitFor(suggestInfo, 2000);
+  await waitFor(suggestInfo, 1500);
   await key("ArrowDown", "ArrowDown", 40);
-  await sleep(120);
-  check("ArrowDown from the field moves into the first row", (await suggestInfo())?.active === 0);
-  await key("ArrowDown", "ArrowDown", 40);
-  await sleep(120);
-  check("ArrowDown again: the second row", (await suggestInfo())?.active === 1);
-  await key("ArrowUp", "ArrowUp", 38);
+  await sleep(150);
+  check("ArrowDown from the field moves focus into the suggestion", !!(await suggestInfo())?.active);
   await key("ArrowUp", "ArrowUp", 38);
   await sleep(150);
-  check("ArrowUp from the first row returns focus to the field (menu stays)", (await activeId()) === "s-user" && !!(await suggestInfo()));
-  await key("End", "End", 35);
-  await key("ArrowDown", "ArrowDown", 40);
-  await key("End", "End", 35);
-  await sleep(120);
-  check("End reaches 'All logins ›'", (await suggestInfo())?.active === "all");
-  await key("Home", "Home", 36);
+  check("ArrowUp returns focus to the field", (await activeId()) === "s-user" && !!(await suggestInfo()));
   await key("ArrowDown", "ArrowDown", 40);
   await key("Enter", "Enter", 13);
   await waitFor(async () => (await calls()).length === 1, 3000);
-  const ck = await calls();
-  check("Enter on a focused row fills that account (one request)", ck.length === 1 && ck[0].op === "fill" && ck[0].account === "a2", JSON.stringify(ck));
-  await waitFor(async () => (await P(`document.getElementById("s-pass").value`)) === "Bob-Filled-2!", 3000);
+  check("Enter on the focused suggestion fills (one request)", (await calls()).length === 1 && (await calls())[0].op === "fill");
+  await waitFor(async () => (await P(`document.getElementById("s-pass").value`)) === "Notiq-Filled-1!", 3000);
 
-  // Esc, typing in the password field, clicking outside, page-made focus
+  // Esc dismisses per field; typing and clicking outside hide it
   await resetState();
   await load();
   await clickId("s-user");
-  await waitFor(suggestInfo, 2000);
+  await waitFor(suggestInfo, 1500);
   await key("Escape", "Escape", 27);
   await sleep(200);
-  check("Esc hides the menu and keeps focus in the field", !(await suggestInfo()) && (await activeId()) === "s-user");
-  await key("ArrowDown", "ArrowDown", 40);
-  check("ArrowDown in the field opens it again", !!(await waitFor(suggestInfo, 1500)));
-  await key("ArrowDown", "ArrowDown", 40);
-  await key("Escape", "Escape", 27);
-  await sleep(200);
-  check("Esc from inside the menu closes it and returns focus to the field", !(await suggestInfo()) && (await activeId()) === "s-user");
+  check("Esc hides the suggestion and keeps focus in the field", !(await suggestInfo()) && (await activeId()) === "s-user");
   await clickId("s-pass");
-  const sgPw = await waitFor(suggestInfo, 2000);
-  check("the (current) password field gets the menu too", !!sgPw && sgPw.rows.length === 3);
+  const sgPw = await waitFor(suggestInfo, 1500);
+  check("another login field still gets its suggestion", !!sgPw);
   await cdp("Input.insertText", { text: "x" }, page);
   await sleep(200);
-  check("typing into the password field hides the menu", !(await suggestInfo()));
+  check("typing into the field hides the suggestion", !(await suggestInfo()));
+  await clickId("s-user");
+  await sleep(500);
+  check("a field dismissed with Esc gets no suggestion again on this page", !(await suggestInfo()));
   await clickId("t-user");
-  await waitFor(suggestInfo, 2000);
+  await waitFor(suggestInfo, 1500);
   const h1 = await P(`(() => { const r = document.querySelector("h1").getBoundingClientRect(); return { x: r.x + 10, y: r.y + r.height / 2 }; })()`);
   await mouseClick(h1.x, h1.y);
   await sleep(200);
-  check("clicking outside hides the menu", !(await suggestInfo()));
-  await sleep(1100);
-  await P(`document.getElementById("t-user").focus()`);
-  await sleep(600);
-  check("a focus() made by the page itself opens nothing", !(await suggestInfo()));
-  await P(`document.getElementById("t-user").blur()`);
+  check("clicking outside hides the suggestion", !(await suggestInfo()));
   await clickId("u-name");
   await sleep(500);
-  check("non-login fields (full name) get no menu", !(await suggestInfo()));
+  check("non-login fields (full name) get no suggestion", !(await suggestInfo()));
   await P(`document.body.style.minHeight = "3000px"`);
-  await clickId("t-user");
-  const sgScroll = await waitFor(suggestInfo, 2000);
+  await P(`document.getElementById("t-user").focus()`);
+  await sleep(300);
+  const sgScroll = await suggestInfo();
   await P(`window.scrollBy(0, 40)`);
   await sleep(250);
   const sgScroll2 = await suggestInfo();
   const fbT = await fieldBox("t-user");
-  check("the menu follows the field on scroll", sgScroll && sgScroll2 && sgScroll2.top !== sgScroll.top && Math.abs(sgScroll2.top - (fbT.bottom + 4)) <= 1, JSON.stringify({ sgScroll, sgScroll2, fbT }));
-  await P(`(() => { document.body.style.paddingTop = "1500px"; const f = document.getElementById("t-user"); window.scrollBy(0, f.getBoundingClientRect().bottom - innerHeight + 20); })()`);
-  await sleep(250);
-  const sgUp = await suggestInfo();
-  const fbUp = await fieldBox("t-user");
-  check("no room below: the menu flips above the field", sgUp && Math.abs(sgUp.top + sgUp.height - (fbUp.top - 4)) <= 2, JSON.stringify({ sgUp, fbUp }));
-  await P(`document.body.style.paddingTop = ""`);
+  check("suggestion follows the field on scroll", sgScroll && sgScroll2 && sgScroll2.top !== sgScroll.top && Math.abs(sgScroll2.top - (fbT.bottom + 4)) <= 1, JSON.stringify({ sgScroll, sgScroll2, fbT }));
   await SW(`chrome.storage.local.set({ suggestOnFocus: false }).then(() => true)`);
   check("turning 'Suggest on field focus' off hides it live", await waitFor(async () => !(await suggestInfo()), 1500));
   await clickId("s-pass");
   await sleep(500);
-  check("suggestOnFocus=false: no menu (icons still shown)", !(await suggestInfo()) && ((await icons()) || []).length > 0);
+  check("suggestOnFocus=false: no suggestion (icons still shown)", !(await suggestInfo()) && ((await icons()) || []).length > 0);
   await resetState({ showIcon: false });
   await load();
   await clickId("s-user");
   await sleep(600);
-  check("showIcon=false: no menu either", !(await suggestInfo()) && ((await icons()) || []).length === 0);
-  await resetState({ hiddenSites: ["localhost"] });
-  await clearInline();
-  await load();
-  await clickId("s-user");
-  await sleep(600);
-  check("'Hide Notiq on this site': no menu and no list request", !(await suggestInfo()) && (await listCalls()).length === 0);
-
-  // locked vault / no logins / Notiq not running
-  await resetState();
-  await clearInline();
-  await mockNative({ ...LISTED, list: { error: "locked" } });
-  await load();
-  await clickId("s-user");
-  const sgL = await waitFor(suggestInfo, 2000);
-  check("locked vault: one row 'Unlock Notiq to see logins'", sgL && sgL.rows.length === 1 && sgL.rows[0].user === "Unlock Notiq to see logins", JSON.stringify(sgL && sgL.rows));
-  await mouseClick(sgL.rows[0].x, sgL.rows[0].y);
-  await waitFor(async () => (await calls()).length === 1, 3000);
-  const cL = await calls();
-  check("…which starts the normal fill (Notiq asks to unlock, then to Allow)", cL.length === 1 && cL[0].op === "fill" && cL[0].account === undefined, JSON.stringify(cL));
-  await resetState();
-  await clearInline();
-  await mockNative({ ...LISTED, list: { ok: true, accounts: [] } });
-  await load();
-  await clickId("s-user");
-  await sleep(900);
-  check("no saved login for the site: no menu", !(await suggestInfo()));
-  await resetState();
-  await clearInline();
-  await mockNative({ ...LISTED, list: { error: "app_not_running" } });
-  await load();
-  await clickId("s-user");
-  await sleep(900);
-  check("Notiq not running: no menu", !(await suggestInfo()));
-
-  // "All logins ›": the toolbar popup, else Notiq's own chooser (the normal fill)
-  await resetState();
-  await clearInline();
-  await mockNative(LISTED);
-  await load();
-  await clickId("s-user");
-  const sgA = await waitFor(suggestInfo, 2000);
-  await resetCalls();
-  const before = (await cdp("Target.getTargets")).targetInfos.filter((t) => t.url.endsWith("popup.html")).length;
-  await mouseClick(sgA.all.x, sgA.all.y);
-  await sleep(1200);
-  const popOpened = (await cdp("Target.getTargets")).targetInfos.filter((t) => t.url.endsWith("popup.html")).length > before;
-  const cA = await calls();
-  check("'All logins ›' opens the toolbar popup or falls back to Notiq's chooser",
-    !(await suggestInfo()) && (popOpened || (cA.length === 1 && cA[0].op === "fill" && cA[0].account === undefined)), JSON.stringify({ popOpened, cA }));
-  await cdp("Target.activateTarget", { targetId });
-  await sleep(300);
-  await mockNative(NATIVE);
-  // OTP field on the extra page gets no menu
+  check("showIcon=false: no suggestion either", !(await suggestInfo()) && ((await icons()) || []).length === 0);
+  // OTP field on the extra page gets no suggestion
   await resetState();
   await load(EXTRA);
   const otpIds = await P(`[...document.querySelectorAll("input")].filter((i) => /otp|code/i.test(i.id + i.name + i.autocomplete) && i.maxLength !== 1 && i.offsetWidth > 0).map((i) => i.id).filter(Boolean)`);
   if (otpIds.length) {
     await clickId(otpIds[0]);
     await sleep(500);
-    check("one-time-code fields get no menu", !(await suggestInfo()), otpIds[0]);
+    check("one-time-code fields get no suggestion", !(await suggestInfo()), otpIds[0]);
   }
 
   // 23. Theme from the Notiq app
@@ -1025,8 +871,7 @@ try {
     textMuted: "#64748b", border: "#cbd5e1", primary: "#b45309", primaryText: "#ffffff", danger: "#dc2626", success: "#16a34a" };
   const themeCalls = async () => (await allCalls()).filter((c) => c.op === "theme");
   await resetState();
-  await SW("(inlineCache.clear(), true)");
-  await mockNative({ ...LISTED, theme: { ok: true, theme: THEME } });
+  await mockNative({ ...NATIVE, theme: { ok: true, theme: THEME } });
   await resetCalls();
   const { targetId: pop2Target } = await cdp("Target.createTarget", { url: `chrome-extension://${extId}/popup.html` });
   const { sessionId: pop2 } = await cdp("Target.attachToTarget", { targetId: pop2Target, flatten: true });
@@ -1037,15 +882,15 @@ try {
   check("validated theme cached in storage.local", stored && stored.id === "nord" && stored.bg === "#2e3440", JSON.stringify(stored));
   const popVars = await waitFor(async () => { const v = await evalIn(pop2, `getComputedStyle(document.documentElement).getPropertyValue("--nq-bg").trim()`); return v === "#2e3440" && v; }, 2000);
   check("popup styles itself from the theme", popVars === "#2e3440");
-  await SW(`chrome.storage.local.remove("suggestOnFocus").then(() => true)`); // real default: on
+  await SW(`chrome.storage.local.remove("suggestOnFocus").then(() => true)`); // real default: off
   await sleep(300);
   const popInfo = await evalIn(pop2, `({ ver: document.getElementById("version").textContent, sw: [...document.querySelectorAll('input[type=checkbox]')].map((i) => i.getAttribute("role") + ":" + i.id + ":" + i.checked),
     status: document.getElementById("status").dataset.state, bg: getComputedStyle(document.body).backgroundColor })`);
   check("popup: version footer, role=switch toggles incl. 'Suggest on field focus', 'Hide Notiq on this site' and the experimental passkeys (off), status dot",
-    popInfo.ver === "Notiq Autofill v0.7.0" && popInfo.sw.join() === "switch:siteHide:false,switch:genUpper:true,switch:genLower:true,switch:genDigits:true,switch:genSymbols:true,switch:genAmbiguous:true,switch:showIcon:true,switch:suggestOnFocus:true,switch:offerSave:true,switch:passkeys:false" &&
+    popInfo.ver === "Notiq Autofill v0.7.0" && popInfo.sw.join() === "switch:siteHide:false,switch:showIcon:true,switch:suggestOnFocus:false,switch:offerSave:true,switch:passkeys:false" &&
     ["on", "off"].includes(popInfo.status) && popInfo.bg === "rgb(46, 52, 64)", JSON.stringify(popInfo));
   await evalIn(pop2, `document.getElementById("suggestOnFocus").click(), true`);
-  check("popup toggle writes suggestOnFocus", await waitFor(async () => (await local()).suggestOnFocus === false, 1500));
+  check("popup toggle writes suggestOnFocus", await waitFor(async () => (await local()).suggestOnFocus === true, 1500));
   await evalIn(pop2, `document.getElementById("showIcon").click(), true`);
   await sleep(300);
   check("suggest toggle is disabled while the icon is off", await evalIn(pop2, `document.getElementById("suggestOnFocus").disabled`));
@@ -1057,7 +902,7 @@ try {
   await waitFor(suggestInfo, 1500);
   const pageVars = () => inShadow(`function () { const r = this.querySelector(".nq-root"); const s = this.querySelector(".nq-suggest");
     return { bg: r.style.getPropertyValue("--nq-bg"), mode: r.getAttribute("data-nq-mode"), suggestBg: s ? getComputedStyle(s).backgroundColor : null,
-      iconColor: getComputedStyle(this.querySelector(".nq-icon")).backgroundColor }; }`);
+      iconColor: getComputedStyle(this.querySelector(".nq-icon")).color }; }`);
   const pv = await pageVars();
   check("in-page UI (suggestion, icon) uses the app's theme", pv.bg === "#2e3440" && pv.mode === "dark" && pv.suggestBg === "rgb(46, 52, 64)" && pv.iconColor === "rgb(136, 192, 208)", JSON.stringify(pv));
   await SW(`chrome.storage.local.set({ theme: ${JSON.stringify(LIGHT)} }).then(() => true)`);
@@ -1069,22 +914,22 @@ try {
 
   const refresh = () => SW(`chrome.storage.session.remove("themeAt").then(() => refreshTheme(60000)).then((t) => t)`);
   await SW(`chrome.storage.local.set({ theme: ${JSON.stringify(THEME)} }).then(() => true)`);
-  await mockNative({ ...LISTED, theme: { ok: true, theme: { ...LIGHT, primary: "#b4530" } } });
+  await mockNative({ ...NATIVE, theme: { ok: true, theme: { ...LIGHT, primary: "#b4530" } } });
   await refresh();
   check("invalid theme reply is rejected (cache kept)", (await local()).theme?.id === "nord");
-  await mockNative({ ...LISTED, theme: { error: "app_not_running" } });
+  await mockNative({ ...NATIVE, theme: { error: "app_not_running" } });
   await refresh();
   check("app not running: cached theme kept", (await local()).theme?.id === "nord");
-  await mockNative({ ...LISTED, theme: { error: "unknown_op" } });
+  await mockNative({ ...NATIVE, theme: { error: "unknown_op" } });
   await refresh();
   check("older app (unknown_op): treated as no theme", (await local()).theme === undefined);
   await SW(`chrome.storage.local.set({ theme: ${JSON.stringify(THEME)} }).then(() => true)`);
-  await mockNative({ ...LISTED, theme: { ok: true, theme: null } });
+  await mockNative({ ...NATIVE, theme: { ok: true, theme: null } });
   await refresh();
   check("theme:null clears the cached theme", (await local()).theme === undefined);
 
   // content-script nudge: at most one host round trip a minute, and never on page load
-  await mockNative({ ...LISTED, theme: { ok: true, theme: THEME } });
+  await mockNative({ ...NATIVE, theme: { ok: true, theme: THEME } });
   await SW(`chrome.storage.session.set({ themeAt: Date.now() }).then(() => true)`);
   await resetCalls();
   await load();
@@ -1273,24 +1118,28 @@ try {
 
   // 26. The generator follows the site's maxlength / passwordrules / pattern
   const RULES = `http://localhost:${PORT}/test-pages/signup-rules.html`;
-  await resetState({ neverSave: ["localhost"] }); // "Use password" only fills: the rules are what is checked here
+  await resetState();
   await mockNative(NATIVE);
   await load(RULES);
   const generate = async (id) => {
     const gi26 = await iconFor(id);
     if (!gi26) return null;
     await mouseClick(gi26.x, gi26.y);
-    const g = await waitFor(genInfo, 1500);
-    if (!g) return null;
-    await mouseClick(g.useBtn.x, g.useBtn.y);
+    const m = await waitFor(menuInfo, 1500);
+    if (!m || !m.items.length) return null;
+    const sub = m.text;
+    await mouseClick(m.items[0].x, m.items[0].y);
     await sleep(400);
-    return { sub: g.text, pw: g.pw, after: g.text };
+    const after = await menuInfo();
+    await key("Escape", "Escape", 27);
+    await sleep(250);
+    return { sub, after: after ? after.text : "" };
   };
   const fieldVals = (ids) => P(`${JSON.stringify(ids)}.map((id) => document.getElementById(id).value)`);
   let g26 = await generate("m-pass");
   let v26 = await fieldVals(["m-pass", "m-pass2"]);
-  check("maxlength=16: the card shows a 16-character password, both fields get the same 16-character password",
-    g26 && g26.pw.length === 16 && g26.pw === v26[0] && v26[0].length === 16 && v26[0] === v26[1] && /[A-Z]/.test(v26[0]) && /[^A-Za-z0-9]/.test(v26[0]),
+  check("maxlength=16: menu says 16 characters, both fields get the same 16-character password",
+    g26 && /16 characters/.test(g26.sub) && v26[0].length === 16 && v26[0] === v26[1] && /[A-Z]/.test(v26[0]) && /[^A-Za-z0-9]/.test(v26[0]),
     JSON.stringify({ sub: g26 && g26.sub, len: v26[0].length }));
   g26 = await generate("r-pass");
   v26 = await fieldVals(["r-pass", "r-pass2"]);
@@ -1422,21 +1271,20 @@ try {
       chrome.tabs.query = async (q) => (await real(q)).map((t) => ({ ...t, url: ${JSON.stringify(PAGE)} }));
       return true;
     })()`);
-    const popCalls = async () => (await allCalls()).filter((c) => ["list", "copy", "open", "fill"].includes(c.op));
     const l28 = await SW("POPUP_HANDLERS.list()");
-    const c28 = await popCalls();
+    const c28 = await calls();
     check("popup list: the app is asked for the active tab's host only (tagged), names come back",
       l28 && l28.ok && l28.host === "localhost" && l28.accounts.length === 2 && c28.length === 1 && JSON.stringify(bare(c28[0])) === '{"op":"list","host":"localhost"}' && tagged(c28[0]),
       JSON.stringify({ l28, c28 }));
     const cp28 = await SW(`POPUP_HANDLERS.copy({ account: "Logins/Work.nqv", what: "password" })`);
-    const c28b = (await popCalls())[1];
+    const c28b = (await calls())[1];
     check("popup copy: forwards {op:'copy', host, account, what}; reply has no value",
       cp28 && cp28.ok && cp28.copied === "password" && cp28.clearAfter === 30 && c28b && c28b.op === "copy" && c28b.host === "localhost" && c28b.account === "Logins/Work.nqv" && c28b.what === "password",
       JSON.stringify({ cp28, c28b }));
     const st28 = await SW(`POPUP_HANDLERS.copy({ account: "Logins/Forged.nqv", what: "password" })`);
-    check("popup copy of an account that was not listed is refused before the app", st28 && st28.error === "stale" && (await popCalls()).length === 2, JSON.stringify(st28));
+    check("popup copy of an account that was not listed is refused before the app", st28 && st28.error === "stale" && (await calls()).length === 2, JSON.stringify(st28));
     const op28 = await SW(`POPUP_HANDLERS.open({ account: "Logins/Home.nqv" })`);
-    check("popup open: forwards {op:'open'} for a listed account", op28 && op28.ok && (await popCalls())[2].op === "open", JSON.stringify(op28));
+    check("popup open: forwards {op:'open'} for a listed account", op28 && op28.ok && (await calls())[2].op === "open", JSON.stringify(op28));
     await mockNative({ ...NATIVE, list: { error: "unknown_op" } });
     const old28 = await SW("POPUP_HANDLERS.list()");
     check("popup list on an older Notiq: unknown_op is passed to the popup", old28 && old28.error === "unknown_op", JSON.stringify(old28));

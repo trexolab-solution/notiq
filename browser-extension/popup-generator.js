@@ -8,7 +8,7 @@
   const $ = (id) => document.getElementById(id);
   if (!G || !$("viewGen")) return;
 
-  const KEY = G.STORAGE_KEY; // "genOptions", shared with the in-page card (content.js)
+  const KEY = "genOptions";
   const el = {
     value: $("genValue"), len: $("genLen"), lenVal: $("genLenVal"), strength: $("genStrength"), strengthText: $("genStrengthText"),
     fill: $("genFill"), msg: $("genMsg"), copy: $("genCopy"),

@@ -303,7 +303,7 @@ siteHide.addEventListener("change", () => {
 loadSiteHidden();
 
 // ---------- settings (chrome.storage.local; content.js reacts to changes) ----------
-const DEFAULTS = { offerSave: true, showIcon: true, suggestOnFocus: true, neverSave: [], hiddenSites: [], reuseTrusted: [], theme: null };
+const DEFAULTS = { offerSave: true, showIcon: true, suggestOnFocus: false, neverSave: [], hiddenSites: [], reuseTrusted: [], theme: null };
 const offerSave = $("offerSave");
 const showIcon = $("showIcon");
 const suggestOnFocus = $("suggestOnFocus");
@@ -357,7 +357,7 @@ const hostsOf = (v) => (NS ? NS.hostList(v) : Array.isArray(v) ? v.filter((h) =>
 function render(s) {
   offerSave.checked = s.offerSave !== false;
   showIcon.checked = s.showIcon !== false;
-  suggestOnFocus.checked = s.suggestOnFocus !== false;
+  suggestOnFocus.checked = s.suggestOnFocus === true;
   // The suggestion is part of the in-field UI: it never shows while the icon is off.
   suggestOnFocus.disabled = !showIcon.checked;
   suggestRow.classList.toggle("off", !showIcon.checked);

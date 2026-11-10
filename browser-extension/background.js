@@ -8,7 +8,7 @@ const HOST = "com.trexolab.notiq";
 const PENDING_TTL = 90 * 1000;
 const MAX = { host: 253, url: 2048, title: 80, username: 512, password: 1024, message: 8192, neverSave: 500,
   choices: 20, account: 256, choiceTitle: 200 };
-const SETTINGS_DEFAULTS = { offerSave: true, showIcon: true, suggestOnFocus: true, neverSave: [] };
+const SETTINGS_DEFAULTS = { offerSave: true, showIcon: true, suggestOnFocus: false, neverSave: [] };
 const OFFER_TTL = 2 * 60 * 1000;
 
 // The one same-site rule (Public Suffix List based), from shared.js.
@@ -358,7 +358,7 @@ async function fillActiveTab(account) {
 const fillsInFlight = new Set();
 const savesInFlight = new Set();
 const pendingKey = (tabId) => `pending:${tabId}`;
-const FRAME_TYPES = new Set(["fill", "capture", "fillCard", "stepFill", "stepCancel", "inlineList", "openPopup"]);
+const FRAME_TYPES = new Set(["fill", "capture", "fillCard", "stepFill", "stepCancel"]);
 
 // The top page of the sender's tab. For the top frame that is the sender's own
 // URL; for a subframe it is the tab URL (never anything from the message).
@@ -385,7 +385,6 @@ async function fillForSender(sender, msg) {
   try {
     if (!intent) await dropStep(tabId); // a new fill in this tab replaces any held password
     const account = msg && msg.account !== undefined ? msg.account : undefined;
-    if (account !== undefined && !intent) seedInlineOffer(tabId, info.host, account);
     const got = await askFill(tabId, info.host, account, intent, inc(sender.tab));
     if (got.error) return { error: got.error };
     if (got.choose) return { choose: got.choose, host: info.host };
@@ -434,7 +433,7 @@ async function getSettings() {
   return {
     offerSave: s.offerSave !== false,
     showIcon: s.showIcon !== false,
-    suggestOnFocus: s.suggestOnFocus !== false,
+    suggestOnFocus: s.suggestOnFocus === true,
     neverSave: Array.isArray(s.neverSave) ? s.neverSave.filter((h) => typeof h === "string").map((h) => h.toLowerCase()) : [],
   };
 }
@@ -524,9 +523,6 @@ async function checkSave(tabId, p) {
 }
 
 async function onPending(_msg, sender) {
-  // A save of this tab's login is waiting for approval in Notiq (e.g. the in-page "Use and save"): no second
-  // offer for it now. If that save fails (locked, not running), the login stays pending and is offered later.
-  if (savesInFlight.has(sender.tab.id)) return { pending: null };
   const p = await readPending(sender.tab.id);
   if (!p) return { pending: null };
   const action = await checkSave(sender.tab.id, p);
@@ -787,71 +783,8 @@ async function refreshTheme(minAge = 0) {
 // Content scripts only nudge (at most one host round trip per minute); they read the theme from storage.
 const onThemeNudge = () => refreshTheme(THEME_MIN_AGE).then(() => ({ ok: true }), () => ({ ok: true }));
 
-// ---------- in-page login menu (under a focused username / password field) ----------
-// The content script asks when the user focuses (or clicks, or presses ArrowDown in) a login field. The answer is
-// the toolbar popup's `{op:"list"}` for the top page's host, taken from the tab's URL (never from the message):
-// account ids, titles, usernames and whether a 2FA code exists. No secret, nothing for other sites, no window in
-// Notiq, never starts it; a locked vault answers { error: "locked" } (the menu then offers to unlock through the
-// normal fill). Only for the active tab, while the in-page icons are on and the site isn't hidden. Replies are
-// reused per tab + host for a short while, so focus changes (or a page calling focus() in a loop) cost at most one
-// request to Notiq per INLINE_TTL; an unreachable Notiq is asked again only after INLINE_DOWN_TTL.
-// Choosing a row is the normal fill naming that account: Notiq still asks to Allow (or the site's 5-minute trust).
-const INLINE_TTL = 15 * 1000, INLINE_LOCKED_TTL = 2 * 1000, INLINE_DOWN_TTL = 30 * 1000;
-const INLINE_OFFER_TTL = 10 * 60 * 1000;
-const inlineCache = new Map(); // tabId -> { host, at, ttl, promise }
-const inlineLists = new Map(); // tabId -> { host, accounts: Set, at } (the accounts a row may name)
-
-async function onInlineList(_msg, sender) {
-  const info = topInfo(sender);
-  if (info.error) return { error: info.error };
-  if (sender.tab.active === false) return { error: "denied" };
-  const s = await chrome.storage.local.get({ showIcon: true, hiddenSites: [] });
-  if (s.showIcon === false || NotiqShared.hostList(s.hiddenSites).includes(info.host)) return { error: "off" };
-  const tabId = sender.tab.id, now = Date.now();
-  const c = inlineCache.get(tabId);
-  if (c && c.host === info.host && now >= c.at && now - c.at < c.ttl) return c.promise;
-  const entry = { host: info.host, at: now, ttl: INLINE_TTL, promise: null };
-  entry.promise = (async () => {
-    const res = await ask({ op: "list", host: info.host, ...inc(sender.tab) });
-    if (!res || res.error || res.ok !== true) {
-      const error = errorOf(res);
-      entry.ttl = error === "locked" ? INLINE_LOCKED_TTL : INLINE_DOWN_TTL;
-      return { error };
-    }
-    const accounts = validListed(res.accounts);
-    if (!accounts) { entry.ttl = INLINE_DOWN_TTL; return { error: "no_reply" }; }
-    inlineLists.set(tabId, { host: info.host, accounts: new Set(accounts.map((a) => a.account)), at: Date.now() });
-    return { ok: true, host: info.host, accounts };
-  })();
-  inlineCache.set(tabId, entry);
-  return entry.promise;
-}
-// A fill naming an account from this tab's in-page list (same host, fresh) is accepted like a chooser pick.
-function seedInlineOffer(tabId, host, account) {
-  if (typeof account !== "string" || !account) return;
-  const o = offers.get(tabId);
-  if (o && o.host === host && o.accounts.has(account) && Date.now() - o.at < OFFER_TTL) return;
-  const l = inlineLists.get(tabId);
-  if (!l || l.host !== host || !l.accounts.has(account) || !(Date.now() - l.at < INLINE_OFFER_TTL) || Date.now() < l.at) return;
-  offers.set(tabId, { host, accounts: new Set([account]), at: Date.now() });
-}
-// "All logins" in the in-page menu: the toolbar popup (its list for this site). Browsers that only open it
-// from a user gesture refuse; the page then falls back to the normal fill (Notiq's own chooser).
-async function onOpenPopup(_msg, sender) {
-  if (sender.tab.active === false) return { error: "denied" };
-  try {
-    if (!chrome.action || typeof chrome.action.openPopup !== "function") return { error: "unsupported" };
-    await chrome.action.openPopup();
-    return { ok: true };
-  } catch {
-    return { error: "unsupported" };
-  }
-}
-
 const CONTENT_HANDLERS = {
   fill: (m, s) => fillForSender(s, m),
-  inlineList: onInlineList,
-  openPopup: onOpenPopup,
   fillCard: (_m, s) => fillCardForSender(s),
   capture: onCapture,
   pending: onPending,
@@ -931,8 +864,6 @@ refreshTheme(THEME_MIN_AGE).catch(() => {});
 chrome.tabs.onRemoved.addListener((tabId) => {
   offers.delete(tabId);
   popupLists.delete(tabId);
-  inlineLists.delete(tabId);
-  inlineCache.delete(tabId);
   chrome.storage.session.remove(pendingKey(tabId));
   dropStep(tabId);
 });

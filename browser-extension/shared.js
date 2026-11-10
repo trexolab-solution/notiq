@@ -111,95 +111,6 @@
 
   const rectsOverlap = (a, b) => !!a && !!b && a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
 
-  // ---------- in-page login menu (under a focused username / password field) ----------
-  // The rows come from the background's `inlineList` reply: the same `{op:"list"}` answer the toolbar popup gets
-  // (account id, title, username, whether a 2FA code exists), for the top page's host only. Never a password or
-  // a 2FA secret: inlineRows copies just those four keys, so nothing else can reach the page's (closed) overlay.
-  const MAX_INLINE_ROWS = 50;
-  function inlineRows(list) {
-    if (!Array.isArray(list)) return [];
-    const out = [];
-    for (const a of list.slice(0, MAX_INLINE_ROWS)) {
-      if (!a || typeof a !== "object" || typeof a.account !== "string" || !a.account || a.account.length > 256) continue;
-      const title = typeof a.title === "string" ? a.title.replace(/[\u0000-\u001f\u007f]+/g, " ").trim().slice(0, 200) : "";
-      const username = typeof a.username === "string" ? a.username.replace(/[\u0000-\u001f\u007f]+/g, " ").trim().slice(0, 512) : "";
-      out.push({ account: a.account, title, username, totp: a.totp === true });
-    }
-    return out;
-  }
-  // The rows that match what is typed in the username field (case-insensitive, in the username or the title).
-  function filterRows(rows, query) {
-    const q = String(query || "").trim().toLowerCase();
-    if (!q) return rows.slice();
-    return rows.filter((r) => r.username.toLowerCase().includes(q) || r.title.toLowerCase().includes(q));
-  }
-  // The avatar letter of a row: the first letter or digit of the title, else of the username.
-  function avatarLetter(title, username) {
-    for (const s of [title, username]) {
-      const m = /[\p{L}\p{N}]/u.exec(String(s || ""));
-      if (m) return m[0].toUpperCase();
-    }
-    return "?";
-  }
-  // Keyboard movement in a list of `count` items from index `at` (-1 = the field itself). Returns the new index,
-  // -1 for "back to the field", or null when the key isn't a movement key.
-  function menuMove(key, at, count) {
-    if (!(count > 0)) return null;
-    switch (key) {
-      case "ArrowDown": return at < 0 ? 0 : Math.min(count - 1, at + 1);
-      case "ArrowUp": return at <= 0 ? -1 : at - 1;
-      case "Home": return 0;
-      case "End": return count - 1;
-      default: return null;
-    }
-  }
-
-  // ---------- strong password suggestion (new-password fields) ----------
-  const CURRENT_PW_HINT = /current|old|existing/i;
-  const NEW_PW_HINT = /new.?pass|confirm|repeat|retype|re-?enter|verify|pass(word)?.?2/i;
-  // f: { autocomplete: string (lower-case tokens), hint: "name id placeholder", passwords: visible password fields in
-  // its form }. A password field asks for a NEW password (sign-up / change-password) when it says so
-  // (autocomplete="new-password" or a new / confirm hint) or its form shows two or more password fields; never a
-  // field that says it wants the current password.
-  function isCurrentPassword(f) {
-    const ac = String((f && f.autocomplete) || "").toLowerCase().split(/\s+/);
-    return ac.includes("current-password") || CURRENT_PW_HINT.test(String((f && f.hint) || ""));
-  }
-  function isNewPassword(f) {
-    if (!f || isCurrentPassword(f)) return false;
-    const ac = String(f.autocomplete || "").toLowerCase().split(/\s+/);
-    return ac.includes("new-password") || NEW_PW_HINT.test(String(f.hint || "")) || Number(f.passwords) >= 2;
-  }
-  // Does the site restrict the password beyond the user's generator options? c: NotiqFill.mergeConstraints result,
-  // o: NotiqGen options. Then the site-aware generator (NotiqFill.generateFor) is used instead of the options.
-  function siteRulesApply(c, o) {
-    if (!c) return false;
-    const len = o && Number.isFinite(Number(o.length)) ? Number(o.length) : 20;
-    return !!(c.rules || c.pattern || (c.maxLength > 0 && c.maxLength < len) || (c.minLength > len));
-  }
-  // The generated password split into runs for display: kind "d" (digits), "s" (symbols), "" (letters). The card
-  // tints digits and symbols; each run is set with textContent (never HTML).
-  function passwordRuns(pw) {
-    const out = [];
-    for (const ch of String(pw || "")) {
-      const kind = /[0-9]/.test(ch) ? "d" : /[A-Za-z]/.test(ch) ? "" : "s";
-      const last = out[out.length - 1];
-      if (last && last.kind === kind) last.text += ch; else out.push({ kind, text: ch });
-    }
-    return out;
-  }
-  // The `capture` payload for a generated password the user chose with "Use and save" (the same shape and
-  // limits background.js onCapture accepts; the app's normal Save prompt then confirms). Returns null when
-  // anything is off.
-  function generatedCapture(p) {
-    if (!p || typeof p.host !== "string" || !p.host || typeof p.password !== "string" || !p.password || p.password.length > 1024) return null;
-    const clean = (s, n) => String(s || "").replace(/[\u0000-\u001f\u007f]+/g, " ").replace(/\s+/g, " ").trim().slice(0, n);
-    const out = { host: p.host.toLowerCase(), url: clean(p.url, 2048), username: clean(p.username, 512), password: p.password,
-      title: clean(p.title, 80), change: p.change === true };
-    if (out.change && typeof p.current === "string" && p.current && p.current !== p.password && p.current.length <= 1024) out.current = p.current;
-    return out;
-  }
-
   // ---------- payment cards ----------
   // Field kinds: "number", "exp" (one MM/YY field), "month", "year", "name", "csc".
   const CC_TOKENS = Object.freeze({
@@ -660,8 +571,6 @@
     saveCheckAction, offerKind,
     COLOR_KEYS, CSS_VARS, DEFAULT_THEMES, validateTheme, resolveTheme, applyTheme, themeReplyAction, sameTheme,
     shouldSuggest, suggestPosition, rectsOverlap,
-    inlineRows, filterRows, avatarLetter, menuMove, MAX_INLINE_ROWS,
-    isCurrentPassword, isNewPassword, siteRulesApply, passwordRuns, generatedCapture,
     cardFieldKind, validCardReply, cardFieldValue, pickOption,
     normalizeHost, publicSuffix, registrableDomain, sameSite, secureOrigin, fillTargetOk,
     validCustomFields, hostList, MAX_SITE_LIST,

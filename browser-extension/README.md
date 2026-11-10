@@ -175,18 +175,7 @@ The gear icon opens **Settings**:
 - **Filling**
   - **Show Notiq icon on login fields** (on by default). Turning it off keeps the toolbar button and shortcut (the
     shortcut then opens the popup) and also hides the focus suggestion.
-  - **Suggest on field focus** (on by default): when you click / tab into a login field, a menu under it lists the
-    logins Notiq has for this site (username, entry name, a 2FA badge; never a password). Typing in the username
-    field filters it; ArrowDown moves into it, Enter picks, Esc closes. Picking a row is the normal fill (Notiq
-    still asks to Allow, or the site's 5-minute trust). With the vault locked it shows one row, **Unlock Notiq to see
-    logins**, which starts that fill. **All logins ›** opens this popup (or, where the browser won't open it from
-    the page, Notiq's own chooser). On a sign-up / change-password field that is empty, a **Use strong password**
-    card offers a generated password (the popup generator's options, shared as `genOptions`; the site's own
-    maxlength / passwordrules / pattern win when stricter): **Use and save** fills New and Confirm password and asks
-    Notiq to save the login (Notiq's normal Save prompt; the later form submit then offers nothing), ↻ makes a new
-    one, ⚙ shows length 8–64, Numbers, Symbols, Avoid look-alikes. On a "Never save" site, with saving off or in a
-    frame the button only fills. Nothing opens on page load or for a focus the page makes by itself; the menu
-    and the card live in the closed shadow root (the card shows the generated password there while it is open).
+  - **Suggest on field focus** (off by default): the **Fill with Notiq** button under a focused login field.
 - **Saving**: **Offer to save new logins** (on by default).
 - **Sites**: each list opens its own page with a count; × removes a site.
   - **Never save on these sites:** the sites you chose "Never for this site" on; × allows offers again.
@@ -302,12 +291,7 @@ default dark or light colours, following your system setting.
 - Toolbar popup (Notiq 0.9.0+; an older app answers `{error:"unknown_op"}` and the popup says to update Notiq).
   None of these starts Notiq:
   - `{op:"list", host}` → `{ok:true, accounts:[{account, title, username, totp}]}` (at most 50; `totp` = a 2FA
-    secret is saved) or `{error:"locked"|…}`. No prompt; unlocked vault only. Also sent for the in-page login menu
-    (content message `inlineList`): the host is the tab's top host from its URL, only for the active tab, while
-    the icons are on and the site isn't hidden; replies are reused per tab + host for 15 s (locked: 2 s, Notiq
-    unreachable: 30 s). A fill naming an account from that list is accepted like a chooser pick (10 min) and
-    still goes through Notiq's approval. Content message `openPopup` opens the toolbar popup (`chrome.action.openPopup`).
-    While a save of the tab's login is waiting for approval, `pending` answers nothing (no second offer).
+    secret is saved) or `{error:"locked"|…}`. No prompt; unlocked vault only.
   - `{op:"copy", host, account, what:"username"|"password"|"code"}` → `{ok:true, copied, clearAfter}` (seconds,
     0 = never) or `{error:"denied"|"locked"|"stale"|"no_code"|…}`. Notiq copies the value; password and code are
     approved like a fill (prompt that can unlock, or the site's trust window), the username needs an unlocked vault.
