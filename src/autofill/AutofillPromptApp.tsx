@@ -36,7 +36,7 @@ import { PasskeyChoice, PasskeyTargetChoice } from "./PasskeyChoices";
 import { EntryDetailsView } from "./EntryDetailsView";
 import { fitWindowSize, sizeChanged } from "./fitWindowSize";
 import { splitHost } from "./hostParts";
-import { canFillAndCopyCode, loginActionLabel, loginMeta, loginTitle, looseMatchOf } from "./sheetCopy";
+import { canFillAndCopyCode, exactSiteMatch, loginActionLabel, loginMeta, loginTitle } from "./sheetCopy";
 import {
   dropFromQueue, enqueue, IDLE, step, type Effect, type FillReq, type Job, type PromptEvent, type PromptState,
 } from "./promptMachine";
@@ -411,14 +411,14 @@ export default function AutofillPromptApp() {
   const chooser = (o: {
     key: string; host: string; kind: Kind; title: string; items: ChoiceItem[]; pick: number; noun: string; label: string;
     entries: { path: string; rel?: string }[]; busy: boolean; actionLabel: string; actionAria: string; busyText: string;
-    fillLabel: string; secure?: boolean; risk?: ReactNode; note?: ReactNode; trust?: { on: boolean; set: (on: boolean) => void };
+    fillLabel: string; secure?: boolean; note?: ReactNode; trust?: { on: boolean; set: (on: boolean) => void };
     copyCode?: boolean; summaryOf?: (item: ChoiceItem) => { title: ReactNode; sub: ReactNode };
   }) => {
     const at = viewing;
     const viewed = at !== null ? o.entries[at] : undefined;
     return (
       <Sheet key={o.key} refs={refs} host={o.host} title={o.title} kind={o.kind} secure={o.secure} avatar="site"
-             compact={!!viewed} risk={!viewed && !!o.risk}
+             compact={!!viewed}
              onClose={deny} onEscape={viewed ? closeDetails : undefined} defaultFocus="cancel"
              footer={viewed ? null : (
                <SheetActions>
@@ -449,7 +449,6 @@ export default function AutofillPromptApp() {
                             fillLabel={o.fillLabel} onFill={() => pickAndAllow(at)}
                             onOpen={viewed.rel ? () => void openInNotiq(viewed.rel!) : undefined} />
         ) : <>
-          {o.risk}
           <SheetPicker label={o.label} noun={o.noun} items={o.items} pick={o.pick}
                        onPick={onPick} onAllow={pickAndAllow} onDetails={openDetails} disabled={o.busy}
                        query={q} onQuery={onQuery} summaryOf={o.summaryOf} onChosen={focusFill} />
@@ -480,20 +479,14 @@ export default function AutofillPromptApp() {
       const m = matches[pick];
       const { site } = splitHost(job.req.host);
       const name = (m?.entry.title || "").trim() || site;
-      const loose = m ? looseMatchOf(job.req.host, m.entry) : null;
       const byPath = new Map(matches.map((x) => [x.path, x] as const));
       return chooser({
         key: `request-${job.req.id}`, host: job.req.host, busy, pick, entries: matches, items: loginChoiceItems(matches),
         noun: "logins", label: "Saved logins",
         kind: copy ? { icon: <Copy size={12} />, label: `Copy ${COPY_LABEL[copy]}` }
           : intent === "code" ? { icon: <Timer size={12} />, label: "2-step code" } : { icon: <KeyRound size={12} />, label: "Login" },
-        title: loginTitle(name, job.req), secure: !!m && !loose,
-        risk: loose ? (
-          <RiskBanner>
-            This login is saved for <strong className="af-host-inline">{loose}</strong>, not exactly this address.
-            Only continue if <strong className="af-host-inline">{job.req.host}</strong> is the site you expect.
-          </RiskBanner>
-        ) : null,
+        // A subdomain match (saved for example.com, page login.example.com) is normal: the host line just stays muted.
+        title: loginTitle(name, job.req), secure: !!m && exactSiteMatch(job.req.host, m.entry),
         actionLabel: loginActionLabel(job.req), actionAria: fillAllowLabel(m, job.req), busyText: copy ? "Copying…" : "Filling…",
         fillLabel: copy ? `Copy the ${COPY_LABEL[copy]}` : intent === "code" ? "Fill this code" : "Fill this login",
         trust: copy ? undefined : { on: trust, set: (on) => dispatch({ type: "trust", on }) },
@@ -659,8 +652,6 @@ interface SheetProps {
   kind?: Kind;
   /** The selected login is saved for exactly this host: the host line turns green with a shield. */
   secure?: boolean;
-  /** A risk banner is in the body (`#af-risk`): read with the dialog's description. */
-  risk?: boolean;
   /** Details sub-view: a slim header (the view has its own title row). */
   compact?: boolean;
   tone?: "primary" | "danger";
@@ -682,7 +673,7 @@ const NAV = "[data-af-nav]:not(:disabled)";
  * ↑ / ↓ move between the stacked controls marked `data-af-nav` (account row, Fill, Not now, the checkbox).
  */
 function Sheet({
-  refs, host, title, avatar, kind, secure, risk, compact, tone = "primary", onClose, onEscape, defaultFocus, onSubmit, footer, children,
+  refs, host, title, avatar, kind, secure, compact, tone = "primary", onClose, onEscape, defaultFocus, onSubmit, footer, children,
 }: SheetProps) {
   const panelRef = useRef<HTMLElement | null>(null);
   useDialogBehaviour(panelRef, { onClose: onEscape ?? onClose, dismissable: true, autoFocus: true, defaultFocus });
@@ -727,7 +718,7 @@ function Sheet({
     role: "alertdialog" as const,
     "aria-modal": true,
     "aria-labelledby": "af-title",
-    "aria-describedby": risk ? "af-desc af-risk" : "af-desc",
+    "aria-describedby": "af-desc",
     tabIndex: -1,
     onKeyDown,
   };
@@ -739,15 +730,6 @@ function SheetActions({ children }: { children: ReactNode }) {
   return <div className="af-actions">{children}</div>;
 }
 
-/** Shown only when the code can tell something is off (today: a login that matches this host only loosely). */
-function RiskBanner({ children }: { children: ReactNode }) {
-  return (
-    <div className="af-risk" id="af-risk">
-      <TriangleAlert size={15} aria-hidden />
-      <span>{children}</span>
-    </div>
-  );
-}
 
 /** Keyboard hints. The focus starts on Not now, so a stray Enter never fills: ↑ reaches Fill first. */
 function KeyHints({ copyCode }: { copyCode?: boolean }) {

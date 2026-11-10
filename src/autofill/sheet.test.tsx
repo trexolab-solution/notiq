@@ -7,7 +7,7 @@ import { emptyLogin } from "../lib/loginEntry";
 import type { LoginMatch } from "../lib/autofill";
 import { IDLE, step, type Effect, type Job, type PromptEvent, type PromptState } from "./promptMachine";
 import {
-  canFillAndCopyCode, exactSiteMatch, lastUsedText, loginActionLabel, loginMeta, loginTitle, looseMatchOf,
+  canFillAndCopyCode, exactSiteMatch, lastUsedText, loginActionLabel, loginMeta, loginTitle,
 } from "./sheetCopy";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -18,15 +18,13 @@ const login = (i: number, extra: Partial<LoginMatch["entry"]> = {}): LoginMatch 
 });
 const logins = (n: number) => Array.from({ length: n }, (_, i) => login(i));
 
-describe("sheet wording and risk signals", () => {
-  it("exact vs loose host match (www ignored, extra sites count)", () => {
+describe("sheet wording", () => {
+  it("exact host match (www ignored, extra sites count); a subdomain is not exact", () => {
     const e = login(0, { url: "https://www.example.com/login", urls: ["https://accounts.other.org"] }).entry;
     expect(exactSiteMatch("example.com", e)).toBe(true);
     expect(exactSiteMatch("www.example.com", e)).toBe(true);
     expect(exactSiteMatch("accounts.other.org", e)).toBe(true);
-    expect(looseMatchOf("example.com", e)).toBeNull();
-    expect(looseMatchOf("login.example.com", e)).toBe("example.com");
-    expect(looseMatchOf("sso.accounts.other.org", e)).toBe("accounts.other.org");
+    expect(exactSiteMatch("login.example.com", e)).toBe(false);
   });
 
   it("last used and the account meta line", () => {

@@ -89,8 +89,18 @@ describe("approval sheet: focus safety", () => {
     expect(host.querySelector(".af-hostline")?.hasAttribute("data-secure")).toBe(true);
     expect(host.querySelector('[role="alertdialog"]')?.getAttribute("aria-labelledby")).toBe("af-title");
     expect(host.querySelector(".af-acct-title")?.textContent).toBe("alex");
-    expect(host.querySelector(".af-risk")).toBeNull(); // exact match: no warning
+    expect(host.querySelector(".af-risk, [role=alert]")).toBeNull(); // no warning banner
     expect(invoke).toHaveBeenCalledWith("autofill_prompt_show");
+  });
+
+  it("a subdomain of the saved site is normal: no warning, the host line just stays muted", async () => {
+    await press("Enter"); // deny the first request
+    await act(async () => { handlers.get("autofill:request")!({ payload: { id: "r2", host: "login.bank.example.com" } }); });
+    await settle();
+    expect(host.querySelector("#af-title")?.textContent).toBe("Sign in to Example Bank?");
+    expect(host.querySelector(".af-hostline")?.hasAttribute("data-secure")).toBe(false);
+    expect(host.querySelector(".af-risk, [role=alert]")).toBeNull();
+    expect(host.querySelector('[role="alertdialog"]')?.getAttribute("aria-describedby")).toBe("af-desc");
   });
 
   it("the focus starts on Not now: a stray Enter denies, nothing is filled", async () => {

@@ -3,11 +3,13 @@ import { hostOf, loginUrls } from "../lib/loginEntry";
 import { COPY_LABEL, type ApprovedCopy } from "../lib/autofillPopup";
 
 /**
- * Wording and risk signals of the autofill approval sheet (pure, so they are unit-tested).
+ * Wording of the autofill approval sheet (pure, so it is unit-tested).
  *
- * Risk signals are limited to what Notiq actually knows about a request: the page host (taken by the
- * extension from the tab URL) and the saved logins. The request carries no scheme and no browser name,
- * so the sheet never claims "https" or names a browser.
+ * The sheet only states what Notiq knows about a request: the page host (taken by the extension from the
+ * tab URL) and the saved logins. The request carries no scheme and no browser name, so the sheet never
+ * claims "https" or names a browser. An exact host match turns the host line green; a subdomain match
+ * (saved for `example.com`, page `login.example.com`) is normal and stays quiet. The only warning is the
+ * look-alike screen (`promptMachine`'s `warning` stage).
  */
 
 const bare = (h: string) => h.trim().toLowerCase().replace(/^www\./, "");
@@ -26,18 +28,6 @@ export function savedHosts(entry: LoginMatch["entry"]): string[] {
 export function exactSiteMatch(pageHost: string, entry: LoginMatch["entry"]): boolean {
   const page = bare(pageHost);
   return savedHosts(entry).includes(page);
-}
-
-/**
- * The login only matches the page loosely (e.g. saved for `example.com`, asked by `login.example.com`):
- * the saved host the page was matched through, or null for an exact match. Matching itself (public-suffix
- * aware) already happened in `scanLogins`; this only tells the user when it was not an exact one.
- */
-export function looseMatchOf(pageHost: string, entry: LoginMatch["entry"]): string | null {
-  if (exactSiteMatch(pageHost, entry)) return null;
-  const page = bare(pageHost);
-  const hosts = savedHosts(entry);
-  return hosts.find((h) => page.endsWith(`.${h}`)) ?? hosts[0] ?? null;
 }
 
 const DAY = 86_400_000;

@@ -89,17 +89,6 @@ html.is-autofill-prompt #root { height: 100%; margin: 0; overflow: hidden; backg
 .af-muted { color: var(--color-text-muted); }
 .af-host-inline { overflow-wrap: anywhere; }
 
-/* Risk banner: only when the code detected something (a loosely matching host). */
-.af-risk {
-  display: flex; align-items: flex-start; gap: 8px;
-  padding: 9px 12px; border-radius: 12px;
-  font-size: 12px; line-height: 1.45; text-align: left;
-  color: var(--color-text);
-  background: color-mix(in srgb, var(--color-warning) 12%, transparent);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-warning) 35%, transparent);
-}
-.af-risk > svg { flex: none; margin-top: 1px; color: var(--color-warning); }
-
 /* Selected account: one rounded row; with several entries it is a button that opens the list below it. */
 .af-acct {
   display: flex; align-items: center;
@@ -156,6 +145,12 @@ button.af-acct-main:disabled { cursor: default; opacity: 0.7; }
 .af-actions > .dlg-btn--primary.af-pill { font-weight: 600; }
 .af-actions > .dlg-btn.af-pill--quiet { height: 38px; font-weight: 500; font-size: 13.5px; color: var(--color-text-muted); }
 .af-actions > .dlg-btn.af-pill--outline { height: 40px; background: transparent; }
+/* The quiet pills ("Not now", "Cancel") start with the focus (so a stray Enter never fills): their focus is a
+   soft surface plus a thin neutral ring, never the gold accent, which stays reserved for the primary pill. */
+.af-actions > .dlg-btn.af-pill--quiet:focus-visible {
+  outline: 1.5px solid color-mix(in srgb, var(--color-text-muted) 45%, transparent); outline-offset: -1.5px;
+  background: color-mix(in srgb, var(--color-text) 4%, transparent);
+}
 .af-trust {
   display: flex; align-items: center; justify-content: center; gap: 8px;
   margin-top: 6px; font-size: 12px; color: var(--color-text-muted); cursor: pointer; user-select: none;
