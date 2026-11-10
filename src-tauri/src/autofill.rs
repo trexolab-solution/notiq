@@ -730,8 +730,9 @@ fn handle(app: &AppHandle, req: Value) -> Value {
 // ─── Popup ops (0.9.0): list / copy / open ────────────────────────────────────
 //
 // Gating (see also browser-extension/README.md):
-// * `list` needs an unlocked vault and shows no prompt. It is safe without an Allow because only the extension's
-//   own popup sends it (the background never forwards it for a page), the host is the active tab's top host
+// * `list` needs an unlocked vault and shows no prompt. It is safe without an Allow because it is sent by the
+//   extension's popup, or by the background for the in-page login menu (active tab only, same-site frames, cached
+//   briefly; the page never chooses the host or sees more than these rows), the host is the active tab's top host
 //   (taken from the tab URL by the background, never from the page), and the reply holds only the titles and
 //   usernames of the logins that match that host, exactly what the account chooser already hands out. Logins for
 //   other sites never leave the app, and a locked vault answers `locked` without listing anything.
