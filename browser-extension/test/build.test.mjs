@@ -65,8 +65,8 @@ test("passkeys: the only optional permission is host access for the content scri
   const cs = new Set(manifest.content_scripts[0].matches);
   for (const o of manifest.optional_host_permissions) assert.ok(cs.has(o), o);
 });
-test("content scripts load shared.js, fillkit.js and identity.js before content.js", () => {
-  assert.deepEqual(manifest.content_scripts[0].js, ["shared.js", "fillkit.js", "identity.js", "content.js"]);
+test("content scripts load shared.js, fillkit.js, identity.js and generator.js before content.js", () => {
+  assert.deepEqual(manifest.content_scripts[0].js, ["shared.js", "fillkit.js", "identity.js", "generator.js", "content.js"]);
 });
 test("validate rejects a build without identity.js (the background loads it)", () => {
   const files = fileMap(manifest);

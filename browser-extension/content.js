@@ -1,12 +1,16 @@
 // Notiq Autofill — content script (top frame, plus same-site frames).
 //
-// 1. Detects login fields and puts a small Notiq icon inside them. Clicking the
-//    icon (a real, trusted user click only) asks the background to fill; the
-//    Notiq app still asks the user to Allow. Nothing is requested on page load,
-//    so the icon never reveals whether the vault has a login for this site.
-//    On sign-up / change-password fields the icon opens a small menu that can
-//    generate a strong password locally (it is only sent anywhere through the
-//    normal save offer after the form is submitted).
+// 1. Detects login fields and puts a small Notiq "N" button inside them. Clicking
+//    it (a real, trusted user click only) asks the background to fill; the
+//    Notiq app still asks the user to Allow. Nothing is requested on page load.
+//    When the USER focuses a login field (a trusted click / key just before the
+//    focus, or ArrowDown in it), a menu under the field lists the logins Notiq
+//    has for this site: titles and usernames only (the popup's `list`), never a
+//    password or 2FA secret; picking one is the normal approved fill.
+//    On sign-up / change-password fields a "Use strong password" card generates
+//    one locally (generator.js, the popup's options); "Use and save" fills the
+//    new + confirm fields and asks Notiq to save it through the normal Save
+//    prompt (capture + save, as for a submitted form).
 // 2. Notices a submitted login and, once the page no longer shows a password
 //    field, offers "Save login to Notiq?" (or "Update password in Notiq?" for a
 //    change-password form). Saving again needs approval in Notiq.
@@ -86,19 +90,19 @@
   const SAVE_TEXT = { saved: "Saved to Notiq", updated: "Password updated in Notiq", unchanged: "Already saved" };
   const RETRYABLE = new Set(["locked", "timeout", "app_not_running", "no_host", "no_reply", "busy"]);
 
-  const ICON = 18, MIN_W = 120, MIN_H = 16;
+  const ICON = 20, MIN_W = 120, MIN_H = 16;
   const MAX_PW = 1024, MAX_USER = 512;
   const USER_TTL = 5 * 60 * 1000, BAR_IDLE = 25 * 1000, DEDUPE_MS = 3000;
   const LOGIN_PATH = /login|signin|sign-in|sso|auth/i;
   const USER_HINT = /user|email|login|account/i;
   const OTP_HINT = /otp|totp|2fa|mfa|verification|security.?code|one.?time/i;
   const SUBMIT_TEXT = /log ?in|sign ?in|sign ?up|continue|next|submit|register|create|save|change|update|enter|weiter|anmelden/i;
-  const CURRENT_HINT = /current|old|existing/i;
-  const NEW_HINT = /new.?pass|confirm|repeat|retype|re-?enter|verify|pass(word)?.?2/i;
   const MAX_CHOICES = 20;
 
-  const settings = { offerSave: true, showIcon: true, suggestOnFocus: false, neverSave: [], hiddenSites: [], reuseTrusted: [] };
-  // The in-field UI (icons, focus suggestion) is on: the setting, and this site isn't in "Hide Notiq on this site".
+  const settings = { offerSave: true, showIcon: true, suggestOnFocus: true, neverSave: [], hiddenSites: [], reuseTrusted: [] };
+  const GEN = globalThis.NotiqGen; // generator.js (loaded before this file); the card is left out without it
+  let genOptions = GEN ? GEN.sanitize(null) : null; // chrome.storage.local `genOptions`, shared with the popup
+  // The in-field UI (icons, login menu, strong password card) is on: the setting, and this site isn't in "Hide Notiq on this site".
   // The toolbar button, Alt+Shift+L and the right-click menu keep working on a hidden site.
   const siteHidden = () => settings.hiddenSites.includes(topHost());
   const iconsOn = () => settings.showIcon && !siteHidden();
@@ -205,15 +209,16 @@
   }
 
   // Sign-up / change-password detection.
-  const isCurrentPw = (i) => isPassword(i) && (acOf(i).includes("current-password") || CURRENT_HINT.test(hintOf(i)));
+  // NotiqShared.isCurrentPassword / isNewPassword hold the rules (unit-tested in shared.test.mjs).
+  const pwDesc = (i, passwords) => ({ autocomplete: attr(i, "autocomplete"), hint: hintOf(i), passwords });
+  const isCurrentPw = (i) => isPassword(i) && NS.isCurrentPassword(pwDesc(i, 0));
   // For a "new password" field: the fields a generated password goes into (the
   // new one and any confirm field in the same form) and the current-password
   // field if the form has one. null for ordinary login password fields.
   function newPasswordInfo(field) {
     if (!isPassword(field) || isCurrentPw(field)) return null;
     const pws = inputsIn(scopeOf(field)).filter((i) => isPassword(i) && usable(i));
-    const isNew = acOf(field).includes("new-password") || NEW_HINT.test(hintOf(field)) || pws.length >= 2;
-    if (!isNew) return null;
+    if (!NS.isNewPassword(pwDesc(field, pws.length))) return null;
     const targets = pws.filter((i) => !isCurrentPw(i));
     if (!targets.includes(field)) targets.unshift(field);
     return { targets, current: pws.find(isCurrentPw) || null };
@@ -293,19 +298,23 @@
 .nq-root[data-nq-mode="light"] { --nq-shadow: 0 10px 28px color-mix(in srgb, #0f172a 16%, transparent), 0 1px 3px color-mix(in srgb, #0f172a 14%, transparent); }
 .nq-wrap { position: fixed; width: ${ICON}px; height: ${ICON}px; pointer-events: none; }
 .nq-icon { all: initial; box-sizing: border-box; position: absolute; inset: 0; width: 100%; height: 100%;
-  display: flex; align-items: center; justify-content: center; border-radius: 5px; cursor: pointer;
-  pointer-events: auto; background: var(--nq-bg2); color: var(--nq-primary); opacity: .94;
-  box-shadow: 0 0 0 1px var(--nq-ring), 0 1px 3px color-mix(in srgb, #000 30%, transparent); transition: opacity .15s, transform .15s; }
-.nq-icon:hover { opacity: 1; transform: scale(1.08); }
+  display: flex; align-items: center; justify-content: center; border-radius: 30%; cursor: pointer;
+  pointer-events: auto; background: var(--nq-primary); color: var(--nq-on-primary); opacity: .94;
+  font: 700 11px/1 var(--nq-font); letter-spacing: 0;
+  box-shadow: 0 1px 3px color-mix(in srgb, #000 30%, transparent); transition: opacity .15s, transform .15s; }
+.nq-icon:hover { opacity: 1; transform: scale(1.06); }
 .nq-icon:focus-visible { outline: 2px solid var(--nq-primary); outline-offset: 2px; }
 .nq-icon svg { width: 12px; height: 12px; display: block; }
+.nq-n { display: block; }
 .nq-spin { display: none; width: 9px; height: 9px; border-radius: 50%; border: 2px solid color-mix(in srgb, var(--nq-primary) 30%, transparent);
   border-top-color: var(--nq-primary); animation: nq-rot .8s linear infinite; }
 .nq-ok, .nq-err { display: none !important; }
-.waiting .nq-key, .done .nq-key, .error .nq-key { display: none; }
+.waiting .nq-n, .done .nq-n, .error .nq-n { display: none; }
 .waiting .nq-spin { display: block; }
 .done .nq-ok, .error .nq-err { display: block !important; }
-.done .nq-icon { color: var(--nq-success); }
+.waiting .nq-icon, .done .nq-icon, .error .nq-icon { background: var(--nq-bg2); }
+.waiting .nq-icon { color: var(--nq-primary); box-shadow: 0 0 0 1px var(--nq-ring), 0 1px 3px color-mix(in srgb, #000 30%, transparent); }
+.done .nq-icon { color: var(--nq-success); box-shadow: 0 0 0 1px color-mix(in srgb, var(--nq-success) 60%, transparent), 0 1px 3px color-mix(in srgb, #000 30%, transparent); }
 .error .nq-icon { color: var(--nq-danger); box-shadow: 0 0 0 1px color-mix(in srgb, var(--nq-danger) 70%, transparent), 0 1px 3px color-mix(in srgb, #000 30%, transparent); }
 .nq-tip { display: none; position: absolute; top: ${ICON + 6}px; right: 0; width: max-content; max-width: 240px;
   padding: 6px 9px; border-radius: 7px; background: var(--nq-bg); color: var(--nq-text); border: 1px solid var(--nq-line);
@@ -355,19 +364,69 @@
   font: 12.5px/1.35 ui-monospace, Consolas, monospace; word-break: break-all; user-select: all; }
 .nq-mrow { display: flex; gap: 6px; padding: 4px 2px 2px; }
 .nq-mrow .nq-item { flex: 1; text-align: center; }
-.nq-suggest { box-sizing: border-box; position: fixed; pointer-events: auto; padding: 4px; border-radius: 10px;
+.nq-suggest { box-sizing: border-box; position: fixed; pointer-events: auto; overflow: hidden; border-radius: 18px;
   background: var(--nq-bg); color: var(--nq-text); border: 1px solid var(--nq-line); box-shadow: var(--nq-shadow);
-  animation: nq-in .14s ease-out; }
-.nq-sbtn { all: initial; box-sizing: border-box; display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 8px;
-  border-radius: 7px; cursor: pointer; color: var(--nq-text); font: 600 13px/1.2 var(--nq-font); }
-.nq-sbtn:hover, .nq-sbtn:focus { background: var(--nq-hover); outline: none; }
-.nq-sbtn:focus-visible { box-shadow: inset 0 0 0 2px var(--nq-primary); }
-.nq-smark { flex: none; width: 22px; height: 22px; border-radius: 6px; display: flex; align-items: center; justify-content: center;
+  font: 14px/1.4 var(--nq-font); animation: nq-drop .18s ease-out; }
+.nq-suggest svg { width: 18px; height: 18px; display: block; flex: none; }
+.nq-list { max-height: 264px; overflow-y: auto; overscroll-behavior: contain; }
+.nq-opt { all: initial; box-sizing: border-box; display: flex; align-items: center; gap: 12px; width: 100%; padding: 10px 12px;
+  cursor: pointer; color: var(--nq-text); text-align: left; font: 14px/1.35 var(--nq-font); }
+.nq-opt:hover, .nq-opt:focus { background: var(--nq-hover); outline: none; }
+.nq-opt:focus-visible { box-shadow: inset 0 0 0 2px var(--nq-primary); }
+.nq-opt.nq-static { cursor: default; }
+.nq-opt.nq-static:hover { background: none; }
+.nq-av { flex: none; width: 34px; height: 34px; border-radius: 11px; display: flex; align-items: center; justify-content: center;
+  background: var(--nq-bg2); color: var(--nq-text); font: 600 13px/1 var(--nq-font); }
+.nq-av.nq-first { background: color-mix(in srgb, var(--nq-success) 18%, transparent); color: var(--nq-success); }
+.nq-av.nq-lock { background: color-mix(in srgb, var(--nq-primary) 16%, transparent); color: var(--nq-primary); }
+.nq-t { flex: 1; min-width: 0; }
+.nq-t b { display: block; font-weight: 600; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nq-t small { display: block; color: var(--nq-muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nq-badge { flex: none; font: 600 11px/1.3 var(--nq-font); padding: 2px 7px; border-radius: 999px;
   background: color-mix(in srgb, var(--nq-primary) 16%, transparent); color: var(--nq-primary); }
-.nq-smark svg { width: 12px; height: 12px; display: block; }
-.nq-slabel { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.nq-kbd { flex: none; padding: 3px 6px; border-radius: 5px; border: 1px solid var(--nq-border); background: var(--nq-bg2);
-  color: var(--nq-muted); font: 500 11px/1 var(--nq-font); white-space: nowrap; }
+.nq-foot { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 6px 6px 6px 12px;
+  border-top: 1px solid color-mix(in srgb, var(--nq-text) 12%, transparent); font-size: 12px; color: var(--nq-muted); }
+.nq-brand { display: inline-flex; gap: 5px; align-items: center; }
+.nq-brand svg { width: 13px; height: 13px; }
+.nq-brand b { color: var(--nq-text); font-weight: 600; }
+.nq-link { all: initial; box-sizing: border-box; cursor: pointer; padding: 4px 8px; border-radius: 8px; color: var(--nq-muted);
+  font: 500 12px/1.3 var(--nq-font); }
+.nq-link:hover, .nq-link:focus { color: var(--nq-text); background: var(--nq-hover); outline: none; }
+.nq-link:focus-visible { box-shadow: inset 0 0 0 2px var(--nq-primary); }
+[hidden] { display: none !important; }
+.nq-gen { display: grid; gap: 10px; padding: 14px; }
+.nq-gen-h { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.nq-gen-h svg { color: var(--nq-primary); }
+.nq-gen-h b { flex: 1; min-width: 0; font-weight: 600; font-size: 15px; }
+.nq-str { flex: none; font-size: 12px; font-weight: 600; color: var(--nq-success); }
+.nq-str[data-level="0"] { color: var(--nq-danger); }
+.nq-str[data-level="1"] { color: var(--nq-primary); }
+.nq-pwv { font: 500 14px/1.45 ui-monospace, "Cascadia Mono", Consolas, monospace; letter-spacing: .02em; background: var(--nq-bg2);
+  border-radius: 12px; padding: 10px 12px; word-break: break-all; min-height: 44px; box-sizing: border-box; user-select: none; }
+.nq-pwv .d { color: var(--nq-primary); }
+.nq-pwv .s { color: var(--nq-success); }
+.nq-meter { height: 5px; border-radius: 3px; background: var(--nq-bg2); overflow: hidden; }
+.nq-meter i { display: block; height: 100%; border-radius: 3px; background: var(--nq-success); transition: width .3s; }
+.nq-meter[data-level="0"] i { background: var(--nq-danger); }
+.nq-meter[data-level="1"] i { background: var(--nq-primary); }
+.nq-opts { display: grid; gap: 8px; padding: 10px 12px; border-radius: 12px; background: var(--nq-bg2); font-size: 13px; }
+.nq-ln { display: flex; align-items: center; gap: 10px; }
+.nq-ln input[type=range] { flex: 1; min-width: 0; accent-color: var(--nq-primary); margin: 0; }
+.nq-ln output { font-weight: 600; font-variant-numeric: tabular-nums; min-width: 2ch; text-align: right; }
+.nq-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.nq-chip { all: initial; box-sizing: border-box; cursor: pointer; font: 500 12px/1.3 var(--nq-font); padding: 4px 10px; border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--nq-text) 22%, transparent); background: var(--nq-bg); color: var(--nq-text); }
+.nq-chip[aria-pressed="true"] { background: var(--nq-primary); color: var(--nq-on-primary); border-color: var(--nq-primary); }
+.nq-chip:focus-visible, .nq-pill:focus-visible, .nq-ic:focus-visible, .nq-ln input:focus-visible { outline: 2px solid var(--nq-primary); outline-offset: 2px; }
+.nq-row { display: flex; gap: 6px; }
+.nq-pill { all: initial; box-sizing: border-box; flex: 1; height: 40px; border-radius: 999px; cursor: pointer; display: inline-flex;
+  align-items: center; justify-content: center; background: var(--nq-primary); color: var(--nq-on-primary); font: 600 14px/1 var(--nq-font); }
+.nq-pill:hover { background: var(--nq-primary-hover); }
+.nq-ic { all: initial; box-sizing: border-box; flex: none; width: 40px; height: 40px; border-radius: 50%; cursor: pointer; display: flex;
+  align-items: center; justify-content: center; color: var(--nq-text); border: 1px solid color-mix(in srgb, var(--nq-text) 22%, transparent); }
+.nq-ic:hover, .nq-ic[aria-pressed="true"] { background: var(--nq-bg2); }
+.nq-small { margin: 0; font-size: 12px; line-height: 1.4; color: var(--nq-muted); overflow-wrap: anywhere; }
+.nq-small .nq-link { padding: 0; text-decoration: underline; font-size: 12px; }
 .nq-warn { border-color: color-mix(in srgb, var(--nq-danger) 65%, var(--nq-border)); }
 .nq-warn .nq-logo { background: color-mix(in srgb, var(--nq-danger) 16%, transparent); color: var(--nq-danger); }
 .nq-body { margin-top: 10px; font-size: 13px; line-height: 1.45; overflow-wrap: anywhere; }
@@ -376,8 +435,9 @@
 .nq-btn.nq-danger:hover { background: color-mix(in srgb, var(--nq-danger) 86%, var(--nq-text)); border-color: transparent; }
 @keyframes nq-rot { to { transform: rotate(360deg); } }
 @keyframes nq-in { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: none; } }
+@keyframes nq-drop { from { opacity: .4; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) {
-  .nq-icon, .nq-bar, .nq-bar.out, .nq-menu, .nq-suggest { animation: none !important; transition: none !important; }
+  .nq-icon, .nq-bar, .nq-bar.out, .nq-menu, .nq-suggest, .nq-meter i { animation: none !important; transition: none !important; }
   .nq-icon:hover { transform: none; }
   .nq-spin { animation: none !important; border-color: var(--nq-primary); border-style: dotted; }
 }`;
@@ -462,7 +522,7 @@
     btn.tabIndex = -1; // keyboard users have Alt+Shift+L; don't hijack the page's tab order
     btn.title = iconLabel(field);
     btn.setAttribute("aria-label", btn.title);
-    btn.appendChild(svg("nq-key", KEY));
+    btn.appendChild(el("span", "nq-n", "N"));
     btn.appendChild(el("span", "nq-spin"));
     btn.appendChild(svg("nq-ok", ["M5 12.5l4.5 4.5L19 7.5"]));
     btn.appendChild(svg("nq-err", ["M12 6v8", "M12 18v.5"]));
@@ -496,7 +556,7 @@
     ic.wrap.remove();
     icons.delete(field);
     if (ro) ro.unobserve(field);
-    if (suggest && suggest.field === field) hideSuggest();
+    if (suggest && suggest.field === field && !suggest.explicit) hideSuggest();
   }
   const clearIcons = () => { for (const f of Array.from(icons.keys())) removeIcon(f); };
 
@@ -578,89 +638,448 @@
     noteScanResult(found.size > 0 || cardFields.size > 0);
     schedulePosition();
     // A field that got focus before it was detected (autofocus, SPA): suggest now.
-    if (pendingFocus && pendingFocus === activeField() && icons.has(pendingFocus)) {
-      const f = pendingFocus;
+    if (pendingFocus && pendingFocus.field === activeField() && icons.has(pendingFocus.field)) {
+      const p = pendingFocus;
       pendingFocus = null;
-      maybeSuggest(f);
+      maybeSuggest(p.field, p.why);
     }
   }
 
-  // ---------- "Fill with Notiq" suggestion under a focused login field ----------
-  // Shows no vault data at all: one button that does exactly what the key icon
-  // does (so nothing is asked of Notiq until the user clicks it, and the fill
-  // still needs approval in the app). Lives in the same closed shadow root.
-  let suggest = null;      // { node, btn, field }
-  let pendingFocus = null; // focused input not (yet) detected as a login field
+  // ---------- panels under a focused field: the login menu and the strong password card ----------
+  // Both live in the same closed shadow root as the icons, are positioned (fixed) under the field, flip above it
+  // when there is no room, follow scroll / resize and never move the page's own layout.
+  //
+  // Login menu (username / email / current-password fields): opens when the USER focuses the field (a trusted
+  // pointer / key event just before the focus), clicks into it, or presses ArrowDown in it; never on page load or
+  // for a focus() the page made on its own. It asks the background for this site's logins (`inlineList`: the
+  // popup's list, titles and usernames only). Rows carry an opaque account id, a title, a username and a 2FA flag;
+  // no password or 2FA secret ever reaches this frame for the menu. Picking a row is the normal fill naming that
+  // account, which Notiq still has to approve (or the site's 5-minute trust). A locked vault shows one row that
+  // starts that same fill (Notiq asks to unlock first). Nothing is shown when the site has no saved login or Notiq
+  // can't be reached. Typing in the username field filters the rows.
+  //
+  // Strong password card (new-password fields, see newPasswordInfo): opens on the user's focus of the EMPTY field,
+  // or from its "N" button / Alt+Shift+L. The password is generated here (generator.js, with the options the popup
+  // generator remembers in chrome.storage.local `genOptions`; the site's maxlength / passwordrules / pattern win
+  // when they are stricter: NotiqFill.generateFor). It is shown in the closed root only while the card is open, is
+  // never logged or stored, and leaves this frame only through "Use and save": the normal `capture` + `save`
+  // messages, after which Notiq's own Save prompt asks the user. Off for "Never save" sites, with saving turned
+  // off and in subframes (there the button only fills; the normal offer follows the submitted form).
+  //
+  // Keyboard: ArrowDown in the field moves into the panel, ArrowUp / ArrowDown / Home / End move in the menu (Up
+  // from the first row returns to the field), Enter picks, Esc closes and returns to the field (and keeps the panel
+  // away from that field on this page until it is clicked again), Tab leaves the menu back to the field (the card
+  // keeps Tab inside it). A click outside closes it. Typing in the field never moves the focus.
+  let suggest = null;      // { kind: "logins" | "gen", node, field, explicit, nav, ... }
+  let pendingFocus = null; // { field, why }: focused input not (yet) detected as a login field
   let typedField = null;   // the field the user typed into since it got focus
   let quiet = 0;           // >0 while we move focus ourselves (fills, menus)
-  const dismissedFields = new WeakSet(); // Esc: no suggestion on that field again on this page
+  const dismissedFields = new WeakSet(); // Esc: no panel on that field again on this page (until clicked)
+  let lastUserAct = -1e9;  // last trusted pointerdown / keydown in this frame
+  const USER_FOCUS_MS = 1000;
+  const userJustActed = () => { const d = Date.now() - lastUserAct; return d >= 0 && d < USER_FOCUS_MS; };
   function focusQuietly(f, opts) {
     quiet++;
     try { f.focus(opts); } finally { quiet--; }
   }
   const viewport = () => ({ width: window.innerWidth, height: window.innerHeight });
-  function maybeSuggest(field) {
-    if (quiet || !isInput(field)) return;
-    const ok = NS.shouldSuggest({
-      showIcon: iconsOn(), suggestOnFocus: settings.suggestOnFocus, detected: icons.has(field) && !codeFields.has(field),
-      dismissed: dismissedFields.has(field), menuOpen: !!menu, filling, typed: typedField === field,
+  const loginField = (f) => icons.has(f) && !codeFields.has(f) && !cardFields.has(f) && !identityFields.has(f);
+  const SPARK = ["M12 3v4", "M12 17v4", "M3 12h4", "M17 12h4", "M6 6l2.5 2.5", "M15.5 15.5 18 18", "M18 6l-2.5 2.5", "M8.5 15.5 6 18"];
+  const REFRESH = ["M20 11a8 8 0 0 0-14.9-3", "M4 5v4h4", "M4 13a8 8 0 0 0 14.9 3", "M20 19v-4h-4"];
+  const SLIDERS = ["M4 6h10", "M18 6h2", "M4 12h4", "M12 12h8", "M4 18h12", "C16,6,2", "C10,12,2", "C18,18,2"];
+  const LOCK = ["M5 11h14v10H5z", "M8 11V7a4 4 0 0 1 8 0v4"];
+  const icon18 = (paths) => { const s = svg("", paths); s.setAttribute("stroke-width", "2"); return s; };
+
+  // why: "focus" (the user focused it), "auto" (focused without a user action: autofocus, page script),
+  // "click" (a trusted click into the focused field), "key" (ArrowDown in it), "icon" (its N button / shortcut).
+  function maybeSuggest(field, why) {
+    if (quiet || !isInput(field) || !field.isConnected) return;
+    if (suggest && suggest.field === field) { positionSuggest(); return; }
+    const explicit = why === "icon";
+    const info = isPassword(field) ? newPasswordInfo(field) : null;
+    if (info) {
+      if (!GEN) return;
+      if (!explicit && (why === "auto" || field.value || !panelAllowed(field, why))) return;
+      showGen(field, info, explicit);
+      return;
+    }
+    if (explicit || why === "auto" || !loginField(field)) return;
+    if (isPassword(field) && typedField === field && why === "focus") return;
+    if (!panelAllowed(field, why)) return;
+    requestLogins(field);
+  }
+  // The automatic panels follow the in-field UI settings, a big enough on-screen field, and stay away while a
+  // fill or another menu is running. Esc on a field keeps them away from it until the user clicks it again.
+  function panelAllowed(field, why) {
+    return NS.shouldSuggest({
+      showIcon: iconsOn(), suggestOnFocus: settings.suggestOnFocus, detected: icons.has(field),
+      dismissed: why === "focus" && dismissedFields.has(field), menuOpen: !!menu, filling, typed: false,
       rect: field.getBoundingClientRect(), viewport: viewport(),
     });
-    if (!ok) { if (suggest && suggest.field === field) hideSuggest(); return; }
-    if (suggest && suggest.field === field) { positionSuggest(); return; }
+  }
+
+  let listSeq = 0, listFor = null;
+  async function requestLogins(field) {
+    if (listFor === field) return; // already asking for this field
+    const seq = ++listSeq;
+    listFor = field;
+    const res = await send({ type: "inlineList" });
+    if (seq !== listSeq) return;
+    listFor = null;
+    if (!field.isConnected || activeField() !== field || filling || menu || quiet || (suggest && suggest.field === field)) return;
+    if (!iconsOn() || !settings.suggestOnFocus || !loginField(field)) return;
+    if (isPassword(field) && typedField === field) return;
+    if (res && res.error === "locked") { showLogins(field, null); return; }
+    if (!res || res.ok !== true || res.host !== topHost()) return;
+    const rows = NS.inlineRows(res.accounts);
+    if (rows.length) showLogins(field, rows);
+  }
+
+  function panelNode(cls, role, label) {
     hideSuggest();
     ensureRoot();
-    const node = el("div", "nq-suggest");
-    node.setAttribute("role", "menu");
-    node.setAttribute("aria-label", "Notiq");
-    node.addEventListener("mousedown", (e) => e.preventDefault()); // never take focus from the field
-    const btn = el("button", "nq-sbtn");
-    btn.type = "button";
-    btn.tabIndex = -1; // reached with ArrowDown from the field
-    btn.setAttribute("role", "menuitem");
-    const mark = el("span", "nq-smark");
-    mark.appendChild(svg("", KEY));
-    btn.appendChild(mark);
-    btn.appendChild(el("span", "nq-slabel", "Fill with Notiq"));
-    btn.appendChild(el("span", "nq-kbd", "Alt+Shift+L"));
-    btn.addEventListener("click", (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      if (e.isTrusted !== true) return;
-      const fromKeyboard = root.activeElement === btn;
-      hideSuggest();
-      if (!field.isConnected || !icons.has(field)) return;
-      if (fromKeyboard) focusQuietly(field, { preventScroll: true }); // back to the field first
-      onIconClick(field);
-    });
-    btn.addEventListener("keydown", (e) => {
-      if (e.isTrusted !== true) return;
-      if (e.key !== "ArrowUp" && e.key !== "Tab") return; // Enter/Space click; Esc is handled in onKeydown
-      e.preventDefault();
-      e.stopPropagation();
-      if (field.isConnected) focusQuietly(field, { preventScroll: true });
-    });
-    node.appendChild(btn);
+    const node = el("div", `nq-suggest ${cls}`);
+    node.setAttribute("role", role);
+    node.setAttribute("aria-label", label);
+    // Never take focus from the field (the card's slider is the one exception: it needs the pointer).
+    node.addEventListener("mousedown", (e) => { if (!(e.target && e.target.tagName === "INPUT")) e.preventDefault(); });
+    node.addEventListener("keydown", onPanelKey);
+    return node;
+  }
+  const panelButton = (cls, text) => {
+    const b = el("button", cls, text);
+    b.type = "button";
+    b.tabIndex = -1; // reached with ArrowDown from the field, not the page's Tab order
+    return b;
+  };
+  const onTrustedClick = (b, fn) => b.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.isTrusted !== true) return;
+    fn();
+  });
+
+  // rows: NotiqShared.inlineRows output, or null for "the vault is locked".
+  function showLogins(field, rows) {
+    const node = panelNode("nq-logins", "listbox", "Notiq logins for this site");
+    const list = el("div", "nq-list");
+    const foot = el("div", "nq-foot");
+    const brand = el("span", "nq-brand");
+    brand.appendChild(svg("", KEY));
+    brand.appendChild(el("b", "", "Notiq"));
+    const all = panelButton("nq-link", "All logins ›");
+    all.setAttribute("aria-label", "All logins for this site");
+    onTrustedClick(all, () => openAllLogins());
+    foot.appendChild(brand);
+    foot.appendChild(all);
+    node.appendChild(list);
+    node.appendChild(foot);
     layer.appendChild(node);
-    suggest = { node, btn, field };
-    positionSuggest();
+    suggest = { kind: "logins", node, field, explicit: false, rows, list, all, nav: [] };
+    renderLogins();
     nudgeTheme();
   }
+  function loginRow(avatar, title, sub, badge) {
+    const b = panelButton("nq-opt");
+    b.setAttribute("role", "option");
+    b.setAttribute("aria-selected", "false");
+    b.addEventListener("focus", () => b.setAttribute("aria-selected", "true"));
+    b.addEventListener("blur", () => b.setAttribute("aria-selected", "false"));
+    b.appendChild(avatar);
+    const t = el("span", "nq-t");
+    t.appendChild(el("b", "", title));
+    if (sub) t.appendChild(el("small", "", sub));
+    b.appendChild(t);
+    if (badge) b.appendChild(el("span", "nq-badge", badge));
+    return b;
+  }
+  function renderLogins() {
+    const s = suggest;
+    if (!s || s.kind !== "logins") return;
+    const back = root.activeElement && s.list.contains(root.activeElement);
+    s.list.textContent = "";
+    if (!s.rows) {
+      const av = el("span", "nq-av nq-lock");
+      av.appendChild(icon18(LOCK));
+      const b = loginRow(av, "Unlock Notiq to see logins", "Notiq asks before anything is filled", "");
+      onTrustedClick(b, () => pickRow(undefined));
+      s.list.appendChild(b);
+    } else {
+      const q = isPassword(s.field) ? "" : String(s.field.value || "");
+      const rows = NS.filterRows(s.rows, q);
+      if (!rows.length) {
+        const none = el("div", "nq-opt nq-static");
+        const t = el("span", "nq-t");
+        t.appendChild(el("small", "", `No saved login matches “${clean(q, 60)}”`));
+        none.appendChild(t);
+        s.list.appendChild(none);
+      }
+      rows.forEach((r, k) => {
+        const av = el("span", `nq-av${k === 0 ? " nq-first" : ""}`, NS.avatarLetter(r.title, r.username));
+        av.setAttribute("aria-hidden", "true");
+        const b = loginRow(av, r.username || r.title || "Login", r.username ? r.title : "no username", r.totp ? "2FA" : "");
+        onTrustedClick(b, () => pickRow(r.account));
+        s.list.appendChild(b);
+      });
+    }
+    s.nav = [...s.list.querySelectorAll("button.nq-opt"), s.all];
+    if (back) s.nav[0].focus({ preventScroll: true });
+    positionSuggest();
+  }
+  // A row (or the unlock row: account undefined) was picked: the normal approved fill.
+  function pickRow(account) {
+    const s = suggest;
+    if (!s) return;
+    const field = s.field;
+    const fromKeyboard = !!root.activeElement && s.node.contains(root.activeElement);
+    hideSuggest();
+    if (!field.isConnected || !icons.has(field)) return;
+    if (fromKeyboard) focusQuietly(field, { preventScroll: true });
+    closeMenu(false);
+    doFill(field, field, account);
+  }
+  // "All logins": the toolbar popup; where the browser won't open it from here, Notiq's own chooser (the fill).
+  async function openAllLogins() {
+    const s = suggest;
+    if (!s) return;
+    const field = s.field;
+    const fromKeyboard = !!root.activeElement && s.node.contains(root.activeElement);
+    hideSuggest();
+    if (fromKeyboard && field.isConnected) focusQuietly(field, { preventScroll: true });
+    const r = await send({ type: "openPopup" });
+    if (r && r.ok === true) return;
+    if (field.isConnected && icons.has(field) && !filling) doFill(field, field);
+  }
+
+  // ---------- the strong password card ----------
+  const canSaveHere = () => IS_TOP && settings.offerSave && !settings.neverSave.includes(topHost());
+  const genTargets = (s) => s.info.targets.filter((i) => i.isConnected && usable(i));
+  function showGen(field, info, explicit) {
+    if (!GEN) return;
+    closeMenu(false);
+    const node = panelNode("nq-gencard", "dialog", "Notiq: strong password");
+    const box = el("div", "nq-gen");
+    const head = el("div", "nq-gen-h");
+    head.appendChild(icon18(SPARK));
+    head.appendChild(el("b", "", "Use strong password"));
+    const str = el("span", "nq-str");
+    head.appendChild(str);
+    const pwv = el("div", "nq-pwv");
+    const meter = el("div", "nq-meter");
+    meter.setAttribute("aria-hidden", "true");
+    const level = el("i", "");
+    meter.appendChild(level);
+    // Options: length 8–64, Numbers, Symbols, Avoid look-alikes (the popup generator's options, same storage key).
+    const opts = el("div", "nq-opts");
+    opts.hidden = true;
+    const ln = el("div", "nq-ln");
+    const lenLabel = el("label", "", "Length");
+    const len = document.createElement("input");
+    len.type = "range";
+    len.min = String(GEN.MIN_LENGTH);
+    len.max = String(GEN.MAX_LENGTH);
+    len.step = "1";
+    len.id = "nq-gen-len";
+    lenLabel.htmlFor = len.id;
+    const lenOut = el("output", "");
+    ln.appendChild(lenLabel);
+    ln.appendChild(len);
+    ln.appendChild(lenOut);
+    const chips = el("div", "nq-chips");
+    const chip = (k, label) => {
+      const c = panelButton("nq-chip", label);
+      c.dataset.k = k;
+      onTrustedClick(c, () => setGenOption(k, !genOptions[k]));
+      chips.appendChild(c);
+      return c;
+    };
+    const chipEls = [chip("digits", "Numbers"), chip("symbols", "Symbols"), chip("avoidAmbiguous", "Avoid look-alikes")];
+    const siteNote = el("p", "nq-small", "This site limits passwords, so its rules are used.");
+    opts.appendChild(ln);
+    opts.appendChild(chips);
+    opts.appendChild(siteNote);
+    len.addEventListener("input", (e) => { if (e.isTrusted === true) setGenOption("length", Number(len.value), false); });
+    len.addEventListener("change", (e) => { if (e.isTrusted === true) storeGenOptions(); });
+    const row = el("div", "nq-row");
+    const use = panelButton("nq-pill", "Use and save");
+    onTrustedClick(use, () => { useGenerated(); });
+    const regen = panelButton("nq-ic");
+    regen.setAttribute("aria-label", "New password");
+    regen.title = "New password";
+    regen.appendChild(icon18(REFRESH));
+    onTrustedClick(regen, () => { regenerate(); syncGen(); });
+    const optBtn = panelButton("nq-ic");
+    optBtn.setAttribute("aria-label", "Password options");
+    optBtn.title = "Password options";
+    optBtn.appendChild(icon18(SLIDERS));
+    onTrustedClick(optBtn, () => { const s = suggest; if (!s || s.kind !== "gen") return; s.showOpts = !s.showOpts; syncGen(); });
+    row.appendChild(use);
+    row.appendChild(regen);
+    row.appendChild(optBtn);
+    const small = el("p", "nq-small");
+    const warn = el("p", "nq-small", "This site's password rules couldn't be met, so Notiq's default was used. Check it is accepted.");
+    warn.hidden = true;
+    for (const n of [head, pwv, warn, meter, opts, row, small]) box.appendChild(n);
+    node.appendChild(box);
+    layer.appendChild(node);
+    // Tab order inside the card: the button row, then the options when shown.
+    for (const n of [use, regen, optBtn, len, ...chipEls]) n.tabIndex = 0;
+    suggest = { kind: "gen", node, field, explicit, info, showOpts: false, pw: "", site: false, optsKey: "",
+      parts: { str, pwv, meter, level, opts, len, lenOut, chipEls, siteNote, warn, use, regen, optBtn, small }, nav: [] };
+    regenerate();
+    syncGen();
+    nudgeTheme();
+  }
+  function regenerate() {
+    const s = suggest;
+    if (!s || s.kind !== "gen") return;
+    const targets = genTargets(s);
+    const c = constraintsOf(targets.length ? targets : [s.field]);
+    s.site = NS.siteRulesApply(c, genOptions);
+    const g = s.site ? FK.generateFor(c) : null;
+    s.pw = g ? g.password : GEN.generate(genOptions);
+    s.fallback = !!(g && g.fallback);
+    s.optsKey = JSON.stringify(genOptions);
+  }
+  // Brings every part of the open card up to date (no rebuild: the slider keeps working while dragged).
+  function syncGen() {
+    const s = suggest;
+    if (!s || s.kind !== "gen") return;
+    const p = s.parts;
+    const st = s.site ? GEN.strengthOf(s.pw) : GEN.strength(genOptions);
+    p.str.textContent = `${st.label} · ${st.bits} bits`;
+    p.str.dataset.level = String(st.level);
+    p.meter.dataset.level = String(st.level);
+    p.level.style.width = `${Math.min(100, Math.round(st.bits / 1.3))}%`;
+    p.pwv.textContent = "";
+    for (const r of NS.passwordRuns(s.pw)) p.pwv.appendChild(r.kind ? el("span", r.kind, r.text) : document.createTextNode(r.text));
+    p.opts.hidden = !s.showOpts;
+    p.optBtn.setAttribute("aria-pressed", s.showOpts ? "true" : "false");
+    p.len.value = String(genOptions.length);
+    p.lenOut.textContent = String(genOptions.length);
+    for (const c of p.chipEls) c.setAttribute("aria-pressed", genOptions[c.dataset.k] ? "true" : "false");
+    p.siteNote.hidden = !s.site;
+    p.warn.hidden = !s.fallback;
+    const save = canSaveHere();
+    const n = genTargets(s).length;
+    const host = topHost();
+    p.use.textContent = save ? "Use and save" : "Use password";
+    const fills = n > 1 ? "Fills New and Confirm password" : "Fills this password field";
+    p.small.textContent = "";
+    p.small.appendChild(document.createTextNode(save ? `${fills}, then saves this login to Notiq for ${host}.`
+      : !IS_TOP && settings.offerSave && !settings.neverSave.includes(host) ? `${fills}. Notiq offers to save it when you submit the form.`
+        : `${fills}. Saving to Notiq is off for this site.`));
+    if (s.info.current && s.explicit) {
+      p.small.appendChild(document.createTextNode(" "));
+      const fill = panelButton("nq-link", "Fill saved login instead");
+      fill.tabIndex = 0;
+      const cur = s.info.current, field = s.field;
+      onTrustedClick(fill, () => { hideSuggest(); doFill(cur, field); });
+      p.small.appendChild(fill);
+    }
+    s.nav = [p.use, p.regen, p.optBtn, ...(s.showOpts ? [p.len, ...p.chipEls] : []), ...p.small.querySelectorAll("button")];
+    positionSuggest();
+  }
+  function setGenOption(k, v, store = true) {
+    const s = suggest;
+    if (!s || s.kind !== "gen" || !GEN) return;
+    const back = root.activeElement;
+    genOptions = GEN.sanitize({ ...genOptions, [k]: v });
+    regenerate();
+    syncGen();
+    if (store) storeGenOptions();
+    if (back && back.isConnected && s.node.contains(back)) back.focus({ preventScroll: true });
+  }
+  function storeGenOptions() {
+    try { chrome.storage.local.set({ [GEN.STORAGE_KEY]: genOptions }).catch(() => {}); } catch { /* not remembered */ }
+  }
+  // Settings changed elsewhere (the popup's generator, "Never save", saving on / off).
+  function refreshGen() {
+    const s = suggest;
+    if (!s || s.kind !== "gen") return;
+    if (JSON.stringify(genOptions) !== s.optsKey) regenerate();
+    syncGen();
+  }
+
+  // "Use and save": fill the new (+ confirm) fields, then the normal capture + save (Notiq's Save prompt asks).
+  async function useGenerated() {
+    const s = suggest;
+    if (!s || s.kind !== "gen") return;
+    const { field, info } = s;
+    const targets = genTargets(s);
+    const save = canSaveHere();
+    let pw = s.pw;
+    hideSuggest(); // clears the card (and its copy of the password)
+    if (!targets.length || filling) { setState(field, "error", TEXT.no_fields); return; }
+    pw = fillGenerated(field, targets, pw);
+    if (!pw) return;
+    if (field.isConnected) focusQuietly(field, { preventScroll: true });
+    if (!save) { setState(field, "done", targets.length > 1 ? `Strong password filled in ${targets.length} fields` : "Strong password filled"); return; }
+    await saveGenerated(field, info, pw);
+  }
+  // Types `pw` into the targets and checks the page kept it (a script may cut it to its own limit): one retry at
+  // the length it kept, else the fields are cleared rather than left with a password nobody knows. Returns the
+  // password now in the fields, or null.
+  function fillGenerated(field, targets, pw) {
+    for (const t of targets) setValue(t, pw);
+    if (targets.every((t) => t.value === pw)) return pw;
+    const short = targets.map((t) => t.value).find((v) => v !== pw) || "";
+    if (short.length > 0 && short.length < pw.length) {
+      pw = FK.generateFor({ ...constraintsOf(targets), maxLength: short.length }).password;
+      for (const t of targets) setValue(t, pw);
+      if (targets.every((t) => t.value === pw)) return pw;
+    }
+    for (const t of targets) setValue(t, "");
+    setState(field, "error", "This site changed the generated password. Type one yourself.");
+    return null;
+  }
+  // The same two messages a submitted form sends, so the background's rules (host from the tab, "Never save",
+  // private windows, the app's Save prompt) all apply. `filled` keeps the later form submit from offering it again.
+  async function saveGenerated(field, info, pw) {
+    const base = capturePayload(scopeOf(field));
+    const payload = NS.generatedCapture({
+      host: pageHost(), url: cleanUrl(), password: pw, title: document.title,
+      username: base ? base.username : recentUser(),
+      change: base ? base.change : !!info.current, current: base ? base.current : "",
+    });
+    const filledText = "Strong password filled";
+    if (!payload) { setState(field, "done", filledText); return; }
+    filled = { username: payload.username, password: pw };
+    lastSent = { username: payload.username, password: pw, at: Date.now() };
+    if (payload.username) rememberUser(payload.username);
+    setState(field, "waiting", "Approve saving in Notiq");
+    const c = await send({ type: "capture", payload });
+    if (!c || c.ok !== true) {
+      if (filled && filled.password === pw) filled = null; // not saved: the normal offer may follow the submit
+      setState(field, c && c.skipped ? "done" : "error", c && c.skipped ? filledText : errText(c && c.error));
+      return;
+    }
+    const res = await send({ type: "save" });
+    if (res && res.ok) { setState(field, "done", SAVE_TEXT[res.status] || SAVE_TEXT.saved); return; }
+    // Declined in Notiq: not offered again on this page. Anything else (locked, not running): the login stays
+    // pending in the background and the normal offer can follow the submitted form.
+    if (res && res.error !== "denied" && filled && filled.password === pw) filled = null;
+    setState(field, "error", errText(res && res.error));
+  }
+
   function hideSuggest() {
     if (!suggest) return;
     const s = suggest;
     suggest = null;
+    if (s.kind === "gen") { s.pw = ""; s.parts.pwv.textContent = ""; }
     s.node.remove();
   }
   function positionSuggest() {
     if (!suggest) return;
-    const { node, field } = suggest;
-    if (!field.isConnected || !icons.has(field) || !iconsOn() || !settings.suggestOnFocus) { hideSuggest(); return; }
-    node.style.display = "block";
+    const { node, field, kind, explicit } = suggest;
+    if (!field.isConnected || (!explicit && (!icons.has(field) || !iconsOn() || !settings.suggestOnFocus))) { hideSuggest(); return; }
     const r = field.getBoundingClientRect();
-    const pos = NS.suggestPosition(r, node.offsetHeight || 40, viewport());
-    if (!pos || r.width < MIN_W || r.height < MIN_H) { node.style.display = "none"; return; }
-    node.style.width = `${pos.width}px`;
+    const size = kind === "gen" ? { minW: 330, maxW: 380 } : { minW: 260, maxW: 380 };
+    const first = NS.suggestPosition(r, 0, viewport(), size);
+    if (!first || r.height < MIN_H || (!explicit && r.width < MIN_W)) { node.style.display = "none"; return; }
+    node.style.display = "block";
+    node.style.width = `${first.width}px`;
+    const pos = NS.suggestPosition(r, node.offsetHeight || 40, viewport(), size);
     node.style.left = `${pos.left}px`;
     node.style.top = `${pos.top}px`;
     if (bar && NS.rectsOverlap(node.getBoundingClientRect(), bar.node.getBoundingClientRect())) node.style.display = "none";
@@ -672,6 +1091,40 @@
     hideSuggest();
     if (refocus && f.isConnected) focusQuietly(f, { preventScroll: true });
   }
+  const panelShown = () => !!suggest && suggest.node.style.display !== "none";
+  // ArrowDown in the field: into the panel (the first row, or the card's main button).
+  function enterPanel() {
+    const s = suggest;
+    if (!s || !s.nav.length) return false;
+    s.nav[0].focus({ preventScroll: true });
+    return true;
+  }
+  // Keys while the focus is inside a panel.
+  function onPanelKey(e) {
+    if (e.isTrusted !== true || !suggest) return;
+    const s = suggest;
+    const items = s.nav.filter((n) => n.isConnected);
+    const at = items.indexOf(root.activeElement);
+    const stop = () => { e.preventDefault(); e.stopPropagation(); };
+    if (e.key === "Escape") { stop(); dismissSuggest(true); return; }
+    if (s.kind === "logins") {
+      if (e.key === "Tab") { stop(); hideSuggest(); if (s.field.isConnected) focusQuietly(s.field, { preventScroll: true }); return; }
+      const k = NS.menuMove(e.key, at, items.length);
+      if (k === null) return;
+      stop();
+      if (k < 0) { if (s.field.isConnected) focusQuietly(s.field, { preventScroll: true }); } else items[k].focus({ preventScroll: true });
+      return;
+    }
+    // The card: Tab stays inside it; ArrowUp on its first control goes back to the field.
+    if (e.key === "Tab" && items.length) {
+      stop();
+      const k = at < 0 ? 0 : (at + (e.shiftKey ? -1 : 1) + items.length) % items.length;
+      items[k].focus({ preventScroll: true });
+      return;
+    }
+    if (e.key === "ArrowUp" && at === 0) { stop(); if (s.field.isConnected) focusQuietly(s.field, { preventScroll: true }); }
+  }
+
   function onFocusIn(e) {
     const t = realTarget(e);
     // Focus in an input always gets a prompt scan, and wakes a backed-off observer
@@ -682,15 +1135,19 @@
     if (suggest && suggest.field !== t) hideSuggest();
     if (quiet || !isInput(t)) return;
     typedField = null;
-    if (icons.has(t)) { pendingFocus = null; maybeSuggest(t); } else pendingFocus = t;
+    const why = e.isTrusted === true && userJustActed() ? "focus" : "auto";
+    if (icons.has(t)) { pendingFocus = null; maybeSuggest(t, why); } else pendingFocus = { field: t, why };
   }
   function onInput(e) {
     if (e.isTrusted !== true) return;
     const t = realTarget(e);
     if (!isInput(t)) return;
-    typedField = t; // typing means the user isn't after the suggestion
+    typedField = t;
     if (isPassword(t)) typedPasswords.add(t);
-    if (suggest && suggest.field === t) hideSuggest();
+    if (!suggest || suggest.field !== t) return;
+    // The login menu filters by what is typed in the username field; anything else typed closes the panel.
+    if (suggest.kind === "logins" && suggest.rows && !isPassword(t)) renderLogins();
+    else hideSuggest();
   }
 
   // ---------- small menu next to an icon (generator, account chooser) ----------
@@ -775,17 +1232,11 @@
   const constraintsOf = (fields) => FK.mergeConstraints(fields.map((f) => ({
     maxLength: f.maxLength, minLength: f.minLength, rules: attr(f, "passwordrules"), pattern: attr(f, "pattern"),
   })));
-  function openNewPasswordMenu(field, info) {
-    openMenu(field, "Notiq password options", (node) => {
-      const plan = FK.planPassword(constraintsOf(info.targets));
-      const len = plan.impossible ? FK.DEFAULT_LEN : plan.length;
-      const sub = plan.limited && !plan.impossible ? `${len} characters (this site's limit), filled into this form` : `${len} characters, filled into this form`;
-      node.appendChild(menuItem("Generate strong password", sub, () => generateInto(field)));
-      if (info.current) {
-        const cur = info.current;
-        node.appendChild(menuItem("Fill saved login", "Asks Notiq for approval", () => { closeMenu(false); doFill(cur, field); }));
-      }
-    });
+  // The new-password field's N button / Alt+Shift+L: the strong password card (toggles it).
+  function openNewPasswordCard(field, info) {
+    if (suggest && suggest.field === field && suggest.kind === "gen") { hideSuggest(); return; }
+    if (field.isConnected && activeField() !== field) focusQuietly(field, { preventScroll: true });
+    showGen(field, info, true);
   }
 
   // ---------- the icon's own menu (right-click on the icon): fill, "Hide Notiq on this site" ----------
@@ -969,6 +1420,8 @@
     return plan.length;
   }
   function onIconClick(field) {
+    const info = !codeFields.has(field) && !cardFields.has(field) && !identityFields.has(field) ? newPasswordInfo(field) : null;
+    if (info && !filling && !(menu && menu.field === field)) { nudgeTheme(); closeMenu(false); openNewPasswordCard(field, info); return; }
     hideSuggest();
     nudgeTheme();
     if (menu && menu.field === field) { closeMenu(true); return; }
@@ -977,9 +1430,7 @@
     if (codeFields.has(field)) { doCodeFill(field); return; }
     if (cardFields.has(field)) { doCardFill(field); return; }
     if (identityFields.has(field)) { openIdentityChooser(field); return; }
-    const info = newPasswordInfo(field);
-    if (info) openNewPasswordMenu(field, info);
-    else doFill(field, field);
+    doFill(field, field);
   }
   // anchor: the field the credentials are filled around; field: the icon that shows progress.
   async function doFill(anchor, field, account) {
@@ -1416,21 +1867,15 @@
     return pws[0];
   }
 
-  // Returns the payload it sent (for tests) or null when skipped.
-  function capture(scope) {
-    if (!settings.offerSave || !pageSecure()) return null;
+  // The login a form in `scope` holds: { host, url, username, password, title, change, current? }, or null when
+  // it shows no filled password field. Used for a submitted form and for "Use and save" (its username / change).
+  function capturePayload(scope) {
     const host = pageHost();
-    if (!host || settings.neverSave.includes(topHost())) return null;
     const ins = inputsIn(scope);
     const pws = ins.filter((i) => isPassword(i) && i.value && shown(i) && !cardKindOf(i)); // never offer a CVC as a login
-    if (!pws.length) {
-      const u = ins.find((i) => isUserLike(i) && i.value && shown(i));
-      if (u) rememberUser(u.value);
-      return null;
-    }
+    if (!pws.length) return null;
     const pw = pickPassword(pws);
     const password = String(pw.value);
-    if (!password || password.length > MAX_PW) return null;
     const before = beforeIn(ins, pws[0]).filter((i) => isTextual(i) && !isOtp(i) && i.value && shown(i));
     const hiddenUser = ins.find((i) => isInput(i) && acOf(i).includes("username") && i.value && !isPassword(i));
     // Change-password form (current + new [+ confirm]): the saved password is the new one, and the current one
@@ -1443,12 +1888,26 @@
     // Such pages rarely show the username: the one remembered from the sign-in, or the one Notiq filled here.
     const signedIn = recentUser() || (change && filled && filled.username) || "";
     const username = clean((before.length && before[before.length - 1].value) || (hiddenUser && hiddenUser.value) || signedIn, MAX_USER);
+    return { host, url: cleanUrl(), username, password, title: clean(document.title, 80), change, ...(current ? { current } : {}) };
+  }
+  // Returns the payload it sent (for tests) or null when skipped.
+  function capture(scope) {
+    if (!settings.offerSave || !pageSecure()) return null;
+    const host = pageHost();
+    if (!host || settings.neverSave.includes(topHost())) return null;
+    const payload = capturePayload(scope);
+    if (!payload) {
+      const u = inputsIn(scope).find((i) => isUserLike(i) && i.value && shown(i));
+      if (u) rememberUser(u.value);
+      return null;
+    }
+    const { username, password } = payload;
+    if (!password || password.length > MAX_PW) return null;
     if (filled && password === filled.password && (!username || username === filled.username)) return null;
     const now = Date.now();
     if (lastSent && lastSent.password === password && lastSent.username === username && now - lastSent.at < DEDUPE_MS) return null;
     lastSent = { username, password, at: now };
     if (username) rememberUser(username);
-    const payload = { host, url: cleanUrl(), username, password, title: clean(document.title, 80), change, ...(current ? { current } : {}) };
     send({ type: "capture", payload });
     // SPAs often don't navigate after login; look again once the form is gone.
     // (Frames: the background asks the top frame to look.)
@@ -1467,22 +1926,27 @@
   }
   function onKeydown(e) {
     if (e.isTrusted !== true) return;
+    lastUserAct = Date.now();
+    const plainKey = !e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey;
     if (suggest) {
       const t = realTarget(e);
-      const inField = t === suggest.field, inSuggest = t === shadowHost && root.activeElement === suggest.btn;
-      if (e.key === "Escape" && (inField || inSuggest)) {
+      // Keys inside the panel itself are handled there (onPanelKey).
+      if (t === shadowHost && root.activeElement && suggest.node.contains(root.activeElement)) return;
+      if (t === suggest.field && e.key === "Escape") {
         e.preventDefault();
         e.stopPropagation();
-        dismissSuggest(inSuggest);
+        dismissSuggest(false);
         return;
       }
-      if (e.key === "ArrowDown" && inField && !e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey &&
-        suggest.node.style.display !== "none") {
+      if (t === suggest.field && e.key === "ArrowDown" && plainKey && panelShown()) {
         e.preventDefault();
         e.stopPropagation();
-        suggest.btn.focus({ preventScroll: true });
+        enterPanel();
         return;
       }
+    } else if (e.key === "ArrowDown" && plainKey) {
+      const t = realTarget(e);
+      if (isInput(t) && icons.has(t) && t === activeField()) maybeSuggest(t, "key");
     }
     if (e.key === "Escape" && menu) { closeMenu(true); return; }
     if (e.key === "Escape" && bar) { closeBar(true); return; }
@@ -1505,6 +1969,8 @@
     const t = realTarget(e);
     if (menu && t !== shadowHost) closeMenu(false); // click outside our UI closes the menu
     if (suggest && t !== shadowHost && t !== suggest.field) hideSuggest();
+    // A click into the focused field (also one that got focus on page load) opens its panel.
+    if (t !== shadowHost && isInput(t) && icons.has(t) && t === activeField() && !(suggest && suggest.field === t)) maybeSuggest(t, "click");
     if (!t || !t.closest || t === shadowHost) return;
     const b = t.closest('button, input[type="submit"], input[type="image"], input[type="button"], [role="button"]');
     if (!b) return;
@@ -1644,7 +2110,7 @@
     closeMenu(false);
     withIcon(field);
     const info = codes.includes(field) ? null : newPasswordInfo(field);
-    const run = codes.includes(field) ? doCodeFill(field) : info ? openNewPasswordMenu(field, info) : doFill(field, field);
+    const run = codes.includes(field) ? doCodeFill(field) : info ? openNewPasswordCard(field, info) : doFill(field, field);
     Promise.resolve(run).catch(() => {}).finally(() => menuDone(field));
   }
 
@@ -1774,7 +2240,8 @@
   function applySettings(s) {
     if ("offerSave" in s) settings.offerSave = s.offerSave !== false;
     if ("showIcon" in s) settings.showIcon = s.showIcon !== false;
-    if ("suggestOnFocus" in s) settings.suggestOnFocus = s.suggestOnFocus === true;
+    if ("suggestOnFocus" in s) settings.suggestOnFocus = s.suggestOnFocus !== false;
+    if ("genOptions" in s && GEN) genOptions = GEN.sanitize(s.genOptions);
     if ("theme" in s) { cachedTheme = NS.validateTheme(s.theme); applyThemeNow(); }
     if ("neverSave" in s) {
       settings.neverSave = Array.isArray(s.neverSave)
@@ -1788,11 +2255,12 @@
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== "local") return;
     const s = {};
-    for (const k of ["offerSave", "showIcon", "suggestOnFocus", "neverSave", "hiddenSites", "reuseTrusted", "theme"]) if (changes[k]) s[k] = changes[k].newValue;
+    for (const k of ["offerSave", "showIcon", "suggestOnFocus", "neverSave", "hiddenSites", "reuseTrusted", "theme", "genOptions"]) if (changes[k]) s[k] = changes[k].newValue;
     applySettings(s);
     scan();
     if (!iconsOn() && !(menu && menuIcons.has(menu.field))) closeMenu(false);
-    if (!iconsOn() || !settings.suggestOnFocus) hideSuggest();
+    if (suggest && !suggest.explicit && (!iconsOn() || !settings.suggestOnFocus)) hideSuggest();
+    if (suggest && suggest.kind === "gen" && (changes.genOptions || changes.offerSave || changes.neverSave)) refreshGen();
     if (warn && settings.reuseTrusted.includes(topHost())) closeWarn();
     if (bar && !settings.offerSave) closeBar(false);
   });
@@ -1846,6 +2314,7 @@
 
   document.addEventListener("submit", onSubmit, true);
   document.addEventListener("keydown", onKeydown, true);
+  document.addEventListener("pointerdown", (e) => { if (e.isTrusted === true) lastUserAct = Date.now(); }, true);
   document.addEventListener("click", onClick, true);
   document.addEventListener("change", onChange, true);
   document.addEventListener("focusin", onFocusIn, true);
@@ -1859,7 +2328,7 @@
     window.navigation.addEventListener("navigatesuccess", onUrlMaybeChanged);
   }
 
-  chrome.storage.local.get({ offerSave: true, showIcon: true, suggestOnFocus: false, neverSave: [], hiddenSites: [], reuseTrusted: [], theme: null }, (s) => {
+  chrome.storage.local.get({ offerSave: true, showIcon: true, suggestOnFocus: true, neverSave: [], hiddenSites: [], reuseTrusted: [], theme: null, genOptions: null }, (s) => {
     applySettings(s || {});
     scan();
     schedulePending(300);
