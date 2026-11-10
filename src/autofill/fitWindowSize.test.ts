@@ -5,11 +5,11 @@ import { splitHost } from "./hostParts";
 describe("fitWindowSize", () => {
   it("keeps the width fixed and follows the content height", () => {
     expect(fitWindowSize(300, 250)).toEqual({ width: PROMPT_LIMITS.width, height: 250 });
-    expect(fitWindowSize(900, 250).width).toBe(420);
+    expect(fitWindowSize(900, 250).width).toBe(PROMPT_LIMITS.width);
   });
   it("clamps the height", () => {
-    expect(fitWindowSize(420, 40).height).toBe(160);
-    expect(fitWindowSize(420, 2000).height).toBe(560);
+    expect(fitWindowSize(420, 40).height).toBe(PROMPT_LIMITS.minHeight);
+    expect(fitWindowSize(420, 2000).height).toBe(PROMPT_LIMITS.maxHeight);
     expect(fitWindowSize(420, 300, { width: 380, minHeight: 100, maxHeight: 200 })).toEqual({ width: 380, height: 200 });
   });
   it("rounds fractional layout heights up (no 1px scrollbar)", () => {

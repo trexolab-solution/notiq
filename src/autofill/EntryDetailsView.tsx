@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { ArrowLeft, ExternalLink, Eye, EyeOff, Lock, TriangleAlert } from "lucide-react";
+import { ArrowLeft, ExternalLink, Eye, EyeOff, KeyRound, Lock, TriangleAlert } from "lucide-react";
 import { Avatar } from "../components/ui/Avatar";
 import { Button } from "../components/ui/Button";
 import { DialogButton } from "../components/ui/DialogParts";
@@ -81,7 +81,7 @@ export function EntryDetailsView({ path, title, onBack, onOpen, onFill, fillLabe
             <ArrowLeft size={15} aria-hidden />
           </button>
         </Tooltip>
-        <Avatar name={name} size={34} />
+        <Avatar name={name} size={40} />
         <div className="af-details-id">
           <h2 className="af-details-title" title={name}>{name}</h2>
           {subtitle && <p className="af-details-sub" title={subtitle}>{subtitle}</p>}
@@ -106,7 +106,7 @@ export function EntryDetailsView({ path, title, onBack, onOpen, onFill, fillLabe
             </Tooltip>
           )}
           {onFill && (
-            <DialogButton variant="primary" className="af-fill-btn" onClick={onFill} disabled={disabled} loading={busy}
+            <DialogButton variant="primary" className="af-fill-btn" icon={<KeyRound size={15} />} onClick={onFill} disabled={disabled} loading={busy}
                           loadingText="Filling…">
               {fillLabel}
             </DialogButton>

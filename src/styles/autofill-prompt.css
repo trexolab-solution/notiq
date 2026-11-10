@@ -21,56 +21,153 @@ html.is-autofill-prompt #root { height: 100%; margin: 0; overflow: hidden; backg
 .af-window ::selection { background: color-mix(in srgb, var(--color-primary) 35%, transparent); }
 .af-window input { caret-color: var(--color-primary); }
 
-/* Header: who is asking, for which site. The site is the largest text in the window so a fake host is obvious. */
+/* ── Approval sheet (mobile-style bottom sheet): the window is the sheet, sized to its content. ── */
+.af-sheet { --af-pad: 20px; --af-radius: 16px; font-size: 13px; }
+@media (prefers-reduced-motion: no-preference) {
+  .af-sheet > .af-head, .af-sheet > .af-scroll { animation: af-rise 0.28s cubic-bezier(0.2, 0.9, 0.3, 1.1); }
+}
+@keyframes af-rise { from { transform: translateY(10px); opacity: 0.4; } }
+
+/* Head: grab handle, centred site tile, the question, the host line. The host stays the most legible line under the title. */
 .af-head {
-  display: flex; align-items: flex-start; gap: 12px;
+  display: flex; flex-direction: column; align-items: center;
   flex: none;
-  padding: 14px 10px 12px var(--dlg-pad-x);
-  border-bottom: 1px solid var(--color-border);
+  padding: 8px var(--af-pad) 14px;
+  text-align: center;
   user-select: none;
 }
-.af-head > .dlg-icon { margin-top: 2px; }
-.af-head-text { flex: 1; min-width: 0; }
-.af-host {
-  margin: 0;
-  font-size: 15px; font-weight: 600; line-height: 1.3; letter-spacing: -0.005em;
-  overflow-wrap: anywhere;
-  user-select: text;
+.af-grab {
+  width: 38px; height: 4px; border-radius: 2px; flex: none;
+  margin: 0 auto 14px;
+  background: color-mix(in srgb, var(--color-text) 18%, transparent);
 }
-/* Subdomains are quieter than the registrable domain they belong to. */
-.af-host-prefix { font-weight: 400; color: var(--color-text-muted); }
-.af-sub { margin: 3px 0 0; font-size: 12px; line-height: 1.45; color: var(--color-text-muted); }
+.af-head[data-compact] { padding-bottom: 6px; }
+.af-head[data-compact] .af-grab { margin-bottom: 8px; }
+.af-head[data-compact] .af-title { font-size: 13px; }
 
-/* Body scrolls on its own; header and footer stay put. Padding lives on the inner block so it can be measured. */
+.af-sheet-avatar.nq-avatar { border-radius: 18px; margin-bottom: 10px; }
+.af-sheet-icon {
+  display: grid; place-items: center; flex: none;
+  width: 56px; height: 56px; margin-bottom: 10px; border-radius: 18px;
+  color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 14%, transparent);
+}
+.af-sheet-icon[data-tone="danger"] { color: var(--color-danger); background: color-mix(in srgb, var(--color-danger) 14%, transparent); }
+
+.af-title {
+  margin: 0; max-width: 100%;
+  font-size: 17px; font-weight: 600; line-height: 1.3; letter-spacing: -0.01em;
+  text-wrap: balance; overflow-wrap: anywhere;
+}
+.af-hostline {
+  display: inline-flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 0 5px;
+  max-width: 100%; margin: 5px 0 0;
+  font-size: 12.5px; line-height: 1.45; color: var(--color-text-muted);
+}
+.af-hostline > svg { flex: none; }
+.af-hostline[data-secure] { color: var(--color-success); }
+.af-host { min-width: 0; overflow-wrap: anywhere; user-select: text; }
+/* Subdomains are quieter than the registrable domain they belong to, so `example.com.evil.io` reads as `evil.io`. */
+.af-host-prefix { opacity: 0.75; }
+.af-host-site { font-weight: 600; }
+.af-hostline:not([data-secure]) .af-host-site { color: var(--color-text); }
+.af-kind { color: var(--color-text-muted); white-space: nowrap; }
+.af-dot { margin-right: 5px; }
+
+/* Body scrolls on its own; head and actions stay put. Padding lives on the inner block so it can be measured. */
 .af-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
-.af-content { padding: 14px var(--dlg-pad-x) 12px; }
+.af-content { padding: 2px var(--dlg-pad-x) 12px; }
+.af-sheet .af-content { padding: 2px var(--af-pad) 4px; }
 .af-content > * + * { margin-top: 12px; }
+.af-sheet .af-content > * + * { margin-top: 10px; }
 .af-content > .dlg-check { margin-top: 14px; }
-.af-window .dlg-footer { padding-top: 0; }
 
 .af-lead { margin: 0; font-size: 13px; line-height: 1.5; color: var(--color-text); }
-.af-detail { margin: 0; font-size: 12px; line-height: 1.5; color: var(--color-text-muted); }
+.af-detail, .af-note-line { margin: 0; font-size: 12px; line-height: 1.5; color: var(--color-text-muted); }
+.af-sheet .af-note-line { text-align: center; text-wrap: pretty; }
 .af-error { display: block; margin-top: 4px; font-size: 12px; line-height: 1.45; color: var(--color-danger); }
 .af-muted { color: var(--color-text-muted); }
 .af-host-inline { overflow-wrap: anywhere; }
 
-/* Header: the site's letter avatar (with what will be filled as its badge) and the "Login" / "Payment card" chip. */
-.af-head > .af-site-avatar { margin-top: 1px; }
-.af-kind {
-  display: inline-flex; align-items: center; gap: 4px; vertical-align: 1px;
-  margin-right: 6px; padding: 1px 7px 1px 6px; border-radius: 999px;
-  font-size: 11px; font-weight: 600; line-height: 16px; color: var(--color-text);
-  background: color-mix(in srgb, var(--color-primary) 14%, transparent);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-primary) 30%, transparent);
+/* Selected account: one rounded row; with several entries it is a button that opens the list below it. */
+.af-acct {
+  display: flex; align-items: center;
+  border-radius: var(--af-radius);
+  background: var(--color-bg-tertiary);
 }
-.af-kind > svg { color: var(--color-primary); flex: none; }
+.af-acct-main {
+  flex: 1 1 auto; min-width: 0;
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 12px; border: 0; border-radius: var(--af-radius);
+  background: transparent; color: inherit; font: inherit; text-align: left;
+}
+button.af-acct-main { cursor: pointer; }
+button.af-acct-main:hover:not(:disabled) { background: color-mix(in srgb, var(--color-text) 5%, transparent); }
+button.af-acct-main:disabled { cursor: default; opacity: 0.7; }
+.af-acct-main:focus-visible, .af-option:focus-visible, .af-pill:focus-visible, .af-trust input:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--color-primary) 75%, transparent); outline-offset: 1px;
+}
+.af-avatar.nq-avatar { border-radius: 12px; }
+.af-acct-text { display: flex; flex-direction: column; min-width: 0; flex: 1 1 auto; }
+.af-acct-title { font-size: 14px; font-weight: 600; line-height: 1.35; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.af-acct-sub { font-size: 12px; line-height: 1.4; color: var(--color-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.af-chev { flex: none; color: var(--color-text-muted); }
+.af-picker[data-open] .af-chev { transform: rotate(180deg); }
+@media (prefers-reduced-motion: no-preference) { .af-chev { transition: transform 0.2s; } }
+.af-acct-details.af-details-btn { opacity: 1; width: 32px; height: 32px; margin-right: 8px; border-radius: 10px; }
 
-/* "Only allow this if you just pressed Fill": the one thing to read before allowing. */
-.af-window .af-trust-note { --dlg-tone: var(--color-primary); }
+/* The other entries, inline under the selected one (listbox). */
+.af-acct-pop { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+@media (prefers-reduced-motion: no-preference) { .af-acct-pop { animation: af-drop 0.18s ease-out; } }
+@keyframes af-drop { from { transform: translateY(-4px); opacity: 0.4; } }
+.af-options { display: flex; flex-direction: column; gap: 2px; }
+.af-option {
+  display: flex; align-items: center; gap: 12px;
+  padding: 7px 12px; border-radius: 14px;
+  cursor: pointer; user-select: none; outline: none;
+}
+.af-option:hover, .af-option[aria-selected="true"] { background: var(--color-bg-tertiary); }
+.af-option[aria-disabled] { cursor: default; opacity: 0.7; }
+.af-tick { flex: none; color: var(--color-primary); visibility: hidden; }
+.af-option[aria-selected="true"] .af-tick { visibility: visible; }
+.af-acct-pop .af-search { height: 36px; border-radius: 12px; }
 
-/* Primary footer button carries the selected entry ("Fill as alex.morgan"): long names are cut, never wrapped. */
-.af-allow { max-width: 230px; min-width: 0; }
-.af-allow-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Actions: the primary pill, the quiet "Not now", then the small print. */
+.af-actions {
+  display: flex; flex-direction: column; align-items: stretch; gap: 4px;
+  padding: 12px var(--af-pad) 14px;
+}
+.af-actions > .dlg-btn.af-pill {
+  width: 100%; height: 44px; min-width: 0; padding: 0 18px;
+  border-radius: 999px; font-size: 14.5px; gap: 8px;
+}
+.af-actions > .dlg-btn.af-pill .dlg-btn-icon > svg { width: 17px; height: 17px; }
+.af-actions > .dlg-btn--primary.af-pill { font-weight: 600; }
+.af-actions > .dlg-btn.af-pill--quiet { height: 38px; font-weight: 500; font-size: 13.5px; color: var(--color-text-muted); }
+.af-actions > .dlg-btn.af-pill--outline { height: 40px; background: transparent; }
+/* The quiet pills ("Not now", "Cancel") start with the focus (so a stray Enter never fills): their focus is a
+   soft surface plus a thin neutral ring, never the gold accent, which stays reserved for the primary pill. */
+.af-actions > .dlg-btn.af-pill--quiet:focus-visible {
+  outline: 1.5px solid color-mix(in srgb, var(--color-text-muted) 45%, transparent); outline-offset: -1.5px;
+  background: color-mix(in srgb, var(--color-text) 4%, transparent);
+}
+.af-trust {
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  margin-top: 6px; font-size: 12px; color: var(--color-text-muted); cursor: pointer; user-select: none;
+}
+.af-trust input { width: 15px; height: 15px; margin: 0; accent-color: var(--color-primary); cursor: pointer; }
+.af-trust:has(input:checked) { color: var(--color-text); }
+.af-keys { margin: 6px 0 0; font-size: 11px; line-height: 1.6; text-align: center; color: var(--color-text-muted); }
+.af-keys kbd {
+  display: inline-block; min-width: 18px; padding: 0 5px; border-radius: 5px;
+  font-family: var(--font-mono, ui-monospace, monospace); font-size: 10.5px; line-height: 16px; text-align: center;
+  color: var(--color-text);
+  background: var(--color-bg-tertiary); box-shadow: inset 0 0 0 1px var(--color-border);
+}
+
+/* Bodies inside the sheet (unlock form, save fields, passkeys, the details view) keep their layout, rounder. */
+.af-sheet .af-row { border-radius: 12px; }
+.af-sheet .af-state, .af-sheet .af-empty { border-radius: 14px; }
 
 /* ── Choice list (radio group): avatar, bold title, muted second line, badges, details button. ── */
 .af-choices { display: flex; flex-direction: column; gap: 8px; }
@@ -229,6 +326,22 @@ html.is-autofill-prompt #root { height: 100%; margin: 0; overflow: hidden; backg
 }
 .af-details-actions > :only-child { margin-left: auto; }
 .af-fill-btn { margin-left: auto; }
+
+/* The details view inside the sheet: rounded rows and tile, pill actions on the sheet's own padding. */
+.af-sheet .af-details-head .nq-avatar { border-radius: 12px; }
+.af-sheet .af-details-title { font-size: 15px; }
+.af-sheet .af-back { border-radius: 10px; }
+.af-sheet .af-dgroups ul { border-radius: 14px; overflow: hidden; }
+.af-sheet .af-notes { border-radius: 12px; }
+.af-sheet .af-details-actions {
+  margin: 0 calc(-1 * var(--af-pad)) -4px; padding: 12px var(--af-pad) 14px;
+  border-top: 0;
+  box-shadow: 0 -10px 14px -12px rgb(0 0 0 / 0.35);
+}
+.af-sheet .af-details-actions .dlg-btn, .af-sheet .af-details-actions button {
+  height: 40px; border-radius: 999px; padding: 0 16px;
+}
+.af-sheet .af-details-actions .af-fill-btn { flex: 1; font-size: 14px; }
 
 /* Save / update fields. */
 .af-fields {
