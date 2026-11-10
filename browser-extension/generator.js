@@ -1,4 +1,5 @@
-// Notiq Autofill — password generator for the toolbar popup. Mirrors the desktop app (src/lib/passwordGen.ts):
+// Notiq Autofill — password generator for the toolbar popup and the in-page "Use strong password" card
+// (content.js, which loads this file as a content script). Mirrors the desktop app (src/lib/passwordGen.ts):
 // same options, defaults and character sets. Pure: no DOM, no chrome.*; unit-tested in test/generator.test.mjs.
 // Randomness comes from crypto.getRandomValues with rejection sampling (no modulo bias). Generated passwords
 // are never stored: only the OPTIONS are remembered (chrome.storage.local, see popup.js).
@@ -10,6 +11,8 @@
   const MAX_LENGTH = 64;
   const DEFAULTS = Object.freeze({ length: 20, lower: true, upper: true, digits: true, symbols: true, avoidAmbiguous: true });
   const SYMBOLS = "!@#$%^&*-_=+?";
+  // chrome.storage.local key of the remembered options, shared by the popup generator and the in-page card.
+  const STORAGE_KEY = "genOptions";
 
   // Clamps the length, coerces the flags and guarantees at least one character class is on.
   function sanitize(raw) {
@@ -69,7 +72,18 @@
     return { bits, level, label: ["Weak", "Fair", "Strong", "Very strong"][level] };
   }
 
-  const api = Object.freeze({ MIN_LENGTH, MAX_LENGTH, DEFAULTS, sanitize, pools, randomBelow, generate, strength });
+  // Strength of a given password (one the site's rules shaped, so the options don't describe it): bits from its
+  // length and the size of the character classes it uses.
+  function strengthOf(password) {
+    const s = String(password || "");
+    const size = (/[a-z]/.test(s) ? 26 : 0) + (/[A-Z]/.test(s) ? 26 : 0) + (/[0-9]/.test(s) ? 10 : 0) +
+      (/[^A-Za-z0-9]/.test(s) ? SYMBOLS.length : 0);
+    const bits = size > 1 ? Math.round(s.length * Math.log2(size)) : 0;
+    const level = bits < 45 ? 0 : bits < 65 ? 1 : bits < 90 ? 2 : 3;
+    return { bits, level, label: ["Weak", "Fair", "Strong", "Very strong"][level] };
+  }
+
+  const api = Object.freeze({ MIN_LENGTH, MAX_LENGTH, DEFAULTS, STORAGE_KEY, sanitize, pools, randomBelow, generate, strength, strengthOf });
   try {
     Object.defineProperty(g, "NotiqGen", { value: api, writable: false, configurable: false, enumerable: false });
   } catch { /* already defined */ }
