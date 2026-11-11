@@ -51,27 +51,66 @@ function icon(name) {
   return svg;
 }
 
-// ---------- views: main (this site) / settings / the three site lists ----------
+// ---------- views: three tabs (Logins / Generator / Settings) + the settings' site lists ----------
+// The bottom tab bar is an ARIA tablist (roving tabindex; ←/→/Home/End move and select). The site lists slide in
+// over Settings with a back button, and Esc goes back from them. showView() is also driven by the e2e tests.
 const VIEWS = { main: $("viewMain"), settings: $("viewSettings"), never: $("viewNever"), hidden: $("viewHidden"), trusted: $("viewTrusted"), gen: $("viewGen") };
-const PARENT = { gen: "main", settings: "main", never: "settings", hidden: "settings", trusted: "settings" };
+const PARENT = { never: "settings", hidden: "settings", trusted: "settings" };
+const TABS = [...document.querySelectorAll('#tabbar [role="tab"]')];
+const viewsBox = $("views");
+const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)");
 let view = "main";
 const openers = {};
-function showView(name) {
+const tabOf = (name) => (NP ? NP.tabOf(name) : PARENT[name] || name);
+function syncTabs() {
+  const current = tabOf(view);
+  for (const t of TABS) {
+    const on = t.dataset.tab === current;
+    t.setAttribute("aria-selected", on ? "true" : "false");
+    t.tabIndex = on ? 0 : -1;
+    // The Settings tab controls whichever settings screen is showing.
+    const panel = VIEWS[on ? view : t.dataset.tab];
+    if (panel) t.setAttribute("aria-controls", panel.id);
+  }
+}
+const ANIM = ["anim-left", "anim-right", "anim-fwd", "anim-back"];
+function animateIn(el, dir) {
+  el.classList.remove(...ANIM);
+  if (!dir || reduceMotion.matches) return;
+  void el.offsetWidth; // restart the animation
+  el.classList.add(`anim-${dir}`);
+  el.addEventListener("animationend", () => el.classList.remove(...ANIM), { once: true });
+}
+// opts.fromTab: switched from the tab bar (focus stays on the tab, as with any tablist).
+function showView(name, opts = {}) {
   if (!VIEWS[name] || name === view) return;
   closeSiteMenu(false);
-  const back = PARENT[view] === name;
-  if (!back) openers[name] = document.activeElement;
-  VIEWS[view].hidden = true;
-  VIEWS[name].hidden = false;
   const from = view;
+  const back = PARENT[from] === name;
+  if (!back && !opts.fromTab) openers[name] = document.activeElement;
+  VIEWS[from].hidden = true;
+  VIEWS[name].hidden = false;
   view = name;
+  syncTabs();
+  animateIn(VIEWS[name], NP ? NP.slideDir(from, name) : "");
+  if (viewsBox) viewsBox.scrollTop = 0;
   window.scrollTo(0, 0);
+  if (opts.fromTab) return;
   // Going in: focus the new view's heading (screen readers hear where they are). Going back: the control that opened it.
-  const target = back ? openers[from] : VIEWS[name].querySelector("h1[tabindex]");
+  const opener = back ? openers[from] : null;
+  const target = opener && opener.isConnected ? opener : VIEWS[name].querySelector("h1[tabindex]");
   if (target && target.isConnected && typeof target.focus === "function") target.focus();
 }
-$("openSettings").addEventListener("click", () => showView("settings"));
-$("openGen").addEventListener("click", () => showView("gen")); // the generator: popup-generator.js
+for (const t of TABS) t.addEventListener("click", () => showView(t.dataset.tab, { fromTab: true })); // generator: popup-generator.js
+$("tabbar").addEventListener("keydown", (e) => {
+  const at = TABS.indexOf(document.activeElement);
+  if (at < 0 || e.altKey || e.ctrlKey || e.metaKey) return;
+  const to = NP ? NP.nextTab(e.key, at, TABS.length) : -1;
+  if (to < 0) return;
+  e.preventDefault();
+  TABS[to].focus();
+  showView(TABS[to].dataset.tab, { fromTab: true }); // automatic activation
+});
 for (const b of document.querySelectorAll("[data-view]")) b.addEventListener("click", () => showView(b.dataset.view));
 for (const b of document.querySelectorAll("[data-back]")) b.addEventListener("click", () => showView(b.dataset.back));
 document.addEventListener("keydown", (e) => {
@@ -236,6 +275,8 @@ function setSiteHost(host) {
   siteHost.textContent = h || "This page";
   siteHost.classList.toggle("none", !h);
   siteChip.title = h;
+  // Only https (or localhost) pages ever get a host here: the lock replaces the globe.
+  siteChip.dataset.secure = h ? "true" : "false";
 }
 const PAGE_ERRORS = new Set(["not_https", "bad_url", "incognito_off"]);
 function setPageError(error) {
@@ -378,6 +419,7 @@ const accList = $("accList");
 const siteState = $("siteState");
 const siteEmpty = $("siteEmpty");
 const siteHint = $("siteHint");
+const siteSub = $("siteSub");
 let accounts = [];
 let lastState = "";
 
@@ -393,6 +435,9 @@ function siteMessage(text, kind = "error") {
     ? (offerSave.checked ? "Sign in here and Notiq will offer to save the login." : "Add one in the Notiq app to fill it here.") : "";
   siteEmpty.dataset.kind = kind;
   siteEmpty.hidden = !text;
+  // The site card's second line: "3 saved logins", "No saved logins yet", "Looking for logins…" (else nothing:
+  // the state panel / message below says what is going on).
+  siteSub.textContent = NP.siteSummary({ count: accounts.length, kind: text ? kind : "", on: lastState === "on" });
 }
 
 function renderAccounts() {
@@ -423,6 +468,15 @@ function accountRow(a) {
   u.className = "u";
   u.textContent = text.sub;
   main.append(t, u);
+  // A title and a username: the username leads (it is what gets filled), the entry name sits under it.
+  if (a.title && a.username) main.dataset.lead = "user";
+  if (a.totp) {
+    const badge = document.createElement("span");
+    badge.className = "badge";
+    badge.setAttribute("aria-hidden", "true"); // the row's copy-2FA button already says so
+    badge.textContent = "2FA";
+    main.appendChild(badge);
+  }
   main.addEventListener("click", () => fillAccount(a));
   li.appendChild(main);
   for (const what of ["username", "password", "code", "open"]) {

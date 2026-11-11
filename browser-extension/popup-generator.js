@@ -39,9 +39,26 @@
     el.strength.dataset.level = String(s.level);
     el.strengthText.textContent = `${s.label} · ${s.bits} bits`;
   }
+  // The password as text runs: digits and symbols get their own tint (letters stay plain). DOM nodes only.
+  function showValue(pw) {
+    const kind = (c) => (/[0-9]/.test(c) ? "d" : /[A-Za-z]/.test(c) ? "" : "s");
+    const parts = [];
+    for (const c of pw) {
+      const k = kind(c);
+      if (parts.length && parts[parts.length - 1].k === k) parts[parts.length - 1].text += c;
+      else parts.push({ k, text: c });
+    }
+    el.value.replaceChildren(...parts.map(({ k, text }) => {
+      if (!k) return document.createTextNode(text);
+      const s = document.createElement("span");
+      s.className = k;
+      s.textContent = text;
+      return s;
+    }));
+  }
   function regenerate() {
     current = G.generate(opts);
-    el.value.textContent = current;
+    showValue(current);
     say("");
   }
   function save() {

@@ -884,7 +884,7 @@ try {
   check("popup styles itself from the theme", popVars === "#2e3440");
   await SW(`chrome.storage.local.remove("suggestOnFocus").then(() => true)`); // real default: off
   await sleep(300);
-  const popInfo = await evalIn(pop2, `({ ver: document.getElementById("version").textContent, sw: [...document.querySelectorAll('input[type=checkbox]')].map((i) => i.getAttribute("role") + ":" + i.id + ":" + i.checked),
+  const popInfo = await evalIn(pop2, `({ ver: document.getElementById("version").textContent, sw: [...document.querySelectorAll('input[type=checkbox]:not([id^=gen])')].map((i) => i.getAttribute("role") + ":" + i.id + ":" + i.checked),
     status: document.getElementById("status").dataset.state, bg: getComputedStyle(document.body).backgroundColor })`);
   check("popup: version footer, role=switch toggles incl. 'Suggest on field focus', 'Hide Notiq on this site' and the experimental passkeys (off), status dot",
     popInfo.ver === "Notiq Autofill v0.7.0" && popInfo.sw.join() === "switch:siteHide:false,switch:showIcon:true,switch:suggestOnFocus:false,switch:offerSave:true,switch:passkeys:false" &&
@@ -1037,7 +1037,7 @@ try {
       writeFileSync(join(dir, file), Buffer.from(data, "base64"));
     };
     await cdp("Page.enable", {}, pop2);
-    await cdp("Emulation.setDeviceMetricsOverride", { width: 320, height: 640, deviceScaleFactor: 2, mobile: false }, pop2);
+    await cdp("Emulation.setDeviceMetricsOverride", { width: 360, height: 640, deviceScaleFactor: 2, mobile: false }, pop2);
     const DEFAULT_DARK = { id: "notiq-dark", mode: "dark", bg: "#0f172a", bgSecondary: "#1e293b", bgTertiary: "#334155", text: "#e2e8f0",
       textMuted: "#94a3b8", border: "#334155", primary: "#c9a84c", primaryText: "#0f172a", danger: "#f87171", success: "#4ade80" };
     for (const [name, theme] of [["dark", DEFAULT_DARK], ["light", LIGHT], ["nord", THEME]]) {
@@ -1046,7 +1046,7 @@ try {
       await evalIn(pop2, `(() => { showView("never"); return true; })()`);
       await sleep(300);
       const h = await evalIn(pop2, `Math.ceil(document.documentElement.getBoundingClientRect().height)`);
-      await shoot(pop2, `popup-${name}.png`, { x: 0, y: 0, width: 320, height: h });
+      await shoot(pop2, `popup-${name}.png`, { x: 0, y: 0, width: 360, height: h });
       await evalIn(pop2, `(() => { showView("settings"); showView("main"); const m = document.getElementById("msg"); m.className = ""; m.textContent = "Several logins match. Pick one:";
         const c = document.getElementById("choose"); c.hidden = false; c.textContent = "";
         for (const [t, u] of [["Work", "alice@work.com"], ["Home", "alice@home.example"]]) { const li = document.createElement("li"); const b = document.createElement("button");
@@ -1054,7 +1054,7 @@ try {
           b.append(a, d); li.append(b); c.append(li); } return true; })()`);
       await sleep(150);
       const h2 = await evalIn(pop2, `Math.ceil(document.documentElement.getBoundingClientRect().height)`);
-      await shoot(pop2, `popup-chooser-${name}.png`, { x: 0, y: 0, width: 320, height: h2 });
+      await shoot(pop2, `popup-chooser-${name}.png`, { x: 0, y: 0, width: 360, height: h2 });
       await evalIn(pop2, `(() => { document.getElementById("choose").hidden = true; document.getElementById("msg").textContent = ""; return true; })()`);
       await cdp("Target.activateTarget", { targetId });
       await load();
@@ -1363,14 +1363,66 @@ try {
     await sleep(150);
     const lk3 = await P3(`({ sent: window.__sent.length, state: document.getElementById("siteState").textContent, rows: document.querySelectorAll("#accList li").length })`);
     check("popup with a locked vault asks for nothing and says to unlock", lk3.sent === 0 && lk3.rows === 0 && /Unlock Notiq/.test(lk3.state), JSON.stringify(lk3));
+    // Every state the Logins tab can be in still renders its panel (title, retry button, no Fill button).
+    const panelOf = (setup) => P3(`(() => { ${setup}; const p = document.getElementById("panel");
+      return { shown: !p.hidden, title: document.getElementById("panelTitle").textContent, text: document.getElementById("panelText").textContent,
+        retry: !document.getElementById("panelAction").hidden, fill: !document.getElementById("fill").hidden, list: !document.getElementById("site").hidden }; })()`);
+    const states = {
+      off: await panelOf(`conn.noHost = false; loadSite("off")`),
+      nohost: await panelOf(`conn.noHost = true; loadSite("off")`),
+      locked: await panelOf(`conn.noHost = false; loadSite("locked")`),
+      updApp: await panelOf(`conn.detail = ""; loadSite("update_app")`),
+      updExt: await panelOf(`loadSite("update_ext")`),
+      priv: await panelOf(`setPageError("incognito_off")`),
+      http: await panelOf(`setPageError("not_https")`),
+      other: await panelOf(`setPageError("bad_url")`),
+    };
+    check("popup states: not running / not set up / locked / update app / update extension / private window / http / non-web page",
+      Object.values(states).every((s) => s.shown && !s.fill && !s.list) &&
+      /isn't running/.test(states.off.title) && states.off.retry && /set up/.test(states.nohost.title) && /locked/.test(states.locked.title) && states.locked.retry &&
+      states.updApp.title === "Update Notiq" && !states.updApp.retry && states.updExt.title === "Update the extension" &&
+      states.priv.title === "Private window" && /Autofill is off in private windows/.test(states.priv.text) && states.priv.retry &&
+      /can't fill/.test(states.http.title) && /Nothing to fill/.test(states.other.title), JSON.stringify(states));
+    await stub({ list: { ok: true, host: "localhost", accounts: ACC } });
+    await P3(`(setPageError(""), loadSite("on"), true)`);
+    const sum3 = await waitFor(async () => { const t = await P3(`document.getElementById("siteSub").textContent`); return t === "2 saved logins" && t; }, 2000);
+    const back3 = await panelOf("");
+    check("popup: back to unlocked, the panel goes away", !back3.shown && back3.fill && back3.list, JSON.stringify(back3));
+    check("popup: the site card counts the logins", sum3 === "2 saved logins", String(sum3));
+    // The bottom tab bar: a tablist with a roving tabindex; ←/→/Home/End move and select, the panels follow.
+    const tabInfo = () => P3(`({ sel: [...document.querySelectorAll('#tabbar [role="tab"]')].map((t) => t.getAttribute("aria-selected") + ":" + t.tabIndex).join(),
+      shown: [...document.querySelectorAll(".view")].filter((v) => !v.hidden).map((v) => v.id).join(), focus: document.activeElement.id,
+      dv: document.activeElement.dataset ? document.activeElement.dataset.view || "" : "", ctl: document.getElementById("openSettings").getAttribute("aria-controls") })`);
+    await P3(`(document.getElementById("tabLogins").focus(), true)`);
+    await key("ArrowRight");
+    const tb1 = await tabInfo();
+    await key("End");
+    const tb2 = await tabInfo();
+    await key("ArrowRight");
+    const tb3 = await tabInfo();
+    await key("ArrowLeft");
+    const tb4 = await tabInfo();
+    check("popup tab bar: → / End / → (wraps) / ← move focus and select the tab; one tab in the Tab order; panels follow",
+      tb1.shown === "viewGen" && tb1.focus === "openGen" && tb1.sel === "false:-1,true:0,false:-1" &&
+      tb2.shown === "viewSettings" && tb2.focus === "openSettings" && tb3.shown === "viewMain" && tb3.focus === "tabLogins" && tb3.sel === "true:0,false:-1,false:-1" &&
+      tb4.shown === "viewSettings", JSON.stringify([tb1, tb2, tb3, tb4]));
+    await P3(`(() => { const r = document.querySelector('[data-view="never"]'); r.focus(); r.click(); return true; })()`);
+    const sb1 = await tabInfo();
+    await key("Escape");
+    const sb2 = await tabInfo();
+    check("popup settings list screen: heading focused, Settings tab stays selected (controls it), Esc goes back to the row that opened it",
+      sb1.shown === "viewNever" && sb1.focus === "neverTitle" && sb1.sel === "false:-1,false:-1,true:0" && sb1.ctl === "viewNever" &&
+      sb2.shown === "viewSettings" && sb2.dv === "never" && sb2.ctl === "viewSettings", JSON.stringify([sb1, sb2]));
+    await P3(`(document.getElementById("tabLogins").click(), true)`);
+    check("popup: clicking a tab shows its panel", (await tabInfo()).shown === "viewMain");
     if (process.env.NOTIQ_POPUP_SHOT) {
       await stub({ list: { ok: true, host: "accounts.example.com", accounts: [ACC[0], { ...ACC[1], title: "Home" }, { account: "x", title: "Shared family login with a long name", username: "family@example.com", totp: true }] } });
       await P3(`(setStatus("on", "Notiq unlocked"), loadSite("on"), true)`);
       await cdp("Page.enable", {}, pop3);
-      await cdp("Emulation.setDeviceMetricsOverride", { width: 320, height: 760, deviceScaleFactor: 2, mobile: false }, pop3);
+      await cdp("Emulation.setDeviceMetricsOverride", { width: 360, height: 760, deviceScaleFactor: 2, mobile: false }, pop3);
       await sleep(300);
       const h = await P3(`Math.ceil(document.documentElement.getBoundingClientRect().height)`);
-      const { data } = await cdp("Page.captureScreenshot", { format: "png", clip: { x: 0, y: 0, width: 320, height: h, scale: 1 } }, pop3);
+      const { data } = await cdp("Page.captureScreenshot", { format: "png", clip: { x: 0, y: 0, width: 360, height: h, scale: 1 } }, pop3);
       writeFileSync(process.env.NOTIQ_POPUP_SHOT, Buffer.from(data, "base64"));
     }
     await cdp("Target.closeTarget", { targetId: pop3Target });

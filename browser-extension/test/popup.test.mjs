@@ -272,3 +272,50 @@ test("row click fills the listed account through the normal fill (app approval) 
   assert.equal(sw.injected[0][0], "accounts.example.com");
   assert.equal(sw.injected[0][1].password, "Home-Pw-9");
 });
+
+// ---------- popupkit.js: the bottom tab bar ----------
+test("popupkit: tabs and the screens that belong to them", () => {
+  assert.deepEqual([...NP.TABS], ["main", "gen", "settings"]);
+  assert.ok(Object.isFrozen(NP.TABS) && Object.isFrozen(NP.SUB_VIEWS));
+  for (const t of NP.TABS) assert.equal(NP.tabOf(t), t);
+  for (const s of ["never", "hidden", "trusted"]) assert.equal(NP.tabOf(s), "settings");
+  for (const bad of ["", "toString", "__proto__", undefined, null, "constructor"]) assert.equal(NP.tabOf(bad), "main", String(bad));
+});
+
+test("popupkit: arrow keys on the tab bar wrap around; other keys are ignored", () => {
+  assert.equal(NP.nextTab("ArrowRight", 0, 3), 1);
+  assert.equal(NP.nextTab("ArrowRight", 2, 3), 0);
+  assert.equal(NP.nextTab("ArrowLeft", 0, 3), 2);
+  assert.equal(NP.nextTab("ArrowLeft", 2, 3), 1);
+  assert.equal(NP.nextTab("Home", 2, 3), 0);
+  assert.equal(NP.nextTab("End", 0, 3), 2);
+  for (const k of ["ArrowDown", "ArrowUp", "Enter", " ", "Tab", "a"]) assert.equal(NP.nextTab(k, 1, 3), -1, k);
+  assert.equal(NP.nextTab("ArrowRight", -1, 3), -1);
+  assert.equal(NP.nextTab("ArrowRight", 3, 3), -1);
+  assert.equal(NP.nextTab("ArrowRight", 0, 0), -1);
+  assert.equal(NP.nextTab("ArrowRight", 0, 1), 0);
+});
+
+test("popupkit: view changes slide by tab order; sub-screens slide in and back", () => {
+  assert.equal(NP.slideDir("main", "gen"), "right");
+  assert.equal(NP.slideDir("main", "settings"), "right");
+  assert.equal(NP.slideDir("settings", "gen"), "left");
+  assert.equal(NP.slideDir("gen", "main"), "left");
+  assert.equal(NP.slideDir("settings", "never"), "fwd");
+  assert.equal(NP.slideDir("trusted", "settings"), "back");
+  assert.equal(NP.slideDir("hidden", "main"), "left"); // leaving Settings by the tab bar
+  assert.equal(NP.slideDir("never", "hidden"), ""); // same tab, not its parent: no slide
+  assert.equal(NP.slideDir("main", "main"), "");
+});
+
+test("popupkit: the site card's summary line", () => {
+  assert.equal(NP.siteSummary({ count: 1 }), "1 saved login");
+  assert.equal(NP.siteSummary({ count: 3, kind: "nomatch", on: true }), "3 saved logins");
+  assert.equal(NP.siteSummary({ count: 0, kind: "loading" }), "Looking for saved logins…");
+  assert.equal(NP.siteSummary({ count: 0, kind: "empty", on: true }), "No saved logins yet");
+  // Locked / not running / errors: the state panel or the list's own line says it.
+  assert.equal(NP.siteSummary({ count: 0, kind: "empty", on: false }), "");
+  assert.equal(NP.siteSummary({ count: 0, kind: "error", on: true }), "");
+  assert.equal(NP.siteSummary(), "");
+  assert.equal(NP.siteSummary({ count: "3" }), "");
+});

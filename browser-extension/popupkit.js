@@ -161,8 +161,51 @@
     }
   }
 
+  // ---------- the bottom tab bar (Logins / Generator / Settings) ----------
+  const TABS = Object.freeze(["main", "gen", "settings"]);
+  // Screens that slide in over a tab (with a back button) and the tab they belong to.
+  const SUB_VIEWS = Object.freeze({ never: "settings", hidden: "settings", trusted: "settings" });
+  const own = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
+
+  // The tab that is selected while `view` shows ("main" for anything unknown).
+  function tabOf(view) {
+    if (TABS.includes(view)) return view;
+    return own(SUB_VIEWS, view) ? SUB_VIEWS[view] : "main";
+  }
+
+  // Arrow keys on a horizontal tablist of `n` tabs (wrapping): the tab to move to, or -1 for keys it ignores.
+  function nextTab(key, at, n) {
+    if (!Number.isInteger(n) || n < 1 || !Number.isInteger(at) || at < 0 || at >= n) return -1;
+    switch (key) {
+      case "ArrowRight": return (at + 1) % n;
+      case "ArrowLeft": return (at - 1 + n) % n;
+      case "Home": return 0;
+      case "End": return n - 1;
+      default: return -1;
+    }
+  }
+
+  // How a view comes in: "fwd" / "back" for a sub-screen and its tab, else "right" / "left" by tab order.
+  function slideDir(from, to) {
+    if (from === to) return "";
+    if (own(SUB_VIEWS, to) && SUB_VIEWS[to] === from) return "fwd";
+    if (own(SUB_VIEWS, from) && SUB_VIEWS[from] === to) return "back";
+    const a = TABS.indexOf(tabOf(from));
+    const b = TABS.indexOf(tabOf(to));
+    return b === a ? "" : b > a ? "right" : "left";
+  }
+
+  // The site card's second line. count: logins listed; kind: the list's state (loading | empty | nomatch | error | "");
+  // on: Notiq is unlocked and answered. "" while something else (state panel, error line) says what is going on.
+  function siteSummary({ count, kind, on } = {}) {
+    if (Number.isInteger(count) && count > 0) return count === 1 ? "1 saved login" : `${count} saved logins`;
+    if (kind === "loading") return "Looking for saved logins…";
+    if (on && kind === "empty") return "No saved logins yet";
+    return "";
+  }
+
   const api = Object.freeze({ MAX, COPY_WHAT, validAccounts, filterAccounts, rowText, labels, copiedText, listText, actionText, nextRow,
-    initial, statusLabel, mainPanel });
+    initial, statusLabel, mainPanel, TABS, SUB_VIEWS, tabOf, nextTab, slideDir, siteSummary });
   try {
     Object.defineProperty(g, "NotiqPopup", { value: api, writable: false, configurable: false, enumerable: false });
   } catch { /* already defined */ }

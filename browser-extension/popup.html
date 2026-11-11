@@ -3,464 +3,538 @@
 <meta charset="utf-8">
 <title>Notiq Autofill</title>
 <style>
-  /* Colours: --nq-* custom properties set by NotiqShared.applyTheme (the Notiq app's
-     theme, or a built-in dark/light default that follows the OS). Tints via color-mix(). */
+  /* Colours: --nq-* custom properties set by NotiqShared.applyTheme (the Notiq app's theme, or a built-in
+     dark/light default that follows the OS). Everything else is derived with color-mix(). Mobile layout:
+     fixed 360px, a scrolling view area and a bottom tab bar (Logins / Generator / Settings). */
   :root {
     --nq-bg: #0f172a; --nq-bg2: #1e293b; --nq-bg3: #334155; --nq-text: #e2e8f0; --nq-muted: #94a3b8;
     --nq-border: #334155; --nq-primary: #c9a84c; --nq-on-primary: #0f172a; --nq-danger: #f87171; --nq-success: #4ade80;
+    /* page / cards: dark = the theme's background with lighter cards */
+    --page: var(--nq-bg);
+    --card: color-mix(in srgb, var(--nq-bg2) 62%, var(--nq-bg));
+    --card-2: color-mix(in srgb, var(--nq-bg2) 90%, var(--nq-text));
+    --bar: color-mix(in srgb, var(--nq-bg2) 45%, var(--nq-bg));
+    /* text: muted is pulled a little towards the text colour so it stays >= 4.5:1 on cards */
+    --muted: color-mix(in srgb, var(--nq-muted) 85%, var(--nq-text));
+    --accent-ink: color-mix(in srgb, var(--nq-primary) 85%, var(--nq-text));
+    --ok-ink: color-mix(in srgb, var(--nq-success) 75%, var(--nq-text));
+    --err-ink: color-mix(in srgb, var(--nq-danger) 80%, var(--nq-text));
     --hover: color-mix(in srgb, var(--nq-text) 6%, transparent);
-    --press: color-mix(in srgb, var(--nq-text) 10%, transparent);
-    --line: color-mix(in srgb, var(--nq-border) 75%, transparent);
-    --ring: color-mix(in srgb, var(--nq-primary) 75%, transparent);
+    --press: color-mix(in srgb, var(--nq-text) 11%, transparent);
+    --line: color-mix(in srgb, var(--nq-border) 80%, transparent);
+    --ring: var(--nq-primary);
     --primary-hover: color-mix(in srgb, var(--nq-primary) 88%, var(--nq-text));
-    --surface: color-mix(in srgb, var(--nq-bg2) 55%, var(--nq-bg));
-    --surface-2: color-mix(in srgb, var(--nq-bg2) 85%, var(--nq-bg));
-    --tint: color-mix(in srgb, var(--nq-primary) 14%, transparent);
-    --soft: color-mix(in srgb, var(--nq-muted) 82%, var(--nq-bg));
-    --r: 10px;
+    --tint: color-mix(in srgb, var(--nq-primary) 15%, transparent);
+    --shadow: 0 1px 2px color-mix(in srgb, #000 22%, transparent);
+    --r-lg: 20px; --r: 16px; --r-sm: 12px;
+    --ease: cubic-bezier(.2, .8, .2, 1);
+    --mono: ui-monospace, SFMono-Regular, "Cascadia Mono", Consolas, "Liberation Mono", monospace;
     color-scheme: dark;
   }
   @media (prefers-color-scheme: light) {
     :root:not([data-nq-mode]) {
       --nq-bg: #ffffff; --nq-bg2: #f1f5f9; --nq-bg3: #e2e8f0; --nq-text: #1e293b; --nq-muted: #64748b;
       --nq-border: #cbd5e1; --nq-primary: #b45309; --nq-on-primary: #ffffff; --nq-danger: #dc2626; --nq-success: #16a34a;
+      --page: color-mix(in srgb, var(--nq-bg2) 75%, var(--nq-bg)); --card: var(--nq-bg); --bar: var(--nq-bg);
+      --card-2: color-mix(in srgb, var(--nq-bg2) 60%, var(--nq-bg));
+      --muted: color-mix(in srgb, var(--nq-muted) 80%, var(--nq-text));
+      --accent-ink: color-mix(in srgb, var(--nq-primary) 80%, var(--nq-text));
+      --ok-ink: color-mix(in srgb, var(--nq-success) 65%, var(--nq-text));
+      --shadow: 0 1px 2px color-mix(in srgb, #0f172a 8%, transparent), 0 1px 1px color-mix(in srgb, #0f172a 4%, transparent);
       color-scheme: light;
     }
   }
+  :root[data-nq-mode="light"] {
+    --page: color-mix(in srgb, var(--nq-bg2) 75%, var(--nq-bg)); --card: var(--nq-bg); --bar: var(--nq-bg);
+    --card-2: color-mix(in srgb, var(--nq-bg2) 60%, var(--nq-bg));
+    --muted: color-mix(in srgb, var(--nq-muted) 80%, var(--nq-text));
+    --accent-ink: color-mix(in srgb, var(--nq-primary) 80%, var(--nq-text));
+    --ok-ink: color-mix(in srgb, var(--nq-success) 65%, var(--nq-text));
+    --shadow: 0 1px 2px color-mix(in srgb, #0f172a 8%, transparent), 0 1px 1px color-mix(in srgb, #0f172a 4%, transparent);
+  }
   * { box-sizing: border-box; }
-  html { background: var(--nq-bg); overflow-x: hidden; }
-  body { width: 360px; min-height: 300px; margin: 0; background: var(--nq-bg); color: var(--nq-text);
-    font: 13px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; -webkit-font-smoothing: antialiased; }
-  button { font: inherit; color: inherit; }
+  html { background: var(--page); overflow-x: hidden; }
+  body { width: 360px; margin: 0; background: var(--page); color: var(--nq-text); overflow: hidden;
+    font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; -webkit-font-smoothing: antialiased; }
+  button, input { font: inherit; color: inherit; }
   [hidden] { display: none !important; }
   :focus { outline: none; }
   :focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
   svg { display: block; }
   .vh { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  h1[tabindex]:focus, h1[tabindex]:focus-visible { outline: none; }
 
-  /* ---------- views ---------- */
-  .view { display: flex; flex-direction: column; min-height: 300px; }
-  .bar { display: flex; align-items: center; gap: 10px; padding: 10px 12px 10px 14px; border-bottom: 1px solid var(--line); }
-  .body { padding: 12px 14px 12px; display: flex; flex-direction: column; gap: 12px; flex: 1; }
-  .icon-btn { width: 30px; height: 30px; flex: none; display: grid; place-items: center; padding: 0; border: 0; border-radius: 8px;
-    background: transparent; color: var(--nq-muted); cursor: pointer; transition: background-color .12s, color .12s; }
-  .icon-btn svg { width: 17px; height: 17px; }
+  /* ---------- app shell: header / scrolling views / tab bar ---------- */
+  .app { display: flex; flex-direction: column; min-height: 420px; max-height: 600px; }
+  .appbar { flex: none; display: flex; align-items: center; gap: 10px; padding: 12px 16px 10px; }
+  .mark { width: 30px; height: 30px; border-radius: 9px; flex: none; display: block; }
+  .brand { min-width: 0; flex: 1; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .brand-name { font-size: 15px; font-weight: 700; letter-spacing: -.01em; white-space: nowrap; }
+  .status { display: inline-flex; align-items: center; gap: 6px; min-width: 0; max-width: 200px; height: 28px; padding: 0 10px;
+    border-radius: 999px; font-size: 13px; font-weight: 550; color: var(--muted); background: var(--card); border: 1px solid var(--line); }
+  #statusText { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--nq-muted); }
+  .status[data-state="unknown"] .dot { animation: pulse 1.2s ease-in-out infinite; }
+  .status[data-state="on"] .dot { background: var(--nq-success); }
+  .status[data-state="off"] .dot { background: var(--nq-danger); }
+  .status[data-state="locked"] .dot, .status[data-state="update_app"] .dot, .status[data-state="update_ext"] .dot { background: var(--nq-primary); }
+  @keyframes pulse { 50% { opacity: .35; } }
+
+  .views { flex: 1 1 auto; min-height: 0; overflow: hidden auto; overscroll-behavior: contain; scrollbar-width: thin; }
+  .view { display: flex; flex-direction: column; gap: 12px; padding: 4px 12px 16px; }
+  .view-head { display: flex; align-items: center; gap: 6px; min-height: 44px; margin: 0 0 -2px; padding: 0 4px; }
+  .view-head h1 { flex: 1; margin: 0; font-size: 20px; font-weight: 700; letter-spacing: -.015em; line-height: 1.2; }
+  .view.sub .view-head { padding-left: 0; }
+  .view.sub .view-head h1 { font-size: 18px; }
+
+  /* view changes: a short slide + fade (none under reduced motion) */
+  @keyframes in-right { from { opacity: 0; transform: translateX(14px); } }
+  @keyframes in-left { from { opacity: 0; transform: translateX(-14px); } }
+  @keyframes in-fwd { from { opacity: 0; transform: translateX(32px); } }
+  @keyframes in-back { from { opacity: 0; transform: translateX(-32px); } }
+  .view.anim-right { animation: in-right .2s var(--ease); }
+  .view.anim-left { animation: in-left .2s var(--ease); }
+  .view.anim-fwd { animation: in-fwd .24s var(--ease); }
+  .view.anim-back { animation: in-back .24s var(--ease); }
+
+  .tabbar { flex: none; display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; padding: 6px 8px 8px;
+    background: var(--bar); border-top: 1px solid var(--line); }
+  .tab { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; min-height: 52px; padding: 6px 4px;
+    border: 0; border-radius: var(--r-sm); background: transparent; color: var(--muted); cursor: pointer;
+    font-size: 13px; font-weight: 600; transition: background-color .15s, color .15s; }
+  .tab .tab-ico { display: grid; place-items: center; width: 52px; height: 28px; border-radius: 999px; transition: background-color .15s; }
+  .tab svg { width: 20px; height: 20px; }
+  .tab:hover { color: var(--nq-text); }
+  .tab:hover .tab-ico { background: var(--hover); }
+  .tab[aria-selected="true"] { color: var(--accent-ink); }
+  .tab[aria-selected="true"] .tab-ico { background: var(--tint); }
+  .tab:focus-visible { outline-offset: -2px; }
+
+  /* ---------- buttons ---------- */
+  .icon-btn { width: 40px; height: 40px; flex: none; display: grid; place-items: center; padding: 0; border: 0; border-radius: var(--r-sm);
+    background: transparent; color: var(--muted); cursor: pointer; transition: background-color .12s, color .12s; }
+  .icon-btn svg { width: 20px; height: 20px; }
   .icon-btn:hover { background: var(--hover); color: var(--nq-text); }
   .icon-btn:active { background: var(--press); }
   .icon-btn[aria-expanded="true"] { background: var(--press); color: var(--nq-text); }
-
-  /* ---------- main header ---------- */
-  .mark { width: 28px; height: 28px; border-radius: 7px; flex: none; display: block; }
-  .brand { min-width: 0; flex: 1; }
-  h1 { margin: 0; font-size: 13.5px; font-weight: 650; letter-spacing: -.01em; line-height: 1.25; }
-  .status { display: flex; align-items: center; gap: 6px; margin-top: 1px; font-size: 12px; color: var(--nq-muted); min-width: 0; }
-  #statusText { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--nq-muted); }
-  .status[data-state="unknown"] .dot { animation: pulse 1.2s ease-in-out infinite; }
-  .status[data-state="on"] .dot { background: var(--nq-success); box-shadow: 0 0 0 3px color-mix(in srgb, var(--nq-success) 18%, transparent); }
-  .status[data-state="off"] .dot { background: var(--nq-danger); box-shadow: 0 0 0 3px color-mix(in srgb, var(--nq-danger) 18%, transparent); }
-  .status[data-state="locked"] .dot, .status[data-state="update_app"] .dot, .status[data-state="update_ext"] .dot {
-    background: var(--nq-primary); box-shadow: 0 0 0 3px color-mix(in srgb, var(--nq-primary) 20%, transparent); }
-  @keyframes pulse { 50% { opacity: .35; } }
-
-  /* ---------- site bar ---------- */
-  .site { position: relative; display: flex; align-items: center; gap: 8px; }
-  .chip { min-width: 0; flex: 1; display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 8px 0 12px; border-radius: var(--r);
-    background: var(--surface); border: 1px solid var(--line); }
-  .chip svg { width: 14px; height: 14px; flex: none; color: var(--nq-muted); }
-  .chip[data-secure="true"] svg { color: var(--nq-success); }
-  #siteHost { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 550; }
-  #siteHost.none { color: var(--nq-muted); font-weight: 400; }
-  .tag { flex: none; padding: 1px 8px; border-radius: 6px; font-size: 11px; font-weight: 650; line-height: 16px; letter-spacing: .01em;
-    color: var(--nq-muted); background: color-mix(in srgb, var(--nq-text) 9%, transparent); }
-  .tag.beta { color: var(--nq-primary); background: var(--tint); text-transform: uppercase; letter-spacing: .05em; font-size: 11px; }
-  #siteMenuBtn { width: 34px; height: 34px; border: 1px solid var(--line); background: var(--surface); }
-  #siteMenuBtn:hover { background: var(--surface-2); }
-  .menu { position: absolute; z-index: 5; top: calc(100% + 6px); right: 0; width: 280px; padding: 4px; border-radius: 12px;
-    background: var(--surface-2); border: 1px solid var(--line);
-    box-shadow: 0 12px 28px -8px color-mix(in srgb, #000 45%, transparent), 0 2px 6px color-mix(in srgb, #000 18%, transparent); }
-  .menu .row { border-radius: 8px; }
-
-  /* ---------- primary action ---------- */
-  #fill { display: flex; align-items: center; gap: 8px; width: 100%; height: 40px; padding: 0 10px 0 14px; border: 0; border-radius: var(--r);
-    background: var(--nq-primary); color: var(--nq-on-primary); font-weight: 600; cursor: pointer; text-align: left; transition: background-color .12s; }
-  #fill:hover { background: var(--primary-hover); }
-  #fill:active { transform: translateY(.5px); }
-  #fill:disabled { opacity: .6; cursor: default; }
-  #fill svg { width: 16px; height: 16px; flex: none; }
-  #fill .label { flex: 1; min-width: 0; }
-  kbd { flex: none; padding: 1px 8px; border-radius: 6px; font: 600 11px/18px system-ui, -apple-system, "Segoe UI", sans-serif; white-space: nowrap;
-    background: color-mix(in srgb, var(--nq-on-primary) 13%, transparent); color: color-mix(in srgb, var(--nq-on-primary) 78%, transparent); }
-  kbd:empty { display: none; }
-
-  #msg { margin: -4px 0 0; font-size: 12.5px; color: var(--nq-muted); display: flex; gap: 6px; align-items: flex-start; }
-  #msg:empty { display: none; }
-  #msg.err { color: var(--nq-danger); }
-  #msg.ok { color: var(--nq-success); }
-
-  /* ---------- state panel (not running / locked / update / unsupported page) ---------- */
-  .panel { display: flex; flex-direction: column; align-items: center; text-align: center; padding: 22px 16px 18px; border-radius: 12px;
-    background: var(--surface); border: 1px solid var(--line); }
-  .panel-ico { width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; margin-bottom: 10px;
-    background: color-mix(in srgb, var(--nq-text) 8%, transparent); color: var(--nq-muted); }
-  .panel-ico svg { width: 20px; height: 20px; }
-  .panel[data-icon="lock"] .panel-ico, .panel[data-icon="update"] .panel-ico { background: var(--tint); color: var(--nq-primary); }
-  .panel[data-icon="power"] .panel-ico { background: color-mix(in srgb, var(--nq-danger) 13%, transparent); color: var(--nq-danger); }
-  .panel h2 { margin: 0; font-size: 13.5px; font-weight: 650; }
-  .panel p { margin: 4px 0 0; color: var(--nq-muted); font-size: 12.5px; max-width: 280px; text-wrap: pretty; }
-  .btn { margin-top: 14px; display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 14px; border-radius: 8px; cursor: pointer;
-    background: transparent; border: 1px solid color-mix(in srgb, var(--nq-text) 22%, transparent); font-weight: 600; font-size: 12.5px;
-    transition: background-color .12s; }
-  .btn svg { width: 14px; height: 14px; }
-  .btn:hover { background: var(--hover); }
+  .pill { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; min-height: 48px; padding: 0 18px;
+    border: 0; border-radius: 999px; background: var(--nq-primary); color: var(--nq-on-primary); font-weight: 650; font-size: 15px;
+    cursor: pointer; transition: background-color .12s, transform .12s; box-shadow: var(--shadow); }
+  .pill:hover { background: var(--primary-hover); }
+  .pill:active { transform: scale(.985); }
+  .pill:disabled { opacity: .6; cursor: default; transform: none; }
+  .pill svg { width: 18px; height: 18px; flex: none; }
+  .pill:focus-visible { outline-offset: 3px; }
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; padding: 0 18px; border-radius: 999px;
+    cursor: pointer; background: var(--card-2); border: 1px solid var(--line); font-weight: 600; font-size: 14px; transition: background-color .12s; }
+  .btn svg { width: 18px; height: 18px; flex: none; }
+  .btn:hover { background: color-mix(in srgb, var(--card-2) 85%, var(--nq-text)); }
   .btn:active { background: var(--press); }
 
-  /* ---------- several logins match (after Fill login) ---------- */
-  #choose { list-style: none; margin: -4px 0 0; padding: 0; max-height: 216px; overflow-y: auto; display: grid; gap: 4px; }
+  /* ---------- cards & rows ---------- */
+  .card { border-radius: var(--r); background: var(--card); border: 1px solid var(--line); box-shadow: var(--shadow); overflow: hidden; }
+  .card > .row + .row { border-top: 1px solid var(--line); }
+  .group { margin: 6px 0 6px 6px; font-size: 13px; font-weight: 650; color: var(--muted); }
+  section > .group:first-child { margin-top: 2px; }
+  .desc { margin: 0 4px; font-size: 13px; color: var(--muted); }
+  label.row, button.row { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; min-height: 56px;
+    padding: 10px 14px 10px 16px; cursor: pointer; text-align: left; background: transparent; border: 0; transition: background-color .12s; }
+  label.row:hover, button.row:hover { background: var(--hover); }
+  button.row:active { background: var(--press); }
+  button.row:focus-visible { outline-offset: -3px; border-radius: var(--r); }
+  label.row:has(:focus-visible) { background: var(--hover); }
+  .row .txt { min-width: 0; flex: 1; }
+  .row .ttl { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; font-weight: 550; font-size: 14px; }
+  .row .sub { display: block; font-size: 13px; line-height: 1.4; color: var(--muted); margin-top: 2px; }
+  label.row.off { cursor: default; }
+  label.row.off .txt { opacity: .55; }
+  label.row.off:hover { background: none; }
+  .row .count { font-size: 13px; font-weight: 600; color: var(--muted); }
+  .row .count:empty::before { content: "None"; font-weight: 450; }
+  .row .chev { width: 18px; height: 18px; flex: none; color: var(--muted); margin-left: -4px; }
+  .tag { flex: none; padding: 0 8px; border-radius: 999px; font-size: 13px; font-weight: 600; line-height: 22px;
+    color: var(--muted); background: color-mix(in srgb, var(--nq-text) 10%, transparent); white-space: nowrap; }
+  .tag.beta { color: var(--accent-ink); background: var(--tint); }
+
+  /* switch: still a real checkbox (role=switch); the off track keeps >= 3:1 against the card */
+  input[role="switch"] { appearance: none; -webkit-appearance: none; margin: 0; flex: none; position: relative; width: 46px; height: 28px;
+    border-radius: 999px; cursor: pointer; background: var(--nq-muted); transition: background-color .18s; }
+  input[role="switch"]::before { content: ""; position: absolute; top: 3px; left: 3px; width: 22px; height: 22px; border-radius: 50%;
+    background: #fff; box-shadow: 0 1px 3px color-mix(in srgb, #000 35%, transparent); transition: transform .18s var(--ease); }
+  input[role="switch"]:checked { background: var(--nq-primary); }
+  input[role="switch"]:checked::before { transform: translateX(18px); background: var(--nq-on-primary); }
+  input[role="switch"]:disabled { cursor: default; opacity: .45; }
+  input[role="switch"]:focus-visible { outline: 2px solid var(--ring); outline-offset: 3px; }
+
+  /* ---------- Logins: the site card ---------- */
+  .site { position: relative; display: flex; align-items: center; gap: 12px; padding: 14px 10px 14px 14px;
+    border-radius: var(--r-lg); background: var(--card); border: 1px solid var(--line); box-shadow: var(--shadow); }
+  .chip { min-width: 0; flex: 1; display: flex; align-items: center; gap: 12px; }
+  .site-ico { width: 44px; height: 44px; flex: none; border-radius: 14px; display: grid; place-items: center;
+    color: var(--muted); background: color-mix(in srgb, var(--nq-text) 9%, transparent); }
+  .site-ico svg { width: 22px; height: 22px; }
+  .chip[data-secure="true"] .site-ico { color: var(--accent-ink); background: var(--tint); }
+  .chip .ico-lock, .chip[data-secure="true"] .ico-globe { display: none; }
+  .chip[data-secure="true"] .ico-lock { display: block; }
+  .site-txt { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 1px; }
+  .site-line { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  #siteHost { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 700; font-size: 16px; letter-spacing: -.01em; }
+  #siteHost.none { color: var(--muted); font-weight: 600; }
+  #siteSub { font-size: 13px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #siteSub:empty { display: none; }
+  #siteMenuBtn { align-self: center; }
+  .menu { position: absolute; z-index: 5; top: calc(100% + 8px); left: 0; right: 0; padding: 6px; border-radius: var(--r);
+    background: var(--card); border: 1px solid var(--line); transform-origin: top right; animation: pop .16s var(--ease);
+    box-shadow: 0 16px 32px -10px color-mix(in srgb, #000 45%, transparent), 0 2px 6px color-mix(in srgb, #000 16%, transparent); }
+  @keyframes pop { from { opacity: 0; transform: translateY(-4px) scale(.98); } }
+  .menu .row { border-radius: var(--r-sm); }
+
+  /* ---------- Logins: fill, messages, state panel ---------- */
+  #fill { padding: 0 8px 0 20px; justify-content: flex-start; }
+  #fill .label { flex: 1; min-width: 0; text-align: left; }
+  kbd { flex: none; padding: 0 10px; border-radius: 999px; font: 600 13px/26px system-ui, -apple-system, "Segoe UI", sans-serif; white-space: nowrap;
+    color: var(--nq-on-primary); border: 1px solid color-mix(in srgb, var(--nq-on-primary) 45%, transparent); }
+  kbd:empty { display: none; }
+  #msg { margin: -2px 4px 0; font-size: 13px; color: var(--muted); }
+  #msg:empty { display: none; }
+  #msg.err { color: var(--err-ink); }
+  #msg.ok { color: var(--ok-ink); }
+
+  .panel { display: flex; flex-direction: column; align-items: center; text-align: center; padding: 26px 20px 22px; border-radius: var(--r-lg);
+    background: var(--card); border: 1px solid var(--line); box-shadow: var(--shadow); }
+  .panel-ico { width: 56px; height: 56px; border-radius: 18px; display: grid; place-items: center; margin-bottom: 14px;
+    background: color-mix(in srgb, var(--nq-text) 9%, transparent); color: var(--muted); }
+  .panel-ico svg { width: 26px; height: 26px; }
+  .panel[data-icon="lock"] .panel-ico, .panel[data-icon="update"] .panel-ico { background: var(--tint); color: var(--accent-ink); }
+  .panel[data-icon="power"] .panel-ico { background: color-mix(in srgb, var(--nq-danger) 14%, transparent); color: var(--err-ink); }
+  .panel h2 { margin: 0; font-size: 17px; font-weight: 700; letter-spacing: -.01em; }
+  .panel p { margin: 6px 0 0; color: var(--muted); font-size: 14px; max-width: 280px; text-wrap: pretty; }
+  .panel .btn { margin-top: 18px; }
+
+  /* several logins match (after Fill login) */
+  #choose { list-style: none; margin: 0; padding: 0; max-height: 236px; overflow-y: auto; display: grid; gap: 6px; }
   #choose li { padding: 0; }
-  #choose button.choice { display: block; width: 100%; padding: 9px 14px; text-align: left; cursor: pointer;
-    background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); transition: border-color .12s, background-color .12s; }
-  #choose button.choice:hover { background: var(--surface-2); border-color: color-mix(in srgb, var(--nq-primary) 45%, var(--nq-border)); }
-  #choose button.choice:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; border-color: transparent; }
+  #choose button.choice { display: block; width: 100%; min-height: 56px; padding: 9px 16px; text-align: left; cursor: pointer;
+    background: var(--card); border: 1px solid var(--line); border-radius: var(--r); transition: border-color .12s, background-color .12s; }
+  #choose button.choice:hover { border-color: color-mix(in srgb, var(--nq-primary) 50%, var(--nq-border)); }
+  #choose button.choice:focus-visible { outline-offset: -2px; }
   .choice .t, .choice .u { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .choice .t { font-weight: 600; }
-  .choice .u { font-size: 12px; color: var(--nq-muted); }
+  .choice .u { font-size: 13px; color: var(--muted); }
 
-  /* ---------- this site's logins ---------- */
-  .sec-head { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; }
-  .sec-head h2 { margin: 0; font-size: 11px; font-weight: 650; text-transform: uppercase; letter-spacing: .07em; color: var(--nq-muted); }
-  .sec-head .n { font-size: 11px; font-weight: 600; color: var(--nq-muted); padding: 0 8px; border-radius: 9px; line-height: 16px;
+  /* ---------- Logins: search + list ---------- */
+  .sec-head { display: flex; align-items: center; gap: 8px; margin: 2px 6px 8px; }
+  .sec-head h2 { margin: 0; font-size: 13px; font-weight: 650; color: var(--muted); }
+  .sec-head .n { font-size: 13px; font-weight: 600; color: var(--muted); padding: 0 8px; border-radius: 999px; line-height: 20px;
     background: color-mix(in srgb, var(--nq-text) 9%, transparent); }
   .sec-head .n:empty { display: none; }
-  .search { position: relative; margin: 0 0 8px; }
-  .search svg { position: absolute; left: 10px; top: 50%; width: 14px; height: 14px; transform: translateY(-50%); color: var(--nq-muted); pointer-events: none; }
-  #filter { display: block; width: 100%; height: 32px; padding: 0 10px 0 31px; border-radius: 8px; font: inherit; color: var(--nq-text);
-    background: var(--surface); border: 1px solid var(--line); transition: border-color .12s; }
-  #filter::placeholder { color: var(--nq-muted); }
+  .search { position: relative; margin: 0 0 10px; }
+  .search svg { position: absolute; left: 14px; top: 50%; width: 18px; height: 18px; transform: translateY(-50%); color: var(--muted); pointer-events: none; }
+  #filter { display: block; width: 100%; height: 44px; padding: 0 14px 0 42px; border-radius: 999px; font-size: 14px; color: var(--nq-text);
+    background: var(--card); border: 1px solid var(--line); transition: border-color .12s; }
+  #filter::placeholder { color: var(--muted); }
   #filter:hover { border-color: var(--nq-border); }
-  #filter:focus-visible, #filter:focus { outline: 2px solid var(--ring); outline-offset: -1px; border-color: transparent; }
+  #filter:focus, #filter:focus-visible { outline: 2px solid var(--ring); outline-offset: -1px; border-color: transparent; }
   #filter::-webkit-search-cancel-button { filter: grayscale(1); opacity: .6; }
   .search:has(#filter[hidden]) { display: none; }
-  #accList { list-style: none; margin: 0; padding: 0; max-height: 252px; overflow: hidden auto; display: grid;
-    grid-template-columns: minmax(0, 1fr); border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+  #accList { list-style: none; margin: 0; padding: 4px; max-height: 280px; overflow: hidden auto; display: grid; gap: 2px;
+    grid-template-columns: minmax(0, 1fr); border-radius: var(--r-lg); background: var(--card); border: 1px solid var(--line); box-shadow: var(--shadow); }
   #accList:empty { display: none; }
-  #accList li { display: flex; align-items: center; gap: 1px; padding: 4px 8px 4px 4px; transition: background-color .12s; }
-  #accList li + li { border-top: 1px solid var(--line); }
+  #accList li { display: flex; align-items: center; gap: 0; padding: 2px 4px 2px 2px; border-radius: var(--r); transition: background-color .12s; }
   #accList li:hover, #accList li:focus-within { background: var(--hover); }
-  .acc-main { flex: 1; min-width: 0; display: grid; grid-template-columns: 30px minmax(0, 1fr); column-gap: 10px; align-items: center;
-    padding: 4px 8px 4px 6px; text-align: left; cursor: pointer; background: transparent; border: 0; border-radius: 8px; }
-  .acc-main::before { content: attr(data-initial); grid-row: 1 / span 2; width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center;
-    font-weight: 700; font-size: 13px; color: var(--nq-primary); background: var(--tint); }
+  /* grid: avatar | second line (shrinks) | 2FA badge | rest; the first line spans the three text columns */
+  .acc-main { flex: 1; min-width: 0; display: grid; grid-template-columns: 52px minmax(0, max-content) auto minmax(0, 1fr); grid-template-rows: auto auto;
+    align-items: center; min-height: 56px; padding: 6px 4px 6px 8px; text-align: left; cursor: pointer; background: transparent; border: 0; border-radius: 14px; }
+  .acc-main::before { content: attr(data-initial); grid-row: 1 / span 2; grid-column: 1; width: 40px; height: 40px; border-radius: 13px;
+    display: grid; place-items: center; font-weight: 700; font-size: 16px; color: var(--accent-ink); background: var(--tint); }
   .acc-main:focus-visible { outline-offset: -2px; }
-  .acc-main .t, .acc-main .u { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; grid-column: 2; }
-  .acc-main .t { font-weight: 600; line-height: 1.3; }
-  .acc-main .u { font-size: 12px; color: var(--nq-muted); line-height: 1.3; }
+  .acc-main .t, .acc-main .u { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; line-height: 1.35; }
+  .acc-main .t { grid-row: 1; grid-column: 2 / 5; font-weight: 600; font-size: 14px; }
+  .acc-main .u { grid-row: 2; grid-column: 2; font-size: 13px; color: var(--muted); }
   .acc-main .u:empty { display: none; }
   .acc-main:has(.u:empty)::before { grid-row: 1; }
-  .ico { width: 28px; height: 28px; flex: none; display: grid; place-items: center; padding: 0; border: 0; border-radius: 7px;
-    background: transparent; color: var(--soft); cursor: pointer; transition: background-color .12s, color .12s; }
-  .ico svg { width: 15px; height: 15px; }
+  .acc-main:has(.u:empty) .t { grid-column: 2; }
+  .acc-main:has(.u:empty) .badge { grid-row: 1; }
+  /* both a title and a username: the username leads (it is what gets filled), the entry name sits under it */
+  .acc-main[data-lead="user"] .u { grid-row: 1; grid-column: 2 / 5; font-size: 14px; font-weight: 600; color: var(--nq-text); }
+  .acc-main[data-lead="user"] .t { grid-row: 2; grid-column: 2; font-size: 13px; font-weight: 400; color: var(--muted); }
+  .badge { grid-column: 3; grid-row: 2; margin-left: 6px; padding: 0 6px; border-radius: 6px; font-size: 13px; font-weight: 650; line-height: 18px;
+    color: var(--accent-ink); background: var(--tint); }
+  .ico { width: 34px; height: 40px; flex: none; display: grid; place-items: center; padding: 0; border: 0; border-radius: 10px;
+    background: transparent; color: var(--muted); cursor: pointer; transition: background-color .12s, color .12s; }
+  .ico svg { width: 18px; height: 18px; }
   .ico:hover { background: var(--press); color: var(--nq-text); }
-  .ico:disabled { opacity: .3; cursor: default; }
-  .ico:disabled:hover { background: transparent; color: var(--soft); }
-  .ico.done, .ico.done:hover { color: var(--nq-success); }
-  .ico:focus-visible { outline-offset: -1px; }
+  .ico:disabled { opacity: .35; cursor: default; }
+  .ico:disabled:hover { background: transparent; color: var(--muted); }
+  .ico.done, .ico.done:hover { color: var(--ok-ink); }
+  .ico:focus-visible { outline-offset: -2px; }
 
   /* list states: loading, empty, no match, errors */
-  .empty { display: flex; flex-direction: column; align-items: center; text-align: center; padding: 18px 12px 16px; border-radius: 12px;
-    border: 1px dashed var(--line); color: var(--nq-muted); }
-  .empty .e-ico { width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; margin-bottom: 8px;
-    background: color-mix(in srgb, var(--nq-text) 7%, transparent); }
-  .empty .e-ico svg { width: 17px; height: 17px; }
-  #siteState { margin: 0; font-size: 12.5px; color: var(--nq-text); font-weight: 550; }
-  .empty .hint { margin: 2px 0 0; font-size: 12px; }
+  .empty { display: flex; flex-direction: column; align-items: center; text-align: center; padding: 22px 16px 20px; border-radius: var(--r-lg);
+    border: 1.5px dashed var(--line); color: var(--muted); }
+  .empty .e-ico { width: 44px; height: 44px; border-radius: 14px; display: grid; place-items: center; margin-bottom: 10px;
+    background: color-mix(in srgb, var(--nq-text) 8%, transparent); }
+  .empty .e-ico svg { width: 20px; height: 20px; }
+  #siteState { margin: 0; font-size: 14px; color: var(--nq-text); font-weight: 600; }
+  .empty .hint { margin: 4px 0 0; font-size: 13px; }
   .empty .hint:empty { display: none; }
-  .empty[data-kind="loading"] { border: 1px solid var(--line); background: var(--surface); padding: 0; align-items: stretch; }
+  .empty[data-kind="loading"] { border: 1px solid var(--line); background: var(--card); padding: 4px; align-items: stretch; }
   .empty[data-kind="loading"] .e-ico, .empty[data-kind="loading"] .hint { display: none; }
   .empty[data-kind="loading"] #siteState { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   .skel { display: none; }
   .empty[data-kind="loading"] .skel { display: flex; align-items: center; gap: 10px; padding: 10px; }
-  .empty[data-kind="loading"] .skel + .skel { border-top: 1px solid var(--line); }
-  .skel i { display: block; border-radius: 6px; background: color-mix(in srgb, var(--nq-text) 9%, transparent); animation: pulse 1.4s ease-in-out infinite; }
-  .skel i:first-child { width: 30px; height: 30px; border-radius: 8px; flex: none; }
-  .skel span { flex: 1; display: grid; gap: 6px; }
-  .skel span i:first-child { width: 45%; height: 9px; }
-  .skel span i:last-child { width: 70%; height: 8px; }
+  .skel i { display: block; border-radius: 6px; background: color-mix(in srgb, var(--nq-text) 10%, transparent); animation: pulse 1.4s ease-in-out infinite; }
+  .skel i:first-child { width: 40px; height: 40px; border-radius: 13px; flex: none; }
+  .skel span { flex: 1; display: grid; gap: 7px; }
+  .skel span i:first-child { width: 50%; height: 11px; }
+  .skel span i:last-child { width: 72%; height: 10px; }
   .empty[data-kind="nomatch"] .e-ico, .empty[data-kind="error"] .e-ico { display: none; }
-  .empty[data-kind="nomatch"], .empty[data-kind="error"] { padding: 14px 12px; }
+  .empty[data-kind="nomatch"], .empty[data-kind="error"] { padding: 16px; }
 
-  .foot { margin-top: auto; display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--nq-muted); padding-top: 2px; }
-  .foot svg { width: 13px; height: 13px; flex: none; }
+  .foot { margin: 2px 6px 0; display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); }
+  .foot svg { width: 16px; height: 16px; flex: none; }
 
-  /* ---------- settings ---------- */
-  .bar h1 { flex: 1; font-size: 14px; }
-  .bar .back { margin-left: -6px; }
-  .group { margin: 0 0 6px 2px; font-size: 11px; font-weight: 650; text-transform: uppercase; letter-spacing: .07em; color: var(--nq-muted); }
-  .card { border: 1px solid var(--line); border-radius: 12px; background: var(--surface); overflow: hidden; }
-  .card > .row + .row { border-top: 1px solid var(--line); }
-  h1[tabindex]:focus, h1[tabindex]:focus-visible { outline: none; }
-  .desc { margin: 0; font-size: 12.5px; color: var(--nq-muted); }
-  label.row, button.row { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; min-height: 42px;
-    padding: 8px 14px; cursor: pointer; text-align: left; background: transparent; border: 0; transition: background-color .12s; }
-  label.row:hover, button.row:hover { background: var(--hover); }
-  button.row:focus-visible { outline-offset: -2px; }
-  .row .txt { min-width: 0; flex: 1; }
-  .row .ttl { display: flex; align-items: center; gap: 6px; font-weight: 500; }
-  .row .sub { display: block; font-size: 11.5px; line-height: 1.4; color: var(--nq-muted); margin-top: 1px; }
-  label.row.off { cursor: default; }
-  label.row.off .txt { opacity: .5; }
-  label.row.off:hover { background: none; }
-  .row .count { font-size: 11.5px; font-weight: 600; color: var(--nq-muted); }
-  .row .count:empty::before { content: "None"; font-weight: 400; }
-  .row .chev { width: 14px; height: 14px; flex: none; color: var(--nq-muted); margin-left: -4px; }
-  .row .rico { width: 16px; height: 16px; flex: none; color: var(--nq-muted); }
-
-  /* toggle switch: still a real checkbox (role=switch) */
-  input[role="switch"] { appearance: none; -webkit-appearance: none; margin: 0; flex: none; position: relative; width: 34px; height: 20px;
-    border-radius: 10px; cursor: pointer; background: color-mix(in srgb, var(--nq-text) 22%, transparent); transition: background-color .15s; }
-  input[role="switch"]::before { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%;
-    background: #fff; box-shadow: 0 1px 2px color-mix(in srgb, #000 35%, transparent); transition: transform .15s; }
-  input[role="switch"]:checked { background: var(--nq-primary); }
-  input[role="switch"]:checked::before { transform: translateX(14px); background: var(--nq-on-primary); }
-  input[role="switch"]:disabled { cursor: default; opacity: .45; }
-  input[role="switch"]:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
-
-  /* site lists (sub-pages) */
-  .sites { list-style: none; margin: 0; padding: 0; border: 1px solid var(--line); border-radius: 12px; background: var(--surface);
-    max-height: 320px; overflow-y: auto; }
-  .sites li { display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 4px 8px 4px 14px; }
-  .sites li + li { border-top: 1px solid var(--line); }
-  .sites li:hover { background: var(--hover); }
-  .sites li span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .sites li button { width: 28px; height: 28px; padding: 0; flex: none; display: grid; place-items: center; border: 0; border-radius: 7px;
-    background: transparent; color: var(--nq-muted); cursor: pointer; }
-  .sites li button svg { width: 14px; height: 14px; }
-  .sites li button:hover { background: color-mix(in srgb, var(--nq-danger) 14%, transparent); color: var(--nq-danger); }
-  .sites li.empty { display: block; padding: 20px 16px; text-align: center; color: var(--nq-muted); border: 0; font-size: 12.5px; }
-  .sites li.empty:hover { background: none; }
-  .sites:has(li.empty) { border-style: dashed; background: transparent; }
-  /* password generator */
-  .gen-out { display: flex; align-items: stretch; gap: 4px; padding: 4px 4px 4px 12px; border-radius: var(--r); background: var(--surface); border: 1px solid var(--line); }
-  .gen-value { flex: 1; min-width: 0; align-self: center; padding: 6px 0; font: 14px/1.4 ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
-    word-break: break-all; user-select: all; }
-  .gen-acts { display: flex; flex-direction: column; justify-content: center; gap: 2px; }
-  .gen-str { display: flex; align-items: center; gap: 8px; margin-top: -4px; font-size: 12px; color: var(--nq-muted); }
-  .gen-meter { display: flex; gap: 3px; }
-  .gen-meter i { width: 26px; height: 4px; border-radius: 2px; background: color-mix(in srgb, var(--nq-text) 14%, transparent); }
+  /* ---------- Generator ---------- */
+  .gen-card { padding: 18px 16px 14px; }
+  .gen-value { display: block; font: 600 19px/1.5 var(--mono); letter-spacing: .02em; word-break: break-all;
+    user-select: all; color: var(--nq-text); border-radius: 8px; }
+  .gen-value .d { color: color-mix(in srgb, #60a5fa 80%, var(--nq-text)); }
+  .gen-value .s { color: var(--accent-ink); }
+  :root[data-nq-mode="light"] .gen-value .d { color: #1d4ed8; }
+  .gen-str { display: flex; align-items: center; gap: 10px; margin-top: 12px; font-size: 13px; color: var(--muted); }
+  .gen-meter { flex: 1; display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
+  .gen-meter i { height: 6px; border-radius: 999px; background: color-mix(in srgb, var(--nq-text) 14%, transparent); transition: background-color .2s; }
   .gen-str[data-level="0"] i:nth-child(-n+1) { background: var(--nq-danger); }
   .gen-str[data-level="1"] i:nth-child(-n+2) { background: var(--nq-primary); }
   .gen-str[data-level="2"] i:nth-child(-n+3), .gen-str[data-level="3"] i { background: var(--nq-success); }
-  .gen-len { display: flex; align-items: center; gap: 12px; min-height: 42px; padding: 8px 14px; }
-  .gen-len .txt { flex: none; }
-  .gen-len input[type="range"] { flex: 1; min-width: 0; accent-color: var(--nq-primary); cursor: pointer; }
-  .gen-len .count { width: 22px; text-align: right; }
+  #genStrengthText { flex: none; font-weight: 600; }
+  .gen-acts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 14px; }
+  .gen-len { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; padding: 12px 16px; min-height: 56px; }
+  .gen-len .txt { flex: 1; }
+  .gen-len .count { min-width: 36px; text-align: center; padding: 0 8px; border-radius: 999px; line-height: 26px; font-size: 14px; font-weight: 700;
+    font-variant-numeric: tabular-nums; color: var(--accent-ink); background: var(--tint); }
   .gen-len .count:empty::before { content: ""; }
-  .gen-fill { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; height: 38px; border: 0; border-radius: var(--r);
-    background: var(--nq-primary); color: var(--nq-on-primary); font-weight: 600; cursor: pointer; transition: background-color .12s; }
-  .gen-fill:hover { background: var(--primary-hover); }
-  .gen-fill:disabled { opacity: .6; cursor: default; }
-  .gen-fill svg { width: 16px; height: 16px; }
-  .gen-msg { margin: -4px 0 0; font-size: 12.5px; color: var(--nq-muted); min-height: 0; }
+  .gen-len input[type="range"] { flex: 1 0 100%; min-width: 0; height: 28px; margin: 0; accent-color: var(--nq-primary); cursor: pointer; }
+  .gen-msg { margin: -2px 4px 0; font-size: 13px; color: var(--muted); }
   .gen-msg:empty { display: none; }
-  .gen-msg.ok { color: var(--nq-success); }
-  .gen-msg.err { color: var(--nq-danger); }
-  .ver { margin: auto 0 0; padding-top: 0; text-align: center; font-size: 11px; color: var(--nq-muted); }
+  .gen-msg.ok { color: var(--ok-ink); }
+  .gen-msg.err { color: var(--err-ink); }
+
+  /* ---------- Settings & site lists ---------- */
+  .ver { margin: 4px 0 0; text-align: center; font-size: 13px; color: var(--muted); }
+  .sites { list-style: none; margin: 0; padding: 0; border-radius: var(--r); background: var(--card); border: 1px solid var(--line);
+    box-shadow: var(--shadow); max-height: 380px; overflow-y: auto; }
+  .sites li { display: flex; align-items: center; gap: 10px; min-height: 52px; padding: 4px 6px 4px 16px; }
+  .sites li + li { border-top: 1px solid var(--line); }
+  .sites li span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 550; }
+  .sites li button { width: 40px; height: 40px; padding: 0; flex: none; display: grid; place-items: center; border: 0; border-radius: var(--r-sm);
+    background: transparent; color: var(--muted); cursor: pointer; }
+  .sites li button svg { width: 18px; height: 18px; }
+  .sites li button:hover { background: color-mix(in srgb, var(--nq-danger) 14%, transparent); color: var(--err-ink); }
+  .sites li.empty { display: block; padding: 24px 18px; text-align: center; color: var(--muted); border: 0; font-size: 13px; }
+  .sites:has(li.empty) { border: 1.5px dashed var(--line); background: transparent; box-shadow: none; }
 
   @media (prefers-reduced-motion: reduce) {
-    *, *::before { transition: none !important; animation: none !important; }
+    *, *::before, *::after { transition: none !important; animation: none !important; }
   }
 </style>
 
-<!-- ===================== main: the current site ===================== -->
-<div class="view" id="viewMain">
-  <header class="bar">
-    <img class="mark" src="icon48.png" alt="" width="28" height="28">
+<div class="app">
+  <header class="appbar">
+    <img class="mark" src="icon48.png" alt="" width="30" height="30">
     <div class="brand">
-      <h1>Notiq Autofill</h1>
+      <span class="brand-name">Notiq Autofill</span>
       <div class="status" id="status" role="status" data-state="unknown"><span class="dot" aria-hidden="true"></span><span id="statusText">Checking Notiq…</span></div>
     </div>
-    <button type="button" class="icon-btn" id="openGen" aria-label="Password generator" title="Password generator">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 21l11-11"/><path d="M14 10l-2-2 3-3 2 2z"/><path d="M19 3v4"/><path d="M17 5h4"/><path d="M8 3v2"/><path d="M7 4h2"/><path d="M20 14v3"/><path d="M18.5 15.5h3"/></svg>
-    </button>
-    <button type="button" class="icon-btn" id="openSettings" aria-label="Settings" title="Settings">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
-    </button>
   </header>
-  <main class="body">
-    <div class="site">
-      <div class="chip" id="siteChip" data-secure="false" title="">
-        <svg id="siteIco" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a14 14 0 0 1 0 18a14 14 0 0 1 0-18"/></svg>
-        <span class="vh">Current site:</span><span id="siteHost" class="none">This page</span>
-        <span class="tag" id="siteHiddenTag" title="The Notiq icon is hidden on this site" hidden>Icon hidden</span>
-      </div>
-      <button type="button" class="icon-btn" id="siteMenuBtn" aria-label="Options for this site" title="Options for this site"
-        aria-haspopup="true" aria-expanded="false" aria-controls="siteMenu" hidden>
-        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>
-      </button>
-      <div class="menu" id="siteMenu" role="group" aria-label="Options for this site" hidden>
-        <label class="row" id="siteHideRow" hidden><span class="txt"><span class="ttl">Hide Notiq on this site</span><span class="sub" id="siteHideHost"></span></span><input type="checkbox" role="switch" id="siteHide"></label>
-      </div>
-    </div>
 
-    <div class="panel" id="panel" data-icon="" hidden>
-      <div class="panel-ico" id="panelIco" aria-hidden="true"></div>
-      <h2 id="panelTitle"></h2>
-      <p id="panelText"></p>
-      <button type="button" class="btn" id="panelAction" hidden>
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>
-        <span id="panelActionText">Try again</span>
-      </button>
-    </div>
-
-    <button id="fill" type="button" aria-describedby="help">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="7.5" cy="15.5" r="4.5"/><path d="M10.7 12.3 20 3"/><path d="M16.5 6.5l3 3"/><path d="M14 9l2 2"/></svg>
-      <span class="label">Fill login</span>
-      <kbd id="shortcut" title="Keyboard shortcut">Alt+Shift+L</kbd>
-    </button>
-    <p id="msg" role="status" aria-live="polite"></p>
-    <ul id="choose" role="listbox" aria-label="Choose a login" hidden></ul>
-
-    <section id="site" aria-labelledby="siteTitle">
-      <div class="sec-head"><h2 id="siteTitle">Saved logins</h2><span class="n" id="siteCount"></span></div>
-      <div class="search">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
-        <input type="search" id="filter" placeholder="Search logins" aria-label="Filter logins for this site" aria-controls="accList" autocomplete="off" spellcheck="false" hidden>
-      </div>
-      <ul id="accList" aria-labelledby="siteTitle"></ul>
-      <div class="empty" id="siteEmpty" data-kind="loading">
-        <div class="skel" aria-hidden="true"><i></i><span><i></i><i></i></span></div>
-        <div class="skel" aria-hidden="true"><i></i><span><i></i><i></i></span></div>
-        <div class="e-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="7.5" cy="15.5" r="4.5"/><path d="M10.7 12.3 20 3"/><path d="M16.5 6.5l3 3"/><path d="M14 9l2 2"/></svg></div>
-        <p id="siteState" role="status" aria-live="polite">Checking Notiq…</p>
-        <p class="hint" id="siteHint"></p>
-      </div>
-    </section>
-
-    <p class="foot" id="help">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg>
-      <span>You approve every fill and save in the Notiq app first.</span>
-    </p>
-  </main>
-</div>
-
-<!-- ===================== password generator ===================== -->
-<div class="view" id="viewGen" hidden>
-  <header class="bar">
-    <button type="button" class="icon-btn back" data-back="main" aria-label="Back" title="Back">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>
-    </button>
-    <h1 id="genTitle" tabindex="-1">Password generator</h1>
-  </header>
-  <div class="body">
-    <div class="gen-out">
-      <output id="genValue" class="gen-value" for="genLen" aria-label="Generated password" tabindex="0"></output>
-      <div class="gen-acts">
-        <button type="button" class="icon-btn" id="genRegen" aria-label="Generate a new password" title="Regenerate">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>
+  <div class="views" id="views">
+    <!-- ===================== Logins: the current site ===================== -->
+    <main class="view" id="viewMain" role="tabpanel" aria-labelledby="tabLogins">
+      <h1 class="vh" id="mainTitle" tabindex="-1">Logins for this site</h1>
+      <div class="site">
+        <div class="chip" id="siteChip" data-secure="false" title="">
+          <span class="site-ico" aria-hidden="true">
+            <svg class="ico-globe" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a14 14 0 0 1 0 18a14 14 0 0 1 0-18"/></svg>
+            <svg class="ico-lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 11h12a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1v-8a1 1 0 0 1 1-1z"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+          </span>
+          <span class="site-txt">
+            <span class="site-line"><span class="vh">Current site:</span><span id="siteHost" class="none">This page</span>
+              <span class="tag" id="siteHiddenTag" title="The Notiq icon is hidden on this site" hidden>Icon hidden</span></span>
+            <span id="siteSub"></span>
+          </span>
+        </div>
+        <button type="button" class="icon-btn" id="siteMenuBtn" aria-label="Options for this site" title="Options for this site"
+          aria-haspopup="true" aria-expanded="false" aria-controls="siteMenu" hidden>
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="1.9"/><circle cx="12" cy="12" r="1.9"/><circle cx="12" cy="19" r="1.9"/></svg>
         </button>
-        <button type="button" class="icon-btn" id="genCopy" aria-label="Copy password" title="Copy">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg>
+        <div class="menu" id="siteMenu" role="group" aria-label="Options for this site" hidden>
+          <label class="row" id="siteHideRow" hidden><span class="txt"><span class="ttl">Hide Notiq on this site</span><span class="sub" id="siteHideHost"></span></span><input type="checkbox" role="switch" id="siteHide"></label>
+        </div>
+      </div>
+
+      <div class="panel" id="panel" data-icon="" hidden>
+        <div class="panel-ico" id="panelIco" aria-hidden="true"></div>
+        <h2 id="panelTitle"></h2>
+        <p id="panelText"></p>
+        <button type="button" class="btn" id="panelAction" hidden>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>
+          <span id="panelActionText">Try again</span>
         </button>
       </div>
-    </div>
-    <div class="gen-str" id="genStrength" data-level="3">
-      <span class="gen-meter" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
-      <span id="genStrengthText">Very strong</span>
-    </div>
-    <div class="card">
-      <div class="row gen-len">
-        <label class="txt" for="genLen"><span class="ttl">Length</span></label>
-        <input type="range" id="genLen" min="8" max="64" step="1" value="20" aria-describedby="genLenVal">
-        <output id="genLenVal" class="count">20</output>
-      </div>
-      <label class="row"><span class="txt"><span class="ttl">Uppercase (A–Z)</span></span><input type="checkbox" role="switch" id="genUpper"></label>
-      <label class="row"><span class="txt"><span class="ttl">Lowercase (a–z)</span></span><input type="checkbox" role="switch" id="genLower"></label>
-      <label class="row"><span class="txt"><span class="ttl">Digits (0–9)</span></span><input type="checkbox" role="switch" id="genDigits"></label>
-      <label class="row"><span class="txt"><span class="ttl">Symbols (!@#$…)</span></span><input type="checkbox" role="switch" id="genSymbols"></label>
-      <label class="row"><span class="txt"><span class="ttl">Avoid look-alikes</span><span class="sub">Leaves out l, I, O, 0 and 1</span></span><input type="checkbox" role="switch" id="genAmbiguous"></label>
-    </div>
-    <button type="button" id="genFill" class="gen-fill" hidden>
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="7.5" cy="15.5" r="4.5"/><path d="M10.7 12.3 20 3"/><path d="M16.5 6.5l3 3"/><path d="M14 9l2 2"/></svg>
-      <span>Fill password</span>
-    </button>
-    <p id="genMsg" class="gen-msg" role="status" aria-live="polite"></p>
-  </div>
-</div>
-<!-- ===================== settings ===================== -->
-<div class="view" id="viewSettings" hidden>
-  <header class="bar">
-    <button type="button" class="icon-btn back" data-back="main" aria-label="Back" title="Back">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>
-    </button>
-    <h1 id="settingsTitle" tabindex="-1">Settings</h1>
-  </header>
-  <div class="body">
-    <section aria-labelledby="gFill">
-      <h2 class="group" id="gFill">Filling</h2>
-      <div class="card">
-        <label class="row"><span class="txt"><span class="ttl">Show Notiq icon on login fields</span><span class="sub">Click it to pick a login for the field</span></span><input type="checkbox" role="switch" id="showIcon"></label>
-        <label class="row" id="suggestRow"><span class="txt"><span class="ttl">Suggest on field focus</span><span class="sub">“Fill with Notiq” under login fields</span></span><input type="checkbox" role="switch" id="suggestOnFocus"></label>
-      </div>
-    </section>
-    <section aria-labelledby="gSave">
-      <h2 class="group" id="gSave">Saving</h2>
-      <div class="card">
-        <label class="row"><span class="txt"><span class="ttl">Offer to save new logins</span><span class="sub">After you sign in with a login Notiq doesn't have</span></span><input type="checkbox" role="switch" id="offerSave"></label>
-      </div>
-    </section>
-    <section aria-labelledby="gSites">
-      <h2 class="group" id="gSites">Sites</h2>
-      <div class="card">
-        <button type="button" class="row" data-view="never" aria-describedby="neverCount"><span class="txt"><span class="ttl">Never save on these sites</span></span><span class="count" id="neverCount"></span><svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></button>
-        <button type="button" class="row" data-view="hidden" aria-describedby="hiddenCount"><span class="txt"><span class="ttl">Notiq hidden on these sites</span></span><span class="count" id="hiddenCount"></span><svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></button>
-        <button type="button" class="row" data-view="trusted" aria-describedby="trustedCount"><span class="txt"><span class="ttl">No password warning on these sites</span></span><span class="count" id="trustedCount"></span><svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></button>
-      </div>
-    </section>
-    <section aria-labelledby="gExp">
-      <h2 class="group" id="gExp">Experimental</h2>
-      <div class="card">
-        <label class="row" id="passkeysRow"><span class="txt"><span class="ttl">Passkeys <span class="tag beta">Beta</span></span><span class="sub">Save and use passkeys with Notiq. Reload open pages after changing.</span></span><input type="checkbox" role="switch" id="passkeys" aria-label="Save and use passkeys with Notiq (experimental)"></label>
-      </div>
-    </section>
-    <p class="ver" id="version"></p>
-  </div>
-</div>
 
-<!-- ===================== site lists ===================== -->
-<div class="view" id="viewNever" hidden>
-  <header class="bar">
-    <button type="button" class="icon-btn back" data-back="settings" aria-label="Back to settings" title="Back">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>
-    </button>
-    <h1 id="neverTitle" tabindex="-1">Never save</h1>
-  </header>
-  <div class="body">
-    <p class="desc">Notiq won't offer to save logins on these sites. Remove one to get offers there again.</p>
-    <ul id="neverList" class="sites" aria-labelledby="neverTitle"></ul>
+      <button id="fill" class="pill" type="button" aria-describedby="help">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="7.5" cy="15.5" r="4.5"/><path d="M10.7 12.3 20 3"/><path d="M16.5 6.5l3 3"/><path d="M14 9l2 2"/></svg>
+        <span class="label">Fill login</span>
+        <kbd id="shortcut" title="Keyboard shortcut">Alt+Shift+L</kbd>
+      </button>
+      <p id="msg" role="status" aria-live="polite"></p>
+      <ul id="choose" role="listbox" aria-label="Choose a login" hidden></ul>
+
+      <section id="site" aria-labelledby="siteTitle">
+        <div class="sec-head"><h2 id="siteTitle">Saved logins</h2><span class="n" id="siteCount"></span></div>
+        <div class="search">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+          <input type="search" id="filter" placeholder="Search logins" aria-label="Filter logins for this site" aria-controls="accList" autocomplete="off" spellcheck="false" hidden>
+        </div>
+        <ul id="accList" aria-labelledby="siteTitle"></ul>
+        <div class="empty" id="siteEmpty" data-kind="loading">
+          <div class="skel" aria-hidden="true"><i></i><span><i></i><i></i></span></div>
+          <div class="skel" aria-hidden="true"><i></i><span><i></i><i></i></span></div>
+          <div class="e-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="7.5" cy="15.5" r="4.5"/><path d="M10.7 12.3 20 3"/><path d="M16.5 6.5l3 3"/><path d="M14 9l2 2"/></svg></div>
+          <p id="siteState" role="status" aria-live="polite">Checking Notiq…</p>
+          <p class="hint" id="siteHint"></p>
+        </div>
+      </section>
+
+      <p class="foot" id="help">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg>
+        <span>You approve every fill and save in the Notiq app first.</span>
+      </p>
+    </main>
+
+    <!-- ===================== Generator ===================== -->
+    <div class="view" id="viewGen" role="tabpanel" aria-labelledby="openGen" hidden>
+      <div class="view-head"><h1 id="genTitle" tabindex="-1">Password generator</h1></div>
+      <div class="card gen-card">
+        <output id="genValue" class="gen-value" for="genLen" aria-label="Generated password" tabindex="0"></output>
+        <div class="gen-str" id="genStrength" data-level="3">
+          <span class="gen-meter" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+          <span id="genStrengthText">Very strong</span>
+        </div>
+        <div class="gen-acts">
+          <button type="button" class="btn" id="genRegen" title="Generate a new password">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>
+            <span>Regenerate</span>
+          </button>
+          <button type="button" class="btn" id="genCopy" title="Copy password">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg>
+            <span>Copy</span>
+          </button>
+        </div>
+      </div>
+      <button type="button" id="genFill" class="pill gen-fill" hidden>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="7.5" cy="15.5" r="4.5"/><path d="M10.7 12.3 20 3"/><path d="M16.5 6.5l3 3"/><path d="M14 9l2 2"/></svg>
+        <span>Fill password</span>
+      </button>
+      <p id="genMsg" class="gen-msg" role="status" aria-live="polite"></p>
+      <section aria-labelledby="gGenOpts">
+        <h2 class="group" id="gGenOpts">Options</h2>
+        <div class="card">
+          <div class="row gen-len">
+            <label class="txt" for="genLen"><span class="ttl">Length</span></label>
+            <output id="genLenVal" class="count">20</output>
+            <input type="range" id="genLen" min="8" max="64" step="1" value="20" aria-describedby="genLenVal">
+          </div>
+          <label class="row"><span class="txt"><span class="ttl">Uppercase (A–Z)</span></span><input type="checkbox" role="switch" id="genUpper"></label>
+          <label class="row"><span class="txt"><span class="ttl">Lowercase (a–z)</span></span><input type="checkbox" role="switch" id="genLower"></label>
+          <label class="row"><span class="txt"><span class="ttl">Numbers (0–9)</span></span><input type="checkbox" role="switch" id="genDigits"></label>
+          <label class="row"><span class="txt"><span class="ttl">Symbols (!@#$…)</span></span><input type="checkbox" role="switch" id="genSymbols"></label>
+          <label class="row"><span class="txt"><span class="ttl">Avoid look-alikes</span><span class="sub">Leaves out l, I, O, 0 and 1</span></span><input type="checkbox" role="switch" id="genAmbiguous"></label>
+        </div>
+      </section>
+    </div>
+
+    <!-- ===================== Settings ===================== -->
+    <div class="view" id="viewSettings" role="tabpanel" aria-labelledby="openSettings" hidden>
+      <div class="view-head"><h1 id="settingsTitle" tabindex="-1">Settings</h1></div>
+      <section aria-labelledby="gFill">
+        <h2 class="group" id="gFill">Filling</h2>
+        <div class="card">
+          <label class="row"><span class="txt"><span class="ttl">Show Notiq icon on login fields</span><span class="sub">Click it to pick a login for the field</span></span><input type="checkbox" role="switch" id="showIcon"></label>
+          <label class="row" id="suggestRow"><span class="txt"><span class="ttl">Suggest on field focus</span><span class="sub">“Fill with Notiq” under login fields</span></span><input type="checkbox" role="switch" id="suggestOnFocus"></label>
+        </div>
+      </section>
+      <section aria-labelledby="gSave">
+        <h2 class="group" id="gSave">Saving</h2>
+        <div class="card">
+          <label class="row"><span class="txt"><span class="ttl">Offer to save new logins</span><span class="sub">After you sign in with a login Notiq doesn't have</span></span><input type="checkbox" role="switch" id="offerSave"></label>
+        </div>
+      </section>
+      <section aria-labelledby="gSites">
+        <h2 class="group" id="gSites">Sites</h2>
+        <div class="card">
+          <button type="button" class="row" data-view="never" aria-describedby="neverCount"><span class="txt"><span class="ttl">Never save on these sites</span></span><span class="count" id="neverCount"></span><svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></button>
+          <button type="button" class="row" data-view="hidden" aria-describedby="hiddenCount"><span class="txt"><span class="ttl">Notiq hidden on these sites</span></span><span class="count" id="hiddenCount"></span><svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></button>
+          <button type="button" class="row" data-view="trusted" aria-describedby="trustedCount"><span class="txt"><span class="ttl">No password warning on these sites</span></span><span class="count" id="trustedCount"></span><svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></button>
+        </div>
+      </section>
+      <section aria-labelledby="gExp">
+        <h2 class="group" id="gExp">Experimental</h2>
+        <div class="card">
+          <label class="row" id="passkeysRow"><span class="txt"><span class="ttl">Passkeys <span class="tag beta">Beta</span></span><span class="sub">Save and use passkeys with Notiq. Reload open pages after changing.</span></span><input type="checkbox" role="switch" id="passkeys" aria-label="Save and use passkeys with Notiq (experimental)"></label>
+        </div>
+      </section>
+      <p class="ver" id="version"></p>
+    </div>
+
+    <!-- ===================== Settings → site lists (slide-in screens) ===================== -->
+    <div class="view sub" id="viewNever" role="tabpanel" aria-labelledby="neverTitle" hidden>
+      <div class="view-head">
+        <button type="button" class="icon-btn back" data-back="settings" aria-label="Back to settings" title="Back">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>
+        </button>
+        <h1 id="neverTitle" tabindex="-1">Never save</h1>
+      </div>
+      <p class="desc">Notiq won't offer to save logins on these sites. Remove one to get offers there again.</p>
+      <ul id="neverList" class="sites" aria-labelledby="neverTitle"></ul>
+    </div>
+    <div class="view sub" id="viewHidden" role="tabpanel" aria-labelledby="hiddenTitle" hidden>
+      <div class="view-head">
+        <button type="button" class="icon-btn back" data-back="settings" aria-label="Back to settings" title="Back">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>
+        </button>
+        <h1 id="hiddenTitle" tabindex="-1">Hidden on</h1>
+      </div>
+      <p class="desc">No Notiq icon or suggestion on these sites. Fill login and the shortcut still work there.</p>
+      <ul id="hiddenList" class="sites" aria-labelledby="hiddenTitle"></ul>
+    </div>
+    <div class="view sub" id="viewTrusted" role="tabpanel" aria-labelledby="trustedTitle" hidden>
+      <div class="view-head">
+        <button type="button" class="icon-btn back" data-back="settings" aria-label="Back to settings" title="Back">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>
+        </button>
+        <h1 id="trustedTitle" tabindex="-1">No password warning</h1>
+      </div>
+      <p class="desc">Notiq won't warn you about typing another site's password on these sites.</p>
+      <ul id="trustedList" class="sites" aria-labelledby="trustedTitle"></ul>
+    </div>
   </div>
-</div>
-<div class="view" id="viewHidden" hidden>
-  <header class="bar">
-    <button type="button" class="icon-btn back" data-back="settings" aria-label="Back to settings" title="Back">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>
+
+  <!-- ===================== bottom tab bar ===================== -->
+  <div class="tabbar" id="tabbar" role="tablist" aria-label="Notiq Autofill">
+    <button type="button" class="tab" role="tab" id="tabLogins" data-tab="main" aria-controls="viewMain" aria-selected="true" tabindex="0">
+      <span class="tab-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="7.5" cy="15.5" r="4.5"/><path d="M10.7 12.3 20 3"/><path d="M16.5 6.5l3 3"/><path d="M14 9l2 2"/></svg></span>
+      <span>Logins</span>
     </button>
-    <h1 id="hiddenTitle" tabindex="-1">Hidden on</h1>
-  </header>
-  <div class="body">
-    <p class="desc">No Notiq icon or suggestion on these sites. Fill login and the shortcut still work there.</p>
-    <ul id="hiddenList" class="sites" aria-labelledby="hiddenTitle"></ul>
-  </div>
-</div>
-<div class="view" id="viewTrusted" hidden>
-  <header class="bar">
-    <button type="button" class="icon-btn back" data-back="settings" aria-label="Back to settings" title="Back">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>
+    <button type="button" class="tab" role="tab" id="openGen" data-tab="gen" aria-controls="viewGen" aria-selected="false" tabindex="-1">
+      <span class="tab-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21l11-11"/><path d="M14 10l-2-2 3-3 2 2z"/><path d="M19 3v4"/><path d="M17 5h4"/><path d="M8 3v2"/><path d="M7 4h2"/><path d="M20 14v3"/><path d="M18.5 15.5h3"/></svg></span>
+      <span>Generator</span>
     </button>
-    <h1 id="trustedTitle" tabindex="-1">No password warning</h1>
-  </header>
-  <div class="body">
-    <p class="desc">Notiq won't warn you about typing another site's password on these sites.</p>
-    <ul id="trustedList" class="sites" aria-labelledby="trustedTitle"></ul>
+    <button type="button" class="tab" role="tab" id="openSettings" data-tab="settings" aria-controls="viewSettings" aria-selected="false" tabindex="-1">
+      <span class="tab-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg></span>
+      <span>Settings</span>
+    </button>
   </div>
 </div>
 
