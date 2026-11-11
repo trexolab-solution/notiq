@@ -11,6 +11,11 @@ jobs:
       contents: write
     strategy:
       fail-fast: false
+      # One build at a time. Each build finds the draft release for the tag or creates it, and when
+      # both started together they each created their own draft (v0.9.8 ended up with two, and the
+      # Linux files and latest.json entries split between them). In turn, the second build finds the
+      # first one's draft, adds its files and merges its updater entries into the same latest.json.
+      max-parallel: 1
       matrix:
         include:
           - platform: windows-latest
@@ -64,7 +69,7 @@ jobs:
           releaseBody: "Download the installer for your platform below: Windows (.exe or .msi) or Linux (AppImage, .deb or .rpm). There is no macOS installer yet; build from source. The notiq-autofill zips are the browser extension, which Notiq can also install for you from Settings → Vault → Browser autofill. Website: https://trexolab-solution.github.io/notiq/"
           releaseDraft: true
           prerelease: false
-          includeUpdaterJson: true
+          uploadUpdaterJson: true
 
   # Packages the browser extension and attaches the three zips to the draft release that tauri-action
   # created above (browser-extension/build.mjs has no dependencies, so only Node is needed).
@@ -82,6 +87,20 @@ jobs:
 
       - name: Build extension packages
         run: node browser-extension/build.mjs --out dist
+
+      # A second draft for the same tag means the platform builds split their files between two releases.
+      # Stop here with a clear message instead of publishing half a release.
+      - name: Check there is a single release for the tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          COUNT=$(gh api "repos/${{ github.repository }}/releases" --paginate --jq ".[] | select(.tag_name==\"$TAG\") | .id" | wc -l | tr -d ' ')
+          if [ "$COUNT" != "1" ]; then
+            echo "::error::Found $COUNT releases for $TAG (expected 1). Merge their assets into one draft and delete the extra before publishing."
+            exit 1
+          fi
 
       # `gh release upload <tag>` resolves the tag through *published* releases, so it reports
       # "release not found" while the release is still a draft. So: find the draft's numeric id via
