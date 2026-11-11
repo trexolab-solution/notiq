@@ -15,13 +15,13 @@ export const WHATS_NEW = `# What's New in Notiq ${APP_VERSION}
 
 Thanks for updating! Here's what's new in this release.
 
-## ↩️ Autofill back to the previous design
+## 🧩 A new browser extension popup
 
-- **The 0.9.6 autofill redesign is undone.** The approval window, the login menu in web pages and the strong password card are back to how they were in 0.9.5. Reload the browser extension after updating.
-
-## 🛡 Still included from 0.9.5
-
-- **Safer Vault Sync** — reconnecting Google Drive restores from Drive first, Notiq asks before deleting many items, keeps backups, and offers **Restore from a date** in Settings → Vault → Sync.
+- **Made for tapping** — the extension popup now has three tabs at the bottom: **Logins**, **Generator** and **Settings**.
+- **Logins** — a card for the current site, a search box, and a row for each saved login with its 2-step badge. Tap a row to fill; copy the username, password or 2-step code from the row's icons.
+- **Generator** — a large password with its strength, **Regenerate**, **Copy** and **Fill password**, plus length and character options.
+- **Settings** — the same options with larger rows and switches; the site lists slide in with a back button.
+- Larger text and better contrast in light and dark. Reload the extension after updating (it is version 0.8.0).
 
 ---
 
