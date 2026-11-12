@@ -10,6 +10,8 @@ mod autofill_reuse; // password-reuse / phishing warning (reuse_salt, reuse_chec
 mod native_host_reg; // 0.7.0 autofill
 mod passkey; // experimental: passkeys (WebAuthn) in the vault, see autofill.rs "Passkeys"
 mod vault;
+mod ssh_connect; // 0.9.9 built-in terminal: SSH sign-in from a vault entry
+mod ssh_keygen; // 0.9.9 generate an SSH key in the entry form
 mod vault_backup;
 mod vault_core;
 mod vault_db;
@@ -229,12 +231,15 @@ mod term {
     pub(super) struct TermState {
         write_tx: mpsc::SyncSender<Vec<u8>>,
         master:   Arc<Mutex<SendMaster>>,
+        /// Temporary private key for an SSH session; deleted when the session is dropped.
+        _key:     Option<crate::ssh_connect::KeyFile>,
     }
 
     pub struct AppTerminal(pub(super) Arc<Mutex<HashMap<u32, TermState>>>);
 
     impl AppTerminal {
         pub fn new() -> Self {
+            crate::ssh_connect::sweep_stale_keys();
             AppTerminal(Arc::new(Mutex::new(HashMap::new())))
         }
     }
@@ -250,8 +255,11 @@ mod term {
         id:    u32,
         cols:  u16,
         rows:  u16,
+        ssh_path: Option<String>,
+        ssh_auth: Option<String>,
         app:   AppHandle,
         state: State<'_, AppTerminal>,
+        vault: State<'_, crate::vault::VaultState>,
     ) -> Result<String, String> {
         if cols == 0 || rows == 0 || cols > MAX_TERMINAL_COLS || rows > MAX_TERMINAL_ROWS {
             return Err("Invalid terminal dimensions".to_string());
@@ -267,8 +275,28 @@ mod term {
             .openpty(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 })
             .map_err(|e| e.to_string())?;
 
+        // A saved SSH entry opens `ssh` instead of the local shell; its secrets are read here, in the backend.
+        let mut key_guard: Option<crate::ssh_connect::KeyFile> = None;
+        let mut auto_reply: Option<crate::ssh_connect::AutoReply> = None;
+        let ssh_cmd = match (ssh_path.as_deref(), ssh_auth.as_deref()) {
+            (Some(path), Some(auth)) => {
+                let session = crate::ssh_connect::load_session(
+                    &vault, path, crate::ssh_connect::Auth::parse(auth)?)?;
+                if let Some(k) = &session.private_key {
+                    key_guard = Some(crate::ssh_connect::KeyFile::create(id, k)?);
+                }
+                let args = crate::ssh_connect::build_args(&session, key_guard.as_ref().map(|k| k.path()));
+                auto_reply = crate::ssh_connect::AutoReply::new(&session);
+                let mut c = CommandBuilder::new("ssh");
+                c.args(args);
+                Some((session.title.clone(), c))
+            }
+            (None, None) => None,
+            _ => return Err("Incomplete SSH request".to_string()),
+        };
+
         // Detect shell name to show in the tab title
-        let (shell_name, mut cmd) = {
+        let (shell_name, mut cmd) = if let Some(x) = ssh_cmd { x } else {
             #[cfg(windows)]
             {
                 let mut c = CommandBuilder::new("powershell.exe");
@@ -293,16 +321,24 @@ mod term {
             cmd.cwd(home);
         }
 
-        pair.slave.spawn_command(cmd).map_err(|e| e.to_string())?;
+        pair.slave.spawn_command(cmd).map_err(|e| {
+            if ssh_path.is_some() {
+                format!("Couldn't start ssh — is the OpenSSH client installed? ({e})")
+            } else { e.to_string() }
+        })?;
         drop(pair.slave);
 
         let master = Arc::new(Mutex::new(SendMaster(pair.master)));
+
+        let (tx, rx) = mpsc::sync_channel::<Vec<u8>>(TERMINAL_CHANNEL_CAPACITY);
 
         // Reader thread — streams PTY output; clears session entry when shell exits
         let sessions_arc = Arc::clone(&state.0);
         {
             let mr   = master.clone();
             let app2 = app.clone();
+            let reply_tx = tx.clone();
+            let mut auto_reply = auto_reply;
             std::thread::spawn(move || {
                 let mut reader = match mr.lock() {
                     Ok(guard) => match guard.0.try_clone_reader() {
@@ -336,6 +372,12 @@ mod term {
                             let data = String::from_utf8_lossy(&pending).into_owned();
                             pending = rest;
                             if !data.is_empty() {
+                                if let Some(ar) = auto_reply.as_mut() {
+                                    if let Some(bytes) = ar.on_output(&data) {
+                                        let _ = reply_tx.send(bytes.to_vec());
+                                    }
+                                    if ar.is_done() { auto_reply = None; }
+                                }
                                 let _ = app2.emit("terminal-data", DataPayload { id, data });
                             }
                         }
@@ -351,7 +393,6 @@ mod term {
         }
 
         // Writer thread — forwards input bytes from the frontend to the PTY
-        let (tx, rx) = mpsc::sync_channel::<Vec<u8>>(TERMINAL_CHANNEL_CAPACITY);
         {
             let mw = master.clone();
             std::thread::spawn(move || {
@@ -376,7 +417,7 @@ mod term {
             });
         }
 
-        guard.insert(id, TermState { write_tx: tx, master });
+        guard.insert(id, TermState { write_tx: tx, master, _key: key_guard });
         Ok(shell_name)
     }
 
@@ -746,6 +787,7 @@ pub fn run() {
         get_open_file,
         pdf::export_pdf,
         term::terminal_create,
+        ssh_keygen::ssh_generate_key,
         term::terminal_write,
         term::terminal_resize,
         term::terminal_kill,

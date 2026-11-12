@@ -234,4 +234,24 @@ describe("SshEntryEditor", () => {
     await flush();
     expect(priv().value).toBe(ED25519_PRIV);
   });
+
+  it("shows the password and the private key together, and keeps both when either is edited", async () => {
+    await render(JSON.stringify({ v: 1, kind: "ssh", title: "Prod", fields: { host: "h.io", username: "root", password: "pw1", privateKey: ED25519_PRIV } }));
+    // No either/or switch: both fields are on screen at once.
+    expect(q("[aria-label=\"Sign-in method\"]")).toBeNull();
+    expect(q<HTMLInputElement>("#ssh-pass")!.value).toBe("pw1");
+    expect(priv().value).toBe(ED25519_PRIV);
+
+    await typeInto(q<HTMLInputElement>("#ssh-pass")!, "pw2");
+    expect(stored().fields).toMatchObject({ password: "pw2", privateKey: ED25519_PRIV });
+    await typeInto(priv(), "");
+    expect(stored().fields).toMatchObject({ password: "pw2", privateKey: "" });
+  });
+
+  it("can add a password to an entry that only had a key", async () => {
+    await render();
+    expect(q<HTMLInputElement>("#ssh-pass")!.value).toBe("");
+    await typeInto(q<HTMLInputElement>("#ssh-pass")!, "added");
+    expect(stored().fields).toMatchObject({ password: "added", privateKey: ED25519_PRIV });
+  });
 });

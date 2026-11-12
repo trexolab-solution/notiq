@@ -11,6 +11,7 @@ import { THEMES } from "../../lib/themes";
 import type { ThemeId } from "../../types";
 import { ContextMenu } from "../ui/ContextMenu";
 import { buildTerminalMenu } from "../../lib/contextMenu/items";
+import type { SshTarget } from "../../lib/sshConnect";
 
 export interface InstanceHandle {
   fit():   void;
@@ -24,6 +25,8 @@ interface Props {
   onShellName: (id: number, name: string) => void;
   onExit:      (id: number) => void;
   onFocus?:    (id: number) => void;
+  /** Open an SSH session to a saved vault entry instead of the local shell (also used when restarting). */
+  ssh?:        SshTarget;
 }
 
 interface TermCtxMenuState {
@@ -32,7 +35,7 @@ interface TermCtxMenuState {
 }
 
 export const TerminalInstance = forwardRef<InstanceHandle, Props>(
-  function TerminalInstance({ sessionId, isActive, isOpen, onShellName, onExit, onFocus }, ref) {
+  function TerminalInstance({ sessionId, isActive, isOpen, onShellName, onExit, onFocus, ssh }, ref) {
     const themeId             = useAppStore((s) => s.themeId);
     const terminalFontSize    = useAppStore((s) => s.terminalFontSize);
     const terminalCursorStyle = useAppStore((s) => s.terminalCursorStyle);
@@ -45,6 +48,8 @@ export const TerminalInstance = forwardRef<InstanceHandle, Props>(
     const shellExitedRef = useRef(false);
     const onFocusRef     = useRef<((id: number) => void) | undefined>(onFocus);
     onFocusRef.current   = onFocus;
+    const sshRef         = useRef(ssh);
+    sshRef.current       = ssh;
 
     const [ctxMenu, setCtxMenu] = useState<TermCtxMenuState | null>(null);
 
@@ -57,7 +62,9 @@ export const TerminalInstance = forwardRef<InstanceHandle, Props>(
       if (!t) return;
       const name = await invoke<string>("terminal_create", {
         id: sessionId, cols: t.cols, rows: t.rows,
-      }).catch(() => "");
+        sshPath: sshRef.current?.path, sshAuth: sshRef.current?.auth,
+      }).catch((e) => { t.writeln(`
+[31m${String(e)}[0m`); shellExitedRef.current = true; return ""; });
       if (name) onShellName(sessionId, name);
       t.focus();
     }, [sessionId, onShellName]);
@@ -137,8 +144,13 @@ export const TerminalInstance = forwardRef<InstanceHandle, Props>(
         if (cancelled) return;
         invoke<string>("terminal_create", {
           id: sessionId, cols: term.cols, rows: term.rows,
+          sshPath: sshRef.current?.path, sshAuth: sshRef.current?.auth,
         }).then((name) => { if (name) onShellName(sessionId, name); })
-          .catch(console.error);
+          .catch((e) => {
+            console.error(e);
+            term.writeln(`[31m${String(e)}[0m`);
+            shellExitedRef.current = true; // any key retries
+          });
       });
 
       // ── Input → PTY (auto-restart on any key after exit) ──────────────

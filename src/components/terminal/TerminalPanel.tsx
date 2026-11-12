@@ -4,10 +4,13 @@ import {
 } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import {
-  PanelBottom, PanelRight, Plus, SplitSquareHorizontal, SplitSquareVertical, X,
+  PanelBottom, PanelRight, Plus, Server, SplitSquareHorizontal, SplitSquareVertical, X,
 } from "lucide-react";
 import { Tooltip } from "../ui/Tooltip";
 import { TerminalInstance, type InstanceHandle } from "./TerminalInstance";
+import { SshConnectDialog } from "./SshConnectDialog";
+import { onSshRequest, takePendingSsh } from "../../lib/sshTerminalRequest";
+import type { SshTarget } from "../../lib/sshConnect";
 import type { TerminalLayout } from "../../types";
 import "@xterm/xterm/css/xterm.css";
 
@@ -22,6 +25,7 @@ interface Pane {
   id:    number;
   title: string;
   size:  number;   // proportion of the tab (sums to 1.0 across panes in a tab)
+  ssh?:  SshTarget; // set when this pane is an SSH session to a vault entry
 }
 
 interface TabGroup {
@@ -43,6 +47,7 @@ export const TerminalPanel = forwardRef<TerminalPanelHandle, Props>(
   function TerminalPanel({ isOpen, onClose, layout, onToggleLayout }, ref) {
     const [tabs,        setTabs]        = useState<TabGroup[]>([]);
     const [activeTabId, setActiveTabId] = useState<number | null>(null);
+    const [sshPicker, setSshPicker] = useState(false);
     const nextIdRef    = useRef(1);
     const instanceRefs = useRef<Map<number, InstanceHandle>>(new Map());
     const bodyRef      = useRef<HTMLDivElement>(null);
@@ -61,6 +66,17 @@ export const TerminalPanel = forwardRef<TerminalPanelHandle, Props>(
       setTabs((prev) => [
         ...prev,
         { id: tabId, panes: [{ id: paneId, title: "Shell", size: 1 }], activePaneId: paneId },
+      ]);
+      setActiveTabId(tabId);
+    }, []);
+
+    const handleNewSshTab = useCallback((ssh: SshTarget) => {
+      setSshPicker(false);
+      const paneId = nextIdRef.current++;
+      const tabId  = nextIdRef.current++;
+      setTabs((prev) => [
+        ...prev,
+        { id: tabId, panes: [{ id: paneId, title: ssh.title, size: 1, ssh }], activePaneId: paneId },
       ]);
       setActiveTabId(tabId);
     }, []);
@@ -209,9 +225,15 @@ export const TerminalPanel = forwardRef<TerminalPanelHandle, Props>(
     }), [activeTab, handleNewTab, handleClosePane]);
 
     // First-open: create initial tab with one pane.
+    // A saved-server request that opened the panel replaces the default local shell.
     useEffect(() => {
-      if (isOpen && tabs.length === 0) handleNewTab();
-    }, [isOpen, tabs.length, handleNewTab]);
+      if (!isOpen || tabs.length > 0) return;
+      const early = takePendingSsh();
+      if (early) handleNewSshTab(early); else handleNewTab();
+    }, [isOpen, tabs.length, handleNewTab, handleNewSshTab]);
+
+    // "Open in terminal" from a saved SSH entry while the panel exists.
+    useEffect(() => onSshRequest((target) => { takePendingSsh(); handleNewSshTab(target); }), [handleNewSshTab]);
 
     // Re-fit + focus when active tab or layout changes.
     useEffect(() => {
@@ -272,6 +294,11 @@ export const TerminalPanel = forwardRef<TerminalPanelHandle, Props>(
                   : <PanelBottom size={13} />}
               </button>
             </Tooltip>
+            <Tooltip content="Connect to a saved server (SSH)">
+              <button className="terminal-icon-btn" onClick={() => setSshPicker(true)} aria-label="Connect to a saved server">
+                <Server size={13} />
+              </button>
+            </Tooltip>
             <Tooltip content="New Terminal" shortcut="Ctrl+Shift+`">
               <button className="terminal-icon-btn" onClick={handleNewTab}>
                 <Plus size={13} />
@@ -308,6 +335,7 @@ export const TerminalPanel = forwardRef<TerminalPanelHandle, Props>(
                         else        instanceRefs.current.delete(p.id);
                       }}
                       sessionId={p.id}
+                      ssh={p.ssh}
                       isActive={t.id === activeTabId}
                       isOpen={isOpen}
                       onShellName={handleShellName}
@@ -336,6 +364,7 @@ export const TerminalPanel = forwardRef<TerminalPanelHandle, Props>(
           ))}
         </div>
 
+        {sshPicker && <SshConnectDialog onConnect={handleNewSshTab} onClose={() => setSshPicker(false)} />}
       </div>
     );
   },

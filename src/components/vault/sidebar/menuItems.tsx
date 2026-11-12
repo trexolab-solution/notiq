@@ -1,6 +1,6 @@
 import {
   ArrowDownAZ, ChevronsDownUp, ChevronsUpDown, Clock, Copy, ExternalLink, FolderInput, FolderPlus, Pencil, Star,
-  SquareArrowOutUpRight, StarOff, Tags, Trash2, Globe,
+  SquareArrowOutUpRight, SquareTerminal, StarOff, Tags, Trash2, Globe,
 } from "lucide-react";
 import type { ContextMenuItem } from "../../ui/ContextMenu";
 import { NEW_ENTRY_OPTIONS, type NewEntryKind } from "../../../lib/vaultCreate";
@@ -11,6 +11,8 @@ export interface MenuHandlers {
   open: (n: TreeNode) => void;
   /** Open in a tab of its own (not the reusable preview tab). */
   openNewTab: (n: TreeNode) => void;
+  /** SSH entries: open the server in the built-in terminal. */
+  openTerminal: (n: TreeNode) => void;
   rename: (n: TreeNode) => void;
   tags: (n: TreeNode) => void;
   star: (n: TreeNode) => void;
@@ -73,6 +75,9 @@ export function buildMenu(node: TreeNode | null, sort: SortMode, h: MenuHandlers
   return [
     { type: "item", label: "Open", shortcut: "Enter", icon: icon(<ExternalLink size={14} />), onClick: () => h.open(node) },
     { type: "item", label: "Open in new tab", shortcut: "Ctrl+Enter", icon: icon(<SquareArrowOutUpRight size={14} />), onClick: () => h.openNewTab(node) },
+    ...(node.kind === "ssh"
+      ? [{ type: "item" as const, label: "Open in terminal", icon: icon(<SquareTerminal size={14} />), onClick: () => h.openTerminal(node) }]
+      : []),
     { type: "item", label: "Rename", shortcut: "F2", icon: icon(<Pencil size={14} />), onClick: () => h.rename(node) },
     { type: "item", label: "Edit tags…", icon: icon(<Tags size={14} />), onClick: () => h.tags(node) },
     star,

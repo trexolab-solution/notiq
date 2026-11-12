@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { RefObject } from "react";
 import { useAppStore } from "../store";
+import { onSshRequest } from "../lib/sshTerminalRequest";
 import type { TerminalPanelHandle } from "../components/terminal/TerminalPanel";
 import type { TerminalLayout } from "../types";
 
@@ -119,6 +120,9 @@ export function useTerminalPanel(): UseTerminalPanelResult {
 
   // Cleanup mid-drag listeners on unmount.
   useEffect(() => () => { dragCleanupRef.current?.(); }, []);
+
+  // A saved SSH entry asked for a terminal session: show the panel (the panel itself opens the tab).
+  useEffect(() => onSshRequest(() => { setMounted(true); setIsOpen(true); }), []);
 
   // Fit + focus xterm when the panel becomes visible.
   useEffect(() => {
