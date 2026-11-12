@@ -7,7 +7,7 @@ import { useAutoHide } from "../../hooks/useAutoHide";
 import { CopyIconButton } from "./CopyIconButton";
 import { AttachmentsPanel } from "./AttachmentsPanel";
 import { reinsert, RowActions, rowButtonClass, RowIconButton, useAnnouncer, useLatest, useListFocus, useUndoToast } from "./ListEditor";
-import { EntryHeader, EntryLayout, SaveHint, Section, fieldLabel, textArea } from "./EntryParts";
+import { EntryHeader, EntryLayout, SaveHint, Section, fieldLabel, formColumn, textArea } from "./EntryParts";
 import { copySecret } from "../../lib/secureCopy";
 import { toast } from "../../lib/toast";
 import {
@@ -53,7 +53,7 @@ export function RecoveryCodesEditor({ tab }: { tab: Tab }) {
 
   return (
     <EntryLayout tab={tab}>
-      <div ref={rootRef} className="max-w-xl mx-auto px-6 py-8 flex flex-col gap-4 text-[var(--color-text)]">
+      <div ref={rootRef} className={formColumn}>
         <EntryHeader icon={ListChecks} title="Recovery codes" tab={tab} />
         {region}
         <div>
@@ -124,11 +124,10 @@ export function RecoveryCodesEditor({ tab }: { tab: Tab }) {
           </div>
         </Section>
 
-        <div>
-          <label className={fieldLabel} htmlFor="rc-notes">Notes</label>
-          <textarea id="rc-notes" rows={3} value={entry.notes} className={textArea}
+        <Section title="Notes">
+          <textarea id="rc-notes" aria-label="Notes" rows={3} value={entry.notes} className={textArea}
                     onChange={(e) => save({ ...entry, notes: e.target.value })} />
-        </div>
+        </Section>
 
         <AttachmentsPanel tab={tab} />
         <SaveHint />

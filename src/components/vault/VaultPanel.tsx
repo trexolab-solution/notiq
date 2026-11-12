@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Cloud, FolderOpen, HardDrive, Lock, RotateCcw, ShieldCheck } from "lucide-react";
+import { Cloud, FolderOpen, HardDrive, Lock, LockOpen, RotateCcw, ShieldCheck } from "lucide-react";
 import { useVaultStore } from "../../store/vaultStore";
 import { pickVaultDir, resetVaultDir } from "../../lib/vaultDir";
 import { getVaultDir } from "../../lib/vaultPrefs";
@@ -60,7 +60,7 @@ export function VaultPanel() {
       ) : (
         <>
           <PanelHeader unlocked={false} />
-          <div data-context-area="vault-locked" className="flex-1 min-h-0 overflow-y-auto flex flex-col items-center justify-center px-5 py-4 text-center gap-2">
+          <div data-context-area="vault-locked" className="flex-1 min-h-0 overflow-y-auto flex flex-col items-center justify-center px-5 py-6 text-center gap-2">
             {exists || !checked ? <LockedState /> : <NoVaultState />}
           </div>
           <div className="vt-footer">{storageRow}</div>
@@ -76,18 +76,25 @@ const SECONDARY_BTN = "inline-flex items-center justify-center gap-1.5 px-3 py-1
 
 function LockedState() {
   return (
-    <>
-      <div className="w-10 h-10 rounded-full flex items-center justify-center bg-[var(--color-bg-tertiary)] text-[var(--color-text-muted)]">
-        <Lock size={17} aria-hidden />
+    <div className="flex flex-col items-center gap-5 w-full max-w-[232px]" data-testid="vault-locked">
+      <span className="grid place-items-center w-12 h-12 rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-secondary)] text-[var(--color-primary)]" aria-hidden>
+        <Lock size={20} strokeWidth={1.75} />
+      </span>
+      <div className="flex flex-col gap-1.5">
+        <h2 className="text-sm font-semibold text-[var(--color-text)]">Unlock to see your secrets</h2>
+        <p className="text-xs leading-relaxed text-[var(--color-text-muted)]">
+          Your logins, SSH keys and notes open with your master password.
+        </p>
       </div>
-      <div className="text-[12.5px] font-semibold text-[var(--color-text)]">Unlock to see your secrets</div>
-      <p className="text-[11.5px] leading-relaxed text-[var(--color-text-muted)]">
-        Names, tags and contents are encrypted with your master password.
-      </p>
-      <button type="button" className={`mt-1 ${PRIMARY_BTN}`} onClick={() => void useVaultStore.getState().ensureUnlocked()}>
-        Unlock
+      <button type="button" className={`${PRIMARY_BTN} w-full inline-flex items-center justify-center gap-2 py-2`}
+              onClick={() => void useVaultStore.getState().ensureUnlocked()}>
+        <LockOpen size={14} aria-hidden /> Unlock
       </button>
-    </>
+      <p className="flex items-start gap-1.5 text-left text-[11px] leading-snug text-[var(--color-text-muted)]">
+        <ShieldCheck size={13} className="shrink-0 mt-px" aria-hidden />
+        Names, tags and contents stay encrypted on this device until you unlock.
+      </p>
+    </div>
   );
 }
 

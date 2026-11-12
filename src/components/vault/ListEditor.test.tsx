@@ -148,12 +148,12 @@ describe("Custom fields (CustomFieldsEditor)", () => {
     expect(document.activeElement).toBe(input("Field name 2"));
   });
 
-  it("row actions carry the field's name; a hidden field shows its badge and masks the value", () => {
+  it("row actions carry the field's name; a hidden field shows its lock marker and masks the value", () => {
     renderFields([f("Customer ID", "C-1", true)]);
     expect(btn("Copy value of Customer ID")).toBeTruthy();
     expect(btn("Show value of Customer ID")).toBeTruthy();
     expect(btn("More actions for Customer ID")!.getAttribute("aria-haspopup")).toBe("menu");
-    expect(host.querySelector("li[data-list-row]")!.textContent).toContain("Hidden");
+    expect(host.querySelector("li[data-list-row] [title=\"Hidden value\"]")).toBeTruthy();
     expect(input("Value of Customer ID").type).toBe("password");
     click(btn("Show value of Customer ID")!);
     expect(input("Value of Customer ID").type).toBe("text");
@@ -162,7 +162,7 @@ describe("Custom fields (CustomFieldsEditor)", () => {
   it("every row has the same action slots, so value inputs line up", () => {
     renderFields([f("A", "1"), f("B", "2", true)]);
     const slots = [...host.querySelectorAll("li[data-list-row]")]
-      .map((li) => li.querySelector("[data-field-value]")!.nextElementSibling!.children.length);
+      .map((li) => li.lastElementChild!.children.length); // the action column is each row's last child
     expect(slots).toEqual([3, 3]);
   });
 
@@ -314,12 +314,12 @@ describe("Custom fields (CustomFieldsEditor)", () => {
       pick("PIN", "Hide value");
       expect(input("Value of PIN").type).toBe("password");
       expect(btn("Show value of PIN")).toBeTruthy();
-      expect(host.querySelector("li[data-list-row]")!.textContent).toContain("Hidden");
+      expect(host.querySelector("li[data-list-row] [title=\"Hidden value\"]")).toBeTruthy();
       flush();
       expect(live().textContent).toBe("PIN is now hidden");
       pick("PIN", "Show as text");
       expect(input("Value of PIN").type).toBe("text");
-      expect(host.querySelector("li[data-list-row]")!.textContent).not.toContain("Hidden");
+      expect(host.querySelector("li[data-list-row] [title=\"Hidden value\"]")).toBeNull();
     });
   });
 

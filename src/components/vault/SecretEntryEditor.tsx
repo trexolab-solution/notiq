@@ -8,7 +8,7 @@ import { useAutoHide } from "../../hooks/useAutoHide";
 import { CopyIconButton } from "./CopyIconButton";
 import { CustomFieldsEditor } from "./CustomFieldsEditor";
 import { AttachmentsPanel } from "./AttachmentsPanel";
-import { EntryHeader, EntryLayout, SaveHint, fieldLabel, textArea } from "./EntryParts";
+import { EntryHeader, EntryLayout, SaveHint, Section, fieldLabel, formColumn, textArea } from "./EntryParts";
 import { isChecked, parseSecret, serializeSecret, SECRET_KINDS, type FieldDef, type SecretEntry } from "../../lib/secretEntry";
 import { cardBrand, cardNumberHint, digitsOnly, expiryError, formatCardNumber, formatExpiry } from "../../lib/cardEntry";
 import { wifiQrText } from "../../lib/wifiEntry";
@@ -31,7 +31,11 @@ function fieldMessage(kind: string, key: string, value: string): { text: string;
   return null;
 }
 
-function Field({ kind, def, value, onChange }: { kind: string; def: FieldDef; value: string; onChange: (v: string) => void }) {
+function Field({ kind, def, value, onChange, hideLabel }: {
+  kind: string; def: FieldDef; value: string; onChange: (v: string) => void;
+  /** The section heading already says what the field is (a lone "Notes" field under a "Notes" section). */
+  hideLabel?: boolean;
+}) {
   const [show, setShow] = useState(false);
   useAutoHide(show, setShow);
   const id = `se-${def.key}`;
@@ -63,8 +67,9 @@ function Field({ kind, def, value, onChange }: { kind: string; def: FieldDef; va
   const copyValue = def.format === "card" ? digitsOnly(value) : value;
   return (
     <div>
-      <label className={fieldLabel} htmlFor={id}>{def.label}</label>
+      <label className={hideLabel ? "sr-only" : fieldLabel} htmlFor={id}>{def.label}</label>
       <div className="flex items-start gap-2">
+        <div className="flex-1 min-w-0">
         {multi ? (
           <textarea id={id} rows={def.type === "multiline-secret" ? 6 : 4} value={value} placeholder={def.placeholder}
                     onChange={(e) => onChange(cleanValue(def, e.target.value))} spellCheck={false} autoComplete="off"
@@ -76,11 +81,17 @@ function Field({ kind, def, value, onChange }: { kind: string; def: FieldDef; va
                  inputMode={def.format ? "numeric" : undefined} aria-invalid={msg?.error || undefined}
                  className={`${secret || def.format ? "font-mono" : ""} ${msg?.error ? "!border-[var(--color-danger)]" : ""}`} />
         )}
+        </div>
+        {(secret || def.type !== "multiline") && (
+          // Same-width slot for every row, so inputs end at the same edge whether they have one action or two.
+          <div className="w-[68px] shrink-0 flex items-center justify-end gap-1 pt-px">
         {secret && (
           <Button size="sm" aria-label={show ? `Hide ${def.label.toLowerCase()}` : `Show ${def.label.toLowerCase()}`} aria-pressed={show}
                   icon={show ? <EyeOff size={12} /> : <Eye size={12} />} onClick={() => setShow((v) => !v)} />
         )}
         {def.type !== "multiline" && <CopyIconButton value={copyValue} label={def.label.toLowerCase()} />}
+          </div>
+        )}
       </div>
       {msg && (
         <p className="text-xs mt-1" style={{ color: msg.error ? "var(--color-danger)" : "var(--color-text-muted)" }}>{msg.text}</p>
@@ -91,6 +102,11 @@ function Field({ kind, def, value, onChange }: { kind: string; def: FieldDef; va
 
 const ICONS: Record<string, LucideIcon> = {
   ssh: Terminal, secret: KeyRound, card: CreditCard, wifi: Wifi, identity: IdCard,
+};
+
+/** Example names that show what a good title looks like for each kind. */
+const NAME_PLACEHOLDER: Record<string, string> = {
+  secret: "e.g. OpenAI production key", card: "e.g. Personal Visa", wifi: "e.g. Home Wi-Fi", identity: "e.g. Home address",
 };
 
 /** Fields hidden for the current state (e.g. no password on an open Wi-Fi network). */
@@ -106,28 +122,46 @@ export function SecretEntryEditor({ tab, kind }: { tab: Tab; kind: string }) {
   const brand = kind === "card" ? cardBrand(entry.fields.number ?? "") : null;
   const qr = kind === "wifi" ? wifiQrText(entry.fields) : null;
 
+  // Consecutive fields with the same `group` share one section; a half-width field pairs up with its neighbour.
+  const groups: { title: string; fields: FieldDef[] }[] = [];
+  for (const f of def.fields.filter((f) => !f.internal && !hiddenField(entry, f.key))) {
+    const title = f.group ?? "";
+    const last = groups[groups.length - 1];
+    if (last && last.title === title) last.fields.push(f); else groups.push({ title, fields: [f] });
+  }
+
   return (
     <EntryLayout tab={tab}>
-      <div className="max-w-xl mx-auto px-6 py-8 flex flex-col gap-4 text-[var(--color-text)]">
+      <div className={formColumn}>
         <EntryHeader icon={Icon} title={def.label} tab={tab} badge={brand} />
         <div>
           <label className={fieldLabel} htmlFor="se-title">Name</label>
-          <Input id="se-title" value={entry.title} onChange={(e) => save({ ...entry, title: e.target.value })} />
+          <Input id="se-title" value={entry.title} onChange={(e) => save({ ...entry, title: e.target.value })}
+                 placeholder={NAME_PLACEHOLDER[kind]} />
         </div>
-        {def.fields.filter((f) => !f.internal && !hiddenField(entry, f.key)).map((f) => (
-          <Field key={f.key} kind={kind} def={f} value={entry.fields[f.key] ?? ""}
-                 onChange={(v) => save({ ...entry, fields: { ...entry.fields, [f.key]: v } })} />
-        ))}
-        {kind === "wifi" && (
-          <div className="flex items-center gap-2">
-            <Button size="sm" icon={<QrCode size={12} />} disabled={!qr}
-                    title={qr ? undefined : "Enter the network name first"}
-                    onClick={() => { if (qr) void copySecret(qr, "Wi-Fi QR text"); }}>
-              Copy Wi-Fi QR text
-            </Button>
-            <span className="text-[11px] text-[var(--color-text-muted)]">Paste into any QR generator so phones can join by scanning.</span>
-          </div>
-        )}
+        {groups.map((g) => {
+          const fields = (
+            <div className="grid grid-cols-2 gap-x-3 gap-y-4">
+              {g.fields.map((f) => (
+                <div key={f.key} className={f.width ? "col-span-1 min-w-0" : "col-span-2 min-w-0"}>
+                  <Field kind={kind} def={f} value={entry.fields[f.key] ?? ""} hideLabel={f.label === g.title}
+                         onChange={(v) => save({ ...entry, fields: { ...entry.fields, [f.key]: v } })} />
+                </div>
+              ))}
+              {kind === "wifi" && g.title === "Network" && (
+                <div className="col-span-2 flex items-center gap-2">
+                  <Button size="sm" icon={<QrCode size={12} />} disabled={!qr}
+                          title={qr ? undefined : "Enter the network name first"}
+                          onClick={() => { if (qr) void copySecret(qr, "Wi-Fi QR text"); }}>
+                    Copy Wi-Fi QR text
+                  </Button>
+                  <span className="text-[11px] text-[var(--color-text-muted)]">Paste into any QR generator so phones can join by scanning.</span>
+                </div>
+              )}
+            </div>
+          );
+          return g.title ? <Section key={g.title} title={g.title}>{fields}</Section> : <div key="ungrouped">{fields}</div>;
+        })}
         <CustomFieldsEditor value={entry.custom} onChange={(custom) => save({ ...entry, custom })} />
         <AttachmentsPanel tab={tab} />
         <SaveHint />

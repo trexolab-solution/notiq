@@ -109,16 +109,66 @@ export function EntryHeader({ icon: Icon, title, tab, badge }: {
   );
 }
 
-/** Uppercase section heading with a rule, like the SSH editor's sections. */
-export function Section({ title, aside, children }: { title: string; aside?: React.ReactNode; children: React.ReactNode }) {
+/** The form column every structured editor uses: one rhythm (24px between sections) and one width. */
+export const formColumn = "max-w-xl mx-auto px-6 py-8 flex flex-col gap-6 text-[var(--color-text)]";
+
+/**
+ * Section heading with a rule. `hint` is one muted line under the heading that says what the section is for
+ * (e.g. that both a password and a key may be saved).
+ */
+export function Section({ title, hint, aside, children }: { title: string; hint?: React.ReactNode; aside?: React.ReactNode; children: React.ReactNode }) {
   return (
-    <section className="flex flex-col gap-3">
-      <div className="flex items-center gap-2 border-b border-[var(--color-border)] pb-1">
-        <h2 className="flex-1 text-[11px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">{title}</h2>
-        {aside}
+    <section className="flex flex-col gap-4">
+      <div className="flex flex-col gap-1 border-b border-[var(--color-border)] pb-1.5">
+        <div className="flex items-center gap-2">
+          <h2 className="flex-1 text-[11px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">{title}</h2>
+          {aside}
+        </div>
+        {hint && <p className="text-xs text-[var(--color-text-muted)]">{hint}</p>}
       </div>
       {children}
     </section>
+  );
+}
+
+/** A group inside a section (e.g. "Password" and "Private key" under Sign in): a small title and its fields. */
+export function SubGroup({ title, hint, children }: { title: string; hint?: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <div className="flex flex-col gap-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-secondary)]/40 p-3.5">
+      <div className="flex flex-col gap-0.5">
+        <h3 className="text-sm font-medium">{title}</h3>
+        {hint && <p className="text-xs text-[var(--color-text-muted)]">{hint}</p>}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+/**
+ * One labelled field. Every action sits in the same fixed-width slot to the right, so inputs of different
+ * rows end at the same edge. `hint` follows the label in muted text ("· optional").
+ */
+export function FieldRow({ htmlFor, text, hint, children, actions, help, error, hideLabel }: {
+  htmlFor: string; text: string; hint?: string; children: React.ReactNode; actions?: React.ReactNode;
+  /** The group heading already names the field: keep the label for screen readers only. */
+  hideLabel?: boolean;
+  /** Muted line under the input. */
+  help?: React.ReactNode;
+  /** Replaces `help` (red). */
+  error?: string | null;
+}) {
+  return (
+    <div>
+      <label className={hideLabel ? "sr-only" : fieldLabel} htmlFor={htmlFor}>
+        {text}{hint && <span className="ml-1.5 opacity-70">{hint}</span>}
+      </label>
+      <div className="flex items-start gap-2">
+        <div className="flex-1 min-w-0">{children}</div>
+        <div className="w-[68px] shrink-0 flex items-center justify-end gap-1 pt-px">{actions}</div>
+      </div>
+      {error ? <p className="text-xs mt-1 text-[var(--color-danger)]" role="alert">{error}</p>
+        : help ? <p className="text-xs mt-1 text-[var(--color-text-muted)]">{help}</p> : null}
+    </div>
   );
 }
 

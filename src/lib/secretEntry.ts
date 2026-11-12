@@ -18,6 +18,10 @@ export interface FieldDef {
   inputType?: "email" | "tel";
   /** Stored and edited only by a dedicated editor (e.g. JSON); generic views and editors skip it. */
   internal?: boolean;
+  /** Section heading the generic editor puts the field under; consecutive fields with the same group share a section. */
+  group?: string;
+  /** Share a row with neighbouring fields (half: two across, third: three across). Default: full width. */
+  width?: "half" | "third";
 }
 export interface KindDef { ext: string; label: string; hint: string; fields: FieldDef[] }
 
@@ -47,48 +51,48 @@ export const SECRET_KINDS: Record<string, KindDef> = {
   secret: {
     ext: "secret", label: "API key / secret", hint: "Token, key, env value",
     fields: [
-      { key: "service", label: "Service", type: "text", placeholder: "e.g. OpenAI, AWS, Stripe" },
-      { key: "key", label: "Key / token", type: "multiline-secret" },
-      { key: "env", label: "Env variable name (optional)", type: "text", placeholder: "OPENAI_API_KEY" },
-      { key: "notes", label: "Notes", type: "multiline" },
+      { key: "service", label: "Service", type: "text", placeholder: "e.g. OpenAI, AWS, Stripe", group: "Credential" },
+      { key: "key", label: "Key / token", type: "multiline-secret", group: "Credential" },
+      { key: "env", label: "Env variable name (optional)", type: "text", placeholder: "OPENAI_API_KEY", group: "Credential" },
+      { key: "notes", label: "Notes", type: "multiline", group: "Notes" },
     ],
   },
   card: {
     ext: "card", label: "Payment card", hint: "Card number, expiry, CVV, PIN",
     fields: [
-      { key: "cardholder", label: "Cardholder name", type: "text", placeholder: "As printed on the card" },
-      { key: "number", label: "Card number", type: "secret", format: "card", placeholder: "1234 5678 9012 3456" },
-      { key: "expiry", label: "Expiry (MM/YY)", type: "text", format: "expiry", placeholder: "MM/YY", maxLength: 5 },
-      { key: "cvv", label: "Security code (CVV)", type: "secret", format: "digits", maxLength: 4 },
-      { key: "pin", label: "PIN", type: "secret", format: "digits", maxLength: 12 },
-      { key: "zip", label: "Billing ZIP / postcode", type: "text", maxLength: 12 },
-      { key: "notes", label: "Notes", type: "multiline" },
+      { key: "cardholder", label: "Cardholder name", type: "text", placeholder: "As printed on the card", group: "Card" },
+      { key: "number", label: "Card number", type: "secret", format: "card", placeholder: "1234 5678 9012 3456", group: "Card" },
+      { key: "expiry", label: "Expiry (MM/YY)", type: "text", format: "expiry", placeholder: "MM/YY", maxLength: 5, group: "Card", width: "half" },
+      { key: "cvv", label: "Security code (CVV)", type: "secret", format: "digits", maxLength: 4, group: "Card", width: "half" },
+      { key: "pin", label: "PIN", type: "secret", format: "digits", maxLength: 12, group: "Card", width: "half" },
+      { key: "zip", label: "Billing ZIP / postcode", type: "text", maxLength: 12, group: "Card", width: "half" },
+      { key: "notes", label: "Notes", type: "multiline", group: "Notes" },
     ],
   },
   wifi: {
     ext: "wifi", label: "Wi-Fi network", hint: "Network name, password, security",
     fields: [
-      { key: "ssid", label: "Network name (SSID)", type: "text", placeholder: "MyHomeWiFi" },
-      { key: "password", label: "Password", type: "secret" },
-      { key: "security", label: "Security", type: "select", options: [...WIFI_SECURITY] },
-      { key: "hidden", label: "Hidden network (doesn't broadcast its name)", type: "checkbox" },
-      { key: "notes", label: "Notes", type: "multiline" },
+      { key: "ssid", label: "Network name (SSID)", type: "text", placeholder: "MyHomeWiFi", group: "Network" },
+      { key: "security", label: "Security", type: "select", options: [...WIFI_SECURITY], group: "Network" },
+      { key: "password", label: "Password", type: "secret", group: "Network" },
+      { key: "hidden", label: "Hidden network (doesn't broadcast its name)", type: "checkbox", group: "Network" },
+      { key: "notes", label: "Notes", type: "multiline", group: "Notes" },
     ],
   },
   // Contact / address details for forms (e.g. "Home", "Office"). Not tied to a site; filled with approval.
   identity: {
     ext: "identity", label: "Identity", hint: "Name, email, phone, address for forms",
     fields: [
-      { key: "name", label: "Full name", type: "text", placeholder: "As you write it on forms", maxLength: 100 },
-      { key: "email", label: "Email", type: "text", inputType: "email", placeholder: "you@example.com", maxLength: 200 },
-      { key: "phone", label: "Phone", type: "text", inputType: "tel", placeholder: "+91 98765 43210", maxLength: 40 },
-      { key: "address1", label: "Address line 1", type: "text", placeholder: "Flat / house no., building, street", maxLength: 200 },
-      { key: "address2", label: "Address line 2", type: "text", placeholder: "Area, locality (optional)", maxLength: 200 },
-      { key: "city", label: "City", type: "text", maxLength: 100 },
-      { key: "state", label: "State / province", type: "text", maxLength: 100 },
-      { key: "postal", label: "PIN / ZIP code", type: "text", maxLength: 20 },
-      { key: "country", label: "Country", type: "text", placeholder: "e.g. India", maxLength: 100 },
-      { key: "notes", label: "Notes", type: "multiline" },
+      { key: "name", label: "Full name", type: "text", placeholder: "As you write it on forms", maxLength: 100, group: "Contact" },
+      { key: "email", label: "Email", type: "text", inputType: "email", placeholder: "you@example.com", maxLength: 200, group: "Contact", width: "half" },
+      { key: "phone", label: "Phone", type: "text", inputType: "tel", placeholder: "+91 98765 43210", maxLength: 40, group: "Contact", width: "half" },
+      { key: "address1", label: "Address line 1", type: "text", placeholder: "Flat / house no., building, street", maxLength: 200, group: "Address" },
+      { key: "address2", label: "Address line 2", type: "text", placeholder: "Area, locality (optional)", maxLength: 200, group: "Address" },
+      { key: "city", label: "City", type: "text", maxLength: 100, group: "Address", width: "half" },
+      { key: "state", label: "State / province", type: "text", maxLength: 100, group: "Address", width: "half" },
+      { key: "postal", label: "PIN / ZIP code", type: "text", maxLength: 20, group: "Address", width: "half" },
+      { key: "country", label: "Country", type: "text", placeholder: "e.g. India", maxLength: 100, group: "Address", width: "half" },
+      { key: "notes", label: "Notes", type: "multiline", group: "Notes" },
     ],
   },
 };
