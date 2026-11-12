@@ -10,7 +10,8 @@ mod autofill_reuse; // password-reuse / phishing warning (reuse_salt, reuse_chec
 mod native_host_reg; // 0.7.0 autofill
 mod passkey; // experimental: passkeys (WebAuthn) in the vault, see autofill.rs "Passkeys"
 mod vault;
-mod ssh_connect; // 0.9.9 built-in terminal: SSH sign-in from a vault entry
+mod ssh_connect; // 0.9.9 built-in terminal: reads a vault SSH entry
+mod ssh_client; // 0.9.9 built-in terminal: the SSH client itself (no system ssh needed)
 mod ssh_keygen; // 0.9.9 generate an SSH key in the entry form
 mod vault_backup;
 mod vault_core;
@@ -209,7 +210,7 @@ mod term {
     use std::collections::HashMap;
     use std::sync::{Arc, Mutex, mpsc};
     use portable_pty::{CommandBuilder, PtySize, native_pty_system};
-    use tauri::{AppHandle, Emitter, State};
+    use tauri::{AppHandle, Emitter, Manager, State};
 
     const TERMINAL_BUFFER_SIZE: usize = 4096;
     const TERMINAL_CHANNEL_CAPACITY: usize = 64;
@@ -225,21 +226,20 @@ mod term {
     /// `Arc<Mutex<SendMaster>>`, ensuring exclusive access. The `Send` impl is
     /// required because `dyn MasterPty` is not `Send` by default (trait-object
     /// limitation), but the concrete Windows/Unix implementations are thread-safe.
-    struct SendMaster(Box<dyn portable_pty::MasterPty>);
+    pub(super) struct SendMaster(Box<dyn portable_pty::MasterPty>);
     unsafe impl Send for SendMaster {}
 
-    pub(super) struct TermState {
-        write_tx: mpsc::SyncSender<Vec<u8>>,
-        master:   Arc<Mutex<SendMaster>>,
-        /// Temporary private key for an SSH session; deleted when the session is dropped.
-        _key:     Option<crate::ssh_connect::KeyFile>,
+    pub(super) enum TermState {
+        /// A local shell on a pseudo-terminal.
+        Pty { write_tx: mpsc::SyncSender<Vec<u8>>, master: Arc<Mutex<SendMaster>> },
+        /// An SSH session run by the built-in client; dropping it ends the session.
+        Ssh(crate::ssh_client::SshHandle),
     }
 
     pub struct AppTerminal(pub(super) Arc<Mutex<HashMap<u32, TermState>>>);
 
     impl AppTerminal {
         pub fn new() -> Self {
-            crate::ssh_connect::sweep_stale_keys();
             AppTerminal(Arc::new(Mutex::new(HashMap::new())))
         }
     }
@@ -270,33 +270,32 @@ mod term {
             return Ok(String::new()); // already running — idempotent
         }
 
+        // A saved SSH entry runs in the built-in SSH client instead of a local shell; its secrets are read here,
+        // in the backend, and never leave it.
+        match (ssh_path.as_deref(), ssh_auth.as_deref()) {
+            (Some(path), Some(auth)) => {
+                let session = crate::ssh_connect::load_session(&vault, path, crate::ssh_connect::Auth::parse(auth)?)?;
+                let title = session.title.clone();
+                let connect = crate::ssh_client::Connect::from_session(session)?;
+                let known_path = app.path().app_data_dir().map_err(|e| e.to_string())?.join("ssh_known_hosts.json");
+                let sessions_arc = Arc::clone(&state.0);
+                let handle = crate::ssh_client::start(app.clone(), id, connect, known_path, cols, rows, Box::new(move || {
+                    if let Ok(mut g) = sessions_arc.lock() { g.remove(&id); }
+                }));
+                guard.insert(id, TermState::Ssh(handle));
+                return Ok(title);
+            }
+            (None, None) => {}
+            _ => return Err("Incomplete SSH request".to_string()),
+        }
+
         let pty  = native_pty_system();
         let pair = pty
             .openpty(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 })
             .map_err(|e| e.to_string())?;
 
-        // A saved SSH entry opens `ssh` instead of the local shell; its secrets are read here, in the backend.
-        let mut key_guard: Option<crate::ssh_connect::KeyFile> = None;
-        let mut auto_reply: Option<crate::ssh_connect::AutoReply> = None;
-        let ssh_cmd = match (ssh_path.as_deref(), ssh_auth.as_deref()) {
-            (Some(path), Some(auth)) => {
-                let session = crate::ssh_connect::load_session(
-                    &vault, path, crate::ssh_connect::Auth::parse(auth)?)?;
-                if let Some(k) = &session.private_key {
-                    key_guard = Some(crate::ssh_connect::KeyFile::create(id, k)?);
-                }
-                let args = crate::ssh_connect::build_args(&session, key_guard.as_ref().map(|k| k.path()));
-                auto_reply = crate::ssh_connect::AutoReply::new(&session);
-                let mut c = CommandBuilder::new("ssh");
-                c.args(args);
-                Some((session.title.clone(), c))
-            }
-            (None, None) => None,
-            _ => return Err("Incomplete SSH request".to_string()),
-        };
-
         // Detect shell name to show in the tab title
-        let (shell_name, mut cmd) = if let Some(x) = ssh_cmd { x } else {
+        let (shell_name, mut cmd) = {
             #[cfg(windows)]
             {
                 let mut c = CommandBuilder::new("powershell.exe");
@@ -321,11 +320,7 @@ mod term {
             cmd.cwd(home);
         }
 
-        pair.slave.spawn_command(cmd).map_err(|e| {
-            if ssh_path.is_some() {
-                format!("Couldn't start ssh — is the OpenSSH client installed? ({e})")
-            } else { e.to_string() }
-        })?;
+        pair.slave.spawn_command(cmd).map_err(|e| e.to_string())?;
         drop(pair.slave);
 
         let master = Arc::new(Mutex::new(SendMaster(pair.master)));
@@ -337,8 +332,6 @@ mod term {
         {
             let mr   = master.clone();
             let app2 = app.clone();
-            let reply_tx = tx.clone();
-            let mut auto_reply = auto_reply;
             std::thread::spawn(move || {
                 let mut reader = match mr.lock() {
                     Ok(guard) => match guard.0.try_clone_reader() {
@@ -372,12 +365,6 @@ mod term {
                             let data = String::from_utf8_lossy(&pending).into_owned();
                             pending = rest;
                             if !data.is_empty() {
-                                if let Some(ar) = auto_reply.as_mut() {
-                                    if let Some(bytes) = ar.on_output(&data) {
-                                        let _ = reply_tx.send(bytes.to_vec());
-                                    }
-                                    if ar.is_done() { auto_reply = None; }
-                                }
                                 let _ = app2.emit("terminal-data", DataPayload { id, data });
                             }
                         }
@@ -417,7 +404,7 @@ mod term {
             });
         }
 
-        guard.insert(id, TermState { write_tx: tx, master, _key: key_guard });
+        guard.insert(id, TermState::Pty { write_tx: tx, master });
         Ok(shell_name)
     }
 
@@ -432,10 +419,14 @@ mod term {
         }
         let guard = state.0.lock()
             .map_err(|_| "Terminal state lock poisoned".to_string())?;
-        if let Some(ts) = guard.get(&id) {
-            if let Err(e) = ts.write_tx.send(data.into_bytes()) {
-                eprintln!("terminal {}: write channel error: {}", id, e);
+        match guard.get(&id) {
+            Some(TermState::Pty { write_tx, .. }) => {
+                if let Err(e) = write_tx.send(data.into_bytes()) {
+                    eprintln!("terminal {}: write channel error: {}", id, e);
+                }
             }
+            Some(TermState::Ssh(h)) => h.write(data.into_bytes()),
+            None => {}
         }
         Ok(())
     }
@@ -452,11 +443,15 @@ mod term {
         }
         let guard = state.0.lock()
             .map_err(|_| "Terminal state lock poisoned".to_string())?;
-        if let Some(ts) = guard.get(&id) {
-            ts.master.lock()
-                .map_err(|_| "Terminal master lock poisoned".to_string())?
-                .0.resize(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 })
-                .map_err(|e| e.to_string())?;
+        match guard.get(&id) {
+            Some(TermState::Pty { master, .. }) => {
+                master.lock()
+                    .map_err(|_| "Terminal master lock poisoned".to_string())?
+                    .0.resize(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 })
+                    .map_err(|e| e.to_string())?;
+            }
+            Some(TermState::Ssh(h)) => h.resize(cols, rows),
+            None => {}
         }
         Ok(())
     }

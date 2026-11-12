@@ -28,7 +28,7 @@ futures-util = "0.3"
 # 0.9.0 vault sync (src/sync/): provider trait objects, OAuth/PKCE encoding, timers + loopback listener
 async-trait = "0.1"
 base64 = "0.22"
-tokio = { version = "1", features = ["rt", "time", "net", "sync", "io-util"] }
+tokio = { version = "1", features = ["rt", "time", "net", "sync", "io-util", "macros"] }
 # Secure Vault (see src/vault_core.rs)
 argon2 = "0.5"
 chacha20poly1305 = "0.10"
@@ -42,6 +42,8 @@ sha2 = "0.10"
 ring = "0.17"
 # 0.9.9: generate SSH keys (Ed25519 / RSA) in the SSH entry form, OpenSSH format, optional passphrase
 ssh-key = { version = "0.6", default-features = false, features = ["std", "alloc", "ed25519", "rsa", "encryption", "rand_core"] }
+# 0.9.9: built-in SSH client for the terminal (no system ssh needed). `ring` instead of the default aws-lc-rs: no C toolchain on Windows.
+russh = { version = "0.65", default-features = false, features = ["flate2", "ring", "rsa"] }
 
 
 [target.'cfg(any(target_os = "macos", windows, target_os = "linux"))'.dependencies]
