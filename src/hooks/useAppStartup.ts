@@ -54,6 +54,7 @@ export function useAppStartup({
       title: `What's New in Notiq ${APP_VERSION}`,
       content: WHATS_NEW,
       editorMode: "preview",
+      transient: true, // closing it never asks to save
     });
   }, [addTab]);
 

@@ -79,6 +79,8 @@ export interface Tab {
   /** Secure Vault: a reusable "preview" tab (italic title, VS Code style) opened by a single click in
    *  the vault sidebar. The next single click replaces it unless it was edited, double-clicked or pinned. */
   isPreview?: boolean;
+  /** App-generated read-only page (e.g. "What's New"): nothing worth saving, so closing it never asks. */
+  transient?: boolean;
 }
 
 export interface GraphNode {

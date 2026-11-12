@@ -197,10 +197,8 @@ export function VaultExplorer({ root, items, trash, loading, error, reload, foot
     setMenu({ x, y, node });
   }, []);
 
-  const askTrash = useCallback((node: TreeNode) => {
-    if (node.dir) { setConfirmTrash(node); return; }
-    void A.trashEntry(root, node.rel, false);
-  }, [root]);
+  // Folders and entries both ask first (Delete key, the row menu and the context menu all come here).
+  const askTrash = useCallback((node: TreeNode) => { setConfirmTrash(node); }, []);
 
   const doMove = useCallback(async (rel: string, dest: string) => {
     const to = await A.moveEntry(root, items, rel, dest);
@@ -521,12 +519,12 @@ export function VaultExplorer({ root, items, trash, loading, error, reload, foot
       )}
       {confirmTrash && (
         <ConfirmDialog
-          title="Move folder to Trash?"
+          title={confirmTrash.dir ? "Move folder to Trash?" : "Move to Trash?"}
           message={`“${confirmTrash.name}”${confirmCount ? ` and the ${confirmCount} item${confirmCount === 1 ? "" : "s"} inside it` : ""} will be moved to Trash. You can restore it for 30 days.`}
           confirmLabel="Move to Trash"
           danger
           onCancel={() => setConfirmTrash(null)}
-          onConfirm={() => { const n = confirmTrash; setConfirmTrash(null); void A.trashEntry(root, n.rel, true); }}
+          onConfirm={() => { const n = confirmTrash; setConfirmTrash(null); void A.trashEntry(root, n.rel, n.dir); }}
         />
       )}
     </>

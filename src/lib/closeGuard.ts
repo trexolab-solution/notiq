@@ -11,7 +11,7 @@ import { isStructuredEntryTab } from "./entryName";
  */
 export type CloseDecision = "blocked" | "confirm" | "close";
 
-type GuardTab = Pick<Tab, "id" | "kind" | "isPinned" | "isDirty" | "filePath" | "content"> & Partial<Pick<Tab, "vaultLocked">>;
+type GuardTab = Pick<Tab, "id" | "kind" | "isPinned" | "isDirty" | "filePath" | "content"> & Partial<Pick<Tab, "vaultLocked" | "transient">>;
 
 export function closeDecision(tab: GuardTab, whiteboardHasContent: (id: string) => boolean): CloseDecision {
   if (tab.isPinned) return "blocked";
@@ -19,6 +19,8 @@ export function closeDecision(tab: GuardTab, whiteboardHasContent: (id: string) 
   if (tab.kind === "whiteboard") return whiteboardHasContent(tab.id) ? "confirm" : "close";
   // A locked vault tab holds no plaintext, so there's nothing it could lose.
   if (tab.vaultLocked) return "close";
+  // A generated page (What's New) that nobody edited has nothing to lose.
+  if (tab.transient && !tab.isDirty) return "close";
   // Dirty, or has content but was never saved to disk.
   return tab.isDirty || (!tab.filePath && tab.content.trim().length > 0) ? "confirm" : "close";
 }

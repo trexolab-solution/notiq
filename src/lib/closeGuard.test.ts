@@ -30,6 +30,10 @@ describe("closeDecision", () => {
   it("closes a locked vault tab (it holds no plaintext)", () => {
     expect(closeDecision(tab({ filePath: "C:/V/a.nqv", vaultLocked: true }), noDrawing)).toBe("close");
   });
+  it("closes a generated page like What's New without asking, unless someone edited it", () => {
+    expect(closeDecision(tab({ transient: true, content: "# What's New" }), noDrawing)).toBe("close");
+    expect(closeDecision(tab({ transient: true, content: "# What's New", isDirty: true }), noDrawing)).toBe("confirm");
+  });
   it("asks for a whiteboard only when it has drawings", () => {
     expect(closeDecision(tab({ kind: "whiteboard" }), () => true)).toBe("confirm");
     expect(closeDecision(tab({ kind: "whiteboard" }), noDrawing)).toBe("close");
