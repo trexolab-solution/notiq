@@ -176,8 +176,15 @@ export function VaultExplorer({ root, items, trash, loading, error, reload, foot
     if (parent) { expandAll([...ancestorsOf(parent), parent]); }
     const base = kind === "folder" ? "New folder" : DEFAULT_ENTRY_NAME[kind];
     setEditingKey(null);
-    setCreating({ parent, kind, suggested: uniqueName(base, childNames(items, parent)) });
-  }, [expandAll, items]);
+    const suggested = uniqueName(base, childNames(items, parent));
+    if (kind !== "folder" && kind !== "note") {
+      // A credential has its Name in its form: create it with a free default name and open the form (Name focused).
+      setCreating(null);
+      void A.createEntry(root, items, kind, parent, suggested).then((rel) => { if (rel) setSelectedKey(treeKey(rel)); });
+      return;
+    }
+    setCreating({ parent, kind, suggested });
+  }, [expandAll, items, root]);
 
   const validateIn = (folder: string, except?: string) => (name: string) =>
     nameError(name) ?? (nameTaken(items, folder, name, except) ? "That name is already used here" : null);

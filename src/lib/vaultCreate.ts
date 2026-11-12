@@ -8,6 +8,7 @@ import { emptyLogin, LOGIN_EXT, serializeLogin } from "./loginEntry";
 import { emptySecret, SECRET_KINDS, serializeSecret } from "./secretEntry";
 import { CODES_EXT, emptyCodes, serializeCodes } from "./recoveryCodes";
 import { toast } from "./toast";
+import { markNewEntry } from "./entryFocus";
 
 export type NewEntryKind = "note" | "login" | "ssh" | "secret" | "card" | "wifi" | "codes" | "identity";
 
@@ -38,7 +39,7 @@ export async function createVaultEntry(kind: NewEntryKind): Promise<void> {
   }
 }
 
-/** Default name for a new entry created straight from the sidebar (renamed inline right after). */
+/** Default name for a new entry created straight from the sidebar (the user edits it in the form's Name field). */
 export const DEFAULT_ENTRY_NAME: Record<NewEntryKind, string> = {
   note: "Untitled note", login: "New login", ssh: "New server", secret: "New API key",
   card: "New card", wifi: "New Wi-Fi", codes: "New recovery codes", identity: "New identity",
@@ -66,6 +67,7 @@ async function writeAndOpen(kind: NewEntryKind, path: string) {
   else if (kind === "codes") await vaultWriteFile(path, serializeCodes(emptyCodes(title)), CODES_EXT);
   else await vaultWriteFile(path, serializeSecret(emptySecret(kind, title)), SECRET_KINDS[kind].ext);
   window.dispatchEvent(new Event(VAULT_DIR_EVENT));
+  if (kind !== "note") markNewEntry(path); // its form opens with the Name field focused
   useAppStore.getState().openFilesAsTabs([await readFileEntry(path)]);
   if (await useVaultStore.getState().ensureUnlocked()) await useAppStore.getState().unlockVaultTabs();
 }

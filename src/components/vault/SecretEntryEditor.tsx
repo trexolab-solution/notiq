@@ -4,6 +4,7 @@ import { Button } from "../ui/Button";
 import { Input } from "../ui/Input";
 import { Select } from "../ui/Select";
 import { useAppStore } from "../../store";
+import { useFocusNameOnCreate } from "../../hooks/useFocusNameOnCreate";
 import { useAutoHide } from "../../hooks/useAutoHide";
 import { CopyIconButton } from "./CopyIconButton";
 import { CustomFieldsEditor } from "./CustomFieldsEditor";
@@ -116,6 +117,7 @@ const hiddenField = (e: SecretEntry, key: string) => e.kind === "wifi" && key ==
 export function SecretEntryEditor({ tab, kind }: { tab: Tab; kind: string }) {
   const def = SECRET_KINDS[kind];
   const entry = useMemo(() => parseSecret(kind, tab.content), [kind, tab.content]);
+  useFocusNameOnCreate(tab.filePath, "se-title");
   if (!def) return null;
   const save = (next: SecretEntry) => useAppStore.getState().updateTabContent(tab.id, serializeSecret(next));
   const Icon = ICONS[kind] ?? KeyRound;

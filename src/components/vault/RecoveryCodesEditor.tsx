@@ -3,6 +3,7 @@ import { ClipboardCopy, Eye, EyeOff, ListChecks, Plus, X } from "lucide-react";
 import { Button } from "../ui/Button";
 import { Input } from "../ui/Input";
 import { useAppStore } from "../../store";
+import { useFocusNameOnCreate } from "../../hooks/useFocusNameOnCreate";
 import { useAutoHide } from "../../hooks/useAutoHide";
 import { CopyIconButton } from "./CopyIconButton";
 import { AttachmentsPanel } from "./AttachmentsPanel";
@@ -18,6 +19,7 @@ import type { Tab } from "../../types";
 /** Recovery / backup codes: one row per code with a "used" toggle; paste many at once. */
 export function RecoveryCodesEditor({ tab }: { tab: Tab }) {
   const entry = useMemo(() => parseCodes(tab.content), [tab.content]);
+  useFocusNameOnCreate(tab.filePath, "rc-title");
   const [show, setShow] = useState(false);
   useAutoHide(show, setShow);
   const [draft, setDraft] = useState("");

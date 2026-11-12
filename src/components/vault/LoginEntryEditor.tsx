@@ -4,6 +4,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { Button } from "../ui/Button";
 import { Input } from "../ui/Input";
 import { useAppStore } from "../../store";
+import { useFocusNameOnCreate } from "../../hooks/useFocusNameOnCreate";
 import { CopyIconButton } from "./CopyIconButton";
 import { useAutoHide } from "../../hooks/useAutoHide";
 import { GeneratePasswordButton } from "./GeneratePasswordButton";
@@ -19,6 +20,7 @@ import type { Tab } from "../../types";
 /** Structured editor for a `login` vault entry (replaces the text editor). */
 export function LoginEntryEditor({ tab }: { tab: Tab }) {
   const entry = useMemo(() => parseLogin(tab.content), [tab.content]);
+  useFocusNameOnCreate(tab.filePath, "le-title");
   const [show, setShow] = useState(false);
   useAutoHide(show, setShow);
   const set = (patch: Partial<LoginEntry>) =>

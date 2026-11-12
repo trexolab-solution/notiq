@@ -7,6 +7,7 @@ import { Input } from "../ui/Input";
 import { ConfirmDialog } from "../ui/ConfirmDialog";
 import { DropZone } from "../ui/DropZone";
 import { useAppStore } from "../../store";
+import { useFocusNameOnCreate } from "../../hooks/useFocusNameOnCreate";
 import { useVaultStore } from "../../store/vaultStore";
 import { useAutoHide } from "../../hooks/useAutoHide";
 import { CopyIconButton } from "./CopyIconButton";
@@ -101,6 +102,7 @@ export function SshEntryEditor({ tab }: { tab: Tab }) {
 
 function SshEntryEditorInner({ tab }: { tab: Tab }) {
   const entry = useMemo(() => parseSecret("ssh", tab.content), [tab.content]);
+  useFocusNameOnCreate(tab.filePath, "ssh-title");
   const f = entry.fields;
   const files = useMemo(() => parseKeyFiles(f.keyFiles), [f.keyFiles]);
 
