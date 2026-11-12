@@ -25,6 +25,7 @@ import { settingsCommandsFor }     from "./lib/settingsCommands";
 import { AppTitlebar }              from "./components/layout/AppTitlebar";
 import { AppWorkspace }             from "./components/layout/AppWorkspace";
 import { AppOverlays }              from "./components/layout/AppOverlays";
+import { RestoreRequestHost }       from "./components/vault/RestoreRequestHost";
 import { StatusBar }               from "./components/layout/StatusBar";
 
 export default function App() {
@@ -214,6 +215,8 @@ export default function App() {
         terminalOpen={term.isOpen}
         onToggleTerminal={term.toggle}
       />
+
+      <RestoreRequestHost />
 
       <AppOverlays
         ctxMenu={ctxMenu}

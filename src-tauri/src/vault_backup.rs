@@ -1,6 +1,6 @@
 //! Backup export / restore of the local-only vault.
 //!
-//! Container (`.nqbackup`): magic `NQB1`, u32 BE length + `vault.json` bytes, the raw
+//! Container (`.nqb`, formerly `.nqbackup`): magic `NQB1`, u32 BE length + `vault.json` bytes, the raw
 //! `vault.nqdb` bytes (still encrypted, never decrypted here), then a CRC-32 (u32 BE)
 //! of everything before it so truncation / corruption is detected.
 //!
@@ -24,7 +24,8 @@ use crate::vault_core::{self as vc, VaultKey, VaultMeta, VAULT_ID_LEN};
 use crate::vault_db as vdb;
 
 const MAGIC: &[u8; 4] = b"NQB1";
-const EXT: &str = "nqbackup";
+/// `.nqb` is what is written now; `.nqbackup` (earlier versions, and the sync safety copies) is still accepted.
+const EXTS: [&str; 2] = ["nqb", "nqbackup"];
 const MAX_META: usize = 64 * 1024;
 /// magic + meta length + crc
 const MIN_LEN: usize = 4 + 4 + 4;
@@ -126,9 +127,9 @@ pub(crate) fn parse_container(data: &[u8]) -> Result<Parsed<'_>, String> {
 fn check_dest(path: &str) -> Result<PathBuf, String> {
     let p = PathBuf::from(path);
     let ok = p.is_absolute()
-        && p.extension().and_then(|e| e.to_str()).map(|e| e.eq_ignore_ascii_case(EXT)).unwrap_or(false);
+        && p.extension().and_then(|e| e.to_str()).map(|e| EXTS.iter().any(|x| e.eq_ignore_ascii_case(x))).unwrap_or(false);
     if !ok {
-        return Err("Backups must be saved as an absolute path ending in .nqbackup".into());
+        return Err("Backups must be saved as an absolute path ending in .nqb".into());
     }
     Ok(p)
 }
@@ -472,5 +473,7 @@ mod tests {
         assert!(check_dest("relative.nqbackup").is_err());
         assert!(check_dest(&std::env::temp_dir().join("a.txt").to_string_lossy()).is_err());
         assert!(check_dest(&std::env::temp_dir().join("a.NQBACKUP").to_string_lossy()).is_ok());
+        assert!(check_dest(&std::env::temp_dir().join("a.nqb").to_string_lossy()).is_ok());
+        assert!(check_dest(&std::env::temp_dir().join("a.nqbx").to_string_lossy()).is_err());
     }
 }

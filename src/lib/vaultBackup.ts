@@ -7,7 +7,11 @@ import { stepperReducer, type StepperFlow } from "./stepper";
 
 /** Backup export / restore — wrappers over the Rust `vault_backup_*` commands (vault_backup.rs). */
 
-export const BACKUP_EXT = "nqbackup";
+export const BACKUP_EXT = "nqb";
+/** Every extension a backup may have: `.nqb` is what is written now; `.nqbackup` files from earlier versions still restore. */
+export const BACKUP_EXTS = [BACKUP_EXT, "nqbackup"] as const;
+
+export const isBackupPath = (path: string): boolean => (BACKUP_EXTS as readonly string[]).includes(getFileExtension(path));
 
 export interface BackupExportResult { bytes: number; entries_hint: number | null }
 export interface BackupInspect { ok: boolean; vault_id_hex: string; db_bytes: number; created: number | null }
@@ -149,7 +153,7 @@ export function restoreWizardReducer(w: RestoreWizard, a: RestoreWizardAction): 
 }
 
 /**
- * Checks what was dropped on the restore dialog: exactly one `.nqbackup` file, not a folder. Returns the
+ * Checks what was dropped on the restore dialog: exactly one `.nqb` file, not a folder. Returns the
  * path or the message to show. `isDir` defaults to the file system; a failing stat is left to the
  * backup check that follows.
  */
@@ -163,7 +167,7 @@ export async function checkDroppedBackup(
   let dir = false;
   try { dir = await isDir(path); } catch { /* vaultBackupInspect reports it */ }
   if (dir) return { error: `"${getFileName(path)}" is a folder. Drop the .${BACKUP_EXT} file itself.` };
-  if (getFileExtension(path) !== BACKUP_EXT) {
+  if (!isBackupPath(path)) {
     return { error: `"${getFileName(path)}" isn't a Notiq backup. Choose a .${BACKUP_EXT} file.` };
   }
   return { path };
@@ -180,7 +184,7 @@ export function mergeSummary(r: BackupMergeResult): string {
 
 const pad = (n: number) => String(n).padStart(2, "0");
 
-/** `notiq-vault-YYYY-MM-DD.nqbackup` */
+/** `notiq-vault-YYYY-MM-DD.nqb` */
 export function defaultBackupName(d = new Date()): string {
   return `notiq-vault-${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}.${BACKUP_EXT}`;
 }
@@ -199,7 +203,7 @@ export async function exportBackupWithDialog(): Promise<BackupExportResult | nul
     filters: [{ name: "Notiq vault backup", extensions: [BACKUP_EXT] }],
   });
   if (!dest) return null;
-  const path = new RegExp(`\\.${BACKUP_EXT}$`, "i").test(dest) ? dest : `${dest}.${BACKUP_EXT}`;
+  const path = isBackupPath(dest) ? dest : `${dest}.${BACKUP_EXT}`;
   const res = await vaultBackupExport(path);
   recordBackupNow();
   return res;
@@ -210,7 +214,7 @@ export async function pickBackupFile(): Promise<string | null> {
   const sel = await open({
     title: "Choose a Notiq vault backup",
     multiple: false,
-    filters: [{ name: "Notiq vault backup", extensions: [BACKUP_EXT] }],
+    filters: [{ name: "Notiq vault backup", extensions: [...BACKUP_EXTS] }],
   });
   return typeof sel === "string" ? sel : null;
 }

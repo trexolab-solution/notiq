@@ -69,6 +69,13 @@
         "name": "Notiq Vault Note",
         "description": "Encrypted Notiq note — open with Notiq",
         "role": "Editor"
+      },
+      {
+        "ext": ["nqb", "nqbackup"],
+        "mimeType": "application/x-notiq-backup",
+        "name": "Notiq Vault Backup",
+        "description": "Encrypted Notiq vault backup — open with Notiq to restore it",
+        "role": "Editor"
       }
     ],
     "icon": [

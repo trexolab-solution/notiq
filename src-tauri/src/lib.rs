@@ -90,7 +90,7 @@ mod file_assoc {
     use winreg::enums::*;
 
     const PROG_ID: &str    = "Notiq.Note";
-    const EXTS:    &[&str] = &[".md", ".markdown", ".txt", ".notiq", ".nqv"];
+    const EXTS:    &[&str] = &[".md", ".markdown", ".txt", ".notiq", ".nqv", ".nqb", ".nqbackup"];
 
     pub fn register(exe: &str) {
         // Validate executable path contains no control characters or shell metacharacters

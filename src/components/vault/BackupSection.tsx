@@ -62,7 +62,7 @@ export function BackupSection() {
         label="Export encrypted backup"
         description={`${last ? `Last backup: ${describeAge(last, Date.now())} (${new Date(last).toLocaleString()}).` : "You haven't exported a backup yet."} The file stays protected by your master password and recovery key.`}
         help="Without the backup file plus the master password or recovery key, a backup cannot be opened, so keep it somewhere safe."
-        keywords={["backup", "last backup", "export", "save a copy", ".nqbackup", "encrypted"]}
+        keywords={["backup", "last backup", "export", "save a copy", ".nqb", "encrypted"]}
       >
         <Button className="settings-btn-primary" size="sm" variant="primary" icon={<Download size={12} />} disabled={!exists} loading={busy} loadingText="Exporting…" onClick={() => void start()}>
           Export backup…
@@ -72,8 +72,8 @@ export function BackupSection() {
       <SettingRow
         id="vault.backup.import"
         label="Import backup"
-        description="Restore a .nqbackup file. If a vault already exists here you can merge the backup into it or replace it (a copy is kept either way)."
-        keywords={["restore", "backup", "import", ".nqbackup", "recover", "merge"]}
+        description="Restore a .nqb file. If a vault already exists here you can merge the backup into it or replace it (a copy is kept either way)."
+        keywords={["restore", "backup", "import", ".nqb", "recover", "merge"]}
       >
         <Button className="settings-btn" size="sm" icon={<FileUp size={12} />} onClick={() => setRestoring(true)}>Import backup…</Button>
       </SettingRow>

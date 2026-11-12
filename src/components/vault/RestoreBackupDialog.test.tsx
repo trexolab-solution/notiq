@@ -87,7 +87,7 @@ describe("RestoreBackupDialog", () => {
     expect(current()).toBe("1File");
     expect(document.querySelectorAll('[aria-current="step"]')).toHaveLength(1);
     expect(q('[role="status"][aria-live="polite"]')).toBeTruthy();
-    expect(q("[data-drop-zone]")?.textContent).toContain("Drop a .nqbackup file here");
+    expect(q("[data-drop-zone]")?.textContent).toContain("Drop a .nqb file here");
     expect(button("Next")!.disabled).toBe(true);
     expect(document.activeElement).toBe(button("Choose file…"));
   });

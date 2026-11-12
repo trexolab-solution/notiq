@@ -1,4 +1,4 @@
-import { useReducer, useRef, useState } from "react";
+import { useEffect, useReducer, useRef, useState } from "react";
 import { ArchiveRestore, CircleCheck, FileArchive, FileUp, GitMerge, Lock, Replace, TriangleAlert } from "lucide-react";
 import { Dialog, DialogBody, DialogButton, DialogFooter } from "../ui/Dialog";
 import { Input } from "../ui/Input";
@@ -36,12 +36,12 @@ const METHODS = [
 ];
 
 /**
- * Restore a `.nqbackup` file as a stepper: File (drop or choose, then checked) → Method (merge or replace,
+ * Restore a `.nqb` file as a stepper: File (drop or choose, then checked) → Method (merge or replace,
  * only when a vault exists here) → Confirm (the backup's password, or typing REPLACE) → Done. The steps
  * are lib/vaultBackup's `restoreWizardReducer`; this component runs the commands and renders.
  * Mounted on demand by the setup screen and by Settings -> Vault -> Backup.
  */
-export function RestoreBackupDialog({ onClose }: { onClose: () => void }) {
+export function RestoreBackupDialog({ onClose, initialPath }: { onClose: () => void; /** A backup to check as soon as the dialog opens (opened from Explorer). */ initialPath?: string }) {
   const exists = useVaultStore((s) => s.exists);
   const unlocked = useVaultStore((s) => s.unlocked);
   const [w, dispatch] = useReducer(restoreWizardReducer, initialRestoreWizard);
@@ -70,6 +70,14 @@ export function RestoreBackupDialog({ onClose }: { onClose: () => void }) {
       dispatch({ type: "checkFailed", path, error: e instanceof Error ? e.message : vaultErrorMessage(e) });
     }
   };
+
+  const started = useRef(false);
+  useEffect(() => {
+    if (!initialPath || started.current) return;
+    started.current = true; // StrictMode runs effects twice in development
+    void inspect(initialPath);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only the path given at open matters
+  }, []);
 
   const choose = async () => {
     try {

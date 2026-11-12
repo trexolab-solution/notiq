@@ -23,6 +23,8 @@
   DeleteRegValue HKCU "Software\Classes\.markdown\OpenWithProgids"  "Notiq.Note"
   DeleteRegValue HKCU "Software\Classes\.txt\OpenWithProgids"       "Notiq.Note"
   DeleteRegValue HKCU "Software\Classes\.notiq\OpenWithProgids"     "Notiq.Note"
+  DeleteRegValue HKCU "Software\Classes\.nqb\OpenWithProgids"       "Notiq.Note"
+  DeleteRegValue HKCU "Software\Classes\.nqbackup\OpenWithProgids"  "Notiq.Note"
 
   ; ── Notify Explorer so stale context-menu items vanish immediately ────────
   System::Call 'Shell32::SHChangeNotify(i 0x08000000, i 0x0000, p 0, p 0)'
@@ -47,6 +49,14 @@
     WriteRegStr SHCTX "Software\Classes\$0\DefaultIcon" "" "$INSTDIR\icons\association.ico"
 
   ReadRegStr $0 SHCTX "Software\Classes\.notiq" ""
+  StrCmp $0 "" +2 0
+    WriteRegStr SHCTX "Software\Classes\$0\DefaultIcon" "" "$INSTDIR\icons\association.ico"
+
+  ReadRegStr $0 SHCTX "Software\Classes\.nqb" ""
+  StrCmp $0 "" +2 0
+    WriteRegStr SHCTX "Software\Classes\$0\DefaultIcon" "" "$INSTDIR\icons\association.ico"
+
+  ReadRegStr $0 SHCTX "Software\Classes\.nqbackup" ""
   StrCmp $0 "" +2 0
     WriteRegStr SHCTX "Software\Classes\$0\DefaultIcon" "" "$INSTDIR\icons\association.ico"
 

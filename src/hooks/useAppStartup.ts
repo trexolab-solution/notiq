@@ -11,6 +11,7 @@ import { dragLeave, dragMove, dropAt } from "../lib/dropTargets";
 import { WHATS_NEW } from "../config/whatsNew";
 import { APP_VERSION } from "../config/app";
 import { updater } from "../lib/updater";
+import { routeOpenedPath } from "../lib/restoreRequest";
 import { canAutoCheck, UPDATE_CHECK_INTERVAL_MS } from "../lib/updateSchedule";
 import { OPEN_SETTINGS_EVENT, RUN_AI_ONBOARDING_EVENT, parseOpenSettingsDetail } from "../lib/settingsEvents";
 
@@ -84,6 +85,7 @@ export function useAppStartup({
   useEffect(() => {
     invoke<string | null>("get_open_file").then(async (filePath) => {
       if (!filePath) return;
+      if (routeOpenedPath(filePath)) return; // a vault backup: the restore dialog, not a text tab
       try {
         openFilesAsTabs([await readFileEntry(filePath)]);
       } catch { /* file unreadable — ignore */ }

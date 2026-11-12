@@ -8,6 +8,7 @@ import { useAppStore } from "./store";
 import { openStickyNote, openStickyNotesList } from "./lib/stickyNote";
 import { listen } from "@tauri-apps/api/event";
 import { readFileEntry } from "./lib/fileOps";
+import { routeOpenedPath } from "./lib/restoreRequest";
 
 export function initMainApp() {
   // Listen for "New Sticky Note" from tray menu — registered early so no
@@ -23,6 +24,7 @@ export function initMainApp() {
   listen<string>("open-file", async (event) => {
     const filePath = event.payload;
     if (!filePath) return;
+    if (routeOpenedPath(filePath)) return; // a vault backup: the restore dialog, not a text tab
     try {
       useAppStore.getState().openFilesAsTabs([await readFileEntry(filePath)]);
     } catch { /* file unreadable — ignore */ }
