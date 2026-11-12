@@ -1,6 +1,6 @@
 [package]
 name = "notiq"
-version = "0.9.8"
+version = "0.9.9"
 description = "Notiq — a smart note-taking application"
 authors = ["TrexoLab <trexolab@outlook.com>"]
 edition = "2021"

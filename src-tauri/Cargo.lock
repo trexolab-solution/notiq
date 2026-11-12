@@ -3360,7 +3360,7 @@ dependencies = [
 
 [[package]]
 name = "notiq"
-version = "0.9.8"
+version = "0.9.9"
 dependencies = [
  "argon2 0.5.3",
  "async-trait",

@@ -15,13 +15,25 @@ export const WHATS_NEW = `# What's New in Notiq ${APP_VERSION}
 
 Thanks for updating! Here's what's new in this release.
 
-## 🧩 A new browser extension popup
+## 🖥️ SSH, built right in
 
-- **Made for tapping** — the extension popup now has three tabs at the bottom: **Logins**, **Generator** and **Settings**.
-- **Logins** — a card for the current site, a search box, and a row for each saved login with its 2-step badge. Tap a row to fill; copy the username, password or 2-step code from the row's icons.
-- **Generator** — a large password with its strength, **Regenerate**, **Copy** and **Fill password**, plus length and character options.
-- **Settings** — the same options with larger rows and switches; the site lists slide in with a back button.
-- Larger text and better contrast in light and dark. Reload the extension after updating (it is version 0.8.0).
+- **Sign in from the terminal** — click the **Server** button in the terminal (or *Open in terminal* on a saved SSH entry or in the vault sidebar) to connect with the key or password from your vault. If an entry has both, Notiq asks which to use.
+- **Nothing to install** — Notiq has its own SSH client, so it works on a fresh PC with no OpenSSH. New servers are confirmed in the terminal and remembered, and a changed host key is refused.
+- **Generate SSH keys** — create an Ed25519 or RSA key pair right in the SSH form, with an optional passphrase.
+- **Password and key together** — one SSH entry can now keep both.
+
+## 🗂️ Cleaner forms
+
+- Logins, SSH, cards, Wi-Fi and identities are laid out in clear sections; the 2-step setup key is hidden until you show it, with a bigger live code.
+- A new credential opens straight in its form with the name ready to type, and moving an entry to Trash asks first.
+
+## 💾 Shorter backups
+
+- Backups are now saved as **.nqb**. Double-click one to open the restore dialog. Older **.nqbackup** files still work.
+
+## 🧩 Browser extension 0.8.1
+
+- When your vault is locked, the popup now has **Unlock**: Notiq opens a small window for your master password. Reload the extension after updating.
 
 ---
 

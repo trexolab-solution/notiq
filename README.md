@@ -14,12 +14,24 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/trexolab-solution/notiq/releases/latest"><img src="https://img.shields.io/github/v/release/trexolab-solution/notiq?color=orange" alt="Latest release" /></a>
+  <a href="https://github.com/trexolab-solution/notiq/releases/latest"><img src="https://img.shields.io/github/v/release/trexolab-solution/notiq?style=for-the-badge&label=LATEST%20RELEASE&color=0969da&labelColor=555555" alt="Latest release" /></a>
+  <a href="https://github.com/trexolab-solution/notiq/blob/main/LICENSE"><img src="https://img.shields.io/github/license/trexolab-solution/notiq?style=for-the-badge&label=LICENSE&color=e05d44&labelColor=555555" alt="License: MIT" /></a>
+  <a href="https://tauri.app/"><img src="https://img.shields.io/badge/TAURI-v2-e68a00?style=for-the-badge&labelColor=555555" alt="Built with Tauri" /></a>
+  <a href="https://github.com/trexolab-solution/notiq/stargazers"><img src="https://img.shields.io/github/stars/trexolab-solution/notiq?style=for-the-badge&label=STARS&color=ffd700&labelColor=555555" alt="GitHub stars" /></a>
+</p>
+
+<hr />
+
+<p align="center">
+  <a href="https://github.com/trexolab-solution/notiq/releases"><img src="https://img.shields.io/github/downloads/trexolab-solution/notiq/total?style=for-the-badge&label=GITHUB%20DOWNLOADS&color=2ea44f&labelColor=555555" alt="GitHub downloads" /></a>
+  <a href="https://github.com/trexolab-solution/notiq/releases/latest"><img src="https://img.shields.io/github/downloads/trexolab-solution/notiq/latest/total?style=for-the-badge&label=LATEST%20RELEASE%20DOWNLOADS&color=1f8ceb&labelColor=555555" alt="Downloads of the latest release" /></a>
+</p>
+
+<p align="center">
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS%20(source)-blue" alt="Platform" />
-  <img src="https://img.shields.io/badge/Tauri-v2-24C8DB?logo=tauri&logoColor=white" alt="Tauri v2" />
   <img src="https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black" alt="React 18" />
   <img src="https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white" alt="TypeScript" />
-  <img src="https://img.shields.io/badge/license-MIT-green" alt="License: MIT" />
+  <img src="https://img.shields.io/badge/Rust-stable-000000?logo=rust&logoColor=white" alt="Rust" />
 </p>
 
 <p align="center">
@@ -120,6 +132,7 @@ Optional, **opt-in and off by default**. Run your own local [Ollama](https://oll
 - **Built-in terminal** — resizable panel at the bottom of the window powered by xterm.js
 - **Native shell** — spawns PowerShell on Windows, bash or zsh on macOS/Linux via a real PTY
 - **Multi-session tabs** — open multiple shells side-by-side and switch between them
+- **Built-in SSH** — the **Server** button (or *Open in terminal* on a saved SSH entry) signs in to a server from your vault with its private key or password, with nothing to install: Notiq has its own SSH client. New hosts are confirmed in the terminal and remembered, a changed host key is refused, and a jump host is supported
 - **Theme-aware** — the terminal palette (foreground, background, ANSI 16) tracks the active app theme
 - **Configurable** — adjust font size, cursor style, blinking, and scrollback buffer in Settings
 - **Shortcuts** — `Ctrl+` `` ` `` toggles the panel, `Ctrl+Shift+` `` ` `` opens a new session
@@ -315,7 +328,7 @@ Spins up a Docker container (defined in `docker/Dockerfile.linux`) that produces
 | Diagrams | [Mermaid](https://mermaid.js.org/) |
 | Whiteboard | [Excalidraw](https://excalidraw.com/) |
 | Knowledge graph | [3d-force-graph](https://github.com/vasturiano/3d-force-graph) (via [react-kapsule](https://github.com/vasturiano/react-kapsule)) + Three.js |
-| Terminal | [xterm.js](https://xtermjs.org/) + portable-pty (Rust) |
+| Terminal | [xterm.js](https://xtermjs.org/) + portable-pty (Rust) for local shells, [russh](https://github.com/warp-tech/russh) for built-in SSH |
 | AI | [Ollama](https://ollama.com/) Cloud + Local and [OpenRouter](https://openrouter.ai/) (OpenAI-compatible) via Rust `reqwest` |
 | Secret storage | OS keychain via [keyring](https://crates.io/crates/keyring) (Rust) |
 | Drag & drop | [@dnd-kit](https://dndkit.com/) |
@@ -426,7 +439,7 @@ Keep passwords, SSH keys, API keys and private notes behind **one master passwor
 All locked entries (notes, logins, SSH entries, API keys, cards, Wi-Fi, recovery codes) are stored in a single database file, `vault.nqdb`. Names, folders, tags and contents are all inside it, so nothing about your secrets is readable on disk. Saves are atomic (a crash can't leave a half-written file) and the previous version is kept as `vault.nqdb.bak.1–3` so a bad write can always be rolled back.
 
 - **Where it lives:** by default in Notiq's app-data folder (`%APPDATA%\com.trexolab.notiq\` on Windows), next to the small `vault.json` key file. You can pick another folder in **Settings → Vault**; Notiq warns you if the folder is synced by OneDrive, Dropbox, Google Drive, iCloud Drive, etc., because that would copy your encrypted vault to someone else's servers. Vaults created by older versions in `Documents/Notiq Vault` keep working where they are, and their old per-note `.nqv` files are imported into the database (originals are only deleted if you confirm).
-- **Backups (Settings → Vault → Backup):** Notiq does not upload anything unless you turn on sync, so you make the backups. **Export encrypted backup** (asks for your master password again) writes one `.nqbackup` file you can put on a USB drive; **Restore from backup file** is on the vault setup screen and in Settings, and replacing an existing vault first keeps the old files in a `before-restore-…` folder. A gentle reminder appears when you have never backed up or the last backup is over 30 days old. The backup is still protected by your master password and recovery key, and cannot be opened without them.
+- **Backups (Settings → Vault → Backup):** Notiq does not upload anything unless you turn on sync, so you make the backups. **Export encrypted backup** (asks for your master password again) writes one `.nqb` file you can put on a USB drive (double-click it to open the restore dialog; `.nqbackup` files from earlier versions still work); **Restore from backup file** is on the vault setup screen and in Settings, and replacing an existing vault first keeps the old files in a `before-restore-…` folder. A gentle reminder appears when you have never backed up or the last backup is over 30 days old. The backup is still protected by your master password and recovery key, and cannot be opened without them.
 - **Format upgrades:** the database is versioned (v2 adds entry history and attachments). The first save after upgrading an older database keeps a copy as `vault.nqdb.v1.bak`.
 
 ### Sidebar: a file manager for your secrets
@@ -444,7 +457,7 @@ All locked entries (notes, logins, SSH entries, API keys, cards, Wi-Fi, recovery
 
 - **Secure note** — free text / Markdown
 - **Login** — site, username, password, optional 2-step (TOTP) secret with a live code
-- **SSH / server** — host, port, username and a sign-in method (private key or password). Pasted keys are analysed as you paste (OpenSSH, PEM, PuTTY; encrypted or not; a public key is flagged), you can import a key file, and a ready `ssh -p … user@host` command can be copied. Jump host, host-key fingerprint and notes sit under *Advanced*
+- **SSH / server** — host, port, username and a password, a private key, or both (Notiq asks which to use when you open it in the terminal). Pasted keys are analysed as you paste (OpenSSH, PEM, PuTTY; encrypted or not; a public key is flagged), you can import a key file or generate a new Ed25519 / RSA pair, and a ready `ssh -p … user@host` command can be copied. Jump host, host-key fingerprint and notes sit under *Advanced*
 - **API key / secret** — service, token, optional environment variable name
 - **Card** — cardholder, number (grouped as you type, brand shown, Luhn hint), expiry, CVV, PIN
 - **Wi-Fi** — network name, password, security type; copy the `WIFI:` text used for QR codes
