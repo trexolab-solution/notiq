@@ -18,6 +18,15 @@ async function render(secret: string, onChange = vi.fn()) {
   await act(async () => { await Promise.resolve(); });
   return onChange;
 }
+
+/** The code comes from an async hash, so on a slow machine it appears a few ticks after the first render. */
+async function codeShown(): Promise<boolean> {
+  for (let i = 0; i < 100; i++) {
+    if (host.querySelector("[data-testid=\"totp-code\"]")) return true;
+    await act(async () => { await new Promise((r) => setTimeout(r, 20)); });
+  }
+  return false;
+}
 const input = () => host.querySelector<HTMLInputElement>("#le-totp")!;
 
 beforeEach(() => { host = document.createElement("div"); document.body.appendChild(host); root = createRoot(host); });
@@ -35,6 +44,7 @@ describe("TotpPanel", () => {
 
   it("shows the live code and its countdown for a valid key", async () => {
     await render(SECRET);
+    expect(await codeShown()).toBe(true);
     const code = host.querySelector('[data-testid="totp-code"]')!.textContent!;
     expect(code).toMatch(/^\d{3} \d{3}$/);
     expect(host.querySelector('[data-testid="totp-left"]')!.textContent).toMatch(/^\d+s$/);

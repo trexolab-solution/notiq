@@ -131,6 +131,9 @@ mod tests {
             let k = generate(Kind::Ed25519, pass, "c").unwrap();
             let path = dir.join(name);
             std::fs::write(&path, &k.private_key).unwrap();
+            // ssh-keygen refuses a private key other users can read (Linux and macOS)
+            #[cfg(unix)]
+            { use std::os::unix::fs::PermissionsExt; std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap(); }
             let mut cmd = std::process::Command::new("ssh-keygen");
             cmd.arg("-y").arg("-P").arg(pass.unwrap_or("")).arg("-f").arg(&path);
             let Ok(out) = cmd.output() else { let _ = std::fs::remove_dir_all(&dir); return }; // OpenSSH not installed
