@@ -41,13 +41,16 @@ export interface FillReq {
 export interface CardReq { id: string; host: string }
 /** `account`: the identity the user chose in the browser (pre-selected; the user still confirms). */
 export interface IdentityReq { id: string; host: string; account?: string }
+/** The toolbar popup asked the app to unlock the vault (it shows the unlock form and answers once it is open). */
+export interface UnlockReq { id: string }
+export type UnlockJob = { kind: "unlock"; req: UnlockReq };
 export type FillJob = { kind: "fill"; req: FillReq };
 export type SaveJob = { kind: "save"; req: SaveRequest };
 export type CardJob = { kind: "card"; req: CardReq };
 export type IdentityJob = { kind: "identity"; req: IdentityReq };
 export type PasskeyCreateJob = { kind: "passkeyCreate"; req: PasskeyCreateReq };
 export type PasskeyGetJob = { kind: "passkeyGet"; req: PasskeyGetReq };
-export type Job = FillJob | SaveJob | CardJob | IdentityJob | PasskeyCreateJob | PasskeyGetJob;
+export type Job = FillJob | SaveJob | CardJob | IdentityJob | PasskeyCreateJob | PasskeyGetJob | UnlockJob;
 
 export type PromptState =
   | { stage: "idle" }
@@ -133,6 +136,7 @@ const scanFor = (job: Job): Effect => {
   switch (job.kind) {
     case "card": return { kind: "scanCards" };
     case "identity": return { kind: "scanIdentities" };
+    case "unlock": return reply(job.req.id, { ok: true }); // never scanned: an unlock job ends as soon as the vault is open
     case "passkeyCreate": return { kind: "scanPasskeyTargets", host: job.req.host, rpId: job.req.rpId, exclude: job.req.exclude };
     case "passkeyGet": return { kind: "scanPasskeys", rpId: job.req.rpId, allow: job.req.allow };
     default: return { kind: "scan", host: job.req.host };
@@ -156,6 +160,7 @@ export function step(state: PromptState, ev: PromptEvent): Step {
       const { job } = ev;
       // Without a vault there is nothing to unlock here (setting one up happens in Notiq itself).
       if (!ev.exists) return end(reply(job.req.id, { error: "locked" }));
+      if (job.kind === "unlock" && ev.unlocked) return end(reply(job.req.id, { ok: true }));
       if (!ev.unlocked) return { state: { stage: "locked", job, error: null, busy: false }, effects: [{ kind: "show" }] };
       // Cards and identities are never trusted: `silent` is for logins only.
       const silent = job.kind === "fill" && ev.trusted;
@@ -171,6 +176,8 @@ export function step(state: PromptState, ev: PromptEvent): Step {
       // here is still an explicit action on a prompt that says what it is for, so it counts as consent
       // (for a login only: a card or an identity is always picked in its own stage).
       if (state.stage !== "locked") return same(state);
+      // The popup only wanted the vault open: nothing to fill, so answer and close the window.
+      if (state.job.kind === "unlock") return end(reply(state.job.req.id, { ok: true }));
       return { state: { stage: "checking", job: state.job, silent: false, consent: state.job.kind === "fill" }, effects: [scanFor(state.job)] };
 
     case "cardsScanned": {

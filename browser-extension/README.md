@@ -172,7 +172,8 @@ button (with your shortcut as a hint), and this site's saved logins (tap a row t
 2FA code, open in Notiq; a **2FA** badge marks logins with a code). The header says whether Notiq is unlocked, locked
 or not running; when something is in the way (Notiq not running or not set up, the vault locked, an update needed, a
 private window while autofill is off there, or a page Notiq can't fill such as `chrome://` or plain `http`), the popup
-says so and offers **Try again** / **Check again** where that helps. The **⋮** button on the site card holds **Hide
+says so and offers **Try again** / **Check again** where that helps. With the vault locked it offers **Unlock**: Notiq
+opens its small unlock window (master password or Windows Hello, `{op:"unlock"}`), and the popup checks again afterwards. The **⋮** button on the site card holds **Hide
 Notiq on this site** (no icon or focus suggestion there; Fill login and the shortcut still work).
 
 **Generator** makes a password locally (digits and symbols tinted), with a strength meter, **Regenerate**, **Copy**

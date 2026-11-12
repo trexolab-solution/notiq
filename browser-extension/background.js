@@ -740,13 +740,20 @@ async function popupOpen(msg) {
   return res && res.ok === true && !res.error ? { ok: true } : { error: errorOf(res) };
 }
 
+// The popup's Unlock button: the app shows its unlock window and answers once the vault is open (or the user closed it).
+// Never starts the app. Not about any page, so no host.
+async function popupUnlock() {
+  const res = await ask({ op: "unlock" });
+  return res && res.ok === true && !res.error ? { ok: true } : { error: errorOf(res) };
+}
+
 // Is the active tab a private window where autofill is off? (The popup then shows only a short notice.)
 async function popupPrivate() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   return { ok: true, blocked: await blockedTab(tab) };
 }
 
-const POPUP_HANDLERS = { list: popupList, popupFill, copy: popupCopy, open: popupOpen, privateState: popupPrivate };
+const POPUP_HANDLERS = { list: popupList, popupFill, copy: popupCopy, open: popupOpen, unlock: popupUnlock, privateState: popupPrivate };
 
 // ---------- theme from the Notiq app ----------
 // {op:"theme"} -> {ok:true, theme} | {ok:true, theme:null}. Never launches the app.

@@ -109,7 +109,9 @@ test("popupkit: avatar initial, status label, main panel", () => {
   assert.equal(NP.mainPanel({ conn: "on" }), null);
   assert.equal(NP.mainPanel({ conn: "unknown" }), null);
   assert.equal(NP.mainPanel(), null);
-  assert.equal(NP.mainPanel({ conn: "locked" }).action, "retry");
+  assert.equal(NP.mainPanel({ conn: "locked" }).action, "unlock");
+  assert.equal(NP.mainPanel({ conn: "locked" }).actionLabel, "Unlock");
+  assert.equal(NP.mainPanel({ conn: "off" }).action, "retry");
   assert.match(NP.mainPanel({ conn: "locked" }).title, /locked/);
   assert.match(NP.mainPanel({ conn: "off" }).title, /isn't running/);
   assert.match(NP.mainPanel({ conn: "off", noHost: true }).title, /set up/);
@@ -243,6 +245,19 @@ test("copy / open on another site than the list's are refused", async () => {
   assert.deepEqual(await sw.popup("copy", { account: A[0].account, what: "username" }), { error: "stale" });
   assert.deepEqual(await sw.popup("open", { account: A[0].account }), { error: "stale" });
   assert.equal(sw.vault().length, 1);
+});
+
+test("unlock asks the app to open its unlock window, with no host and no page data", async () => {
+  const sw = boot((m) => (m.op === "unlock" ? { ok: true } : { error: "x" }));
+  assert.deepEqual(await sw.popup("unlock"), { ok: true });
+  assert.deepEqual(strip(sw.vault()[0]), { op: "unlock" });
+});
+
+test("unlock: closing the window, an old app and a missing app come back as short codes", async () => {
+  for (const error of ["locked", "unknown_op", "timeout", "app_not_running"]) {
+    const sw = boot(() => ({ error }));
+    assert.deepEqual(await sw.popup("unlock"), { error });
+  }
 });
 
 test("copy errors from the app (declined, old app) come back as short codes", async () => {

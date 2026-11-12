@@ -298,6 +298,10 @@ export default function AutofillPromptApp() {
       }),
       // The toolbar popup (0.9.0). `list` and a username copy are answered silently; a password / code copy is
       // a fill job (same approval: prompt or the site's trust window) whose release copies instead of replying.
+      // The popup's Unlock button: show the unlock form here; the machine answers once the vault is open.
+      listen<{ id: string }>("autofill:unlock", (e) => {
+        if (typeof e.payload?.id === "string") accept({ kind: "unlock", req: { id: e.payload.id } });
+      }),
       listen<{ id: string; host: string }>("autofill:list", (e) => {
         const { id, host } = e.payload;
         void answerList(popupDeps, host).then((r) => reply(id, r));
@@ -428,7 +432,7 @@ export default function AutofillPromptApp() {
     case "checking":
       // Only seen right after an unlock in this window, while the vault is read (usually a blink).
       return (
-        <Panel key={`checking-${state.job.req.id}`} refs={refs} host={state.job.req.host} icon="shield" onClose={deny}
+        <Panel key={`checking-${state.job.req.id}`} refs={refs} host={jobHost(state.job)} icon="shield" onClose={deny}
                sub="Vault unlocked." footer={<DialogButton cancel onClick={deny}>Cancel</DialogButton>}>
           <InlineLoading delay={0} className="af-state"
                          label={state.job.kind === "card" ? "Looking for saved cards…"
@@ -587,6 +591,8 @@ interface Refs {
 interface PanelProps {
   refs: Refs;
   host: string;
+  /** Shown instead of the host (a request that is not about a site, like the popup's Unlock). */
+  title?: string;
   sub: ReactNode;
   /** "site": the site's letter avatar, with `kind` (what will be filled) as its badge and as a chip. */
   icon: "shield" | "site" | ReactNode;
@@ -606,7 +612,7 @@ interface PanelProps {
 interface Kind { icon: ReactNode; label: string }
 
 /** The whole window as one dialog: site header, scrolling body, footer. Esc / × = deny. */
-function Panel({ refs, host, sub, icon, kind, tone = "primary", onClose, onEscape, defaultFocus, onSubmit, footer, children }: PanelProps) {
+function Panel({ refs, host, title, sub, icon, kind, tone = "primary", onClose, onEscape, defaultFocus, onSubmit, footer, children }: PanelProps) {
   const panelRef = useRef<HTMLElement | null>(null);
   useDialogBehaviour(panelRef, { onClose: onEscape ?? onClose, dismissable: true, autoFocus: true, defaultFocus });
   const { prefix, site } = splitHost(host);
@@ -616,8 +622,8 @@ function Panel({ refs, host, sub, icon, kind, tone = "primary", onClose, onEscap
         {icon === "site" ? <Avatar name={site} size={36} badge={kind?.icon} className="af-site-avatar" />
           : icon === "shield" ? <DialogIcon kind="shield" /> : <DialogIcon tone={tone}>{icon}</DialogIcon>}
         <div className="af-head-text" data-tauri-drag-region>
-          <h1 className="af-host" id="af-title" title={host}>
-            {prefix && <span className="af-host-prefix">{prefix}</span>}{site}
+          <h1 className="af-host" id="af-title" title={title ?? host}>
+            {title ?? <>{prefix && <span className="af-host-prefix">{prefix}</span>}{site}</>}
           </h1>
           <p className="af-sub" id="af-desc" data-tauri-drag-region>
             {kind && <span className="af-kind">{kind.icon}{kind.label}</span>}
@@ -649,6 +655,9 @@ function Panel({ refs, host, sub, icon, kind, tone = "primary", onClose, onEscap
   return onSubmit ? <form {...common} onSubmit={onSubmit}>{inner}</form> : <div {...common}>{inner}</div>;
 }
 
+/** The site a request is about; empty for the popup's Unlock. */
+const jobHost = (job: Job): string => (job.kind === "unlock" ? "" : job.req.host);
+
 interface LockedProps {
   refs: Refs;
   job: Job;
@@ -671,19 +680,20 @@ function LockedStage({ refs, job, dispatch, onDeny }: LockedProps) {
     },
   });
   const copy = job.kind === "fill" ? job.req.copy : undefined;
-  const what = copy ? `copy the ${COPY_LABEL[copy]} of a saved login`
+  const unlockOnly = job.kind === "unlock";
+  const what = unlockOnly ? "unlock your vault" : copy ? `copy the ${COPY_LABEL[copy]} of a saved login`
     : job.kind === "fill" ? (job.req.intent === "code" ? "fill a 2FA code" : "fill a saved login")
     : job.kind === "card" ? "fill a payment card" : job.kind === "identity" ? "fill your details (identity)"
     : job.kind === "passkeyCreate" ? `save a passkey for ${job.req.rpId}`
     : job.kind === "passkeyGet" ? `sign in to ${job.req.rpId} with a passkey` : "save a login";
-  const submitLabel = copy ? "Unlock & copy" : job.kind === "fill" ? "Unlock & fill" : job.kind === "card" ? "Unlock & pick card"
+  const submitLabel = unlockOnly ? "Unlock" : copy ? "Unlock & copy" : job.kind === "fill" ? "Unlock & fill" : job.kind === "card" ? "Unlock & pick card"
     : job.kind === "identity" ? "Unlock & pick identity" : job.kind === "passkeyGet" ? "Unlock & continue"
     : job.kind === "passkeyCreate" ? "Unlock & continue" : "Unlock & save";
-  const purpose = copy ? "unlock and copy it" : job.kind === "fill" ? "unlock and fill it" : job.kind === "card" ? "unlock and pick a card"
+  const purpose = unlockOnly ? "unlock the vault" : copy ? "unlock and copy it" : job.kind === "fill" ? "unlock and fill it" : job.kind === "card" ? "unlock and pick a card"
     : job.kind === "identity" ? "unlock and pick an identity" : job.kind === "passkeyGet" ? "unlock and pick a passkey"
     : job.kind === "passkeyCreate" ? "unlock and save the passkey" : "unlock and save it";
   return (
-    <Panel refs={refs} host={job.req.host} icon={<Lock size={16} />} onClose={onDeny} onSubmit={u.submit}
+    <Panel refs={refs} host={jobHost(job)} title={unlockOnly ? "Unlock Notiq" : undefined} icon={<Lock size={16} />} onClose={onDeny} onSubmit={u.submit}
            sub={`The Notiq extension wants to ${what}.`}
            footer={<VaultUnlockActions u={u} onCancel={onDeny} submitLabel={submitLabel} />}>
       <VaultUnlockBody u={u} purpose={purpose} idPrefix="af-unlock" />

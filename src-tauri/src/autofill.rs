@@ -45,6 +45,8 @@
 //!     the APP copies the value (kept out of clipboard history, cleared after the user's setting); the value never
 //!     reaches the extension. Password / code: approved like a fill (prompt, or the site's trust window).
 //!   * `{op:"open", host, account}` → `{ok:true}`: brings Notiq forward and opens that entry.
+//!   * `{op:"unlock"}` → `{ok:true}` | `{error:"locked"|"timeout"|…}`: shows the prompt window with the unlock form
+//!     (master password or Windows Hello) and answers once the vault is open; `{ok:true}` at once if it already is.
 //! * Password-reuse warning: `{op:"reuse_salt"}` → `{ok:true, salt}` and `{op:"reuse_check", host, salt, tag}` →
 //!   `{ok:true, site:null|"paypal.com"}` | `{error}` (no window, never starts the app, rate-limited; the password
 //!   never leaves the extension, only a salted truncated HMAC of it). See `autofill_reuse.rs`.
@@ -748,6 +750,8 @@ const LIST_EVENT: &str = "autofill:list";
 const COPY_EVENT: &str = "autofill:copy";
 /// The main window's existing "open this entry" listener (`src/quick/quickSearch.ts`), payload `{rel}`.
 const OPEN_ENTRY_EVENT: &str = "quick-search:open";
+/// The toolbar popup asked the app to unlock the vault: the prompt window shows its unlock form.
+const UNLOCK_EVENT: &str = "autofill:unlock";
 /// Most logins one `list` reply may carry (a site with more is unusual; the popup filters them).
 pub const MAX_LIST: usize = 50;
 
@@ -797,6 +801,14 @@ fn error_reply(reply: &Value) -> Option<Value> {
     })
 }
 
+/// The UI's `unlock` answer: `{ok:true}` or just an error word (`locked` when the user closed the window).
+pub fn sanitize_unlock_reply(reply: &Value) -> Value {
+    if let Some(e) = error_reply(reply) {
+        return e;
+    }
+    if reply.get("ok") == Some(&json!(true)) { json!({ "ok": true }) } else { json!({ "error": "failed" }) }
+}
+
 /// The UI's `list` answer, reduced to what the extension may see: account ids, titles and usernames (each
 /// length-capped, control characters removed), whether a 2FA code exists, at most [`MAX_LIST`] entries.
 pub fn sanitize_list_reply(reply: &Value) -> Value {
@@ -839,11 +851,18 @@ pub fn sanitize_copy_reply(reply: &Value, what: &str) -> Value {
 
 /// The popup ops; `None` for every other op.
 fn handle_popup(app: &AppHandle, op: &str, req: &Value) -> Option<Value> {
-    if !matches!(op, "list" | "copy" | "open") {
+    if !matches!(op, "list" | "copy" | "open" | "unlock") {
         return None;
     }
     touch_extension();
     let unlocked = || app.state::<crate::vault::VaultState>().is_unlocked();
+    if op == "unlock" {
+        // Not about any site, so it is not recorded as a request. No vault at all is `locked` too: setting one up happens in Notiq itself.
+        if unlocked() {
+            return Some(json!({ "ok": true }));
+        }
+        return Some(sanitize_unlock_reply(&await_ui(app, UNLOCK_EVENT, json!({}), false)));
+    }
     let (host, reply) = match op {
         "list" => match validate_list(req) {
             Err(e) => return Some(json!({ "error": e })),
@@ -1386,7 +1405,7 @@ fn forward(conn: &mut Option<Conn>, req: &Value) -> Value {
     if let Some(reply) = incognito_gate(req, incognito_from_disk()) {
         return reply;
     }
-    if op == "open" {
+    if op == "open" || op == "unlock" {
         allow_app_foreground();
     }
     for attempt in 0..2 {
@@ -2002,7 +2021,7 @@ mod tests {
     #[test]
     fn incognito_requests_are_refused_while_the_setting_is_off() {
         let off = json!({"error":"incognito_off"});
-        for op in ["fill", "save", "save_check", "fill_card", "fill_identity", "identities", "list", "copy", "open",
+        for op in ["fill", "save", "save_check", "fill_card", "fill_identity", "identities", "list", "copy", "open", "unlock",
                    "reuse_salt", "reuse_check", "passkey_create", "passkey_get", "launch"] {
             let req = json!({"op": op, "host":"example.com", "incognito": true});
             assert_eq!(incognito_gate(&req, false), Some(off.clone()), "{op}");
@@ -2116,9 +2135,17 @@ mod popup_tests {
 
     #[test]
     fn popup_ops_never_start_the_app() {
-        for op in ["list", "copy", "open"] {
+        for op in ["list", "copy", "open", "unlock"] {
             assert!(!may_launch(op), "{op}");
         }
+    }
+
+    #[test]
+    fn unlock_reply_is_reduced_to_ok_or_an_error_word() {
+        assert_eq!(sanitize_unlock_reply(&json!({ "ok": true, "extra": "x" })), json!({ "ok": true }));
+        assert_eq!(sanitize_unlock_reply(&json!({ "error": "locked" })), json!({ "error": "locked" }));
+        assert_eq!(sanitize_unlock_reply(&json!({ "error": "a b!" })), json!({ "error": "ab" }));
+        assert_eq!(sanitize_unlock_reply(&json!({})), json!({ "error": "failed" }));
     }
 }
 

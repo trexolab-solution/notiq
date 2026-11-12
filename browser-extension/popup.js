@@ -133,6 +133,8 @@ const panel = $("panel");
 const site = $("site");
 const help = $("help");
 // A private window while autofill there is off: only this notice (Notiq → Settings → Vault → Browser autofill).
+// Which button the state panel shows: "retry" (check again) or "unlock" (ask the app for its unlock window).
+let panelActionKind = "retry";
 const PRIVATE_PANEL = { icon: "lock", title: "Private window", text: NS ? NS.INCOGNITO_TEXT : "", action: "retry", actionLabel: "Check again" };
 function renderMain() {
   const p = pageError === "incognito_off" ? PRIVATE_PANEL
@@ -146,10 +148,23 @@ function renderMain() {
   $("panelIco").replaceChildren(icon(p.icon));
   $("panelTitle").textContent = p.title;
   $("panelText").textContent = p.text;
-  $("panelAction").hidden = p.action !== "retry";
+  panelActionKind = p.action;
+  $("panelAction").hidden = p.action !== "retry" && p.action !== "unlock";
   $("panelActionText").textContent = p.actionLabel || "Try again";
 }
-$("panelAction").addEventListener("click", () => checkNotiq());
+$("panelAction").addEventListener("click", () => (panelActionKind === "unlock" ? unlockNotiq() : checkNotiq()));
+
+// The locked panel's button: the app opens its own small unlock window (master password / Windows Hello). The browser
+// may close this popup when that window takes the focus; either way the answer is checked again afterwards.
+function unlockNotiq() {
+  const b = $("panelAction");
+  b.disabled = true;
+  $("panelActionText").textContent = "Waiting for Notiq…";
+  const done = () => { b.disabled = false; checkNotiq(); };
+  try {
+    chrome.runtime.sendMessage({ type: "unlock" }, () => { void chrome.runtime.lastError; done(); });
+  } catch { done(); }
+}
 
 // ---------- header: connection status + version ----------
 const status = $("status");

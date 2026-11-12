@@ -359,3 +359,37 @@ describe("prompt state machine: code-only fill (separate 2FA page)", () => {
     expect(r.effects.slice(-1)[0]).toStrictEqual({ kind: "release", id: "f1", match: a, trustHost: null });
   });
 });
+
+describe("prompt state machine: unlock (the popup's Unlock button)", () => {
+  const unlock = (id = "u1"): Job => ({ kind: "unlock", req: { id } });
+
+  it("answers ok at once when the vault is already open, without showing the window", () => {
+    const r = run(IDLE, start(unlock(), { unlocked: true }));
+    expect(r.state).toBe(IDLE);
+    expect(replies(r.effects)).toEqual([{ ok: true }]);
+    expect(kinds(r.effects)).toEqual(["reply", "finish"]);
+  });
+
+  it("shows the unlock form, and unlocking answers ok and closes (nothing is scanned or filled)", () => {
+    let r = run(IDLE, start(unlock(), { unlocked: false }));
+    expect(r.state.stage).toBe("locked");
+    expect(kinds(r.effects)).toEqual(["show"]);
+    r = run(r.state, { type: "unlockStarted" }, { type: "unlockFailed", error: "Wrong password" });
+    expect(r.state).toMatchObject({ stage: "locked", error: "Wrong password" });
+    r = run(r.state, { type: "unlocked" });
+    expect(r.state).toBe(IDLE);
+    expect(replies(r.effects)).toEqual([{ ok: true }]);
+    expect(kinds(r.effects)).toEqual(["reply", "finish"]);
+  });
+
+  it("closing the window leaves the vault locked: the popup is told so", () => {
+    const r = run(IDLE, start(unlock(), { unlocked: false }), { type: "deny" });
+    expect(replies(r.effects)).toEqual([{ error: "locked" }]);
+    expect(r.state).toBe(IDLE);
+  });
+
+  it("without any vault there is nothing to unlock here", () => {
+    const r = run(IDLE, start(unlock(), { exists: false, unlocked: false }));
+    expect(replies(r.effects)).toEqual([{ error: "locked" }]);
+  });
+});
