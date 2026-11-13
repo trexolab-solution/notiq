@@ -44,7 +44,7 @@
       "applicationCategory": "ProductivityApplication",
       "applicationSubCategory": "Markdown editor and password manager",
       "operatingSystem": "Windows, Linux",
-      "softwareVersion": "0.9.9",
+      "softwareVersion": "0.10.0",
       "isAccessibleForFree": true,
       "license": "https://github.com/trexolab-solution/notiq/blob/main/LICENSE",
       "downloadUrl": "https://github.com/trexolab-solution/notiq/releases/latest",
@@ -56,6 +56,7 @@
         "Markdown editor with live preview and split view",
         "Whiteboard and knowledge graph",
         "Encrypted vault for passwords, SSH keys, cards and private notes",
+        "Built-in SSH terminal and SFTP file manager for saved servers",
         "Two-step (TOTP) codes",
         "Browser autofill extension",
         "Optional end-to-end encrypted sync to Google Drive",
@@ -174,6 +175,7 @@
     <nav class="nav" aria-label="Primary">
       <a href="#features">Features</a>
       <a href="#vault">Vault</a>
+      <a href="#servers">Servers</a>
       <a href="#sync">Sync</a>
       <a href="#autofill">Autofill</a>
       <a href="#security">Security</a>
@@ -376,7 +378,7 @@ Build a **reading tracker** that works offline.
       <p>Each entry type has a form shaped around what you store in it, so a server keeps its host and key and a login keeps its 2-step secret.</p>
       <dl class="kinds">
         <div><dt><svg class="i k-login" aria-hidden="true"><use href="#i-login"/></svg>Login</dt><dd>Password generator, live 2-step (TOTP) codes, one-click copy.</dd></div>
-        <div><dt><svg class="i k-ssh" aria-hidden="true"><use href="#i-ssh"/></svg>SSH / server</dt><dd>Checks the key you paste and builds the <code>ssh</code> command for you.</dd></div>
+        <div><dt><svg class="i k-ssh" aria-hidden="true"><use href="#i-ssh"/></svg>SSH / server</dt><dd>Checks the key, can generate a new one, and opens the server in Notiq’s own terminal or file manager.</dd></div>
         <div><dt><svg class="i k-secret" aria-hidden="true"><use href="#i-secret"/></svg>API key / secret</dt><dd>Tokens and keys, hidden until you ask.</dd></div>
         <div><dt><svg class="i k-note" aria-hidden="true"><use href="#i-note"/></svg>Secure note</dt><dd>Full Markdown, sealed like everything else.</dd></div>
         <div><dt><svg class="i k-id" aria-hidden="true"><use href="#i-idcard"/></svg>Identity, card, Wi-Fi, recovery codes</dt><dd>Name and address for checkout forms, cards, network passwords and one-time codes.</dd></div>
@@ -498,6 +500,65 @@ Build a **reading tracker** that works offline.
           </div>
         </div>
       </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═════════════ SERVERS ═════════════ -->
+<section class="band band-alt" id="servers" aria-labelledby="servers-title">
+  <div class="container split-grid flip">
+    <div class="copy">
+      <h2 id="servers-title">Open a saved server in a terminal or a file manager</h2>
+      <p>Notiq has its own SSH client, so there is nothing to install. Pick a server from the vault and it signs in with the key or password you saved: in the terminal, or in a file manager over SFTP.</p>
+      <ul class="ticks">
+        <li>Browse, edit and save files on the server without leaving Notiq</li>
+        <li>Drag files and folders in and out, or paste files you copied in Explorer</li>
+        <li>Deleted items go to the server’s Trash first, so you can restore them</li>
+        <li>Replace or keep both when a name is taken; it reconnects by itself if the link drops</li>
+        <li>Host keys are confirmed once and remembered, and a changed key is refused</li>
+      </ul>
+    </div>
+    <div>
+      <figure class="win" aria-label="The remote file manager showing a server’s home folder">
+        <div class="win-bar" aria-hidden="true">
+          <span class="win-brand"><img src="logo.png" alt="" width="14" height="14">Notiq</span>
+          <span class="win-title">Files · Oracle vps1</span>
+          <span class="win-ctl"><svg class="i"><use href="#i-minus"/></svg><svg class="i"><use href="#i-square"/></svg><svg class="i"><use href="#i-x"/></svg></span>
+        </div>
+        <div class="win-body col fm" aria-hidden="true">
+          <div class="fm-path">
+            <span class="fm-ib"><svg class="i" aria-hidden="true" style="transform:rotate(-90deg)"><use href="#i-arrow"/></svg></span>
+            <span class="fm-ib"><svg class="i" aria-hidden="true"><use href="#i-refresh"/></svg></span>
+            <span class="fm-crumbs">/ home / <b>ubuntu</b></span>
+            <span class="fm-filter"><svg class="i" aria-hidden="true"><use href="#i-search"/></svg>Filter</span>
+          </div>
+          <div class="fm-tools">
+            <span class="fm-ib"><svg class="i" aria-hidden="true" style="transform:rotate(180deg)"><use href="#i-download"/></svg></span>
+            <span class="fm-ib"><svg class="i" aria-hidden="true"><use href="#i-download"/></svg></span>
+            <i class="sep"></i>
+            <span class="fm-ib"><svg class="i" aria-hidden="true"><use href="#i-folder"/></svg></span>
+            <span class="fm-ib"><svg class="i" aria-hidden="true"><use href="#i-plus"/></svg></span>
+            <i class="sep"></i>
+            <span class="fm-ib"><svg class="i" aria-hidden="true"><use href="#i-pencil"/></svg></span>
+            <span class="fm-ib"><svg class="i" aria-hidden="true"><use href="#i-shield"/></svg></span>
+            <span class="fm-ib"><svg class="i" aria-hidden="true"><use href="#i-trash"/></svg></span>
+            <span class="fm-hint">Drag files here to upload</span>
+          </div>
+          <div class="fm-head"><span>Name</span><span>Size</span><span>Modified</span></div>
+          <div class="fm-row"><span><svg class="i k-folder" aria-hidden="true"><use href="#i-folder"/></svg>app</span><span></span><span>13 Nov, 09:12</span></div>
+          <div class="fm-row is-sel"><span><svg class="i k-folder" aria-hidden="true"><use href="#i-folder"/></svg>backups</span><span></span><span>12 Nov, 23:40</span></div>
+          <div class="fm-row"><span><svg class="i k-folder" aria-hidden="true"><use href="#i-folder"/></svg>logs</span><span></span><span>13 Nov, 11:03</span></div>
+          <div class="fm-row"><span><svg class="i" aria-hidden="true"><use href="#i-note"/></svg>deploy.sh</span><span>2.1 KB</span><span>10 Nov, 18:22</span></div>
+          <div class="fm-row"><span><svg class="i" aria-hidden="true"><use href="#i-note"/></svg>nginx.conf</span><span>4.8 KB</span><span>8 Nov, 07:15</span></div>
+          <div class="fm-row"><span><svg class="i" aria-hidden="true"><use href="#i-note"/></svg>notes.md</span><span>912 B</span><span>2 Nov, 14:50</span></div>
+          <div class="fm-xfer">
+            <div class="fm-xfer-h">Uploading 2 items</div>
+            <div class="fm-xfer-r"><span>site.zip</span><span class="fm-bar"><i style="width:68%"></i></span></div>
+            <div class="fm-xfer-r"><span>photos</span><span class="fm-ok"><svg class="i" aria-hidden="true"><use href="#i-check"/></svg></span></div>
+          </div>
+        </div>
+        <div class="statusbar" aria-hidden="true"><span>6 items</span><span class="sb-right">Connected</span></div>
+      </figure>
     </div>
   </div>
 </section>

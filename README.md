@@ -1,551 +1,92 @@
 <p align="center">
-  <img src="src/assets/logo.png" alt="Notiq Logo" width="140" />
+  <img src="src/assets/logo.png" alt="Notiq" width="120" />
 </p>
 
 <h1 align="center">Notiq</h1>
 
 <p align="center">
-  A fast, local-first Markdown editor with an encrypted vault, whiteboard, and knowledge graph for your desktop.<br/>
-  Built with <strong>Tauri v2</strong>, <strong>React 18</strong>, and <strong>Monaco</strong>.
+  A fast, local-first Markdown editor with an encrypted vault, a whiteboard and a knowledge graph.<br/>
+  No accounts. No telemetry. Everything stays on your computer.
 </p>
 
 <p align="center">
-  No accounts. No telemetry. Everything lives on your machine. Optional, end-to-end encrypted vault sync with your own Google Drive is off until you turn it on.
+  <a href="https://trexolab-solution.github.io/notiq/"><b>Website</b></a> &nbsp;·&nbsp;
+  <a href="https://github.com/trexolab-solution/notiq/releases/latest"><b>Download</b></a> &nbsp;·&nbsp;
+  <a href="https://github.com/trexolab-solution/notiq/issues"><b>Issues</b></a> &nbsp;·&nbsp;
+  <a href="https://trexolab-solution.github.io/notiq/privacy.html"><b>Privacy</b></a>
 </p>
 
 <p align="center">
-  <a href="https://github.com/trexolab-solution/notiq/releases/latest"><img src="https://img.shields.io/github/v/release/trexolab-solution/notiq?style=for-the-badge&label=LATEST%20RELEASE&color=0969da&labelColor=555555" alt="Latest release" /></a>
-  <a href="https://github.com/trexolab-solution/notiq/blob/main/LICENSE"><img src="https://img.shields.io/github/license/trexolab-solution/notiq?style=for-the-badge&label=LICENSE&color=e05d44&labelColor=555555" alt="License: MIT" /></a>
-  <a href="https://tauri.app/"><img src="https://img.shields.io/badge/TAURI-v2-e68a00?style=for-the-badge&labelColor=555555" alt="Built with Tauri" /></a>
-  <a href="https://github.com/trexolab-solution/notiq/stargazers"><img src="https://img.shields.io/github/stars/trexolab-solution/notiq?style=for-the-badge&label=STARS&color=ffd700&labelColor=555555" alt="GitHub stars" /></a>
-</p>
-
-<hr />
-
-<p align="center">
-  <a href="https://github.com/trexolab-solution/notiq/releases"><img src="https://img.shields.io/github/downloads/trexolab-solution/notiq/total?style=for-the-badge&label=GITHUB%20DOWNLOADS&color=2ea44f&labelColor=555555" alt="GitHub downloads" /></a>
-  <a href="https://github.com/trexolab-solution/notiq/releases/latest"><img src="https://img.shields.io/github/downloads/trexolab-solution/notiq/latest/total?style=for-the-badge&label=LATEST%20RELEASE%20DOWNLOADS&color=1f8ceb&labelColor=555555" alt="Downloads of the latest release" /></a>
-</p>
-
-<p align="center">
-  <img src="https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS%20(source)-blue" alt="Platform" />
-  <img src="https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black" alt="React 18" />
-  <img src="https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white" alt="TypeScript" />
-  <img src="https://img.shields.io/badge/Rust-stable-000000?logo=rust&logoColor=white" alt="Rust" />
-</p>
-
-<p align="center">
-  <a href="https://trexolab-solution.github.io/notiq/"><strong>Website</strong></a> ·
-  <a href="https://github.com/trexolab-solution/notiq/releases/latest"><strong>Download</strong></a> (Windows <code>.exe</code>/<code>.msi</code>, Linux AppImage/<code>.deb</code>/<code>.rpm</code>; macOS: <a href="#build-for-production">build from source</a>)
+  <a href="https://github.com/trexolab-solution/notiq/releases/latest"><img src="https://img.shields.io/github/v/release/trexolab-solution/notiq?style=flat-square&label=release&color=0969da" alt="Latest release" /></a>
+  <a href="https://github.com/trexolab-solution/notiq/blob/main/LICENSE"><img src="https://img.shields.io/github/license/trexolab-solution/notiq?style=flat-square&color=e05d44" alt="MIT license" /></a>
+  <a href="https://github.com/trexolab-solution/notiq/stargazers"><img src="https://img.shields.io/github/stars/trexolab-solution/notiq?style=flat-square&color=ffd700" alt="Stars" /></a>
+  <a href="https://tauri.app/"><img src="https://img.shields.io/badge/built%20with-Tauri%20v2-e68a00?style=flat-square" alt="Built with Tauri" /></a>
 </p>
 
 ---
 
-## Table of Contents
+## What it is
 
-- [Why Notiq?](#why-notiq)
-- [Features](#features)
-- [Secure Vault](#secure-vault)
-  - [Vault Sync with Google Drive](#vault-sync-with-google-drive)
-- [Getting Started](#getting-started)
-- [Keyboard Shortcuts](#keyboard-shortcuts)
-- [Tech Stack](#tech-stack)
-- [Project Structure](#project-structure)
-- [Architecture](#architecture)
-- [Data & Privacy](#data--privacy)
-- [Contributing](#contributing)
-- [License](#license)
+Notiq is a desktop app for notes, secrets and servers that you want to keep on your own machine. Write Markdown in the editor engine behind VS Code, keep passwords, SSH keys and private notes in one encrypted vault, and open your servers in a built-in terminal and file manager. It starts in under a second and works offline.
 
----
+## Highlights
 
-## Why Notiq?
-
-Most note-taking apps either lock you into a cloud ecosystem or sacrifice power for simplicity. Notiq gives you the full Monaco editor (the same engine behind VS Code), an Excalidraw whiteboard, a 3D knowledge graph, an embedded terminal, and an optional AI assistant — all in a single offline desktop app that starts in under a second. Your files stay on your disk as plain Markdown, and the AI is strictly opt-in: leave it off (the default) and nothing ever leaves your machine, or point it at a local [Ollama](https://ollama.com/) instance to keep even AI fully offline.
-
----
-
-## Features
-
-### Markdown Editor
-
-- **Monaco-powered** — syntax highlighting, multi-cursor editing, find/replace, code folding, bracket matching, and every keyboard shortcut you already know from VS Code
-- **Three view modes** — Source (raw Markdown), Preview (rendered HTML), or Split (side-by-side with synchronized scrolling)
-- **Formatting toolbar** — one-click buttons for bold, italic, headings, lists, tables, code blocks, blockquotes, links, images, and more
-- **GFM support** — GitHub Flavored Markdown including tables, task lists, and strikethrough
-- **Mermaid diagrams** — render flowcharts, sequence diagrams, and Gantt charts inside fenced ` ```mermaid ``` ` code blocks
-- **LaTeX math** — write equations with `$inline$` and `$$block$$` syntax, rendered via KaTeX
-- **Syntax highlighting** — code blocks highlighted for 180+ languages
-- **Wiki-links** — link notes using `[[Note Title]]` syntax; links resolve across all open tabs
-- **Admonitions** — GitHub-style alert blocks (`> [!NOTE]`, `> [!WARNING]`, etc.)
-- **Prettier auto-format** — clean up your Markdown structure with a single click
-- **Live word count** — character and word count displayed in the status bar
-
-### AI Assistant
-
-Optional, **opt-in and off by default**. Run your own local [Ollama](https://ollama.com/) instance for fully offline AI, or connect to Ollama Cloud or [OpenRouter](https://openrouter.ai/) with an API key. Works with any OpenAI-compatible model they serve.
-
-- **Inline autocomplete** — Copilot-style grey ghost-text suggestions as you type; press `Tab` to accept, `Esc` to dismiss. Choose automatic (on pause) or manual (`Alt+\`) triggering, with a configurable debounce and context window
-- **AI actions** — continue writing, summarize the note, fix grammar, generate a title, and repair broken Mermaid diagrams — from the command palette (`Ctrl+Shift+P`) or the right-click menu
-- **Ask AI on a selection** — select text to explain it inline or replace it with an AI edit; replace-style edits get an inline **Accept / Reject / Retry** review before anything changes
-- **AI chat panel** — a dockable, resizable chat sidebar grounded in your current note, with streaming replies, conversation history, and per-message copy / insert / regenerate; code blocks add copy and "open as new file" actions
-- **Calm, cancellable feedback** — a subtle "Thinking…" indicator in the status bar that never flashes on quick replies; keep typing and the in-flight suggestion is cancelled instantly
-- **Secure key storage** — your Ollama Cloud and OpenRouter API keys live in the OS keychain (Windows Credential Manager, macOS Keychain, Linux Secret Service), never in plain text and never exposed to the web layer
-- **Model picker** — list, select, and test models for the selected provider right from Settings
-
-### Multi-Tab Workflow
-
-- **Unlimited tabs** — open as many notes and whiteboards as you need
-- **Drag-to-reorder** — rearrange tabs by dragging them in the tab bar
-- **Tab pinning** — pin important tabs to prevent accidental closure
-- **Unsaved-changes detection** — dot indicator on dirty tabs with a confirmation dialog on close
-- **Session persistence** — all open tabs, their content, cursor positions, and scroll state are saved to IndexedDB and restored on next launch
-- **Quick navigation** — jump to any tab with `Ctrl+1` through `Ctrl+9`
-
-### File System
-
-- **Open files** — single or multiple files at once (`Ctrl+O`)
-- **Open folder** — recursively load all Markdown and text files from a directory (`Ctrl+Shift+O`)
-- **File selection modal** — when opening many files, pick exactly which ones to load and preview the folder tree
-- **Drag & drop** — drop files from Explorer/Finder directly onto the window to open them as tabs
-- **Save / Save As** — write directly to your local filesystem via Tauri's FS plugin
-- **Export PDF** — print the rendered preview to PDF (`Ctrl+P`)
-- **File associations** — register `.md`, `.markdown`, `.txt`, and `.notiq` extensions so files open directly in Notiq from Explorer or Finder
-- **Windows shell integration** — adds "Open with Notiq" to the right-click menu for any file, plus "Open folder in Notiq" on directories
-
-### Whiteboard
-
-- **Excalidraw integration** — full hand-drawn style canvas for sketching, diagramming, and brainstorming
-- **Per-tab persistence** — whiteboard drawings are saved automatically and restored when you reopen the tab
-- **Linked whiteboards** — attach a whiteboard to a specific note and navigate between them with one click
-- **Library panel** — save custom shapes and browse the official Excalidraw component library
-
-### Knowledge Graph
-
-- **3D visualization** — interactive force-directed graph showing all open notes as nodes and their connections as edges
-- **Auto-detected links** — edges drawn for both `[text](Target Note)` markdown links and `[[Target Note]]` wiki-links
-- **Click-to-navigate** — click any node to jump directly to that note in split view
-- **Live updates** — the graph rebuilds automatically as note content or titles change
-- **Themed colors** — node colors adapt to your current theme
-
-### Embedded Terminal
-
-- **Built-in terminal** — resizable panel at the bottom of the window powered by xterm.js
-- **Native shell** — spawns PowerShell on Windows, bash or zsh on macOS/Linux via a real PTY
-- **Multi-session tabs** — open multiple shells side-by-side and switch between them
-- **Built-in SSH** — the **Server** button (or *Open in terminal* on a saved SSH entry) signs in to a server from your vault with its private key or password, with nothing to install: Notiq has its own SSH client. New hosts are confirmed in the terminal and remembered, a changed host key is refused, and a jump host is supported
-- **Theme-aware** — the terminal palette (foreground, background, ANSI 16) tracks the active app theme
-- **Configurable** — adjust font size, cursor style, blinking, and scrollback buffer in Settings
-- **Shortcuts** — `Ctrl+` `` ` `` toggles the panel, `Ctrl+Shift+` `` ` `` opens a new session
-
-### Sticky Notes
-
-- **Floating windows** — create small, always-visible notes that live on your desktop as separate windows
-- **Monaco-powered** — every sticky note runs the same editor as the main app
-- **Independent persistence** — each sticky note is saved and restored individually
-- **Sticky notes list** — dedicated window listing all your sticky notes, with search and quick reopen
-- **Quick access** — launch new sticky notes or open the list from the system tray menu
-
-### System Tray
-
-- **Minimize to tray** — keep Notiq running in the background
-- **Quick actions** — show/hide the main window, create sticky notes, or quit from the tray icon
-- **Single instance** — opening a file with Notiq reuses the existing window instead of launching a duplicate
-
-### Themes
-
-Thirteen built-in color themes — switch instantly from the sidebar or Settings (`Ctrl+,`):
-
-| Theme | Style |
+| | |
 |---|---|
-| Dark | Default dark with warm amber accent |
-| Light | Clean, high-contrast light mode |
-| One Dark Pro | Atom-inspired dark palette |
-| Nord | Arctic, north-bluish tones |
-| Dracula | Purple and pink dark theme |
-| Catppuccin Mocha | Pastel dark with lavender highlights |
-| Tokyo Night | Deep blue Japanese-inspired dark theme |
-| Rose Pine | Muted, elegant dark with rose and pine accents |
-| Gruvbox Dark | Retro, warm beige-on-brown |
-| Solarized Dark | Classic Ethan Schoonover palette |
-| GitHub Dark | GitHub's official dark theme |
-| Monokai Pro | Modern take on the original Monokai |
-| Kanagawa | Japanese woodblock-inspired tones |
+| **Markdown editor** | Monaco with Source, Preview and Split views. Tables, task lists, Mermaid, LaTeX and `[[wiki links]]`. Tabs, 13 themes, plain `.md` files on your disk. |
+| **Secure Vault** | Passwords, SSH keys, cards, Wi-Fi, identities, 2-step codes and private notes in one encrypted file, behind a master password and a recovery key. |
+| **Vault Sync** | Optional. Use one vault on all your PCs, end-to-end encrypted through your own Google Drive. Off until you turn it on. |
+| **Browser autofill** | A browser extension fills logins and passkeys; every request is approved in Notiq. |
+| **SSH terminal and file manager** | Built-in SSH client, nothing to install. Open a saved server in a terminal, or in a file manager over SFTP: browse, edit files, drag and drop, folders, Trash, reconnect. |
+| **Whiteboard and graph** | An Excalidraw canvas beside your notes, and a knowledge graph of your `[[links]]`. |
+| **Terminal, sticky notes, command palette** | A shell under your notes, sticky notes that float above other windows, and `Ctrl+Shift+P` for everything. |
+| **AI, only if you want it** | Off by default. Run it locally with Ollama, or use Ollama Cloud or OpenRouter with your own key. |
 
-### Settings (`Ctrl+,`)
+See all of it, with demos, on the [website](https://trexolab-solution.github.io/notiq/).
 
-Settings opens as a **tab**, like VS Code's Settings editor, and everything is on one scrolling page:
+## Download
 
-- **Search** the box at the top (or `Ctrl+F` / `/`) filters every setting live; settings also show up in the command palette (`Ctrl+Shift+P`) and open straight on the right row
-- **Sections** (left nav follows your scroll; chips on narrow windows) — General, Editor, AI, Vault, Terminal, Appearance, Shortcuts, Updates, About
-- **Modified marker and Reset** — a setting that differs from its default gets a dot and a one-click *Reset to default*; *Restore defaults* resets the editor and terminal settings at once
-- **Editor** — font size/family/spacing, word wrap, line numbers, minimap, bracket colorization, cursor style & animation, whitespace, folding, smooth scrolling, tab size, default view mode, auto-closing brackets, format on paste
-- **Terminal** — font size, cursor, scrollback, panel position
-- **AI** — enable/disable, provider (Ollama Cloud, Local Ollama or OpenRouter, optional fallback), API keys, model picker and test, autocomplete tuning
-- **Vault** — locking, "Clear copied secrets after" (15 s, 30 s default, 1 min, 2 min or Never), storage folder, backup, Sync (Google Drive), quick unlock, quick search, password generator, master password, browser-autofill install and status
+Get the latest installer from the [releases page](https://github.com/trexolab-solution/notiq/releases/latest):
 
----
+- **Windows** — installer (`.exe`)
+- **Linux** — AppImage or `.deb`
+- **macOS** — build from source (see below)
 
-## Getting Started
+Notiq updates itself from the same releases page (**Settings → Updates**).
 
-### Prerequisites
+## Build from source
 
-- [Node.js](https://nodejs.org/) 18+
-- [Bun](https://bun.sh/) — package manager and script runner
-- [Rust](https://www.rust-lang.org/tools/install) + Cargo
-- [Tauri v2 prerequisites](https://tauri.app/start/prerequisites/) for your OS (WebView2 on Windows)
-
-### Install
+You need [Node.js](https://nodejs.org/) 18+, [Bun](https://bun.sh/), [Rust](https://www.rust-lang.org/tools/install) and the [Tauri prerequisites](https://tauri.app/start/prerequisites/) for your system.
 
 ```bash
 git clone https://github.com/trexolab-solution/notiq.git
 cd notiq
 bun install
+bun run tauri dev      # run it
+bun run tauri build    # make an installer
 ```
 
-### Run in development
+More in [DEVELOPMENT.md](DEVELOPMENT.md): tech stack, project structure, architecture and cross-compiling for Linux.
 
-```bash
-bun run tauri dev
-```
+## Privacy
 
-Starts the Vite dev server on `http://localhost:1420` and opens the Tauri window with hot module replacement.
+- Notes, drawings and settings are stored **locally**. There is **no telemetry**: no analytics, no crash reports, no accounts.
+- **Vault Sync, AI and the breached-password check are opt-in and off by default.** Sync sends only the encrypted vault to your own Google Drive. AI sends only what a request needs to the service you configure (or nothing, with local Ollama). The breached-password check sends only the first 5 characters of a SHA-1 hash.
+- Update checks only download the public release file from GitHub.
 
-**Dev builds are kept apart from an installed Notiq**, so you can run both on one machine. A debug build runs as `com.trexolab.notiq.dev` ("Notiq (Dev)", with a **DEV** badge in the title bar):
+Details: [privacy policy](https://trexolab-solution.github.io/notiq/privacy.html) and [how the vault is protected](VAULT.md).
 
-| | Installed (release) | Dev (`tauri dev`) |
-|---|---|---|
-| App data (settings, `vault.json`, `vault.nqdb`) | `%APPDATA%\com.trexolab.notiq\` | `%APPDATA%\com.trexolab.notiq.dev\` |
-| WebView storage (tabs, preferences) | `%LOCALAPPDATA%\com.trexolab.notiq\` | `%LOCALAPPDATA%\com.trexolab.notiq.dev\` |
-| AI API key (OS keychain) | `notiq-ai` | `notiq-ai-dev` |
+## Documentation
 
-A dev build also never registers file associations, the browser-autofill native host or auto-start, and never self-updates, because those are machine-wide and belong to the installed app. To try the browser extension against a dev build you have to register its native host yourself. See `src-tauri/src/profile.rs`.
-
-### Build for production
-
-```bash
-bun run tauri build
-```
-
-The installer is output to `src-tauri/target/release/bundle/`.
-
-### Cross-compile a Linux build (from Windows/macOS)
-
-```bash
-bun run build:linux
-```
-
-Spins up a Docker container (defined in `docker/Dockerfile.linux`) that produces `.deb` and `.AppImage` artifacts in `dist-linux/`. Requires Docker Desktop.
-
----
-
-## Keyboard Shortcuts
-
-### File
-
-| Shortcut | Action |
-|---|---|
-| `Ctrl+N` | New note |
-| `Ctrl+W` | Close current tab |
-| `Ctrl+S` | Save file |
-| `Ctrl+Shift+S` | Save As |
-| `Ctrl+O` | Open file(s) |
-| `Ctrl+Shift+O` | Open folder |
-| `Ctrl+P` | Export PDF |
-| `Ctrl+3` | New whiteboard |
-| `Ctrl+,` | Open Settings |
-
-### AI & Command Palette
-
-| Shortcut | Action |
-|---|---|
-| `Ctrl+Shift+P` | Open command palette (tabs, actions, AI, themes) |
-| `Alt+\` | Trigger inline autocomplete |
-| `Tab` | Accept the current ghost-text suggestion |
-| `Esc` | Dismiss the suggestion / stop in-flight AI |
-
-### Tabs
-
-| Shortcut | Action |
-|---|---|
-| `Ctrl+Tab` | Next tab |
-| `Ctrl+Shift+Tab` | Previous tab |
-| `Ctrl+1` … `Ctrl+9` | Jump to tab N |
-
-### Terminal
-
-| Shortcut | Action |
-|---|---|
-| `` Ctrl+` `` | Toggle terminal panel |
-| `` Ctrl+Shift+` `` | Open terminal and start a new session |
-
-### Editor
-
-| Shortcut | Action |
-|---|---|
-| `Ctrl+/` | Toggle line comment |
-| `Ctrl+D` | Duplicate line down |
-| `Shift+Alt+Up/Down` | Copy line up / down |
-| `Alt+Up/Down` | Move line up / down |
-| `Ctrl+Shift+K` | Delete line |
-| `Ctrl+L` | Select line |
-| `Ctrl+Shift+L` | Select all occurrences |
-| `Ctrl+]` / `Ctrl+[` | Indent / Outdent |
-| `Ctrl+F` | Find |
-| `Ctrl+H` | Find and replace |
-| `Ctrl+G` | Go to line |
-| `Ctrl+Scroll` | Zoom font size |
-
-### Markdown Formatting
-
-| Shortcut | Action |
-|---|---|
-| `Ctrl+B` | Bold |
-| `Ctrl+I` | Italic |
-| `Ctrl+Shift+X` | Strikethrough |
-| `Ctrl+E` | Inline code |
-| `Ctrl+K` | Insert link |
-| `Ctrl+Alt+1` / `2` / `3` | Heading 1 / 2 / 3 |
-| `Ctrl+Shift+8` | Bullet list |
-| `Ctrl+Shift+7` | Ordered list |
-| `Ctrl+Shift+9` | Task list |
-| `Ctrl+Shift+.` | Blockquote |
-| `Ctrl+Alt+C` | Code block |
-| `Ctrl+Shift+T` | Table |
-
----
-
-## Tech Stack
-
-| Layer | Technology |
-|---|---|
-| Desktop shell | [Tauri v2](https://tauri.app/) (Rust) |
-| UI framework | [React 18](https://react.dev/) + TypeScript |
-| Build tool | [Vite 6](https://vite.dev/) |
-| Styling | [Tailwind CSS v4](https://tailwindcss.com/) + CSS custom properties |
-| State management | [Zustand v5](https://github.com/pmndrs/zustand) |
-| Code editor | [Monaco Editor](https://microsoft.github.io/monaco-editor/) |
-| Markdown rendering | [react-markdown](https://github.com/remarkjs/react-markdown) + remark-gfm + rehype-highlight + rehype-katex |
-| Diagrams | [Mermaid](https://mermaid.js.org/) |
-| Whiteboard | [Excalidraw](https://excalidraw.com/) |
-| Knowledge graph | [3d-force-graph](https://github.com/vasturiano/3d-force-graph) (via [react-kapsule](https://github.com/vasturiano/react-kapsule)) + Three.js |
-| Terminal | [xterm.js](https://xtermjs.org/) + portable-pty (Rust) for local shells, [russh](https://github.com/warp-tech/russh) for built-in SSH |
-| AI | [Ollama](https://ollama.com/) Cloud + Local and [OpenRouter](https://openrouter.ai/) (OpenAI-compatible) via Rust `reqwest` |
-| Secret storage | OS keychain via [keyring](https://crates.io/crates/keyring) (Rust) |
-| Drag & drop | [@dnd-kit](https://dndkit.com/) |
-| Session storage | IndexedDB via [idb](https://github.com/jakearchibald/idb) |
-| PDF export | [jsPDF](https://github.com/parallax/jsPDF) |
-| Icons | [Lucide](https://lucide.dev/) |
-
----
-
-## Project Structure
-
-```
-notiq/
-├── src/                          # React frontend
-│   ├── main.tsx                  # Entry point — routes to main / sticky-note / list window
-│   ├── mainApp.tsx               # Main window bootstrap (theme hydration, show)
-│   ├── App.tsx                   # Root component — shortcuts, context menus, layout
-│   ├── App.css                   # Global styles and Tailwind theme tokens
-│   ├── assets/                   # App logo and static assets
-│   ├── components/
-│   │   ├── ai/                   # AI chat panel + onboarding wizard
-│   │   ├── editor/               # Monaco editor, preview, toolbar, split view
-│   │   ├── graph/                # 3D force-directed knowledge graph
-│   │   ├── layout/               # Sidebar, TabBar, StatusBar, titlebar, menus
-│   │   ├── whiteboard/           # Excalidraw canvas integration
-│   │   ├── sticky-note/          # Sticky note window + sticky notes list
-│   │   ├── terminal/             # Embedded xterm.js terminal (multi-session)
-│   │   └── ui/                   # Reusable components (Button, Modal, Toast, etc.)
-│   ├── store/                    # Zustand store (tabs, prefs, sticky notes)
-│   ├── lib/                      # Utilities (file I/O, session, themes, graph, PDF)
-│   │   └── ai/                   # AI client, prompts, actions, inline completions
-│   ├── hooks/                    # React hooks (shortcuts, session, scroll sync)
-│   ├── types/                    # TypeScript type definitions
-│   ├── config/                   # App metadata (name, version, identifier)
-│   └── styles/                   # Theme CSS variables
-├── src-tauri/                    # Tauri backend (Rust)
-│   ├── src/lib.rs                # Commands, file associations, PTY, tray, plugins
-│   ├── src/ai.rs                 # AI backend — Ollama / OpenRouter proxy + secure key storage
-│   ├── src/vault*.rs             # Secure Vault — crypto core, encrypted database (vault.nqdb), commands
-│   ├── src/autofill.rs           # Browser autofill bridge (native messaging)
-│   ├── src/sync/                 # Vault Sync — Google Drive provider, merge engine, sealing
-│   ├── tauri.conf.json           # App config, window, bundling, file associations
-│   ├── capabilities/             # Permission scopes (main + sticky note windows)
-│   ├── nsis/                     # Windows installer hooks
-│   ├── linux/                    # Linux .desktop template
-│   ├── mime/                     # Linux MIME type registration
-│   └── icons/                    # Platform-specific app icons
-├── docker/Dockerfile.linux       # Reproducible Linux build environment
-├── scripts/                      # Icon sync + Linux build helpers
-├── package.json
-├── vite.config.ts
-└── tsconfig.json
-```
-
----
-
-## Architecture
-
-```
-┌──────────────────────────────────────────────────────────┐
-│                     Tauri v2 (Rust)                      │
-│  File I/O · PTY terminal · System tray · File assoc.     │
-└────────────────────────┬─────────────────────────────────┘
-                         │ IPC (invoke / events)
-┌────────────────────────▼─────────────────────────────────┐
-│                   React 18 Frontend                      │
-│                                                          │
-│  ┌─────────┐  ┌──────────────┐  ┌────────────────────┐  │
-│  │ TabBar  │  │   Editor     │  │  Knowledge Graph   │  │
-│  │ (dnd-   │  │  (Monaco +   │  │  (3D force-graph)  │  │
-│  │  kit)   │  │   Preview)   │  │                    │  │
-│  └─────────┘  └──────────────┘  └────────────────────┘  │
-│  ┌─────────┐  ┌──────────────┐  ┌────────────────────┐  │
-│  │Sidebar  │  │  Whiteboard  │  │     Terminal       │  │
-│  │+ Themes │  │ (Excalidraw) │  │    (xterm.js)      │  │
-│  └─────────┘  └──────────────┘  └────────────────────┘  │
-│                         │                                │
-│              ┌──────────▼──────────┐                     │
-│              │   Zustand Store     │                     │
-│              │  tabs · theme ·     │                     │
-│              │  prefs · graph      │                     │
-│              └──────────┬──────────┘                     │
-│                         │                                │
-│              ┌──────────▼──────────┐                     │
-│              │  IndexedDB Session  │                     │
-│              │  (auto-persist)     │                     │
-│              └─────────────────────┘                     │
-└──────────────────────────────────────────────────────────┘
-```
-
-**Key design decisions:**
-
-- **Debounced persistence** — content changes are batched (300ms) before writing to IndexedDB to avoid excessive writes
-- **Lazy-loaded views** — Whiteboard, Knowledge Graph, and Terminal are code-split and loaded on demand
-- **Session hydration before render** — the window stays hidden until IndexedDB restores the previous session, preventing visual flash
-- **Single instance** — Tauri enforces one running instance; opening a file externally sends it to the existing window
-- **Vault sync is encrypted client-side** — the vault is sealed on the PC before the Rust sync module uploads it to Drive's app-data folder; Google never sees plaintext
-- **AI proxied through Rust** — all AI requests go through the Rust backend, so the API key never touches the web layer and there are no CORS constraints; AI is disabled by default
-
----
-
-## Secure Vault
-
-Keep passwords, SSH keys, API keys and private notes behind **one master password**. Everything in the vault lives in **one encrypted file on your computer**. Nothing leaves your PC unless you turn on [Vault Sync with Google Drive](#vault-sync-with-google-drive), and then only encrypted. There is no Notiq account or server.
-
-### One encrypted file
-
-All locked entries (notes, logins, SSH entries, API keys, cards, Wi-Fi, recovery codes) are stored in a single database file, `vault.nqdb`. Names, folders, tags and contents are all inside it, so nothing about your secrets is readable on disk. Saves are atomic (a crash can't leave a half-written file) and the previous version is kept as `vault.nqdb.bak.1–3` so a bad write can always be rolled back.
-
-- **Where it lives:** by default in Notiq's app-data folder (`%APPDATA%\com.trexolab.notiq\` on Windows), next to the small `vault.json` key file. You can pick another folder in **Settings → Vault**; Notiq warns you if the folder is synced by OneDrive, Dropbox, Google Drive, iCloud Drive, etc., because that would copy your encrypted vault to someone else's servers. Vaults created by older versions in `Documents/Notiq Vault` keep working where they are, and their old per-note `.nqv` files are imported into the database (originals are only deleted if you confirm).
-- **Backups (Settings → Vault → Backup):** Notiq does not upload anything unless you turn on sync, so you make the backups. **Export encrypted backup** (asks for your master password again) writes one `.nqb` file you can put on a USB drive (double-click it to open the restore dialog; `.nqbackup` files from earlier versions still work); **Restore from backup file** is on the vault setup screen and in Settings, and replacing an existing vault first keeps the old files in a `before-restore-…` folder. A gentle reminder appears when you have never backed up or the last backup is over 30 days old. The backup is still protected by your master password and recovery key, and cannot be opened without them.
-- **Format upgrades:** the database is versioned (v2 adds entry history and attachments). The first save after upgrading an older database keeps a copy as `vault.nqdb.v1.bak`.
-
-### Sidebar: a file manager for your secrets
-
-- **Resizable** — drag the sidebar's edge (or use the arrow keys); Notiq remembers the width
-- **Folders** with expand/collapse, new folder, rename, drag-and-drop move and "Move to…"
-- **Tags and search** — filter by one or more tags (AND), search names and tags; contents are never searched
-- **Starred** items pinned at the top, **duplicate**, sort by name or last modified
-- **Recycle Bin** — deleting moves items to the trash; restore them, delete forever, or empty the bin (items are removed for good after 30 days)
-- Right-click menus and keyboard control (Enter to open, `F2` rename, `Delete` to trash, arrow keys)
-- **Vault health** (shield icon) — a check for weak, reused, very old and empty passwords and http-only sites, done on your computer; passwords are never shown in the report. An optional breached-password check (off by default) can also flag passwords found in known data breaches: only the first 5 characters of each password's SHA-1 hash are sent to [Have I Been Pwned](https://haveibeenpwned.com/Passwords), so the password and full hash never leave your computer
-- **Import logins** — from Chrome / Edge / Brave, Bitwarden or KeePass CSV files (or any CSV with a column mapping), with a preview, duplicate handling and folder mapping
-
-### Entry types
-
-- **Secure note** — free text / Markdown
-- **Login** — site, username, password, optional 2-step (TOTP) secret with a live code
-- **SSH / server** — host, port, username and a password, a private key, or both (Notiq asks which to use when you open it in the terminal). Pasted keys are analysed as you paste (OpenSSH, PEM, PuTTY; encrypted or not; a public key is flagged), you can import a key file or generate a new Ed25519 / RSA pair, and a ready `ssh -p … user@host` command can be copied. Jump host, host-key fingerprint and notes sit under *Advanced*
-- **API key / secret** — service, token, optional environment variable name
-- **Card** — cardholder, number (grouped as you type, brand shown, Luhn hint), expiry, CVV, PIN
-- **Wi-Fi** — network name, password, security type; copy the `WIFI:` text used for QR codes
-- **Recovery codes** — a list of one-time codes with per-code "used" marks and *Copy next unused*
-- **Identity** — full name, email, phone, address lines 1–2, city, state, PIN/ZIP and country (e.g. "Home", "Office"); the browser extension can fill it into address and checkout forms
-- **Custom fields, other sites and attachments** — every structured entry can carry custom fields (optionally secret), a login can list extra websites, and files (up to 5 MB each, 25 MB per vault) can be attached inside the same encrypted file
-- **History** — the last 10 versions of every entry are kept inside the vault; preview and restore them from the History button (a restored version becomes the current one)
-- **Password generator** — a small popup next to *Generate* lets you choose the length and character classes (and avoid look-alike characters); tick *Remember my choice* to skip the popup next time. Change it later from the ⚙ button or **Settings → Vault → Password generator**
-- Copy buttons confirm with a check mark and **clear the clipboard after 30 seconds** by default (15 s, 1 min, 2 min or Never in **Settings → Vault → Clear copied secrets after**)
-
-### Security model
-
-- **Crypto:** the master password is stretched with Argon2id (64 MiB, 3 passes) into a key that wraps a random 256-bit vault key. A random recovery key (shown once, when you create the vault) wraps the same vault key. The database is sealed with XChaCha20-Poly1305 using a fresh random 24-byte nonce on every save, and its header is authenticated.
-- **Keys in memory only:** the vault key and the decrypted database exist only in the app process while unlocked and are zeroized on lock. Passwords are zeroized on the Rust side after use (the JavaScript string that carried them cannot be wiped).
-- **Locking:** manual, a customizable panic shortcut (default `Ctrl+Alt+L`), idle timeout (default 5 minutes), when the window is closed to the tray, and (Windows) when the PC locks (Win+L), sleeps or a remote session disconnects. Revealed passwords hide again after 30 seconds (configurable) or when the window loses focus.
-- **Clipboard:** copied secrets are kept out of Windows clipboard history and the cloud clipboard, and the clipboard is wiped after the time you choose (30 seconds by default; only if it still holds that secret).
-- **Quick search (optional):** a system-wide hotkey (default `Ctrl+Alt+K`, off until you turn it on) opens a small search window; *Enter* copies the main secret, *Ctrl+Enter* the username, *Alt+Enter* opens the entry. It never displays secrets.
-- **Windows Hello unlock (experimental, off by default):** a Windows Hello key protects the vault key, so unlocking needs a Hello prompt instead of typing the password. The master password stays the root secret: it is required again after a backup restore or if Hello is reset. Treat it as a convenience, not a stronger lock.
-- **Recovery kit:** when you create a vault you can print a one-page recovery kit (the key is shown once and never stored).
-- **AI & search:** vault content is never sent to AI (chat, actions, autocomplete) and is excluded from global search and the graph.
-- **Brute force:** repeated wrong passwords are throttled in-app; offline resistance comes from the Argon2 cost, so choose a long, unique password. Anyone who gets a copy of `vault.nqdb` can only try to guess it offline.
-- **Not covered:** a compromised OS (keylogger, memory dump while unlocked) defeats any in-app encryption, and images pasted into notes are stored outside the vault.
-
-**Losing both your master password and recovery key means the vault cannot be recovered.**
-
-### Vault Sync with Google Drive
-
-Optional and **off until you turn it on**. It keeps one vault in step across your PCs using your own Google Drive.
-
-- **Turn it on:** click the cloud button in the title bar, or choose **Use my vault from Google Drive** on the vault setup screen, and sign in with Google. Manage it later in **Settings → Vault → Sync**.
-- **Encrypted before upload:** the vault is sealed on your PC first, so Google only ever stores encrypted data. Notiq can see only its own app-data folder in your Drive (the `drive.appdata` scope), not your other files.
-- **No lost edits:** if the same item was changed on two PCs, the newer version is kept and the other is saved in its history, with one notification saying which items and devices.
-- **Two different vaults:** this PC's vault is backed up first. Then you can add its items to the Drive vault, switch to the Drive vault, or choose *Keep this PC separate* (sync stays off).
-- **Master password changes:** the new password works on every PC. If two PCs change it at about the same time, the later change wins.
-- **Pause / Resume:** *Pause* stops syncing on this PC; *Resume sync* starts again. If your vault is no longer in Google Drive, Notiq asks before uploading it again.
-- **Attachments sync too:** up to 5 MB per file, 25 MB per vault and 20 files per item.
-- **Disconnect any time:** your data stays in your Drive until you delete it (Google Drive → Settings → Manage apps).
-- **For developers:** the Google client ID and secret are read at build time from the `NOTIQ_GOOGLE_CLIENT_ID` and `NOTIQ_GOOGLE_CLIENT_SECRET` environment variables (see `src-tauri/src/sync/gdrive.rs` and the release workflow). A build without them hides the *Connect Google Drive* option. Never commit real values.
-
-### Browser autofill
-
-The `browser-extension/` folder holds a Chrome / Edge / Brave (and Firefox) extension that works with your *Login* entries through a local native-messaging bridge. Passwords never leave your computer: the vault must be unlocked and **every fill and every save is approved inside Notiq**.
-
-- **Auto-detect and fill:** on login pages a small Notiq key icon appears inside the username / password fields. Click it (or press `Alt+Shift+L`, or use the toolbar button) and approve in Notiq to fill the form, including the current 2-step code. Nothing is requested until you click. If Notiq is closed, the extension starts it in the tray.
-- **Small approval window:** the approval appears in a small, always-on-top Notiq window centred on your screen, showing the site that asks. If the vault is locked you unlock it right there (master password, or Windows Hello when it is on), then pick the account and press *Allow*. The main Notiq window is never brought forward (it can stay in the tray), and the browser gets the focus back as soon as you answer. Esc or *Deny* refuses.
-- **Fewer prompts:** tick *Allow this site for 5 minutes* in the approval window and further fills on that exact site need no prompt at all, not even a window flash (until the time runs out or the vault locks). With several saved logins for a site, a small chooser in the page lets you pick the account.
-- **Save from the browser:** when you sign in or sign up, a "Save login to Notiq?" card appears (or "Update password in Notiq?" on change-password forms). The same small Notiq window asks you to confirm and stores it in your vault's `Logins` folder. *Never for this site* is remembered and can be undone from the extension popup.
-- **Sign-up helper:** on new-password fields the icon offers *Generate strong password* and fills both the password and the confirmation field.
-- **Toolbar popup:** lists this site's logins (title and username only). Click one to fill it, or copy its username, password or 2FA code. The app does the copying and clears it later; there is also *Open in Notiq*.
-- **Right-click menu:** on any field, **Notiq ▸ Fill login · Fill 2FA code · Fill identity ▸ · Generate password**.
-- **Identities:** your **Identity** entries (name, email, phone, address 1/2, city, state, PIN/ZIP, country) are filled into address and checkout forms. Notiq always asks which identity and shows the site.
-- **Custom fields:** a login's custom fields (like a bank's *Customer ID*) are filled when the page has a field with the same name.
-- **Choose what to update:** when saving, if several logins share a username you pick which to update, or save a new one.
-- **Smarter forms:** a 2FA code asked on its own page, generated passwords that follow the site's rules, split one-time-code boxes, login iframes of the same site, and username-first flows are handled.
-- **Safer matching:** a login saved for a site matches that site and its subdomains, never a whole public suffix (such as `co.uk`); one login can list several websites; and a request from a look-alike address (`paypa1.com`, punycode tricks) is refused and reported inside Notiq.
-- **Status and Repair:** **Settings → Vault → Browser autofill** shows whether the native host is registered for each browser and when the extension last connected, with a **Repair** button.
-- **Install:** the extension files ship inside Notiq. Open **Settings → Vault → Browser autofill → Install the browser extension**: it shows the folder, has buttons that open the folder and your browser's extensions page, and walks you through *Developer mode → Load unpacked* (until the store listings are live; Firefox: temporary add-on from the release package). Packages and the build script are documented in [`browser-extension/README.md`](browser-extension/README.md); the extension has its own [privacy policy](docs/extension-privacy.html). The extension reads pages to find login fields, so Chrome shows an "all websites" permission note.
-
----
-
-## Data & Privacy
-
-- All note content is stored **locally** in IndexedDB inside the Tauri WebView
-- Whiteboard drawings are stored in **localStorage** keyed by tab ID
-- File saves write directly to your filesystem — allowed paths are `$HOME`, `$DESKTOP`, `$DOCUMENT`, and `$DOWNLOAD`
-- **No telemetry, ever** — no analytics, no crash reporting, no accounts
-- **Update checks** only download the public release file from GitHub (hourly; turn it off in **Settings → Updates**)
-- **Vault Sync is opt-in and off by default.** When you turn it on, only the encrypted vault goes to your own Google Drive (see [Vault Sync with Google Drive](#vault-sync-with-google-drive))
-- **The breached-password check in Vault Health is opt-in and off by default.** It is the only network request Vault Health makes: only the first 5 characters of each password's SHA-1 hash go to Have I Been Pwned (k-anonymity); the comparison happens on your computer
-- **AI is opt-in and off by default.** When you enable it, only the text needed for a request is sent to the AI service you configure — your own machine with local Ollama (fully offline), or Ollama Cloud or OpenRouter if you provide an API key. Nothing is sent anywhere else, and nothing is sent at all while AI is disabled. Your API key is kept in the OS keychain, never in a plain-text file
-
----
+- [Website](https://trexolab-solution.github.io/notiq/): features, demos and downloads
+- [Keyboard shortcuts](SHORTCUTS.md)
+- [The Secure Vault](VAULT.md): entry types, security model, sync and autofill
+- [Developing Notiq](DEVELOPMENT.md)
 
 ## Contributing
 
-Contributions are welcome. To get started:
-
-1. Fork the repository and create a feature branch (`git checkout -b feature/my-change`).
-2. Make your changes and verify the app builds (`bun run tauri dev`).
-3. Keep commits focused and write a clear commit message.
-4. Open a pull request describing what you changed and why.
-
-For bugs and feature requests, please [open an issue](https://github.com/trexolab-solution/notiq/issues).
-
----
+Contributions are welcome. Fork the repository, make a focused change, check that `bun run tauri dev` still works, and open a pull request that says what changed and why. For bugs and ideas, [open an issue](https://github.com/trexolab-solution/notiq/issues).
 
 ## License
 
-Released under the [MIT License](LICENSE).
-
-© TrexoLab
+[MIT](LICENSE) © TrexoLab
