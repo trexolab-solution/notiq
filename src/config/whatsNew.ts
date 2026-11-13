@@ -15,25 +15,19 @@ export const WHATS_NEW = `# What's New in Notiq ${APP_VERSION}
 
 Thanks for updating! Here's what's new in this release.
 
-## 🖥️ SSH, built right in
+## 🗂️ A file manager for your servers
 
-- **Sign in from the terminal** — click the **Server** button in the terminal (or *Open in terminal* on a saved SSH entry or in the vault sidebar) to connect with the key or password from your vault. If an entry has both, Notiq asks which to use.
-- **Nothing to install** — Notiq has its own SSH client, so it works on a fresh PC with no OpenSSH. New servers are confirmed in the terminal and remembered, and a changed host key is refused.
-- **Generate SSH keys** — create an Ed25519 or RSA key pair right in the SSH form, with an optional passphrase.
-- **Password and key together** — one SSH entry can now keep both.
+- **Open it from the vault** — use *Open file manager* on a saved SSH entry (or the folder icon on its row). It signs in like the terminal does, with nothing to install, and opens in a tab or in its own window (**Settings → Vault → File manager**).
+- **Open and edit files in place** — pictures are shown, text opens in the editor and saves straight back to the server. If the file changed on the server meanwhile, Notiq asks before overwriting.
+- **Folders and files, both ways** — upload and download whole folders, drag files in from your desktop, or paste files you copied in Explorer. A card in the corner shows progress, with cancel.
+- **Move things around** — cut and paste, or drag items onto a folder or a part of the path bar. When a name is taken you choose *Replace*, *Keep both* or *Skip*.
+- **Deleted items go to the Trash** — the server's own Trash, so you can restore them (or delete them for good with *Shift+Delete*).
+- **More** — right-click menus, list or grid layout with three sizes, permissions, new file and new folder, back and forward.
+- **It reconnects by itself** if the connection drops, and returns to the same folder.
 
-## 🗂️ Cleaner forms
+## 🔒 A bit tighter
 
-- Logins, SSH, cards, Wi-Fi and identities are laid out in clear sections; the 2-step setup key is hidden until you show it, with a bigger live code.
-- A new credential opens straight in its form with the name ready to type, and moving an entry to Trash asks first.
-
-## 💾 Shorter backups
-
-- Backups are now saved as **.nqb**. Double-click one to open the restore dialog. Older **.nqbackup** files still work.
-
-## 🧩 Browser extension 0.8.1
-
-- When your vault is locked, the popup now has **Unlock**: Notiq opens a small window for your master password. Reload the extension after updating.
+- The browser extension can list logins less often, and its connection file is private to your user.
 
 ---
 
