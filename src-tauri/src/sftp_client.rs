@@ -589,8 +589,10 @@ mod tests {
         let s = session(&f).await;
         assert_eq!(s.home().await.unwrap(), "/");
         let l = s.list("/").await.unwrap();
-        let names: Vec<_> = l.entries.iter().map(|e| (e.name.as_str(), e.kind, e.size)).collect();
-        assert_eq!(names, vec![("zdir", "dir", 0), ("A.txt", "file", 1), ("b.txt", "file", 2)]);
+        // A folder's own size depends on the filesystem (0 on Windows, 4096 on Linux), so only files' sizes are checked.
+        let names: Vec<_> = l.entries.iter().map(|e| (e.name.as_str(), e.kind)).collect();
+        assert_eq!(names, vec![("zdir", "dir"), ("A.txt", "file"), ("b.txt", "file")]);
+        assert_eq!(l.entries.iter().filter(|e| e.kind == "file").map(|e| e.size).collect::<Vec<_>>(), vec![1, 2]);
         assert!(s.list("/nope").await.is_err());
     }
 
