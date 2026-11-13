@@ -353,3 +353,11 @@
   background: var(--color-bg-secondary);
   box-shadow: 0 0 0 1px var(--color-border);
 }
+
+/* Side sheet of the remote file manager (the Trash): slides in from the right edge. */
+.remote-sheet { animation: remote-sheet-in 0.16s ease-out; }
+@keyframes remote-sheet-in {
+  from { transform: translateX(24px); opacity: 0; }
+  to   { transform: translateX(0);    opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) { .remote-sheet { animation: none; } }

@@ -19,7 +19,7 @@ import { RemoteFileGrid } from "./RemoteFileGrid";
 import { ViewSwitcher, stepSize } from "./ViewSwitcher";
 import { RemoteFileViewer } from "./RemoteFileViewer";
 import { PermissionsDialog } from "./PermissionsDialog";
-import { RemoteTrashDialog } from "./RemoteTrashDialog";
+import { RemoteTrashSheet } from "./RemoteTrashSheet";
 import type { EntryDrag, EntryDrop } from "./useEntryDnd";
 import { RemoteTransfers, type Transfer } from "./RemoteTransfers";
 import { toast } from "../../lib/toast";
@@ -508,6 +508,7 @@ export function RemoteFilesPanel({ target, active = true, onPopOut }: {
                     <Input className="!pl-7" value={filter} placeholder="Filter" aria-label="Filter files" spellCheck={false}
                            onChange={(e) => setFilter(e.target.value)} />
                   </div>
+                  <RowIconButton label="Trash" tooltip="Open the Trash: restore or empty" icon={<ArchiveRestore size={15} />} pressed={showTrash} onClick={() => setShowTrash((v) => !v)} />
                 </div>
 
                 <div className="flex items-center gap-0.5 px-3 py-1.5 border-b border-[var(--color-border)]" role="toolbar" aria-label="File actions">
@@ -525,7 +526,6 @@ export function RemoteFilesPanel({ target, active = true, onPopOut }: {
                   <RowIconButton label="Rename" tooltip="Rename (F2)" icon={<Pencil size={15} />} disabled={picked.length !== 1} onClick={() => setPrompt({ kind: "rename", entry: picked[0] })} />
                   <RowIconButton label="Permissions" icon={<ShieldCheck size={15} />} disabled={picked.length !== 1} onClick={() => setPrompt({ kind: "perms", entry: picked[0] })} />
                   <RowIconButton label="Delete" tooltip={trashOn ? "Move to Trash (Del)" : "Delete permanently (Del)"} icon={trashOn ? <Trash2 size={15} /> : <FileX size={15} />} danger disabled={picked.length === 0} onClick={() => askDelete(picked)} />
-                  <RowIconButton label="Trash" tooltip="Open the Trash: restore or empty" icon={<ArchiveRestore size={15} />} onClick={() => setShowTrash(true)} />
                   <span className="ml-auto mr-2 hidden lg:flex items-center gap-1.5 text-xs text-[var(--color-text-muted)]" aria-hidden>
                     <Upload size={12} />Drag files here to upload
                   </span>
@@ -555,6 +555,7 @@ export function RemoteFilesPanel({ target, active = true, onPopOut }: {
             <RemoteTransfers items={transfers}
                              onCancel={(id) => void sftpCancel(id)}
                              onClear={() => setTransfers((ts) => ts.filter((t) => t.state === "running"))} />
+            {showTrash && <RemoteTrashSheet session={sid.current} server={title} onClose={() => setShowTrash(false)} onChanged={() => void load(pathRef.current)} />}
             {viewing && (
               <RemoteFileViewer session={sid.current} path={joinRemote(viewing.dir, viewing.entry.name)} name={viewing.entry.name}
                                 onClose={() => setViewing(null)} onDownload={() => void download([viewing.entry])}
@@ -580,7 +581,6 @@ export function RemoteFilesPanel({ target, active = true, onPopOut }: {
         <NameDialog title="Rename" label="New name" initial={prompt.entry.name} confirm="Rename"
                     onSubmit={(n) => renameEntry(prompt.entry, n)} onClose={() => setPrompt(null)} />
       )}
-      {showTrash && <RemoteTrashDialog session={sid.current} server={title} onClose={() => setShowTrash(false)} onChanged={() => void load(pathRef.current)} />}
       {deleting && (
         <ConfirmDialog title={deleteTitle(deleting)} message={deleteMessage(deleting, title)}
                        detail={`Location: ${path}`} icon="danger" danger confirmLabel="Delete permanently"

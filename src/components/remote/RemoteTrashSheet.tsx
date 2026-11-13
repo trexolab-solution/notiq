@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { ArchiveRestore, File, Folder, Trash2 } from "lucide-react";
-import { Dialog, DialogBody, DialogButton, DialogFooter } from "../ui/Dialog";
+import { X } from "lucide-react";
+import { DialogButton } from "../ui/Dialog";
+import { useEscapeKey } from "../../hooks/useEscapeKey";
 import { ConfirmDialog } from "../ui/ConfirmDialog";
 import { RowIconButton } from "../vault/ListEditor";
 import { toast } from "../../lib/toast";
@@ -11,8 +13,11 @@ import {
 
 type Confirm = { kind: "forever"; item: TrashItem } | { kind: "empty" } | null;
 
-/** The server's Trash: what was deleted from the file manager, with Restore, Delete forever and Empty Trash. */
-export function RemoteTrashDialog({ session, server, onClose, onChanged }: {
+/**
+ * The server's Trash as a sheet on the right of the file manager: what was deleted from it, with Restore, Delete forever
+ * and Empty Trash. The folder stays visible and usable beside it.
+ */
+export function RemoteTrashSheet({ session, server, onClose, onChanged }: {
   session: number;
   server: string;
   onClose: () => void;
@@ -23,6 +28,8 @@ export function RemoteTrashDialog({ session, server, onClose, onChanged }: {
   const [error, setError] = useState("");
   const [confirm, setConfirm] = useState<Confirm>(null);
   const [busy, setBusy] = useState(false);
+  // Escape closes the sheet, unless a question is open on top of it (that one takes the key).
+  useEscapeKey(onClose, confirm === null);
 
   const load = useCallback(async () => {
     try { setItems(await sftpTrashList(session)); setError(""); }
@@ -45,24 +52,34 @@ export function RemoteTrashDialog({ session, server, onClose, onChanged }: {
 
   return (
     <>
-      <Dialog title={`Trash · ${server}`} size="lg" onClose={onClose} zClassName="z-[60]">
-        <DialogBody>
-          {items === null && <p className="text-sm text-[var(--color-text-muted)]" role="status">Loading the Trash…</p>}
-          {error && <p className="text-sm text-[var(--color-danger)]" role="alert">{error}</p>}
+      <aside className="remote-sheet absolute inset-y-0 right-0 z-30 flex flex-col w-96 max-w-full bg-[var(--color-bg-secondary)] border-l border-[var(--color-border)] shadow-2xl"
+             aria-label={`Trash on ${server}`}>
+        <header className="flex items-center gap-2 pl-4 pr-2 h-12 shrink-0 border-b border-[var(--color-border)]">
+          <div className="flex-1 min-w-0">
+            <h2 className="text-sm font-semibold leading-tight">Trash</h2>
+            <p className="truncate text-[11px] text-[var(--color-text-muted)]">{server}</p>
+          </div>
+          <RowIconButton label="Close the Trash" tooltip="Close (Esc)" icon={<X size={15} />} onClick={onClose} />
+        </header>
+
+        <div className="flex-1 min-h-0 overflow-y-auto">
+          {items === null && <p className="p-4 text-sm text-[var(--color-text-muted)]" role="status">Loading the Trash…</p>}
+          {error && <p className="p-4 text-sm text-[var(--color-danger)]" role="alert">{error}</p>}
           {items !== null && !error && items.length === 0 && (
-            <p className="py-8 text-center text-sm text-[var(--color-text-muted)]">The Trash is empty. Items you delete from the file manager are kept here until you empty it.</p>
+            <p className="px-6 py-12 text-center text-sm text-[var(--color-text-muted)]">The Trash is empty. Items you delete from the file manager are kept here until you empty it.</p>
           )}
           {items !== null && items.length > 0 && (
-            <ul className="max-h-[50vh] overflow-y-auto divide-y divide-[var(--color-border)] rounded-md border border-[var(--color-border)]" aria-label="Items in the Trash">
+            <ul className="divide-y divide-[var(--color-border)]" aria-label="Items in the Trash">
               {items.map((i) => (
-                <li key={i.id} className="flex items-center gap-3 px-3 h-12">
+                <li key={i.id} className="flex items-center gap-3 px-4 py-2.5">
                   <span className={i.kind === "dir" ? "text-[var(--color-primary)]" : "text-[var(--color-text-muted)]"} aria-hidden>
                     {i.kind === "dir" ? <Folder size={16} /> : <File size={16} />}
                   </span>
                   <div className="flex-1 min-w-0">
                     <p className="truncate text-sm" title={i.id}>{i.id}</p>
-                    <p className="truncate text-[11px] text-[var(--color-text-muted)]" title={i.original}>
-                      {i.original}{i.deleted ? ` · deleted ${formatModified(i.deleted)}` : ""}{i.kind === "file" ? ` · ${formatBytes(i.size)}` : ""}
+                    <p className="truncate text-[11px] text-[var(--color-text-muted)]" title={i.original}>{i.original}</p>
+                    <p className="truncate text-[11px] text-[var(--color-text-muted)]">
+                      {i.deleted ? `Deleted ${formatModified(i.deleted)}` : "Deleted"}{i.kind === "file" ? ` · ${formatBytes(i.size)}` : ""}
                     </p>
                   </div>
                   <RowIconButton label={`Restore ${i.id}`} tooltip="Restore to its original place" icon={<ArchiveRestore size={15} />} disabled={busy} onClick={() => void restore(i)} />
@@ -71,12 +88,13 @@ export function RemoteTrashDialog({ session, server, onClose, onChanged }: {
               ))}
             </ul>
           )}
-        </DialogBody>
-        <DialogFooter>
+        </div>
+
+        <footer className="flex items-center justify-between gap-2 px-4 h-12 shrink-0 border-t border-[var(--color-border)]">
+          <span className="text-xs text-[var(--color-text-muted)]">{empty ? `${empty} item${empty === 1 ? "" : "s"}` : ""}</span>
           <DialogButton variant="danger" icon={<Trash2 size={13} />} disabled={empty === 0 || busy} onClick={() => setConfirm({ kind: "empty" })}>Empty Trash</DialogButton>
-          <DialogButton cancel onClick={onClose}>Close</DialogButton>
-        </DialogFooter>
-      </Dialog>
+        </footer>
+      </aside>
 
       {confirm?.kind === "forever" && (
         <ConfirmDialog title={`Delete “${confirm.item.id}” forever?`}
