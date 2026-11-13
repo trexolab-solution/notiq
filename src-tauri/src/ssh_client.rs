@@ -165,7 +165,7 @@ impl KnownHosts {
 
 // ── asking the user in the terminal ──────────────────────────────────────────
 
-struct Prompter {
+pub(crate) struct Prompter {
     rx: mpsc::UnboundedReceiver<Cmd>,
     sink: Arc<dyn Sink>,
     cols: u16,
@@ -220,7 +220,7 @@ impl Prompter {
 
 // ── the host-key check ───────────────────────────────────────────────────────
 
-struct Hk {
+pub(crate) struct Hk {
     host: String,
     port: u16,
     pinned: Option<String>,
@@ -284,7 +284,7 @@ impl client::Handler for Hk {
 
 // ── connecting and signing in ────────────────────────────────────────────────
 
-type Conn = client::Handle<Hk>;
+pub(crate) type Conn = client::Handle<Hk>;
 
 fn config() -> Arc<client::Config> {
     Arc::new(client::Config { keepalive_interval: Some(KEEPALIVE), keepalive_max: 3, ..Default::default() })
@@ -386,33 +386,46 @@ async fn authenticate(h: &mut Conn, user: &str, c: &Connect, prompter: &Arc<Mute
 
 // ── the session ──────────────────────────────────────────────────────────────
 
-/// Connects, signs in and runs an interactive shell until it ends. Problems come back as text for the terminal.
-pub async fn run(c: Connect, known: KnownHosts, sink: Arc<dyn Sink>, rx: mpsc::UnboundedReceiver<Cmd>, cols: u16, rows: u16) -> Result<(), String> {
-    let prompter = Arc::new(Mutex::new(Prompter { rx, sink: sink.clone(), cols, rows, closed: false }));
+/// A prompter nobody can answer, for sessions without a terminal (the file manager): every question gets
+/// "cancelled" at once, so a new host key, a missing passphrase or a one-time code ends the attempt with an error.
+pub(crate) fn unattended(sink: Arc<dyn Sink>) -> Arc<Mutex<Prompter>> {
+    let (_tx, rx) = mpsc::unbounded_channel();
+    Arc::new(Mutex::new(Prompter { rx, sink, cols: 80, rows: 24, closed: false }))
+}
 
+/// Connects (through the jump host when there is one) and signs in. The jump connection must stay alive as long
+/// as the returned one, so both come back.
+pub(crate) async fn establish(c: &Connect, known: &KnownHosts, prompter: &Arc<Mutex<Prompter>>, sink: &Arc<dyn Sink>) -> Result<(Conn, Option<Conn>), String> {
     // Optional jump host: connect and sign in there first, then reach the target through it.
-    let mut _jump: Option<Conn> = None;
+    let mut jump: Option<Conn> = None;
     let mut h: Conn = if let Some(j) = &c.jump {
-        say(&*sink, &format!("Connecting to jump host {}@{}:{} …\r\n", j.user, j.host, j.port));
-        let mut jh = open_direct(&j.host, j.port, hk(&j.host, j.port, None, &known, &prompter, &sink)).await?;
-        authenticate(&mut jh, &j.user, &c, &prompter, &sink).await?;
-        say(&*sink, &format!("Connecting to {}:{} through it …\r\n", c.host, c.port));
+        say(&**sink, &format!("Connecting to jump host {}@{}:{} …\r\n", j.user, j.host, j.port));
+        let mut jh = open_direct(&j.host, j.port, hk(&j.host, j.port, None, known, prompter, sink)).await?;
+        authenticate(&mut jh, &j.user, c, prompter, sink).await?;
+        say(&**sink, &format!("Connecting to {}:{} through it …\r\n", c.host, c.port));
         let ch = jh.channel_open_direct_tcpip(c.host.trim_matches(['[', ']']).to_string(), c.port as u32, "127.0.0.1", 0).await
             .map_err(|e| format!("The jump host couldn't reach {}:{} ({e}).", c.host, c.port))?;
-        let handler = hk(&c.host, c.port, c.pinned_fp.clone(), &known, &prompter, &sink);
+        let handler = hk(&c.host, c.port, c.pinned_fp.clone(), known, prompter, sink);
         let conn = match tokio::time::timeout(CONNECT_TIMEOUT, client::connect_stream(config(), ch.into_stream(), handler)).await {
             Err(_) => return Err(format!("Timed out connecting to {}:{}.", c.host, c.port)),
             Ok(Err(e)) => return Err(conn_err(&c.host, e)),
             Ok(Ok(h)) => h,
         };
-        _jump = Some(jh);
+        jump = Some(jh);
         conn
     } else {
-        say(&*sink, &format!("Connecting to {}:{} …\r\n", c.host, c.port));
-        open_direct(&c.host, c.port, hk(&c.host, c.port, c.pinned_fp.clone(), &known, &prompter, &sink)).await?
+        say(&**sink, &format!("Connecting to {}:{} …\r\n", c.host, c.port));
+        open_direct(&c.host, c.port, hk(&c.host, c.port, c.pinned_fp.clone(), known, prompter, sink)).await?
     };
 
-    authenticate(&mut h, &c.user, &c, &prompter, &sink).await?;
+    authenticate(&mut h, &c.user, c, prompter, sink).await?;
+    Ok((h, jump))
+}
+
+/// Connects, signs in and runs an interactive shell until it ends. Problems come back as text for the terminal.
+pub async fn run(c: Connect, known: KnownHosts, sink: Arc<dyn Sink>, rx: mpsc::UnboundedReceiver<Cmd>, cols: u16, rows: u16) -> Result<(), String> {
+    let prompter = Arc::new(Mutex::new(Prompter { rx, sink: sink.clone(), cols, rows, closed: false }));
+    let (h, _jump) = establish(&c, &known, &prompter, &sink).await?;
 
     let mut ch = h.channel_open_session().await.map_err(|e| format!("Couldn't open a session: {e}"))?;
     let (cols, rows) = { let p = prompter.lock().await; (p.cols, p.rows) };

@@ -28,7 +28,8 @@ futures-util = "0.3"
 # 0.9.0 vault sync (src/sync/): provider trait objects, OAuth/PKCE encoding, timers + loopback listener
 async-trait = "0.1"
 base64 = "0.22"
-tokio = { version = "1", features = ["rt", "time", "net", "sync", "io-util", "macros"] }
+tokio = { version = "1", features = ["rt", "time", "net", "sync", "io-util", "macros", "fs"] }
+russh-sftp = "3.0"
 # Secure Vault (see src/vault_core.rs)
 argon2 = "0.5"
 chacha20poly1305 = "0.10"

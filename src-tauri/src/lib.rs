@@ -13,6 +13,8 @@ mod vault;
 mod ssh_connect; // 0.9.9 built-in terminal: reads a vault SSH entry
 mod ssh_client; // 0.9.9 built-in terminal: the SSH client itself (no system ssh needed)
 mod ssh_keygen; // 0.9.9 generate an SSH key in the entry form
+#[cfg(desktop)]
+mod sftp_client; // 0.10.0 remote file manager over SFTP (built in)
 mod vault_backup;
 mod vault_core;
 mod vault_db;
@@ -746,6 +748,7 @@ pub fn run() {
         use tauri_plugin_window_state::StateFlags;
         builder
             .manage(term::AppTerminal::new())
+            .manage(sftp_client::SftpState::default())
             .plugin(
                 tauri_plugin_window_state::Builder::default()
                     .with_state_flags(
@@ -783,6 +786,16 @@ pub fn run() {
         pdf::export_pdf,
         term::terminal_create,
         ssh_keygen::ssh_generate_key,
+        sftp_client::sftp_open,
+        sftp_client::sftp_close,
+        sftp_client::sftp_list,
+        sftp_client::sftp_mkdir,
+        sftp_client::sftp_rename,
+        sftp_client::sftp_chmod,
+        sftp_client::sftp_remove,
+        sftp_client::sftp_cancel,
+        sftp_client::sftp_download,
+        sftp_client::sftp_upload,
         term::terminal_write,
         term::terminal_resize,
         term::terminal_kill,
