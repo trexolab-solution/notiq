@@ -53,8 +53,10 @@ export function ContextMenu({ x, y, items, onClose, keepFocus = false, align = "
   useLayoutEffect(() => {
     const el = menuRef.current;
     if (!el) return;
-    const r = el.getBoundingClientRect();
-    setPos(clampMenuPosition(align === "end" ? x - r.width : x, y, r.width, r.height, window.innerWidth, window.innerHeight));
+    // Layout size, not getBoundingClientRect(): the open animation scales the menu to 0.96, which would measure it
+    // ~4% too small and leave its last item below the window edge.
+    const w = el.offsetWidth, h = el.offsetHeight;
+    setPos(clampMenuPosition(align === "end" ? x - w : x, y, w, h, window.innerWidth, window.innerHeight));
   }, [x, y, items.length, align]);
 
   useClickOutside(menuRef, () => onClose());
