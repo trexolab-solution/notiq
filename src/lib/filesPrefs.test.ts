@@ -20,6 +20,8 @@ describe("file manager preferences", () => {
     expect(sanitizeFilesPrefs({ sortKey: "colour", showHidden: "yes", openAction: 3, editorFontSize: 400 }))
       .toMatchObject({ sortKey: "name", showHidden: false, openAction: "open", editorFontSize: 24 });
     expect(sanitizeFilesPrefs({ editorFontSize: 2 }).editorFontSize).toBe(10);
+    expect(sanitizeFilesPrefs({ view: "tiles", gridSize: "huge" })).toMatchObject({ view: "list", gridSize: "medium" });
+    expect(sanitizeFilesPrefs({ view: "grid", gridSize: "large" })).toMatchObject({ view: "grid", gridSize: "large" });
     expect(sanitizeFilesPrefs(null)).toEqual(DEFAULT_FILES_PREFS);
     localStorage.setItem("pref:filesPrefs", "{not json");
     expect(getFilesPrefs()).toEqual(DEFAULT_FILES_PREFS);

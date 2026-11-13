@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { open as pickFiles, save as pickSave } from "@tauri-apps/plugin-dialog";
 import {
-  ArrowLeft, ArrowRight, ArrowUp, ClipboardPaste, Copy, Download, Eye, EyeOff, FilePenLine, FilePlus, FolderOpen, FolderPlus, Pencil,
+  ArrowLeft, ArrowRight, ArrowUp, ClipboardPaste, Copy, Download, Eye, EyeOff, FilePenLine, FilePlus, FolderOpen, FolderPlus, LayoutGrid, List, Pencil,
   RefreshCw, Scissors, Search, ShieldCheck, SquareArrowOutUpRight, Trash2, Upload,
 } from "lucide-react";
 import { Dialog, DialogBody, DialogButton, DialogFooter } from "../ui/Dialog";
@@ -13,11 +13,13 @@ import { Input } from "../ui/Input";
 import { DropHighlight, useDropTarget } from "../ui/DropZone";
 import { RowIconButton } from "../vault/ListEditor";
 import { RemoteFileTable } from "./RemoteFileTable";
+import { RemoteFileGrid } from "./RemoteFileGrid";
+import { SegmentedControl } from "../ui/SegmentedControl";
 import { RemoteFileViewer } from "./RemoteFileViewer";
 import { PermissionsDialog } from "./PermissionsDialog";
 import { RemoteTransfers, type Transfer } from "./RemoteTransfers";
 import { toast } from "../../lib/toast";
-import { getFilesPrefs } from "../../lib/filesPrefs";
+import { getFilesPrefs, setFilesPrefs, type FilesView, type GridSize } from "../../lib/filesPrefs";
 import { getFileName, joinPath } from "../../lib/pathUtils";
 import type { SshTarget } from "../../lib/sshConnect";
 import {
@@ -77,6 +79,11 @@ export function RemoteFilesPanel({ target, active = true, onPopOut }: {
   const [sort, setSort] = useState<SortState>(() => { const p = getFilesPrefs(); return { key: p.sortKey, desc: p.sortDesc }; });
   const [filter, setFilter] = useState("");
   const [showHidden, setShowHidden] = useState(() => getFilesPrefs().showHidden);
+  const [view, setViewState] = useState<FilesView>(() => getFilesPrefs().view);
+  const [gridSize, setGridSizeState] = useState<GridSize>(() => getFilesPrefs().gridSize);
+  // The layout is remembered: the last one picked here is what the next file manager opens with.
+  const setView = (v: FilesView) => { setViewState(v); setFilesPrefs({ view: v }); };
+  const setGridSize = (v: GridSize) => { setGridSizeState(v); setFilesPrefs({ gridSize: v }); };
   const [transfers, setTransfers] = useState<Transfer[]>([]);
   const [prompt, setPrompt] = useState<Prompt | null>(null);
   const [deleting, setDeleting] = useState<RemoteEntry[] | null>(null);
@@ -408,6 +415,12 @@ export function RemoteFilesPanel({ target, active = true, onPopOut }: {
                   </div>
                   <RowIconButton label={showHidden ? "Hide dot files" : "Show dot files"} icon={showHidden ? <Eye size={14} /> : <EyeOff size={14} />}
                                  pressed={showHidden} onClick={() => setShowHidden((v) => !v)} />
+                  <RowIconButton label="List view" icon={<List size={14} />} pressed={view === "list"} onClick={() => setView("list")} />
+                  <RowIconButton label="Grid view" icon={<LayoutGrid size={14} />} pressed={view === "grid"} onClick={() => setView("grid")} />
+                  {view === "grid" && (
+                    <SegmentedControl aria-label="Grid item size" value={gridSize} onChange={(v) => setGridSize(v as GridSize)}
+                                      options={[{ value: "small", label: "S" }, { value: "medium", label: "M" }, { value: "large", label: "L" }]} />
+                  )}
                   {onPopOut && <RowIconButton label="Open in new window" icon={<SquareArrowOutUpRight size={14} />} onClick={onPopOut} />}
                 </div>
 
@@ -431,8 +444,13 @@ export function RemoteFilesPanel({ target, active = true, onPopOut }: {
                   </span>
                 </div>
 
-                <RemoteFileTable entries={shown} selected={selected} sort={sort} onSort={sortBy} onSelect={select} onOpen={openEntry} onMenu={openMenu}
-                                 empty={emptyText} />
+                {view === "grid" ? (
+                  <RemoteFileGrid entries={shown} selected={selected} sort={sort} onSort={sortBy} size={gridSize} onOpen={openEntry} onMenu={openMenu}
+                                  onSelect={(n, m) => (n === "" ? setSelected(new Set()) : select(n, m))} empty={emptyText} />
+                ) : (
+                  <RemoteFileTable entries={shown} selected={selected} sort={sort} onSort={sortBy} onSelect={select} onOpen={openEntry} onMenu={openMenu}
+                                   empty={emptyText} />
+                )}
               </>
             )}
             <RemoteTransfers items={transfers}

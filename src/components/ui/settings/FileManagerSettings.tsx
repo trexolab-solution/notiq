@@ -23,6 +23,18 @@ export function FileManagerSettings() {
         <Toggle aria-label="Show hidden files" value={p.showHidden} onChange={(v) => change({ showHidden: v })} />
       </SettingRow>
 
+      <SettingRow id="vault.files.view" label="Layout" description="A list with size, date and permissions, or a grid of icons. The buttons in the file manager change it too."
+                  keywords={[...KW, "list", "grid", "icons", "view", "layout"]} modified={p.view !== D.view} onReset={() => change({ view: D.view })}>
+        <SegmentedControl aria-label="File manager layout" value={p.view} onChange={(v) => change({ view: v as FilesPrefs["view"] })}
+                          options={[{ value: "list", label: "List" }, { value: "grid", label: "Grid" }]} />
+      </SettingRow>
+
+      <SettingRow id="vault.files.grid-size" label="Grid item size" keywords={[...KW, "grid", "icons", "size", "small", "large", "thumbnail"]}
+                  modified={p.gridSize !== D.gridSize} onReset={() => change({ gridSize: D.gridSize })}>
+        <SegmentedControl aria-label="Grid item size" value={p.gridSize} onChange={(v) => change({ gridSize: v as FilesPrefs["gridSize"] })}
+                          options={[{ value: "small", label: "Small" }, { value: "medium", label: "Medium" }, { value: "large", label: "Large" }]} />
+      </SettingRow>
+
       <SettingRow id="vault.files.sort" label="Sort files by" description="Folders always come first."
                   keywords={[...KW, "order", "name", "size", "date", "modified"]} modified={p.sortKey !== D.sortKey} onReset={() => change({ sortKey: D.sortKey })}>
         <SegmentedControl aria-label="Sort files by" value={p.sortKey} onChange={(v) => change({ sortKey: v as FilesPrefs["sortKey"] })}
@@ -66,6 +78,8 @@ const meta = (id: string, label: string, description: string, extra: string[] = 
 /** The searchable settings this group renders (see lib/settingsIndex.ts). */
 export const FILES_INDEX: SettingMeta[] = [
   meta("vault.files.hidden", "Show hidden files", "List files and folders whose name starts with a dot (.bashrc, .ssh).", ["dot files", "hidden"]),
+  meta("vault.files.view", "Layout", "A list with size, date and permissions, or a grid of icons.", ["list", "grid", "icons", "view", "layout"]),
+  meta("vault.files.grid-size", "Grid item size", "", ["grid", "icons", "size", "small", "large", "thumbnail"]),
   meta("vault.files.sort", "Sort files by", "Folders always come first.", ["order", "name", "size", "date", "modified"]),
   meta("vault.files.sort-order", "Sort order", "Ascending or descending.", ["ascending", "descending", "newest", "largest"]),
   meta("vault.files.open-action", "Double-click on a file", "Open it here (pictures are shown, text is edited), or download it.", ["open", "download", "double click", "enter"]),

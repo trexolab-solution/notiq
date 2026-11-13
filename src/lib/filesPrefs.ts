@@ -6,10 +6,18 @@
 
 export type FilesSortKey = "name" | "size" | "mtime";
 export type FilesOpenAction = "open" | "download";
+export type FilesView = "list" | "grid";
+export type GridSize = "small" | "medium" | "large";
+
+/** Width in px of one grid item at each size. */
+export const GRID_ITEM_PX: Record<GridSize, number> = { small: 88, medium: 124, large: 172 };
 
 export interface FilesPrefs {
   /** Show dot files when a folder is listed. */
   showHidden: boolean;
+  /** The folder as a list (rows with details) or as a grid of icons, and the grid item size. */
+  view: FilesView;
+  gridSize: GridSize;
   sortKey: FilesSortKey;
   sortDesc: boolean;
   /** What double-click (and Enter) does on a file: open it in the viewer, or download it. */
@@ -22,7 +30,7 @@ export interface FilesPrefs {
 }
 
 export const DEFAULT_FILES_PREFS: FilesPrefs = {
-  showHidden: false, sortKey: "name", sortDesc: false, openAction: "open", confirmDelete: true, editorWrap: true, editorFontSize: 13,
+  showHidden: false, view: "list", gridSize: "medium", sortKey: "name", sortDesc: false, openAction: "open", confirmDelete: true, editorWrap: true, editorFontSize: 13,
 };
 
 export const EDITOR_FONT_MIN = 10;
@@ -39,6 +47,8 @@ export function sanitizeFilesPrefs(raw: unknown): FilesPrefs {
     ? Math.min(EDITOR_FONT_MAX, Math.max(EDITOR_FONT_MIN, Math.round(o.editorFontSize))) : d.editorFontSize;
   return {
     showHidden: bool(o.showHidden, d.showHidden),
+    view: o.view === "grid" ? "grid" : "list",
+    gridSize: o.gridSize === "small" || o.gridSize === "large" ? o.gridSize : "medium",
     sortKey: o.sortKey === "size" || o.sortKey === "mtime" || o.sortKey === "name" ? o.sortKey : d.sortKey,
     sortDesc: bool(o.sortDesc, d.sortDesc),
     openAction: o.openAction === "download" ? "download" : "open",

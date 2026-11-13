@@ -214,4 +214,26 @@ describe("RemoteFilesPanel", () => {
       expect(invoke).toHaveBeenCalledWith("sftp_remove", expect.objectContaining({ path: "/home/alice/notes.txt" }));
     } finally { localStorage.removeItem("pref:filesPrefs"); }
   });
+
+  it("switches between the list and a grid, remembers it, and the grid opens and selects like the list", async () => {
+    localStorage.removeItem("pref:filesPrefs");
+    fakeServer();
+    await show();
+    expect(document.querySelector("[data-remote-grid]")).toBeNull();
+    await click(button("Grid view"));
+    expect(document.querySelector("[data-remote-grid]")).not.toBeNull();
+    expect(names()).toEqual(["projects", "notes.txt"]);
+    expect(JSON.parse(localStorage.getItem("pref:filesPrefs")!)).toMatchObject({ view: "grid", gridSize: "medium" });
+    // The size control appears with the grid and is remembered too.
+    await click([...document.querySelectorAll<HTMLElement>("[aria-label='Grid item size'] button, [aria-label='Grid item size'] [role=radio]")].find((b) => b.textContent === "L")!);
+    expect(JSON.parse(localStorage.getItem("pref:filesPrefs")!).gridSize).toBe("large");
+    expect((document.querySelector("[data-remote-grid] .grid") as HTMLElement).style.gridTemplateColumns).toContain("172px");
+    await click(rows()[1]);
+    expect(rows()[1].getAttribute("aria-selected")).toBe("true");
+    await act(async () => { rows()[0].dispatchEvent(new MouseEvent("dblclick", { bubbles: true })); });
+    expect(names()).toEqual(["app.log"]);
+    await click(button("List view"));
+    expect(document.querySelector("[data-remote-grid]")).toBeNull();
+    localStorage.removeItem("pref:filesPrefs");
+  });
 });
