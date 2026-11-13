@@ -22,7 +22,9 @@ export interface FilesPrefs {
   sortDesc: boolean;
   /** What double-click (and Enter) does on a file: open it in the viewer, or download it. */
   openAction: FilesOpenAction;
-  /** Ask before deleting. */
+  /** Deleting moves items to the server's Trash (restorable); off deletes them for good at once. */
+  useTrash: boolean;
+  /** Ask before deleting for good. */
   confirmDelete: boolean;
   /** The text editor: wrap long lines, and its font size. */
   editorWrap: boolean;
@@ -30,7 +32,7 @@ export interface FilesPrefs {
 }
 
 export const DEFAULT_FILES_PREFS: FilesPrefs = {
-  showHidden: false, view: "list", gridSize: "medium", sortKey: "name", sortDesc: false, openAction: "open", confirmDelete: true, editorWrap: true, editorFontSize: 13,
+  showHidden: false, view: "list", gridSize: "medium", sortKey: "name", sortDesc: false, openAction: "open", useTrash: true, confirmDelete: true, editorWrap: true, editorFontSize: 13,
 };
 
 export const EDITOR_FONT_MIN = 10;
@@ -52,6 +54,7 @@ export function sanitizeFilesPrefs(raw: unknown): FilesPrefs {
     sortKey: o.sortKey === "size" || o.sortKey === "mtime" || o.sortKey === "name" ? o.sortKey : d.sortKey,
     sortDesc: bool(o.sortDesc, d.sortDesc),
     openAction: o.openAction === "download" ? "download" : "open",
+    useTrash: bool(o.useTrash, d.useTrash),
     confirmDelete: bool(o.confirmDelete, d.confirmDelete),
     editorWrap: bool(o.editorWrap, d.editorWrap),
     editorFontSize: size,

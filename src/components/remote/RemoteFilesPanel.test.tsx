@@ -103,15 +103,44 @@ describe("RemoteFilesPanel", () => {
     expect(document.querySelector("[aria-label=Transfers]")!.textContent).toContain("complete");
   });
 
-  it("asks before deleting and then removes the file on the server", async () => {
+  it("moves a deleted file to the server's Trash without a question", async () => {
     fakeServer();
     await show();
     await click(rows()[1]);
     await click(button("Delete"));
+    expect(invoke).toHaveBeenCalledWith("sftp_trash", expect.objectContaining({ path: "/home/alice/notes.txt" }));
     expect(invoke).not.toHaveBeenCalledWith("sftp_remove", expect.anything());
-    expect(document.body.textContent).toContain("Delete notes.txt?");
-    await click([...document.querySelectorAll<HTMLButtonElement>("button")].filter((b) => b.textContent?.trim() === "Delete").pop()!);
-    expect(invoke).toHaveBeenCalledWith("sftp_remove", expect.objectContaining({ path: "/home/alice/notes.txt" }));
+    expect(document.body.textContent).not.toContain("permanently");
+  });
+
+  it("with the Trash turned off, asks before deleting for good and then removes the file", async () => {
+    localStorage.setItem("pref:filesPrefs", JSON.stringify({ useTrash: false }));
+    try {
+      fakeServer();
+      await show();
+      await click(rows()[1]);
+      await click(button("Delete"));
+      expect(invoke).not.toHaveBeenCalledWith("sftp_remove", expect.anything());
+      expect(document.body.textContent).toContain("Delete file \u201cnotes.txt\u201d?");
+      await click([...document.querySelectorAll<HTMLButtonElement>("button")].filter((b) => b.textContent?.trim() === "Delete permanently").pop()!);
+      expect(invoke).toHaveBeenCalledWith("sftp_remove", expect.objectContaining({ path: "/home/alice/notes.txt" }));
+      expect(invoke).not.toHaveBeenCalledWith("sftp_trash", expect.anything());
+    } finally { localStorage.removeItem("pref:filesPrefs"); }
+  });
+
+  it("lists the Trash and restores an item from it", async () => {
+    fakeServer();
+    const base = invoke.getMockImplementation()!;
+    invoke.mockImplementation(async (cmd: string, args: Record<string, unknown>) => {
+      if (cmd === "sftp_trash_list") return [{ id: "old.txt", original: "/home/alice/old.txt", deleted: 1_700_000_000, kind: "file", size: 12 }];
+      return base(cmd, args);
+    });
+    await show();
+    await click(button("Trash"));
+    await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+    expect(document.body.textContent).toContain("/home/alice/old.txt");
+    await click(button("Restore old.txt"));
+    expect(invoke).toHaveBeenCalledWith("sftp_trash_restore", expect.objectContaining({ item: "old.txt" }));
   });
 
   it("explains a failed connection and can try again", async () => {
@@ -141,7 +170,7 @@ describe("RemoteFilesPanel", () => {
     await show();
     await act(async () => { rows()[1].dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 40, clientY: 40 })); });
     const labels = [...document.querySelectorAll("[role=menu] button, [role=menuitem]")].map((b) => b.textContent?.trim());
-    for (const want of ["Open / edit", "Download…", "Rename…", "Copy path", "Delete…"]) {
+    for (const want of ["Open / edit", "Download…", "Rename…", "Copy path", "Move to Trash", "Delete permanently…"]) {
       expect(labels.some((l) => l?.startsWith(want))).toBe(true);
     }
     expect(rows()[1].getAttribute("aria-selected")).toBe("true");
@@ -204,7 +233,7 @@ describe("RemoteFilesPanel", () => {
   });
 
   it("follows the file manager settings: hidden files, sort order, double-click download, no delete prompt", async () => {
-    localStorage.setItem("pref:filesPrefs", JSON.stringify({ showHidden: true, sortKey: "size", sortDesc: true, openAction: "download", confirmDelete: false }));
+    localStorage.setItem("pref:filesPrefs", JSON.stringify({ showHidden: true, sortKey: "size", sortDesc: true, openAction: "download", useTrash: false, confirmDelete: false }));
     try {
       fakeServer();
       await show();

@@ -65,14 +65,14 @@ export function RemoteFileViewer({ session, path, name, onClose, onDownload, onS
         return;
       }
       const text = decodeText(bytes);
-      if (text === null) { setLoaded({ kind: "unsupported", why: "This looks like a binary file, so it can't be shown as text." }); return; }
+      if (text === null) { setLoaded({ kind: "unsupported", why: "This is a binary file, so it can't be shown as text. Download it to open it." }); return; }
       mtime.current = r.mtime;
       setDraft(text); setSaved(text);
       setLoaded({ kind: "text", text, mtime: r.mtime });
     } catch (e) {
       const m = sftpErrorMessage(e);
       setLoaded({ kind: "unsupported", why: m === SFTP_TOO_BIG
-        ? `This file is too big to open here (over ${formatBytes(mime ? MAX_IMAGE_BYTES : MAX_TEXT_BYTES)}).` : m });
+        ? `This file is too large to open here (the limit is ${formatBytes(mime ? MAX_IMAGE_BYTES : MAX_TEXT_BYTES)}). Download it instead.` : m });
     }
   }, [session, path, mime]);
 
@@ -151,12 +151,12 @@ export function RemoteFileViewer({ session, path, name, onClose, onDownload, onS
       </div>
 
       {confirm === "discard" && (
-        <ConfirmDialog title="Discard your changes?" message={`${name} has changes that aren't saved to the server.`}
-                       confirmLabel="Discard" cancelLabel="Keep editing" danger
+        <ConfirmDialog title="Discard unsaved changes?" message={`Your changes to \u201c${name}\u201d haven't been saved to the server and will be lost.`}
+                       confirmLabel="Discard changes" cancelLabel="Keep editing" danger
                        onConfirm={() => { setConfirm(null); setDraft(saved); onClose(); }} onCancel={() => setConfirm(null)} />
       )}
       {confirm === "overwrite" && (
-        <ConfirmDialog title="The file changed on the server" message={`${name} was changed by someone or something else since you opened it. Saving replaces their version with yours.`}
+        <ConfirmDialog title="This file changed on the server" message={`\u201c${name}\u201d was modified on the server after you opened it. If you save now, those newer changes are overwritten by your version.`}
                        confirmLabel="Overwrite" cancelLabel="Cancel" danger
                        onConfirm={() => { setConfirm(null); void save(true); }} onCancel={() => setConfirm(null)} />
       )}

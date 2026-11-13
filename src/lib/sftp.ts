@@ -24,6 +24,8 @@ export const SFTP_EXISTS = "already_exists";
 /** What reading a file for the viewer says when it is over the limit; what saving says when the file changed on the server. */
 export const SFTP_TOO_BIG = "too_big";
 export const SFTP_CHANGED = "changed";
+/** What moving an item to the Trash says when the server can't (another disk, no permission). */
+export const SFTP_TRASH_FAILED = "trash_failed";
 
 export const sftpOpen = (id: number, path: string, auth: string) => invoke<OpenedSftp>("sftp_open", { id, path, auth });
 export const sftpClose = (id: number) => invoke<void>("sftp_close", { id });
@@ -40,6 +42,23 @@ export const sftpUpload = (id: number, transferId: number, local: string, remote
 
 /** Full paths of the files copied in the system's file explorer (empty when there are none, or off Windows). */
 export const clipboardFiles = () => invoke<string[]>("clipboard_files");
+
+/** One item in the server's Trash (freedesktop layout under ~/.local/share/Trash). */
+export interface TrashItem {
+  /** Its name inside the Trash. */
+  id: string;
+  /** Where it was deleted from. */
+  original: string;
+  /** Seconds since 1970. */
+  deleted: number | null;
+  kind: "dir" | "file" | "other";
+  size: number;
+}
+export const sftpTrash = (id: number, path: string) => invoke<void>("sftp_trash", { id, path });
+export const sftpTrashList = (id: number) => invoke<TrashItem[]>("sftp_trash_list", { id });
+export const sftpTrashRestore = (id: number, item: string) => invoke<void>("sftp_trash_restore", { id, item });
+export const sftpTrashDelete = (id: number, item: string) => invoke<void>("sftp_trash_delete", { id, item });
+export const sftpTrashEmpty = (id: number) => invoke<void>("sftp_trash_empty", { id });
 
 export interface RemoteFileData { data: string; mtime: number | null }
 export const sftpRead = (id: number, path: string, limit: number) => invoke<RemoteFileData>("sftp_read", { id, path, limit });
@@ -81,7 +100,7 @@ export function crumbs(path: string): { name: string; path: string }[] {
 export function nameProblem(name: string): string | null {
   const n = name.trim();
   if (!n) return "Enter a name.";
-  if (n === "." || n === "..") return "That isn't a usable name.";
+  if (n === "." || n === "..") return "A name can't be \".\" or \"..\".";
   if (n.includes("/")) return "A name can't contain a slash.";
   return null;
 }

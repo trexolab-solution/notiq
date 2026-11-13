@@ -32,6 +32,11 @@ pub const EXISTS: &str = "already_exists";
 pub const TOO_BIG: &str = "too_big";
 /// What saving an edited file says when it changed on the server after it was opened.
 pub const CHANGED: &str = "changed";
+/// What moving an item to the Trash says when the server can't (another disk, no permission): the UI offers to delete it for good.
+pub const TRASH_FAILED: &str = "trash_failed";
+/// The server's Trash, in the freedesktop.org layout (`files/` holds the items, `info/` one `.trashinfo` each), so a
+/// Linux file manager on the server sees and restores them too. Relative to the home folder.
+const TRASH_REL: &str = ".local/share/Trash";
 
 // ── opening a session ────────────────────────────────────────────────────────
 
@@ -113,6 +118,97 @@ pub struct Content {
     pub mtime: Option<u32>,
 }
 
+/// One item in the server's Trash.
+#[derive(Serialize, Debug, Clone, PartialEq)]
+pub struct TrashItem {
+    /// Its name inside the Trash; what restoring and deleting for good take.
+    pub id: String,
+    /// The path it was deleted from.
+    pub original: String,
+    /// Seconds since 1970 (UTC), when it was deleted.
+    pub deleted: Option<u64>,
+    pub kind: &'static str,
+    pub size: u64,
+}
+
+/// `%`-encodes everything but letters, digits and `-_.~/` (the `Path=` line of a `.trashinfo`).
+fn pct_encode(s: &str) -> String {
+    let mut out = String::new();
+    for b in s.bytes() {
+        if b.is_ascii_alphanumeric() || b"-_.~/".contains(&b) { out.push(b as char); } else { out.push_str(&format!("%{b:02X}")); }
+    }
+    out
+}
+
+fn pct_decode(s: &str) -> String {
+    let b = s.as_bytes();
+    let mut out = Vec::with_capacity(b.len());
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] == b'%' && i + 2 < b.len() {
+            if let Ok(v) = u8::from_str_radix(&s[i + 1..i + 3], 16) { out.push(v); i += 3; continue; }
+        }
+        out.push(b[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+/// Days since 1970-01-01 for a calendar date, and back (Howard Hinnant's civil-date algorithms).
+fn days_from_civil(y: i64, m: u32, d: u32) -> i64 {
+    let y = if m <= 2 { y - 1 } else { y };
+    let era = y.div_euclid(400);
+    let yoe = y.rem_euclid(400);
+    let doy = (153 * (if m > 2 { m - 3 } else { m + 9 }) as i64 + 2) / 5 + d as i64 - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    era * 146_097 + doe - 719_468
+}
+
+fn civil_from_days(z: i64) -> (i64, u32, u32) {
+    let z = z + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = (doy - (153 * mp + 2) / 5 + 1) as u32;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
+    ((yoe + era * 400 + if m <= 2 { 1 } else { 0 }), m, d)
+}
+
+/// `2026-11-13T12:30:05` (UTC) for seconds since 1970; the format of a `.trashinfo`'s `DeletionDate`.
+fn iso_from_unix(secs: u64) -> String {
+    let (y, m, d) = civil_from_days((secs / 86_400) as i64);
+    let t = secs % 86_400;
+    format!("{y:04}-{m:02}-{d:02}T{:02}:{:02}:{:02}", t / 3600, t % 3600 / 60, t % 60)
+}
+
+fn unix_from_iso(s: &str) -> Option<u64> {
+    let (date, time) = s.trim().split_once('T')?;
+    let mut d = date.split('-').map(|x| x.parse::<i64>().ok());
+    let (y, m, day) = (d.next()??, d.next()??, d.next()??);
+    let mut t = time.split(':').map(|x| x.parse::<u64>().ok());
+    let (hh, mm, ss) = (t.next()??, t.next()??, t.next()??);
+    let days = days_from_civil(y, u32::try_from(m).ok()?, u32::try_from(day).ok()?);
+    u64::try_from(days).ok().map(|dd| dd * 86_400 + hh * 3600 + mm * 60 + ss)
+}
+
+/// The `Path` and deletion time out of a `.trashinfo`'s text.
+fn parse_trashinfo(text: &str) -> Option<(String, Option<u64>)> {
+    let mut path = None;
+    let mut when = None;
+    for line in text.lines() {
+        if let Some(v) = line.strip_prefix("Path=") { path = Some(pct_decode(v.trim())); }
+        else if let Some(v) = line.strip_prefix("DeletionDate=") { when = unix_from_iso(v); }
+    }
+    path.map(|p| (p, when))
+}
+
+/// A name inside the Trash must be one plain name.
+fn valid_trash_id(id: &str) -> Result<(), String> {
+    if id.is_empty() || id == "." || id == ".." || id.contains('/') { Err("That isn't an item in the Trash.".into()) } else { Ok(()) }
+}
+
 #[derive(Serialize, Debug)]
 pub struct Listing {
     /// The folder, as the server spells it (`..` and `~` resolved).
@@ -127,7 +223,7 @@ fn kind_of(a: &FileAttributes) -> &'static str {
 fn nice(e: impl std::fmt::Display) -> String {
     let t = e.to_string();
     match t.as_str() {
-        "No such file" => "That file or folder doesn't exist.".into(),
+        "No such file" => "That file or folder no longer exists on the server.".into(),
         "Permission denied" => "Permission denied.".into(),
         _ => t,
     }
@@ -140,7 +236,7 @@ pub async fn open(c: Connect, known: KnownHosts) -> Result<Sftp, String> {
     let prompter = unattended(sink.clone());
     let (conn, jump) = establish(&c, &known, &prompter, &sink).await.map_err(|e| explain(&notes.text(), e))?;
     let ch = conn.channel_open_session().await.map_err(|e| format!("Couldn't open a session: {e}"))?;
-    ch.request_subsystem(true, "sftp").await.map_err(|_| "This server doesn't offer SFTP.".to_string())?;
+    ch.request_subsystem(true, "sftp").await.map_err(|_| "SFTP isn't enabled on this server, so the file manager can't open it.".to_string())?;
     let sftp = SftpSession::new(ch.into_stream()).await.map_err(|e| format!("The server's SFTP service didn't start: {}", nice(e)))?;
     Ok(Sftp { sftp, _conn: conn, _jump: jump })
 }
@@ -210,10 +306,108 @@ impl Sftp {
         })
     }
 
+    // ── the Trash ────────────────────────────────────────────────────────────
+
+    /// `(files, info)` folders of the Trash, created when missing.
+    async fn ensure_trash(&self) -> Result<(String, String), String> {
+        let home = self.home().await?;
+        let mut cur = home.trim_end_matches('/').to_string();
+        for part in TRASH_REL.split('/').chain(["files"]) {
+            cur = format!("{cur}/{part}");
+            if !self.sftp.try_exists(cur.as_str()).await.unwrap_or(false) { self.sftp.create_dir(cur.as_str()).await.map_err(nice)?; }
+        }
+        let base = format!("{}/{}", home.trim_end_matches('/'), TRASH_REL);
+        let info = format!("{base}/info");
+        if !self.sftp.try_exists(info.as_str()).await.unwrap_or(false) { self.sftp.create_dir(info.as_str()).await.map_err(nice)?; }
+        Ok((format!("{base}/files"), info))
+    }
+
+    /// Moves a file or folder to the server's Trash instead of deleting it. Fails with [`TRASH_FAILED`] when the server
+    /// can't move it there (another disk, no permission).
+    pub async fn trash(&self, path: &str) -> Result<(), String> {
+        let path = path.trim_end_matches('/');
+        let home = self.home().await?;
+        if path.is_empty() || path == home.trim_end_matches('/') { return Err("The home folder can't be deleted.".into()); }
+        if path.contains(&format!("/{TRASH_REL}")) { return Err("This is already in the Trash.".into()); }
+        let (files, info) = self.ensure_trash().await?;
+        let name = path.rsplit('/').next().unwrap_or(path);
+        let mut id = name.to_string();
+        let mut n = 1;
+        while self.sftp.try_exists(format!("{files}/{id}")).await.unwrap_or(false) || self.sftp.try_exists(format!("{info}/{id}.trashinfo")).await.unwrap_or(false) {
+            n += 1;
+            id = format!("{name} ({n})");
+            if n > 1000 { return Err(TRASH_FAILED.into()); }
+        }
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+        let note = format!("[Trash Info]\nPath={}\nDeletionDate={}\n", pct_encode(path), iso_from_unix(now));
+        let info_path = format!("{info}/{id}.trashinfo");
+        let mut f = self.sftp.open_with_flags(info_path.as_str(), OpenFlags::CREATE | OpenFlags::TRUNCATE | OpenFlags::WRITE).await.map_err(|_| TRASH_FAILED.to_string())?;
+        let written = f.write_all(note.as_bytes()).await;
+        let _ = f.shutdown().await;
+        if written.is_err() { let _ = self.sftp.remove_file(info_path.as_str()).await; return Err(TRASH_FAILED.into()); }
+        if self.sftp.rename(path, format!("{files}/{id}")).await.is_err() {
+            let _ = self.sftp.remove_file(info_path.as_str()).await;
+            return Err(TRASH_FAILED.into());
+        }
+        Ok(())
+    }
+
+    /// What is in the Trash, newest first.
+    pub async fn list_trash(&self) -> Result<Vec<TrashItem>, String> {
+        let (files, info) = self.ensure_trash().await?;
+        let mut items = Vec::new();
+        let names: Vec<String> = self.sftp.read_dir(info.as_str()).await.map_err(nice)?
+            .map(|e| e.file_name()).filter(|n| n.ends_with(".trashinfo")).collect();
+        for n in names {
+            let id = n.trim_end_matches(".trashinfo").to_string();
+            let mut f = match self.sftp.open(format!("{info}/{n}")).await { Ok(f) => f, Err(_) => continue };
+            let mut text = Vec::new();
+            let _ = (&mut f).take(8192).read_to_end(&mut text).await;
+            let _ = f.shutdown().await;
+            let Some((original, deleted)) = parse_trashinfo(&String::from_utf8_lossy(&text)) else { continue };
+            let Ok(meta) = self.sftp.symlink_metadata(format!("{files}/{id}")).await else { continue };
+            items.push(TrashItem { id, original, deleted, kind: kind_of(&meta), size: meta.size.unwrap_or(0) });
+        }
+        items.sort_by(|a, b| b.deleted.cmp(&a.deleted).then_with(|| a.id.cmp(&b.id)));
+        Ok(items)
+    }
+
+    /// Puts an item back where it was deleted from; refuses when something is there now.
+    pub async fn restore(&self, id: &str) -> Result<(), String> {
+        valid_trash_id(id)?;
+        let (files, info) = self.ensure_trash().await?;
+        let info_path = format!("{info}/{id}.trashinfo");
+        let mut f = self.sftp.open(info_path.as_str()).await.map_err(nice)?;
+        let mut text = Vec::new();
+        let _ = (&mut f).take(8192).read_to_end(&mut text).await;
+        let _ = f.shutdown().await;
+        let (original, _) = parse_trashinfo(&String::from_utf8_lossy(&text)).ok_or("This Trash entry has no original location.")?;
+        if self.sftp.try_exists(original.as_str()).await.unwrap_or(false) { return Err(EXISTS.into()); }
+        self.sftp.rename(format!("{files}/{id}"), original.as_str()).await
+            .map_err(|_| "Couldn't restore it: the original folder may no longer exist.".to_string())?;
+        let _ = self.sftp.remove_file(info_path.as_str()).await;
+        Ok(())
+    }
+
+    /// Deletes one item of the Trash for good.
+    pub async fn purge(&self, id: &str) -> Result<(), String> {
+        valid_trash_id(id)?;
+        let (files, info) = self.ensure_trash().await?;
+        let item = format!("{files}/{id}");
+        if self.sftp.try_exists(item.as_str()).await.unwrap_or(false) { self.remove_at(item, 0).await?; }
+        let _ = self.sftp.remove_file(format!("{info}/{id}.trashinfo")).await;
+        Ok(())
+    }
+
+    pub async fn empty_trash(&self) -> Result<(), String> {
+        for item in self.list_trash().await? { self.purge(&item.id).await?; }
+        Ok(())
+    }
+
     /// Reads a whole file (following links) for the viewer. Files over `limit` bytes aren't read.
     pub async fn read_file(&self, remote: &str, limit: u64) -> Result<Content, String> {
         let meta = self.sftp.metadata(remote).await.map_err(nice)?;
-        if meta.is_dir() { return Err("That is a folder.".into()); }
+        if meta.is_dir() { return Err("This is a folder, not a file.".into()); }
         if meta.size.unwrap_or(0) > limit { return Err(TOO_BIG.into()); }
         let mut f = self.sftp.open(remote).await.map_err(nice)?;
         let mut data = Vec::new();
@@ -249,7 +443,7 @@ impl Sftp {
     /// target's place: it is written beside it and renamed at the end.
     pub async fn download(&self, remote: &str, local: &Path, overwrite: bool, progress: &(dyn Fn(u64, u64) + Sync), cancel: &AtomicBool) -> Result<u64, String> {
         let meta = self.sftp.metadata(remote).await.map_err(nice)?;
-        if meta.is_dir() { return Err("Folders can't be downloaded yet; open it and pick files.".into()); }
+        if meta.is_dir() { return Err("Downloading a folder isn't supported yet. Open it and select the files instead.".into()); }
         if !overwrite && tokio::fs::try_exists(local).await.unwrap_or(false) { return Err(EXISTS.into()); }
         let total = meta.size.unwrap_or(0);
         let mut src = self.sftp.open(remote).await.map_err(nice)?;
@@ -282,7 +476,7 @@ impl Sftp {
     /// Copies `local` to the server at `remote`. A cancelled or failed upload removes the partial file.
     pub async fn upload(&self, local: &Path, remote: &str, overwrite: bool, progress: &(dyn Fn(u64, u64) + Sync), cancel: &AtomicBool) -> Result<u64, String> {
         let meta = tokio::fs::metadata(local).await.map_err(|e| format!("Couldn't read {}: {e}", local.display()))?;
-        if meta.is_dir() { return Err("Folders can't be uploaded yet; pick files.".into()); }
+        if meta.is_dir() { return Err("Uploading a folder isn't supported yet. Select the files inside it instead.".into()); }
         if !overwrite && self.sftp.try_exists(remote).await.unwrap_or(false) { return Err(EXISTS.into()); }
         let total = meta.len();
         let mut input = tokio::fs::File::open(local).await.map_err(|e| format!("Couldn't read {}: {e}", local.display()))?;
@@ -382,6 +576,31 @@ mod commands {
     #[tauri::command]
     pub async fn sftp_remove(id: u32, path: String, state: State<'_, SftpState>) -> Result<(), String> {
         state.session(id)?.remove(&path).await
+    }
+
+    #[tauri::command]
+    pub async fn sftp_trash(id: u32, path: String, state: State<'_, SftpState>) -> Result<(), String> {
+        state.session(id)?.trash(&path).await
+    }
+
+    #[tauri::command]
+    pub async fn sftp_trash_list(id: u32, state: State<'_, SftpState>) -> Result<Vec<TrashItem>, String> {
+        state.session(id)?.list_trash().await
+    }
+
+    #[tauri::command]
+    pub async fn sftp_trash_restore(id: u32, item: String, state: State<'_, SftpState>) -> Result<(), String> {
+        state.session(id)?.restore(&item).await
+    }
+
+    #[tauri::command]
+    pub async fn sftp_trash_delete(id: u32, item: String, state: State<'_, SftpState>) -> Result<(), String> {
+        state.session(id)?.purge(&item).await
+    }
+
+    #[tauri::command]
+    pub async fn sftp_trash_empty(id: u32, state: State<'_, SftpState>) -> Result<(), String> {
+        state.session(id)?.empty_trash().await
     }
 
     #[tauri::command]
@@ -608,8 +827,11 @@ mod tests {
     struct Fixture { port: u16, fp: String, root: PathBuf }
 
     fn temp_root(tag: &str) -> PathBuf {
+        // A counter as well as the clock: two tests starting in the same clock tick must not share a folder.
+        static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let n = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
-        let p = std::env::temp_dir().join(format!("notiq-sftp-{tag}-{}-{n}", std::process::id()));
+        let c = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let p = std::env::temp_dir().join(format!("notiq-sftp-{tag}-{}-{n}-{c}", std::process::id()));
         std::fs::create_dir_all(&p).unwrap();
         p
     }
@@ -690,6 +912,55 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&file).unwrap(), "new");
         s.write_file("/conf.txt", b"mine", stale, true).await.unwrap();
         assert_eq!(std::fs::read_to_string(&file).unwrap(), "mine");
+    }
+
+    #[test]
+    fn trash_info_helpers_round_trip() {
+        assert_eq!(iso_from_unix(0), "1970-01-01T00:00:00");
+        assert_eq!(iso_from_unix(1_700_000_000), "2023-11-14T22:13:20");
+        for t in [0u64, 86_399, 1_700_000_000, 4_102_444_800] { assert_eq!(unix_from_iso(&iso_from_unix(t)), Some(t)); }
+        assert_eq!(unix_from_iso("garbage"), None);
+        assert_eq!(pct_encode("/home/a b/\u{e9}.txt"), "/home/a%20b/%C3%A9.txt");
+        assert_eq!(pct_decode("/home/a%20b/%C3%A9.txt"), "/home/a b/\u{e9}.txt");
+        assert_eq!(pct_decode("100%"), "100%");
+        let (p, t) = parse_trashinfo("[Trash Info]\nPath=/home/me/my%20file.txt\nDeletionDate=2023-11-14T22:13:20\n").unwrap();
+        assert_eq!((p.as_str(), t), ("/home/me/my file.txt", Some(1_700_000_000)));
+        assert!(parse_trashinfo("nothing here").is_none());
+    }
+
+    #[tokio::test]
+    async fn trash_keeps_deleted_items_and_can_restore_or_purge_them() {
+        let f = start(true).await;
+        std::fs::write(f.root.join("a.txt"), "one").unwrap();
+        std::fs::create_dir(f.root.join("dir")).unwrap();
+        std::fs::write(f.root.join("dir/inner.txt"), "x").unwrap();
+        let s = session(&f).await;
+        s.trash("/a.txt").await.unwrap();
+        s.trash("/dir").await.unwrap();
+        assert!(!f.root.join("a.txt").exists() && !f.root.join("dir").exists());
+        let items = s.list_trash().await.unwrap();
+        assert_eq!(items.len(), 2);
+        let a = items.iter().find(|i| i.id == "a.txt").unwrap();
+        assert_eq!((a.original.as_str(), a.kind, a.size), ("/a.txt", "file", 3));
+        assert!(a.deleted.unwrap() > 1_700_000_000);
+        assert_eq!(items.iter().find(|i| i.id == "dir").unwrap().kind, "dir");
+        // The same name again gets its own slot instead of overwriting.
+        std::fs::write(f.root.join("a.txt"), "two").unwrap();
+        s.trash("/a.txt").await.unwrap();
+        assert_eq!(s.list_trash().await.unwrap().len(), 3);
+        // Restore puts it back; a taken place is refused.
+        s.restore("dir").await.unwrap();
+        assert!(f.root.join("dir/inner.txt").exists());
+        std::fs::write(f.root.join("a.txt"), "three").unwrap();
+        assert_eq!(s.restore("a.txt").await.unwrap_err(), EXISTS);
+        // Deleting for good and emptying.
+        s.purge("a.txt").await.unwrap();
+        assert_eq!(s.list_trash().await.unwrap().len(), 1);
+        s.empty_trash().await.unwrap();
+        assert!(s.list_trash().await.unwrap().is_empty());
+        // Odd ids and the home folder are refused.
+        assert!(s.restore("../x").await.is_err());
+        assert!(s.trash("/").await.is_err());
     }
 
     #[tokio::test]

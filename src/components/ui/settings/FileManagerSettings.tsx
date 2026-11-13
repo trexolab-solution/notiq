@@ -53,9 +53,14 @@ export function FileManagerSettings() {
                           options={[{ value: "open", label: "Open" }, { value: "download", label: "Download" }]} />
       </SettingRow>
 
-      <SettingRow id="vault.files.confirm-delete" label="Ask before deleting" description="Deleting on a server can't be undone. Turn this off only if you want it to happen at once."
+      <SettingRow id="vault.files.use-trash" label="Move deleted items to the Trash" description="Deleted files and folders go to the server's Trash (~/.local/share/Trash) so you can restore them. Turn off to delete them permanently at once."
+                  keywords={[...KW, "trash", "recycle bin", "delete", "restore", "undo"]} modified={p.useTrash !== D.useTrash} onReset={() => change({ useTrash: D.useTrash })}>
+        <Toggle aria-label="Move deleted items to the Trash" value={p.useTrash} onChange={(v) => change({ useTrash: v })} />
+      </SettingRow>
+
+      <SettingRow id="vault.files.confirm-delete" label="Ask before deleting permanently" description="Permanent deletion can't be undone. Turn this off only if you want it to happen at once."
                   keywords={[...KW, "delete", "confirm", "remove"]} modified={p.confirmDelete !== D.confirmDelete} onReset={() => change({ confirmDelete: D.confirmDelete })}>
-        <Toggle aria-label="Ask before deleting" value={p.confirmDelete} onChange={(v) => change({ confirmDelete: v })} />
+        <Toggle aria-label="Ask before deleting permanently" value={p.confirmDelete} onChange={(v) => change({ confirmDelete: v })} />
       </SettingRow>
 
       <SettingRow id="vault.files.editor-wrap" label="Wrap long lines in the editor" keywords={[...KW, "editor", "word wrap", "text"]}
@@ -83,7 +88,8 @@ export const FILES_INDEX: SettingMeta[] = [
   meta("vault.files.sort", "Sort files by", "Folders always come first.", ["order", "name", "size", "date", "modified"]),
   meta("vault.files.sort-order", "Sort order", "Ascending or descending.", ["ascending", "descending", "newest", "largest"]),
   meta("vault.files.open-action", "Double-click on a file", "Open it here (pictures are shown, text is edited), or download it.", ["open", "download", "double click", "enter"]),
-  meta("vault.files.confirm-delete", "Ask before deleting", "Deleting on a server can't be undone.", ["delete", "confirm", "remove"]),
+  meta("vault.files.use-trash", "Move deleted items to the Trash", "Deleted files and folders go to the server's Trash so you can restore them.", ["trash", "recycle bin", "delete", "restore", "undo"]),
+  meta("vault.files.confirm-delete", "Ask before deleting permanently", "Permanent deletion can't be undone.", ["delete", "confirm", "remove"]),
   meta("vault.files.editor-wrap", "Wrap long lines in the editor", "", ["editor", "word wrap", "text"]),
   meta("vault.files.editor-font", "Editor font size", "", ["editor", "text size", "zoom"]),
 ];

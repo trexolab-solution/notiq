@@ -3,7 +3,7 @@ import type { FormEvent } from "react";
 import { open as pickFiles, save as pickSave } from "@tauri-apps/plugin-dialog";
 import {
   ArrowLeft, ArrowRight, ArrowUp, ClipboardPaste, Copy, Download, Eye, EyeOff, FilePenLine, FilePlus, FolderOpen, FolderPlus, Pencil,
-  RefreshCw, Scissors, Search, ShieldCheck, SquareArrowOutUpRight, Trash2, Upload,
+  RefreshCw, Scissors, Search, ShieldCheck, SquareArrowOutUpRight, Trash, Trash2, Upload,
 } from "lucide-react";
 import { DndContext, DragOverlay, PointerSensor, pointerWithin, useDroppable, useSensor, useSensors } from "@dnd-kit/core";
 import type { DragEndEvent, DragStartEvent } from "@dnd-kit/core";
@@ -19,6 +19,7 @@ import { RemoteFileGrid } from "./RemoteFileGrid";
 import { ViewSwitcher, stepSize } from "./ViewSwitcher";
 import { RemoteFileViewer } from "./RemoteFileViewer";
 import { PermissionsDialog } from "./PermissionsDialog";
+import { RemoteTrashDialog } from "./RemoteTrashDialog";
 import type { EntryDrag, EntryDrop } from "./useEntryDnd";
 import { RemoteTransfers, type Transfer } from "./RemoteTransfers";
 import { toast } from "../../lib/toast";
@@ -27,7 +28,7 @@ import { getFileName, joinPath } from "../../lib/pathUtils";
 import type { SshTarget } from "../../lib/sshConnect";
 import {
   clipboardFiles, crumbs, joinRemote, nameProblem, onSftpProgress, parentRemote, sftpCancel, sftpClose, sftpDownload, sftpErrorMessage,
-  sftpChmod, sftpList, sftpMkdir, sftpOpen, sftpRemove, sftpRename, sftpUpload, sftpWrite, sortEntries, visibleEntries, SFTP_CANCELLED, SFTP_EXISTS,
+  sftpChmod, sftpList, sftpMkdir, sftpOpen, sftpRemove, sftpRename, sftpTrash, sftpUpload, sftpWrite, sortEntries, visibleEntries, SFTP_CANCELLED, SFTP_EXISTS, SFTP_TRASH_FAILED,
   type RemoteEntry, type SortKey, type SortState,
 } from "../../lib/sftp";
 
@@ -50,6 +51,25 @@ function Crumb({ c, last, onGo }: { c: { name: string; path: string }; last: boo
       {c.name}
     </button>
   );
+}
+
+/** "Delete folder “x”?", "Delete file “x”?" or "Delete 3 items?". */
+export function deleteTitle(list: RemoteEntry[]): string {
+  if (list.length > 1) return `Delete ${list.length} items?`;
+  return `Delete ${list[0].kind === "dir" ? "folder" : "file"} \u201c${list[0].name}\u201d?`;
+}
+
+/** What deleting will do, in plain words: permanent (a server has no Recycle Bin), and folders take their contents along. */
+export function deleteMessage(list: RemoteEntry[], server: string): string {
+  const folders = list.filter((e) => e.kind === "dir").length;
+  if (list.length === 1) {
+    return folders
+      ? `The folder and everything inside it will be permanently deleted from ${server}. This can't be undone.`
+      : `The file will be permanently deleted from ${server}. This can't be undone.`;
+  }
+  return folders
+    ? `These items will be permanently deleted from ${server}, including everything inside the folders. This can't be undone.`
+    : `These files will be permanently deleted from ${server}. This can't be undone.`;
 }
 
 /** A one-field dialog for a new folder's name or a rename. */
@@ -116,6 +136,7 @@ export function RemoteFilesPanel({ target, active = true, onPopOut }: {
   /** Items cut for moving: where they are and their names. */
   const [clip, setClip] = useState<{ dir: string; names: string[]; /** What the system clipboard held when these were cut. */ osSig: string } | null>(null);
   /** The items being dragged (to move them into a folder). */
+  const [showTrash, setShowTrash] = useState(false);
   const [dragNames, setDragNames] = useState<string[] | null>(null);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
 
@@ -177,6 +198,7 @@ export function RemoteFilesPanel({ target, active = true, onPopOut }: {
   const picked = useMemo(() => shown.filter((e) => selected.has(e.name)), [shown, selected]);
   const pickedFiles = picked.filter((e) => e.kind !== "dir");
   const ready = phase === "ready";
+  const trashOn = getFilesPrefs().useTrash;
 
   const select = (name: string, mode: "single" | "toggle" | "range") => {
     if (mode === "range" && anchor.current) {
@@ -322,7 +344,8 @@ export function RemoteFilesPanel({ target, active = true, onPopOut }: {
       { type: "item", label: "Permissions\u2026", icon: <ShieldCheck size={13} />, disabled: !one, onClick: () => setPrompt({ kind: "perms", entry }) },
       { type: "item", label: "Copy path", icon: <Copy size={13} />, disabled: !one, onClick: () => void copy(joinRemote(path, entry.name)) },
       { type: "separator" },
-      { type: "item", label: one ? "Delete\u2026" : `Delete ${group.length} items\u2026`, icon: <Trash2 size={13} />, shortcut: "Del", danger: true, onClick: () => askDelete(group) },
+      { type: "item", label: trashOn ? "Move to Trash" : (one ? "Delete\u2026" : `Delete ${group.length} items\u2026`), icon: <Trash2 size={13} />, shortcut: "Del", danger: true, onClick: () => askDelete(group) },
+      ...(trashOn ? [{ type: "item" as const, label: "Delete permanently\u2026", icon: <Trash2 size={13} />, shortcut: "Shift+Del", danger: true, onClick: () => askDeleteForever(group) }] : []),
       { type: "separator" },
       ...here,
     ];
@@ -346,19 +369,19 @@ export function RemoteFilesPanel({ target, active = true, onPopOut }: {
   };
   const makeFile = (name: string) => {
     setPrompt(null);
-    if (entries.some((e) => e.name === name)) { toast.error(`${name} already exists here.`); return; }
+    if (entries.some((e) => e.name === name)) { toast.error(`A file or folder named \u201c${name}\u201d already exists here.`); return; }
     void act(async () => {
       await sftpWrite(sid.current, joinRemote(path, name), "", null, false);
       setViewing({ entry: { name, kind: "file", link: false, size: 0, mtime: null, mode: null }, dir: path });
     });
   };
   const changeMode = (e: RemoteEntry, mode: number) => {
-    setPrompt(null); void act(() => sftpChmod(sid.current, joinRemote(path, e.name), mode), `Permissions of ${e.name} changed`);
+    setPrompt(null); void act(() => sftpChmod(sid.current, joinRemote(path, e.name), mode), `Permissions updated for \u201c${e.name}\u201d`);
   };
   const osFiles = () => clipboardFiles().then((f) => f ?? []).catch(() => [] as string[]);
   const moveTo = (names: string[], from: string, dest: string) => act(async () => {
     for (const n of names) await sftpRename(sid.current, joinRemote(from, n), joinRemote(dest, n));
-  }, `Moved ${names.length === 1 ? names[0] : `${names.length} items`}`);
+  }, `Moved ${names.length === 1 ? `\u201c${names[0]}\u201d` : `${names.length} items`}`);
   /** Cut marks items for moving; paste (in another folder) moves them there. */
   const cut = async (list: RemoteEntry[]) => {
     if (!list.length) return;
@@ -369,7 +392,7 @@ export function RemoteFilesPanel({ target, active = true, onPopOut }: {
     const os = await osFiles();
     if (os.length && os.join("\n") !== clip?.osSig) { void upload(os, dest); return; }
     if (clip && clip.dir !== dest) { const c = clip; setClip(null); void moveTo(c.names, c.dir, dest); return; }
-    toast.info(clip ? "Those items are already in this folder." : "Nothing to paste. Copy files in File Explorer first, or cut items here.");
+    toast.info(clip ? "Those items are already in this folder." : "Nothing to paste. Copy files in File Explorer, or cut items here first.");
   };
 
   const onDragStart = (e: DragStartEvent) => {
@@ -386,19 +409,39 @@ export function RemoteFilesPanel({ target, active = true, onPopOut }: {
     if (movable.length) void moveTo(movable, pathRef.current, dest);
   };
 
-  /** Asks first, unless the setting says to delete at once. */
-  const askDelete = (list: RemoteEntry[]) => { if (getFilesPrefs().confirmDelete) setDeleting(list); else removeEntries(list); };
+  /**
+   * Delete: moves the items to the server's Trash (no question: they can be restored), or, with that setting off,
+   * deletes them for good after asking.
+   */
+  const askDelete = (list: RemoteEntry[]) => {
+    if (getFilesPrefs().useTrash) trashEntries(list);
+    else askDeleteForever(list);
+  };
+  /** Delete permanently (Shift+Delete, or the menu): asks first, unless the setting says not to. */
+  const askDeleteForever = (list: RemoteEntry[]) => { if (getFilesPrefs().confirmDelete) setDeleting(list); else removeEntries(list); };
+
+  const label = (list: RemoteEntry[]) => (list.length === 1 ? `\u201c${list[0].name}\u201d` : `${list.length} items`);
+  const trashEntries = (list: RemoteEntry[]) => {
+    void act(async () => {
+      for (const e of list) {
+        try { await sftpTrash(sid.current, joinRemote(path, e.name)); }
+        catch (err) {
+          if (sftpErrorMessage(err) === SFTP_TRASH_FAILED) throw new Error(`This server couldn't move ${label([e])} to the Trash. Use Delete permanently instead.`);
+          throw err;
+        }
+      }
+    }, `Moved ${label(list)} to the Trash`);
+  };
   const removeEntries = (list: RemoteEntry[]) => {
     setDeleting(null);
-    void act(async () => { for (const e of list) await sftpRemove(sid.current, joinRemote(path, e.name)); },
-      list.length === 1 ? `Deleted ${list[0].name}` : `Deleted ${list.length} items`);
+    void act(async () => { for (const e of list) await sftpRemove(sid.current, joinRemote(path, e.name)); }, `Deleted ${label(list)} permanently`);
   };
 
   const dropping = useDropTarget({ id: `remote-files-${target.path}-${target.auth}`, element: () => rootEl.current, enabled: ready && active, onDrop: (p) => void upload(p) });
 
   const onKey = (e: React.KeyboardEvent) => {
     if ((e.target as HTMLElement).closest("input, textarea")) return;
-    if (e.key === "Delete" && picked.length) { e.preventDefault(); askDelete(picked); }
+    if (e.key === "Delete" && picked.length) { e.preventDefault(); if (e.shiftKey) askDeleteForever(picked); else askDelete(picked); }
     else if (e.key === "F2" && picked.length === 1) { e.preventDefault(); setPrompt({ kind: "rename", entry: picked[0] }); }
     else if (e.key === "Enter" && picked.length === 1) { e.preventDefault(); openEntry(picked[0]); }
     else if (e.altKey && e.key === "ArrowLeft") { e.preventDefault(); goBack(); }
@@ -479,7 +522,8 @@ export function RemoteFilesPanel({ target, active = true, onPopOut }: {
                   <span className="w-px h-5 mx-1.5 bg-[var(--color-border)]" aria-hidden />
                   <RowIconButton label="Rename" tooltip="Rename (F2)" icon={<Pencil size={15} />} disabled={picked.length !== 1} onClick={() => setPrompt({ kind: "rename", entry: picked[0] })} />
                   <RowIconButton label="Permissions" icon={<ShieldCheck size={15} />} disabled={picked.length !== 1} onClick={() => setPrompt({ kind: "perms", entry: picked[0] })} />
-                  <RowIconButton label="Delete" tooltip="Delete (Del)" icon={<Trash2 size={15} />} danger disabled={picked.length === 0} onClick={() => askDelete(picked)} />
+                  <RowIconButton label="Delete" tooltip={trashOn ? "Move to Trash (Del)" : "Delete permanently (Del)"} icon={<Trash2 size={15} />} danger disabled={picked.length === 0} onClick={() => askDelete(picked)} />
+                  <RowIconButton label="Trash" tooltip="Open the Trash: restore or empty" icon={<Trash size={15} />} onClick={() => setShowTrash(true)} />
                   <span className="ml-auto mr-2 hidden lg:flex items-center gap-1.5 text-xs text-[var(--color-text-muted)]" aria-hidden>
                     <Upload size={12} />Drag files here to upload
                   </span>
@@ -534,17 +578,16 @@ export function RemoteFilesPanel({ target, active = true, onPopOut }: {
         <NameDialog title="Rename" label="New name" initial={prompt.entry.name} confirm="Rename"
                     onSubmit={(n) => renameEntry(prompt.entry, n)} onClose={() => setPrompt(null)} />
       )}
+      {showTrash && <RemoteTrashDialog session={sid.current} server={title} onClose={() => setShowTrash(false)} onChanged={() => void load(pathRef.current)} />}
       {deleting && (
-        <ConfirmDialog title={deleting.length === 1 ? `Delete ${deleting[0].name}?` : `Delete ${deleting.length} items?`}
-                       message={deleting.some((e) => e.kind === "dir")
-                         ? "Folders are deleted with everything inside them. This can't be undone."
-                         : "This can't be undone."}
-                       detail={`On ${title}, in ${path}`} icon="danger" danger confirmLabel="Delete"
+        <ConfirmDialog title={deleteTitle(deleting)} message={deleteMessage(deleting, title)}
+                       detail={`Location: ${path}`} icon="danger" danger confirmLabel="Delete permanently"
                        onConfirm={() => removeEntries(deleting)} onCancel={() => setDeleting(null)} />
       )}
       {replace && (
-        <ConfirmDialog title={`Replace ${replace.name}?`} message="A file with this name is already there."
-                       confirmLabel="Replace" cancelLabel="Skip" danger
+        <ConfirmDialog title={`Replace \u201c${replace.name}\u201d?`}
+                       message={`A file named \u201c${replace.name}\u201d already exists in this folder. Replacing it overwrites the existing file.`}
+                       confirmLabel="Replace" cancelLabel="Keep existing" danger
                        onConfirm={() => { replace.answer(true); setReplace(null); }}
                        onCancel={() => { replace.answer(false); setReplace(null); }} />
       )}
