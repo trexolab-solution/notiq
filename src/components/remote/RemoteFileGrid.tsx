@@ -5,6 +5,7 @@ import {
 import { formatBytes } from "../../lib/vaultBackup";
 import { imageMime, type RemoteEntry, type SortKey, type SortState } from "../../lib/sftp";
 import { GRID_ITEM_PX, type GridSize } from "../../lib/filesPrefs";
+import { useEntryDnd } from "./useEntryDnd";
 
 export type FileIcon = "folder" | "image" | "text" | "code" | "archive" | "audio" | "video" | "file";
 
@@ -40,6 +41,8 @@ const SORTS: { key: SortKey; label: string }[] = [{ key: "name", label: "Name" }
 
 interface Props {
   entries: RemoteEntry[];
+  /** The folder being listed (a dragged item dropped on a folder here is moved into it). */
+  dir: string;
   selected: ReadonlySet<string>;
   sort: SortState;
   onSort: (key: SortKey) => void;
@@ -52,8 +55,30 @@ interface Props {
   empty: string;
 }
 
+function GridItem({ e, dir, on, size, icon, onSelect, onOpen, onMenu }: {
+  e: RemoteEntry; dir: string; on: boolean; size: GridSize; icon: number;
+  onSelect: Props["onSelect"]; onOpen: Props["onOpen"]; onMenu: Props["onMenu"];
+}) {
+  const dnd = useEntryDnd(e, dir);
+  return (
+    <div ref={dnd.setRef} role="row" aria-selected={on} tabIndex={-1} data-name={e.name} title={e.name} {...dnd.listeners}
+         onClick={(ev) => { ev.stopPropagation(); onSelect(e.name, ev.shiftKey ? "range" : ev.ctrlKey || ev.metaKey ? "toggle" : "single"); }}
+         onDoubleClick={() => onOpen(e)}
+         onContextMenu={(ev) => { ev.preventDefault(); ev.stopPropagation(); onMenu(e, ev.clientX, ev.clientY); }}
+         className={`flex flex-col items-center gap-1 px-1.5 py-2 rounded-md text-center cursor-default select-none ${dnd.dragging ? "opacity-40" : ""} ${dnd.over
+           ? "bg-[var(--color-primary)]/20 ring-2 ring-[var(--color-primary)]"
+           : on ? "bg-[var(--color-primary)]/15 ring-1 ring-[var(--color-primary)]/40" : "hover:bg-[var(--color-bg-tertiary)]"}`}>
+      <span role="gridcell" className={e.kind === "dir" ? "text-[var(--color-primary)]" : "text-[var(--color-text-muted)]"}>
+        <Glyph e={e} size={icon} />
+      </span>
+      <span className={`w-full break-words text-[var(--color-text)] ${size === "small" ? "text-[11px] line-clamp-2" : "text-xs line-clamp-2"}`}>{e.name}</span>
+      {size !== "small" && e.kind !== "dir" && <span className="text-[10px] tabular-nums text-[var(--color-text-muted)]">{formatBytes(e.size)}</span>}
+    </div>
+  );
+}
+
 /** The folder as a grid of icons (same selection, open and right-click behaviour as the list). */
-export function RemoteFileGrid({ entries, selected, sort, onSort, size, onZoom, onSelect, onOpen, onMenu, empty }: Props) {
+export function RemoteFileGrid({ entries, dir, selected, sort, onSort, size, onZoom, onSelect, onOpen, onMenu, empty }: Props) {
   const icon = ICON_PX[size];
   const scroller = useRef<HTMLDivElement>(null);
   const zoom = useRef(onZoom);
@@ -89,23 +114,9 @@ export function RemoteFileGrid({ entries, selected, sort, onSort, size, onZoom, 
            onClick={(ev) => { if (ev.target === ev.currentTarget) onSelect("", "single"); }}>
         {entries.length === 0 && <p className="px-3 py-8 text-center text-sm text-[var(--color-text-muted)]">{empty}</p>}
         <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${GRID_ITEM_PX[size]}px, 1fr))` }}>
-          {entries.map((e) => {
-            const on = selected.has(e.name);
-            return (
-              <div key={e.name} role="row" aria-selected={on} tabIndex={-1} data-name={e.name} title={e.name}
-                   onClick={(ev) => { ev.stopPropagation(); onSelect(e.name, ev.shiftKey ? "range" : ev.ctrlKey || ev.metaKey ? "toggle" : "single"); }}
-                   onDoubleClick={() => onOpen(e)}
-                   onContextMenu={(ev) => { ev.preventDefault(); ev.stopPropagation(); onMenu(e, ev.clientX, ev.clientY); }}
-                   className={`flex flex-col items-center gap-1 px-1.5 py-2 rounded-md text-center cursor-default select-none ${on
-                     ? "bg-[var(--color-primary)]/15 ring-1 ring-[var(--color-primary)]/40" : "hover:bg-[var(--color-bg-tertiary)]"}`}>
-                <span role="gridcell" className={e.kind === "dir" ? "text-[var(--color-primary)]" : "text-[var(--color-text-muted)]"}>
-                  <Glyph e={e} size={icon} />
-                </span>
-                <span className={`w-full break-words text-[var(--color-text)] ${size === "small" ? "text-[11px] line-clamp-2" : "text-xs line-clamp-2"}`}>{e.name}</span>
-                {size !== "small" && e.kind !== "dir" && <span className="text-[10px] tabular-nums text-[var(--color-text-muted)]">{formatBytes(e.size)}</span>}
-              </div>
-            );
-          })}
+          {entries.map((e) => (
+            <GridItem key={e.name} e={e} dir={dir} on={selected.has(e.name)} size={size} icon={icon} onSelect={onSelect} onOpen={onOpen} onMenu={onMenu} />
+          ))}
         </div>
       </div>
     </div>

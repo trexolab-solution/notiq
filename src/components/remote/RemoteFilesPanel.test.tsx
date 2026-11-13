@@ -26,6 +26,7 @@ const TREE: Record<string, ReturnType<typeof entry>[]> = {
   "/home/alice/projects": [entry("app.log", "file", 5)],
 };
 
+let osClipboard: string[] = [];   // what the system clipboard holds (files copied in File Explorer)
 let host: HTMLDivElement;
 let root: Root;
 const target = { path: "C:/v/web.nqv", auth: "password" as const, title: "web" };
@@ -40,6 +41,8 @@ function fakeServer() {
         return { path, entries: TREE[path] };
       }
       case "sftp_download": return 2048;
+      case "sftp_upload": return 7;
+      case "clipboard_files": return osClipboard;
       case "sftp_read": return { data: btoa("hello"), mtime: 1_700_000_000 };
       case "sftp_write": return 1_700_000_001;
       case "sftp_remove": return undefined;
@@ -60,6 +63,7 @@ const button = (label: string) =>
   [...document.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent?.trim().startsWith(label) || b.getAttribute("aria-label") === label)!;
 
 beforeEach(() => {
+  osClipboard = [];
   invoke.mockReset(); pickSave.mockReset(); vi.mocked(toast.error).mockReset();
   host = document.createElement("div"); document.body.appendChild(host); root = createRoot(host);
 });
@@ -178,9 +182,9 @@ describe("RemoteFilesPanel", () => {
     await show();
     await click(rows()[1]);                       // notes.txt
     await click(button("Cut"));
-    expect(button("Paste").disabled).toBe(true);  // same folder: nothing to move
+    await click(button("Paste"));                 // same folder: nothing to move
+    expect(invoke).not.toHaveBeenCalledWith("sftp_rename", expect.anything());
     await act(async () => { rows()[0].dispatchEvent(new MouseEvent("dblclick", { bubbles: true })); });
-    expect(button("Paste").disabled).toBe(false);
     await click(button("Paste"));
     expect(invoke).toHaveBeenCalledWith("sftp_rename", expect.objectContaining({ id: expect.any(Number), from: "/home/alice/notes.txt", to: "/home/alice/projects/notes.txt" }));
   });
@@ -238,5 +242,30 @@ describe("RemoteFilesPanel", () => {
     await click(button("List view"));
     expect(document.querySelector("[data-remote-grid]")).toBeNull();
     localStorage.removeItem("pref:filesPrefs");
+  });
+
+  it("uploads the files copied in File Explorer when pasting", async () => {
+    fakeServer();
+    osClipboard = ["C:/Users/me/report.pdf", "C:/Users/me/pic.png"];
+    await show();
+    await click(button("Paste"));
+    await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+    const ups = invoke.mock.calls.filter((c) => c[0] === "sftp_upload").map((c) => c[1] as Record<string, unknown>);
+    expect(ups.map((u) => u.remote)).toEqual(["/home/alice/report.pdf", "/home/alice/pic.png"]);
+    expect(ups.map((u) => u.local)).toEqual(osClipboard);
+  });
+
+  it("pastes into a folder from its context menu, and prefers items cut here over files that were already on the clipboard", async () => {
+    fakeServer();
+    osClipboard = ["C:/Users/me/old.txt"];          // copied in File Explorer before the cut
+    await show();
+    await click(rows()[1]);                          // notes.txt
+    await click(button("Cut"));                      // remembers what the clipboard held
+    await act(async () => { rows()[0].dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 10, clientY: 10 })); });
+    const item = [...document.querySelectorAll<HTMLElement>("[role=menuitem], [role=menu] button")].find((b) => b.textContent?.startsWith("Paste into folder"))!;
+    await click(item);
+    await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+    expect(invoke).not.toHaveBeenCalledWith("sftp_upload", expect.anything());
+    expect(invoke).toHaveBeenCalledWith("sftp_rename", expect.objectContaining({ from: "/home/alice/notes.txt", to: "/home/alice/projects/notes.txt" }));
   });
 });

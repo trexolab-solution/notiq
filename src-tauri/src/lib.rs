@@ -5,6 +5,7 @@ use tauri::Manager;
 mod ai;
 mod breach; // 0.9.1 opt-in breached-password check (HIBP range API)
 mod clipboard;
+mod clipboard_files; // 0.10.0 files copied in the file explorer, for the remote file manager's Ctrl+V
 pub mod autofill;
 mod autofill_reuse; // password-reuse / phishing warning (reuse_salt, reuse_check)
 mod native_host_reg; // 0.7.0 autofill
@@ -797,6 +798,7 @@ pub fn run() {
         sftp_client::sftp_download,
         sftp_client::sftp_upload,
         sftp_client::sftp_read,
+        clipboard_files::clipboard_files,
         sftp_client::sftp_write,
         term::terminal_write,
         term::terminal_resize,

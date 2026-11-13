@@ -38,6 +38,9 @@ export const sftpDownload = (id: number, transferId: number, remote: string, loc
 export const sftpUpload = (id: number, transferId: number, local: string, remote: string, overwrite: boolean) =>
   invoke<number>("sftp_upload", { id, transferId, local, remote, overwrite });
 
+/** Full paths of the files copied in the system's file explorer (empty when there are none, or off Windows). */
+export const clipboardFiles = () => invoke<string[]>("clipboard_files");
+
 export interface RemoteFileData { data: string; mtime: number | null }
 export const sftpRead = (id: number, path: string, limit: number) => invoke<RemoteFileData>("sftp_read", { id, path, limit });
 /** Saves `text` over the file; `expect` is the modified time it was opened with, `force` overwrites a file changed since. */
