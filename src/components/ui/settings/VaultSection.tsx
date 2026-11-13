@@ -30,6 +30,7 @@ import {
   getFilesPlace, setFilesPlace, type FilesPlace,
 } from "../../../lib/vaultPrefs";
 import type { SettingMeta } from "../../../lib/settingsIndex";
+import { FileManagerSettings, FILES_INDEX } from "./FileManagerSettings";
 
 
 const STATE_TEXT = {
@@ -153,6 +154,8 @@ export const VaultSection = React.memo(function VaultSection() {
         </SettingRow>
       </SettingsGroup>
 
+      <FileManagerSettings />
+
       <SettingsGroup title="Storage" description="Where the encrypted vault file lives on this computer.">
         <StorageFolderRow />
       </SettingsGroup>
@@ -271,6 +274,7 @@ export const SETTINGS_INDEX: SettingMeta[] = [
   { id: "vault.servers.files-place", section: "vault", group: "Servers", label: "Open the file manager in",
     description: "A tab of this window, or a window of its own. The server's menu in the sidebar also offers the other one.",
     keywords: ["sftp", "remote files", "ssh", "file manager", "new window", "tab", "server"] },
+  ...FILES_INDEX,
   { id: "vault.storage.folder", section: "vault", group: "Storage", label: "Vault storage folder",
     description: "Where your encrypted vault file (vault.nqdb) is kept. Warns if the folder is synced by a cloud service.",
     keywords: ["folder", "directory", "location", "path", "vault.nqdb", "cloud", "onedrive", "dropbox", "sync", "move"] },

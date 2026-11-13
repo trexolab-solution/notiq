@@ -17,6 +17,7 @@ import { RemoteFileViewer } from "./RemoteFileViewer";
 import { PermissionsDialog } from "./PermissionsDialog";
 import { RemoteTransfers, type Transfer } from "./RemoteTransfers";
 import { toast } from "../../lib/toast";
+import { getFilesPrefs } from "../../lib/filesPrefs";
 import { getFileName, joinPath } from "../../lib/pathUtils";
 import type { SshTarget } from "../../lib/sshConnect";
 import {
@@ -73,9 +74,9 @@ export function RemoteFilesPanel({ target, active = true, onPopOut }: {
   const [entries, setEntries] = useState<RemoteEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
-  const [sort, setSort] = useState<SortState>({ key: "name", desc: false });
+  const [sort, setSort] = useState<SortState>(() => { const p = getFilesPrefs(); return { key: p.sortKey, desc: p.sortDesc }; });
   const [filter, setFilter] = useState("");
-  const [showHidden, setShowHidden] = useState(false);
+  const [showHidden, setShowHidden] = useState(() => getFilesPrefs().showHidden);
   const [transfers, setTransfers] = useState<Transfer[]>([]);
   const [prompt, setPrompt] = useState<Prompt | null>(null);
   const [deleting, setDeleting] = useState<RemoteEntry[] | null>(null);
@@ -251,7 +252,7 @@ export function RemoteFilesPanel({ target, active = true, onPopOut }: {
   /** A folder opens in the list; a file opens in the viewer (pictures shown, text edited); anything else is downloaded. */
   const openEntry = (e: RemoteEntry) => {
     if (e.kind === "dir") navigate(joinRemote(path, e.name));
-    else if (e.kind === "file") setViewing({ entry: e, dir: path });
+    else if (e.kind === "file") { if (getFilesPrefs().openAction === "download") void download([e]); else setViewing({ entry: e, dir: path }); }
     else void download([e]);
   };
 
@@ -287,7 +288,7 @@ export function RemoteFilesPanel({ target, active = true, onPopOut }: {
       { type: "item", label: "Permissions\u2026", icon: <ShieldCheck size={13} />, disabled: !one, onClick: () => setPrompt({ kind: "perms", entry }) },
       { type: "item", label: "Copy path", icon: <Copy size={13} />, disabled: !one, onClick: () => void copy(joinRemote(path, entry.name)) },
       { type: "separator" },
-      { type: "item", label: one ? "Delete\u2026" : `Delete ${group.length} items\u2026`, icon: <Trash2 size={13} />, shortcut: "Del", danger: true, onClick: () => setDeleting(group) },
+      { type: "item", label: one ? "Delete\u2026" : `Delete ${group.length} items\u2026`, icon: <Trash2 size={13} />, shortcut: "Del", danger: true, onClick: () => askDelete(group) },
       { type: "separator" },
       ...here,
     ];
@@ -325,6 +326,8 @@ export function RemoteFilesPanel({ target, active = true, onPopOut }: {
       setClip(null);
     }, `Moved ${c.names.length === 1 ? c.names[0] : `${c.names.length} items`}`);
   };
+  /** Asks first, unless the setting says to delete at once. */
+  const askDelete = (list: RemoteEntry[]) => { if (getFilesPrefs().confirmDelete) setDeleting(list); else removeEntries(list); };
   const removeEntries = (list: RemoteEntry[]) => {
     setDeleting(null);
     void act(async () => { for (const e of list) await sftpRemove(sid.current, joinRemote(path, e.name)); },
@@ -335,7 +338,7 @@ export function RemoteFilesPanel({ target, active = true, onPopOut }: {
 
   const onKey = (e: React.KeyboardEvent) => {
     if ((e.target as HTMLElement).closest("input, textarea")) return;
-    if (e.key === "Delete" && picked.length) { e.preventDefault(); setDeleting(picked); }
+    if (e.key === "Delete" && picked.length) { e.preventDefault(); askDelete(picked); }
     else if (e.key === "F2" && picked.length === 1) { e.preventDefault(); setPrompt({ kind: "rename", entry: picked[0] }); }
     else if (e.key === "Enter" && picked.length === 1) { e.preventDefault(); openEntry(picked[0]); }
     else if (e.altKey && e.key === "ArrowLeft") { e.preventDefault(); goBack(); }
@@ -422,7 +425,7 @@ export function RemoteFilesPanel({ target, active = true, onPopOut }: {
                   <span className="w-px h-5 mx-1.5 bg-[var(--color-border)]" aria-hidden />
                   <RowIconButton label="Rename" tooltip="Rename (F2)" icon={<Pencil size={15} />} disabled={picked.length !== 1} onClick={() => setPrompt({ kind: "rename", entry: picked[0] })} />
                   <RowIconButton label="Permissions" icon={<ShieldCheck size={15} />} disabled={picked.length !== 1} onClick={() => setPrompt({ kind: "perms", entry: picked[0] })} />
-                  <RowIconButton label="Delete" tooltip="Delete (Del)" icon={<Trash2 size={15} />} danger disabled={picked.length === 0} onClick={() => setDeleting(picked)} />
+                  <RowIconButton label="Delete" tooltip="Delete (Del)" icon={<Trash2 size={15} />} danger disabled={picked.length === 0} onClick={() => askDelete(picked)} />
                   <span className="ml-auto hidden sm:flex items-center gap-1.5 text-xs text-[var(--color-text-muted)]" aria-hidden>
                     <Upload size={12} />Drag files here to upload
                   </span>

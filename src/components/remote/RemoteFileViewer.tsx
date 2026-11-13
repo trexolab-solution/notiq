@@ -4,6 +4,7 @@ import { DialogButton } from "../ui/Dialog";
 import { RowIconButton } from "../vault/ListEditor";
 import { ConfirmDialog } from "../ui/ConfirmDialog";
 import { toast } from "../../lib/toast";
+import { getFilesPrefs } from "../../lib/filesPrefs";
 import { formatBytes } from "../../lib/vaultBackup";
 import { getLanguageFromPath } from "../../lib/language";
 import {
@@ -47,6 +48,7 @@ export function RemoteFileViewer({ session, path, name, onClose, onDownload, onS
 
   const dirty = loaded.kind === "text" && draft !== saved;
   const mime = useMemo(() => imageMime(name), [name]);
+  const prefs = useMemo(() => getFilesPrefs(), []);
 
   const load = useCallback(async () => {
     setLoaded({ kind: "loading" });
@@ -127,7 +129,7 @@ export function RemoteFileViewer({ session, path, name, onClose, onDownload, onS
           <Suspense fallback={<p className="absolute inset-0 grid place-items-center text-sm text-[var(--color-text-muted)]">Loading the editor…</p>}>
             <Editor value={draft} language={getLanguageFromPath(name)} theme={light ? "vs" : "vs-dark"}
                     onChange={(v) => setDraft(v ?? "")}
-                    options={{ minimap: { enabled: false }, fontSize: 13, wordWrap: "on", scrollBeyondLastLine: false, automaticLayout: true }} />
+                    options={{ minimap: { enabled: false }, fontSize: prefs.editorFontSize, wordWrap: prefs.editorWrap ? "on" : "off", scrollBeyondLastLine: false, automaticLayout: true }} />
           </Suspense>
         )}
         {loaded.kind === "unsupported" && (

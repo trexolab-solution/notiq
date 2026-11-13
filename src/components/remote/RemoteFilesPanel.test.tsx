@@ -198,4 +198,20 @@ describe("RemoteFilesPanel", () => {
     await click([...document.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === "Apply")!);
     expect(invoke).toHaveBeenCalledWith("sftp_chmod", expect.objectContaining({ path: "/home/alice/notes.txt", mode: 0o646 }));
   });
+
+  it("follows the file manager settings: hidden files, sort order, double-click download, no delete prompt", async () => {
+    localStorage.setItem("pref:filesPrefs", JSON.stringify({ showHidden: true, sortKey: "size", sortDesc: true, openAction: "download", confirmDelete: false }));
+    try {
+      fakeServer();
+      await show();
+      expect(names()).toEqual(["projects", "notes.txt", ".bashrc"]);   // dot files shown, files by size, largest first
+      pickSave.mockResolvedValue("C:/out/notes.txt");
+      await act(async () => { rows()[1].dispatchEvent(new MouseEvent("dblclick", { bubbles: true })); });
+      expect(invoke).toHaveBeenCalledWith("sftp_download", expect.objectContaining({ remote: "/home/alice/notes.txt" }));
+      expect(invoke).not.toHaveBeenCalledWith("sftp_read", expect.anything());
+      await click(rows()[1]);
+      await click(button("Delete"));
+      expect(invoke).toHaveBeenCalledWith("sftp_remove", expect.objectContaining({ path: "/home/alice/notes.txt" }));
+    } finally { localStorage.removeItem("pref:filesPrefs"); }
+  });
 });
