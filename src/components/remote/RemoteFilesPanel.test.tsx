@@ -96,7 +96,7 @@ describe("RemoteFilesPanel", () => {
     expect(invoke).toHaveBeenCalledWith("sftp_download", expect.objectContaining({
       remote: "/home/alice/notes.txt", local: "C:/Users/me/notes.txt", overwrite: false,
     }));
-    expect(document.querySelector("[aria-label=Transfers]")!.textContent).toContain("Done");
+    expect(document.querySelector("[aria-label=Transfers]")!.textContent).toContain("complete");
   });
 
   it("asks before deleting and then removes the file on the server", async () => {

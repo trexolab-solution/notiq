@@ -42,6 +42,8 @@ export function RemoteFileViewer({ session, path, name, onClose, onDownload, onS
   const [draft, setDraft] = useState("");
   const [saved, setSaved] = useState("");
   const [saving, setSaving] = useState(false);
+  /** True from a successful save until the next edit, for the "All changes saved" status. */
+  const [justSaved, setJustSaved] = useState(false);
   const [confirm, setConfirm] = useState<"discard" | "overwrite" | null>(null);
   const mtime = useRef<number | null>(null);
   const urlRef = useRef<string | null>(null);
@@ -85,7 +87,7 @@ export function RemoteFileViewer({ session, path, name, onClose, onDownload, onS
     try {
       mtime.current = await sftpWrite(session, path, draft, mtime.current, force);
       setSaved(draft);
-      toast.success(`Saved ${name}`);
+      setJustSaved(true);
       onSaved();
     } catch (e) {
       if (sftpErrorMessage(e) === SFTP_CHANGED) setConfirm("overwrite");
@@ -108,8 +110,13 @@ export function RemoteFileViewer({ session, path, name, onClose, onDownload, onS
         <RowIconButton label="Back" tooltip="Back to the folder (Esc)" icon={<ArrowLeft size={15} />} onClick={close} />
         <span className="w-px h-5 mx-1.5 bg-[var(--color-border)]" aria-hidden />
         <span className="flex-1 min-w-0 truncate text-sm font-medium" title={path}>
-          {name}{dirty && <span className="ml-1.5 text-[var(--color-warning,#d97706)]" aria-label="unsaved changes">●</span>}
+          {name}
         </span>
+        {loaded.kind === "text" && (
+          <span className={`shrink-0 text-xs ${dirty ? "text-[var(--color-warning,#d97706)]" : "text-[var(--color-text-muted)]"}`} role="status">
+            {saving ? "Saving…" : dirty ? "Unsaved changes" : justSaved ? "All changes saved" : ""}
+          </span>
+        )}
         <RowIconButton label="Reload" tooltip="Reload from the server" icon={<RefreshCw size={15} />} disabled={dirty} onClick={() => void load()} />
         <RowIconButton label="Download" icon={<Download size={15} />} onClick={onDownload} />
         {loaded.kind === "text" && (
@@ -128,7 +135,7 @@ export function RemoteFileViewer({ session, path, name, onClose, onDownload, onS
         {loaded.kind === "text" && (
           <Suspense fallback={<p className="absolute inset-0 grid place-items-center text-sm text-[var(--color-text-muted)]">Loading the editor…</p>}>
             <Editor value={draft} language={getLanguageFromPath(name)} theme={light ? "vs" : "vs-dark"}
-                    onChange={(v) => setDraft(v ?? "")}
+                    onChange={(v) => { setDraft(v ?? ""); setJustSaved(false); }}
                     options={{ minimap: { enabled: false }, fontSize: prefs.editorFontSize, wordWrap: prefs.editorWrap ? "on" : "off", scrollBeyondLastLine: false, automaticLayout: true }} />
           </Suspense>
         )}
