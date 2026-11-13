@@ -389,4 +389,31 @@ describe("RemoteFilesPanel", () => {
     const ids = invoke.mock.calls.filter((c) => c[0] === "sftp_open").map((c) => (c[1] as Record<string, unknown>).id);
     expect(new Set(ids).size).toBe(2);               // under a new session id
   });
+
+  it("Ctrl+F focuses the Filter box instead of the web view's find, and Esc clears it", async () => {
+    fakeServer();
+    await show();
+    const press = (key: string, init: KeyboardEventInit = {}) => {
+      const ev = new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true, ...init });
+      window.dispatchEvent(ev);
+      return ev;
+    };
+    const box = document.querySelector<HTMLInputElement>("input[aria-label='Filter files']")!;
+    expect(document.activeElement).not.toBe(box);
+    let ev!: KeyboardEvent;
+    await act(async () => { ev = press("f", { ctrlKey: true }); });
+    expect(ev.defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(box);
+    // Typing filters; Esc empties it and leaves the box.
+    const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+    await act(async () => { set.call(box, "note"); box.dispatchEvent(new Event("input", { bubbles: true })); });
+    expect(names()).toEqual(["notes.txt"]);
+    await act(async () => { box.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })); });
+    expect(box.value).toBe("");
+    expect(document.activeElement).not.toBe(box);
+    expect(names()).toEqual(["projects", "notes.txt"]);
+    // Ctrl+Shift+F is not ours.
+    await act(async () => { ev = press("F", { ctrlKey: true, shiftKey: true }); });
+    expect(ev.defaultPrevented).toBe(false);
+  });
 });

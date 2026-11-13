@@ -233,6 +233,24 @@ export function RemoteFilesPanel({ target, active = true, onPopOut }: {
     return () => window.removeEventListener("focus", probe);
   }, [phase, active, link]);
 
+  // Ctrl+F (Cmd+F) goes to this file manager's own Filter box, not to the web view's find bar. The editor of an open
+  // file keeps its own find, and so does any dialog on top.
+  useEffect(() => {
+    if (phase !== "ready" || !active || viewing) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey || e.key.toLowerCase() !== "f") return;
+      if (document.querySelector('[role="dialog"]')) return;
+      const box = rootEl.current?.querySelector<HTMLInputElement>('input[aria-label="Filter files"]');
+      if (!box) return;
+      e.preventDefault();
+      e.stopPropagation();
+      box.focus();
+      box.select();
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [phase, active, viewing]);
+
   useEffect(() => {
     alive.current = true;
     void connect();
@@ -611,7 +629,11 @@ export function RemoteFilesPanel({ target, active = true, onPopOut }: {
                   <div className="relative w-44 shrink-0">
                     <Search size={13} aria-hidden className="absolute left-2 top-1/2 -translate-y-1/2 text-[var(--color-text-muted)]" />
                     <Input className="!pl-7" value={filter} placeholder="Filter" aria-label="Filter files" spellCheck={false}
-                           onChange={(e) => setFilter(e.target.value)} />
+                           onChange={(e) => setFilter(e.target.value)}
+                           onKeyDown={(e) => {
+                             // Esc: clear the filter and go back to the list (a second Esc does nothing else here).
+                             if (e.key === "Escape") { e.stopPropagation(); setFilter(""); e.currentTarget.blur(); rootEl.current?.focus(); }
+                           }} />
                   </div>
                   <span className="relative inline-flex">
                     <RowIconButton label="Trash" pressed={showTrash} onClick={() => setShowTrash((v) => !v)}
