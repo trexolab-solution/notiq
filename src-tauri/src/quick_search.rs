@@ -591,7 +591,7 @@ fn mono_ms() -> u64 {
 /// The WebView2 controller follows the window: hidden with it (Chromium stops rendering and can't
 /// pull the keyboard focus into an off-screen window), visible again right before it is shown, so the
 /// page repaints instead of showing a stale / blank surface.
-fn set_webview_visible(w: &tauri::WebviewWindow, visible: bool) {
+pub(crate) fn set_webview_visible(w: &tauri::WebviewWindow, visible: bool) {
     #[cfg(windows)]
     let _ = w.with_webview(move |pw| unsafe {
         let c = pw.controller();

@@ -1067,6 +1067,10 @@ fn ensure_prompt(app: &AppHandle) -> Result<(), String> {
             .center()
             .build()
             .map_err(|e| e.to_string())?;
+        if let Some(w) = app.get_webview_window(PROMPT_LABEL) {
+            // A hidden window with a hidden webview: nothing renders until a show (see `set_webview_visible`).
+            crate::quick_search::set_webview_visible(&w, false);
+        }
         crate::capture_shield::refresh(app);
     }
     if wait_for(&PROMPT_READY, PROMPT_READY_WAIT) { Ok(()) } else { Err("the prompt window did not load".into()) }
@@ -1077,6 +1081,8 @@ fn hide_prompt(app: &AppHandle, restore: bool) {
     // Only hand the focus back when the prompt still has it (the user may have moved on meanwhile).
     let had_focus = w.is_focused().unwrap_or(false);
     let _ = w.hide();
+    // The webview goes with the window: a hidden Chromium surface is stale, and showing it again could flash blank / white.
+    crate::quick_search::set_webview_visible(&w, false);
     let prev = take_prev_foreground();
     if restore && had_focus {
         restore_foreground(prev);
@@ -1168,6 +1174,13 @@ fn fallback_to_main(app: &AppHandle, event: &str, payload: Value) -> MainFallbac
 #[tauri::command]
 pub fn autofill_prompt_show(app: AppHandle) -> Result<(), String> {
     let w = app.get_webview_window(PROMPT_LABEL).ok_or("The autofill window is gone")?;
+    // The request may have ended (cancelled, timed out) while the page was getting ready: an empty window must
+    // never pop up for nothing.
+    let waiting = pending().lock().unwrap_or_else(|e| e.into_inner()).len();
+    if !should_show_prompt(waiting) {
+        hide_prompt(&app, false);
+        return Ok(());
+    }
     remember_prev_foreground(&w);
     let monitor = app
         .cursor_position()
@@ -1188,9 +1201,16 @@ pub fn autofill_prompt_show(app: AppHandle) -> Result<(), String> {
         let _ = w.center();
     }
     let _ = w.set_always_on_top(true);
+    // Visible again right before the window is: the page repaints instead of showing a stale or blank surface.
+    crate::quick_search::set_webview_visible(&w, true);
     let _ = w.show();
     let _ = w.unminimize();
     w.set_focus().map_err(|e| e.to_string())
+}
+
+/// Whether the prompt window may come on screen: only while at least one request still waits for an answer.
+pub fn should_show_prompt(waiting_requests: usize) -> bool {
+    waiting_requests > 0
 }
 
 /// Hides the prompt window; `restore` hands the focus back to the window that had it before.
@@ -1579,6 +1599,13 @@ fn launch_and_wait() -> Option<Conn> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_prompt_only_shows_for_a_request_that_still_waits() {
+        assert!(!should_show_prompt(0));
+        assert!(should_show_prompt(1));
+        assert!(should_show_prompt(MAX_PENDING));
+    }
+
     use super::*;
 
     #[test]

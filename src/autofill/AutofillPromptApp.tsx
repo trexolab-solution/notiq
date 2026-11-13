@@ -128,6 +128,8 @@ export default function AutofillPromptApp() {
         // Size to the new content before the window appears, then let Rust centre and focus it.
         await nextTask();
         await applySize(false);
+        // The request ended while the window was being sized (cancelled, timed out): nothing to show.
+        if (stateRef.current.stage === "idle") return;
         shown.current = true;
         await invoke("autofill_prompt_show").catch(() => {});
         requestAnimationFrame(() => {
