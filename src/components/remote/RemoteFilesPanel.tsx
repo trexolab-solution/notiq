@@ -2,8 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { open as pickFiles, save as pickSave } from "@tauri-apps/plugin-dialog";
 import {
-  ArrowLeft, ArrowRight, ArrowUp, ClipboardPaste, Copy, Download, Eye, EyeOff, FilePenLine, FilePlus, FolderOpen, FolderPlus, Pencil,
-  RefreshCw, Scissors, Search, ShieldCheck, SquareArrowOutUpRight, Trash, Trash2, Upload,
+  ArchiveRestore, ArrowLeft, ArrowRight, ArrowUp, ClipboardPaste, Copy, Download, Eye, EyeOff, FilePenLine, FilePlus, FileX, FolderOpen, FolderPlus, Pencil,
+  RefreshCw, Scissors, Search, ShieldCheck, SquareArrowOutUpRight, Trash2, Upload,
 } from "lucide-react";
 import { DndContext, DragOverlay, PointerSensor, pointerWithin, useDroppable, useSensor, useSensors } from "@dnd-kit/core";
 import type { DragEndEvent, DragStartEvent } from "@dnd-kit/core";
@@ -326,6 +326,8 @@ export function RemoteFilesPanel({ target, active = true, onPopOut }: {
       { type: "item", label: "Paste here", icon: <ClipboardPaste size={13} />, shortcut: "Ctrl+V", onClick: () => void paste(path) },
       { type: "item", label: "Refresh", icon: <RefreshCw size={13} />, onClick: () => void load(path) },
       { type: "item", label: "Copy folder path", icon: <Copy size={13} />, onClick: () => void copy(path) },
+      { type: "separator" },
+      { type: "item", label: "Open Trash", icon: <ArchiveRestore size={13} />, onClick: () => setShowTrash(true) },
     ];
     if (!entry) return here;
     // The menu acts on the whole selection when the clicked row is part of it.
@@ -344,8 +346,8 @@ export function RemoteFilesPanel({ target, active = true, onPopOut }: {
       { type: "item", label: "Permissions\u2026", icon: <ShieldCheck size={13} />, disabled: !one, onClick: () => setPrompt({ kind: "perms", entry }) },
       { type: "item", label: "Copy path", icon: <Copy size={13} />, disabled: !one, onClick: () => void copy(joinRemote(path, entry.name)) },
       { type: "separator" },
-      { type: "item", label: trashOn ? "Move to Trash" : (one ? "Delete\u2026" : `Delete ${group.length} items\u2026`), icon: <Trash2 size={13} />, shortcut: "Del", danger: true, onClick: () => askDelete(group) },
-      ...(trashOn ? [{ type: "item" as const, label: "Delete permanently\u2026", icon: <Trash2 size={13} />, shortcut: "Shift+Del", danger: true, onClick: () => askDeleteForever(group) }] : []),
+      { type: "item", label: trashOn ? "Move to Trash" : (one ? "Delete\u2026" : `Delete ${group.length} items\u2026`), icon: trashOn ? <Trash2 size={13} /> : <FileX size={13} />, shortcut: "Del", danger: true, onClick: () => askDelete(group) },
+      ...(trashOn ? [{ type: "item" as const, label: "Delete permanently\u2026", icon: <FileX size={13} />, shortcut: "Shift+Del", danger: true, onClick: () => askDeleteForever(group) }] : []),
       { type: "separator" },
       ...here,
     ];
@@ -522,8 +524,8 @@ export function RemoteFilesPanel({ target, active = true, onPopOut }: {
                   <span className="w-px h-5 mx-1.5 bg-[var(--color-border)]" aria-hidden />
                   <RowIconButton label="Rename" tooltip="Rename (F2)" icon={<Pencil size={15} />} disabled={picked.length !== 1} onClick={() => setPrompt({ kind: "rename", entry: picked[0] })} />
                   <RowIconButton label="Permissions" icon={<ShieldCheck size={15} />} disabled={picked.length !== 1} onClick={() => setPrompt({ kind: "perms", entry: picked[0] })} />
-                  <RowIconButton label="Delete" tooltip={trashOn ? "Move to Trash (Del)" : "Delete permanently (Del)"} icon={<Trash2 size={15} />} danger disabled={picked.length === 0} onClick={() => askDelete(picked)} />
-                  <RowIconButton label="Trash" tooltip="Open the Trash: restore or empty" icon={<Trash size={15} />} onClick={() => setShowTrash(true)} />
+                  <RowIconButton label="Delete" tooltip={trashOn ? "Move to Trash (Del)" : "Delete permanently (Del)"} icon={trashOn ? <Trash2 size={15} /> : <FileX size={15} />} danger disabled={picked.length === 0} onClick={() => askDelete(picked)} />
+                  <RowIconButton label="Trash" tooltip="Open the Trash: restore or empty" icon={<ArchiveRestore size={15} />} onClick={() => setShowTrash(true)} />
                   <span className="ml-auto mr-2 hidden lg:flex items-center gap-1.5 text-xs text-[var(--color-text-muted)]" aria-hidden>
                     <Upload size={12} />Drag files here to upload
                   </span>
