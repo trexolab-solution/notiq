@@ -11,7 +11,7 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn(async () => null), sav
 vi.mock("../../lib/toast", () => ({ toast: { info: vi.fn(), error: vi.fn(), success: vi.fn(), warning: vi.fn(), dismiss: vi.fn() } }));
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-const { RemoteFilesDialog } = await import("./RemoteFilesDialog");
+const { RemoteFilesPanel } = await import("./RemoteFilesPanel");
 const { toast } = await import("../../lib/toast");
 
 const entry = (name: string, kind: "dir" | "file", size = 0) => ({ name, kind, link: false, size, mtime: 1_700_000_000, mode: 0o644 });
@@ -40,10 +40,9 @@ function fakeServer() {
   });
 }
 
-async function show(onClose = vi.fn()) {
-  await act(async () => { root.render(<RemoteFilesDialog target={target} onClose={onClose} />); });
+async function show() {
+  await act(async () => { root.render(<RemoteFilesPanel target={target} />); });
   await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
-  return onClose;
 }
 
 const rows = () => [...document.querySelectorAll<HTMLElement>("[data-remote-rows] [role=row]")];
@@ -58,13 +57,13 @@ beforeEach(() => {
 });
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); });
 
-describe("RemoteFilesDialog", () => {
+describe("RemoteFilesPanel", () => {
   it("signs in with the saved entry and lists the home folder, folders first, dot files hidden", async () => {
     fakeServer();
     await show();
     expect(invoke).toHaveBeenCalledWith("sftp_open", expect.objectContaining({ path: "C:/v/web.nqv", auth: "password" }));
     expect(names()).toEqual(["projects", "notes.txt"]);
-    expect(document.body.textContent).toContain("Files on Web server");
+    expect(document.querySelector("[data-testid=remote-files]")!.getAttribute("aria-label")).toBe("Files on Web server");
     await click(button("Show dot files"));
     expect(names()).toEqual(["projects", ".bashrc", "notes.txt"]);
   });
@@ -117,7 +116,7 @@ describe("RemoteFilesDialog", () => {
     expect(names()).toEqual(["projects", "notes.txt"]);
   });
 
-  it("closes the connection when the dialog goes away", async () => {
+  it("closes the connection when the panel goes away", async () => {
     fakeServer();
     await show();
     await act(async () => root.unmount());

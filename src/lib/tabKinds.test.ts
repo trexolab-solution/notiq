@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Tab } from "../types";
-import { isContentTab, isNoteTab, isSettingsTab, normalizeSettingsTabs, SETTINGS_TAB_TITLE } from "./tabKinds";
+import { isContentTab, isFilesTab, isNoteTab, isSettingsTab, normalizeSettingsTabs, SETTINGS_TAB_TITLE, withoutFilesTabs } from "./tabKinds";
 
 const tab = (over: Partial<Tab>): Tab => ({
   id: over.id ?? "t", kind: "note", title: "T", content: "", isDirty: false,
@@ -24,6 +24,18 @@ describe("tab kind helpers", () => {
     expect(isNoteTab(tab({ kind: "note" }))).toBe(true);
     expect(isNoteTab(tab({ kind: "whiteboard" }))).toBe(false);
     expect(isNoteTab(tab({ kind: "settings" }))).toBe(false);
+  });
+});
+
+describe("remote files tabs", () => {
+  it("are their own kind and not content", () => {
+    expect(isFilesTab(tab({ kind: "files" }))).toBe(true);
+    expect(isFilesTab(tab({ kind: "note" }))).toBe(false);
+    expect(isContentTab(tab({ kind: "files" }))).toBe(false);
+  });
+  it("are left out of a saved session", () => {
+    const tabs = [tab({ id: "a" }), tab({ id: "b", kind: "files" }), tab({ id: "c", kind: "settings" })];
+    expect(withoutFilesTabs(tabs).map((t) => t.id)).toEqual(["a", "c"]);
   });
 });
 

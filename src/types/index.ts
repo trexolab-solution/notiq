@@ -1,6 +1,6 @@
 export type EditorMode = "markdown" | "preview" | "split";
 /** "settings" is the singleton Settings editor tab (no file, never dirty, no content). */
-export type TabKind    = "note" | "whiteboard" | "settings";
+export type TabKind    = "note" | "whiteboard" | "settings" | "files";
 export type AppView    = "editor" | "graph";
 
 export type AutoClosingBrackets  = "always" | "beforeWhitespace" | "never";
@@ -52,7 +52,7 @@ export interface Theme {
 
 export interface Tab {
   id: string;
-  kind: TabKind;           // "note" (default), "whiteboard" or "settings"
+  kind: TabKind;           // "note" (default), "whiteboard", "settings" or "files" (a server's remote files)
   title: string;
   filePath?: string;
   content: string;
@@ -81,6 +81,8 @@ export interface Tab {
   isPreview?: boolean;
   /** App-generated read-only page (e.g. "What's New"): nothing worth saving, so closing it never asks. */
   transient?: boolean;
+  /** `files` tab: which saved SSH entry it browses and how it signs in (no secrets; the backend reads them). Never persisted. */
+  remote?: { path: string; auth: "key" | "password" };
 }
 
 export interface GraphNode {

@@ -4,6 +4,7 @@ import { SettingsGroup, SettingsBlock } from "../SettingsGroup";
 import { Button } from "../Button";
 import { Toggle } from "../Toggle";
 import { Select } from "../Select";
+import { SegmentedControl } from "../SegmentedControl";
 import { PasswordInput } from "../PasswordInput";
 import { PanicShortcutRow, PasswordGeneratorRow, StorageFolderRow } from "./VaultPrefRows";
 import { SessionLockRow } from "./SessionLockRow";
@@ -26,6 +27,7 @@ import { masterPasswordProblem } from "../../../lib/masterPassword";
 import { PasswordStrengthMeter } from "../../vault/PasswordStrengthMeter";
 import {
   IDLE_OPTIONS, DEFAULT_IDLE_MINUTES, getIdleMinutes, setIdleMinutes, getLockOnHide, setLockOnHide,
+  getFilesPlace, setFilesPlace, type FilesPlace,
 } from "../../../lib/vaultPrefs";
 import type { SettingMeta } from "../../../lib/settingsIndex";
 
@@ -46,6 +48,7 @@ export const VaultSection = React.memo(function VaultSection() {
 
   const [idle, setIdle]       = useState(() => getIdleMinutes());
   const [onHide, setOnHide]   = useState(() => getLockOnHide());
+  const [filesPlace, setPlace] = useState<FilesPlace>(() => getFilesPlace());
 
   const [oldPw, setOldPw]     = useState("");
   const [newPw, setNewPw]     = useState("");
@@ -130,6 +133,24 @@ export const VaultSection = React.memo(function VaultSection() {
         <PanicShortcutRow />
         <SessionLockRow />
         <CaptureShieldRow />
+      </SettingsGroup>
+
+      <SettingsGroup title="Servers" description="Saved SSH servers open in the built-in terminal and the remote file manager.">
+        <SettingRow
+          id="vault.servers.files-place"
+          label="Open the file manager in"
+          description="A tab of this window, or a window of its own. The server's menu in the sidebar also offers the other one."
+          keywords={["sftp", "remote files", "ssh", "file manager", "new window", "tab", "server"]}
+          modified={filesPlace !== "tab"}
+          onReset={() => { setPlace("tab"); setFilesPlace("tab"); }}
+        >
+          <SegmentedControl
+            aria-label="Where the file manager opens"
+            value={filesPlace}
+            onChange={(v) => { setPlace(v); setFilesPlace(v); }}
+            options={[{ value: "tab", label: "Tab" }, { value: "window", label: "New window" }]}
+          />
+        </SettingRow>
       </SettingsGroup>
 
       <SettingsGroup title="Storage" description="Where the encrypted vault file lives on this computer.">
@@ -247,6 +268,9 @@ export const SETTINGS_INDEX: SettingMeta[] = [
   { id: "vault.locking.capture-shield", section: "vault", group: "Locking", label: "Hide from screenshots and screen sharing",
     description: "Keeps Notiq out of screenshots, screen recordings and screen sharing. While it is on, your own screen share or recording shows a black window.",
     keywords: ["screenshot", "screen share", "screen recording", "capture", "privacy", "black window", "hide window", "teams", "zoom", "obs"] },
+  { id: "vault.servers.files-place", section: "vault", group: "Servers", label: "Open the file manager in",
+    description: "A tab of this window, or a window of its own. The server's menu in the sidebar also offers the other one.",
+    keywords: ["sftp", "remote files", "ssh", "file manager", "new window", "tab", "server"] },
   { id: "vault.storage.folder", section: "vault", group: "Storage", label: "Vault storage folder",
     description: "Where your encrypted vault file (vault.nqdb) is kept. Warns if the folder is synced by a cloud service.",
     keywords: ["folder", "directory", "location", "path", "vault.nqdb", "cloud", "onedrive", "dropbox", "sync", "move"] },

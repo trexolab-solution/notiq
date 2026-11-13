@@ -1,0 +1,17 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "remote-files",
+  "description": "The remote file manager window: its own page, the file pickers for upload and download, and closing itself. The sftp_* and vault commands are app commands, allowed for every window.",
+  "windows": ["remote-files-*"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-close",
+    "core:window:allow-set-focus",
+    "core:window:allow-set-title",
+    "core:window:allow-minimize",
+    "core:window:allow-toggle-maximize",
+    "core:window:allow-is-maximized",
+    "dialog:allow-open",
+    "dialog:allow-save"
+  ]
+}

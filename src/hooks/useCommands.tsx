@@ -60,7 +60,7 @@ export function useCommands(deps: UseCommandsDeps): () => Command[] {
         group: "Tabs",
         hint: t.filePath ? t.filePath.replace(/\\/g, "/").split("/").slice(-2).join("/") : undefined,
         trailing: t.id === activeTabId ? "current" : undefined,
-        icon: t.kind === "settings" ? <SettingsIcon size={14} /> : <FileIcon size={14} />,
+        icon: t.kind === "settings" ? <SettingsIcon size={14} /> : t.kind === "files" ? <FolderOpen size={14} /> : <FileIcon size={14} />,
         run: () => { setActiveView("editor"); setActiveTab(t.id); },
       });
     }

@@ -15,7 +15,7 @@ type GuardTab = Pick<Tab, "id" | "kind" | "isPinned" | "isDirty" | "filePath" | 
 
 export function closeDecision(tab: GuardTab, whiteboardHasContent: (id: string) => boolean): CloseDecision {
   if (tab.isPinned) return "blocked";
-  if (tab.kind === "settings") return "close";
+  if (tab.kind === "settings" || tab.kind === "files") return "close";
   if (tab.kind === "whiteboard") return whiteboardHasContent(tab.id) ? "confirm" : "close";
   // A locked vault tab holds no plaintext, so there's nothing it could lose.
   if (tab.vaultLocked) return "close";

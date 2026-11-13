@@ -81,7 +81,7 @@ export const StatusBar = React.memo(function StatusBar({
           </button>
         </Tooltip>
 
-        {activeTab?.kind === "settings" ? null : activeTab ? (
+        {activeTab?.kind === "settings" || activeTab?.kind === "files" ? null : activeTab ? (
           <>
             <span className="status-item">
               Ln {activeTab.cursorPosition.line}:{activeTab.cursorPosition.column}
@@ -105,7 +105,8 @@ export const StatusBar = React.memo(function StatusBar({
         <SyncIndicator status={syncStatus} vaultExists={vaultExists} expanded={syncPopoverAtIndicator} onOpen={toggleSyncPopover} />
         <SyncPopoverHost />
         {activeTab?.kind === "settings" && <span className="status-tag">Settings</span>}
-        {activeTab && activeTab.kind !== "settings" && (
+        {activeTab?.kind === "files" && <span className="status-tag">Remote files</span>}
+        {activeTab && activeTab.kind !== "settings" && activeTab.kind !== "files" && (
           <>
             {activeTab.kind === "whiteboard" ? (
               <span className="status-item">Auto-saved</span>

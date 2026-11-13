@@ -19,7 +19,7 @@ import { ImportErrors, KeyFactsRow, KeyFileList, KeyViewerDialog, useKeyFacts, t
 import { GenerateKeyDialog } from "./GenerateKeyDialog";
 import { SshAuthChoiceDialog } from "../terminal/SshAuthChoiceDialog";
 import { requestSshSession } from "../../lib/sshTerminalRequest";
-import { requestRemoteFiles } from "../../lib/sftpRequest";
+import { openRemoteFiles } from "../../lib/remoteFiles";
 import { sshLabel, sshMethods } from "../../lib/sshConnect";
 import { applyGeneratedKey, defaultComment, type GeneratedKey } from "../../lib/sshKeygen";
 import { toast } from "../../lib/toast";
@@ -202,7 +202,7 @@ function SshEntryEditorInner({ tab }: { tab: Tab }) {
     setChoosing(null);
     if (!tab.filePath) return;
     const target = { path: tab.filePath, auth: method, title: currentEntry(tab).title.trim() || sshLabel(f) };
-    if (where === "files") requestRemoteFiles(target); else requestSshSession(target);
+    if (where === "files") openRemoteFiles(target); else requestSshSession(target);
   };
 
   const openServer = (where: "terminal" | "files") => {

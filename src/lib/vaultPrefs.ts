@@ -27,6 +27,13 @@ export function getIdleMinutes(): number {
 }
 export const setIdleMinutes = (n: number) => write(KEY_IDLE, String(n));
 
+/** Where a server's remote file manager opens: a tab (default) or a window of its own. */
+export type FilesPlace = "tab" | "window";
+const KEY_FILES_PLACE = "pref:filesPlace";
+export const getFilesPlace = (): FilesPlace => (read(KEY_FILES_PLACE) === "window" ? "window" : "tab");
+export const setFilesPlace = (v: FilesPlace) => write(KEY_FILES_PLACE, v);
+export const otherFilesPlace = (v: FilesPlace): FilesPlace => (v === "tab" ? "window" : "tab");
+
 /** Lock when the window is closed to the tray. On by default. */
 export const getLockOnHide = (): boolean => read(KEY_HIDE) !== "false";
 export const setLockOnHide = (v: boolean) => write(KEY_HIDE, String(v));

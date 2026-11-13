@@ -17,6 +17,7 @@ describe("closeDecision", () => {
   it("closes clean tabs and Settings straight away", () => {
     expect(closeDecision(tab({ filePath: "C:/n.md" }), noDrawing)).toBe("close");
     expect(closeDecision(tab({ kind: "settings", isDirty: true }), noDrawing)).toBe("close");
+    expect(closeDecision(tab({ kind: "files" }), noDrawing)).toBe("close");
   });
   it("asks for a dirty note, or unsaved content with no file", () => {
     expect(closeDecision(tab({ filePath: "C:/n.md", isDirty: true }), noDrawing)).toBe("confirm");

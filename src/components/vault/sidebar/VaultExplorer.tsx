@@ -28,7 +28,8 @@ import { CreateRow, VaultTree, groupKey, starKey, treeKey } from "./VaultTree";
 import { InlineNameInput } from "./InlineNameInput";
 import { TagEditor } from "./TagEditor";
 import { useOpenSshInTerminal } from "./useOpenSshInTerminal";
-import { requestRemoteFiles } from "../../../lib/sftpRequest";
+import { openRemoteFiles } from "../../../lib/remoteFiles";
+import { getFilesPlace, otherFilesPlace } from "../../../lib/vaultPrefs";
 import { MoveDialog } from "./MoveDialog";
 import { TrashView } from "./TrashView";
 import { buildMenu, type MenuHandlers } from "./menuItems";
@@ -218,13 +219,15 @@ export function VaultExplorer({ root, items, trash, loading, error, reload, foot
   }, [expandAll, items, remap, root]);
 
   const sshTerminal = useOpenSshInTerminal(root);
-  const sshFiles = useOpenSshInTerminal(root, requestRemoteFiles);
+  const sshFiles = useOpenSshInTerminal(root, (t) => openRemoteFiles(t));
+  const sshFilesElsewhere = useOpenSshInTerminal(root, (t) => openRemoteFiles(t, otherFilesPlace(getFilesPlace())));
 
   const handlers: MenuHandlers = {
     open: (n) => void A.openEntry(root, n.rel, "preview"),
     openNewTab: (n) => void A.openEntry(root, n.rel, "permanent"),
     openTerminal: (n) => void sshTerminal.open(n.rel),
     openFiles: (n) => void sshFiles.open(n.rel),
+    openFilesElsewhere: (n) => void sshFilesElsewhere.open(n.rel),
     rename: (n) => {
       // Rename happens in the tree row (a starred row edits in place too).
       const key = selectedKey && relOfKey(selectedKey) === n.rel ? selectedKey : treeKey(n.rel);
@@ -517,6 +520,7 @@ export function VaultExplorer({ root, items, trash, loading, error, reload, foot
       )}
       {sshTerminal.dialog}
       {sshFiles.dialog}
+      {sshFilesElsewhere.dialog}
       {tagEdit && (
         <TagEditor
           name={tagEdit.name}

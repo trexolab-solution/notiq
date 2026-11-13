@@ -9,6 +9,7 @@ const isStickyNote = hash.startsWith("#/sticky-note/");
 const isStickyNotesList = hash === "#/sticky-notes-list";
 const isQuickSearch = hash === "#/quick-search"; // 0.7.0 quick search
 const isAutofillPrompt = hash === "#/autofill-prompt"; // browser-autofill approval window
+const isRemoteFiles = hash.startsWith("#/remote-files"); // a saved server's file manager in its own window
 
 if (isStickyNote) {
   // ── Sticky Note window ────────────────────────────────────────────────────
@@ -55,6 +56,17 @@ if (isStickyNote) {
     <React.StrictMode>
       <Suspense fallback={null}>
         <AutofillPromptApp />
+      </Suspense>
+    </React.StrictMode>,
+  );
+} else if (isRemoteFiles) {
+  // ── Remote file manager window ────────────────────────────────────────────
+  const RemoteFilesApp = lazy(() => import("./components/remote/RemoteFilesApp"));
+
+  ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
+    <React.StrictMode>
+      <Suspense fallback={null}>
+        <RemoteFilesApp />
       </Suspense>
     </React.StrictMode>,
   );

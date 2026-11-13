@@ -28,7 +28,7 @@ export function fileBasename(s: string): string {
  */
 export function resolveNoteHref(href: string, allTabs: Tab[]): Tab | undefined {
   if (!href) return undefined;
-  const tabs = allTabs.filter((t) => t.kind !== "settings"); // Settings is never a link target
+  const tabs = allTabs.filter((t) => t.kind !== "settings" && t.kind !== "files"); // never a link target
   const decoded = decodeURIComponent(href);
   if (/^https?:\/\//i.test(decoded))  return undefined;
   if (decoded.startsWith("mailto:"))  return undefined;

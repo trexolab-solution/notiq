@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { open as pickFiles, save as pickSave } from "@tauri-apps/plugin-dialog";
 import {
-  ArrowUp, Download, Eye, EyeOff, FolderOpen, FolderPlus, Pencil, RefreshCw, Search, Trash2, Upload,
+  ArrowUp, Download, Eye, EyeOff, FolderPlus, Pencil, RefreshCw, Search, SquareArrowOutUpRight, Trash2, Upload,
 } from "lucide-react";
 import { Dialog, DialogBody, DialogButton, DialogFooter } from "../ui/Dialog";
 import { ConfirmDialog } from "../ui/ConfirmDialog";
@@ -52,8 +52,15 @@ function NameDialog({ title, label, initial, confirm, onSubmit, onClose }: {
 /**
  * The remote file manager for a saved SSH entry: browse folders, upload and download (also by dropping files
  * on it), make folders, rename and delete. It signs in like the terminal does; the secrets never reach this code.
+ * It fills its parent, so it works in a tab and in a window of its own. `active` is false while its tab is hidden
+ * (the panel stays mounted so the connection and the folder survive a switch to another tab).
  */
-export function RemoteFilesDialog({ target, onClose }: { target: SshTarget; onClose: () => void }) {
+export function RemoteFilesPanel({ target, active = true, onPopOut }: {
+  target: SshTarget;
+  active?: boolean;
+  /** Offered in the toolbar when given: move this file manager to a window of its own. */
+  onPopOut?: () => void;
+}) {
   const [phase, setPhase] = useState<Phase>("connecting");
   const [failure, setFailure] = useState("");
   const [title, setTitle] = useState(target.title);
@@ -70,6 +77,7 @@ export function RemoteFilesDialog({ target, onClose }: { target: SshTarget; onCl
   const [replace, setReplace] = useState<{ name: string; answer: (yes: boolean) => void } | null>(null);
   const [editingPath, setEditingPath] = useState<string | null>(null);
 
+  const rootEl = useRef<HTMLDivElement>(null);
   const sid = useRef(0);
   const anchor = useRef<string | null>(null);
   const pathRef = useRef("");
@@ -230,7 +238,7 @@ export function RemoteFilesDialog({ target, onClose }: { target: SshTarget; onCl
       list.length === 1 ? `Deleted ${list[0].name}` : `Deleted ${list.length} items`);
   };
 
-  const dropping = useDropTarget({ id: "remote-files-upload", element: () => document.querySelector("[data-remote-drop]"), enabled: ready, modal: true, onDrop: (p) => void upload(p) });
+  const dropping = useDropTarget({ id: `remote-files-${target.path}-${target.auth}`, element: () => rootEl.current, enabled: ready && active, onDrop: (p) => void upload(p) });
 
   const onKey = (e: React.KeyboardEvent) => {
     if ((e.target as HTMLElement).closest("input, textarea")) return;
@@ -247,9 +255,8 @@ export function RemoteFilesDialog({ target, onClose }: { target: SshTarget; onCl
 
   return (
     <>
-      <Dialog title={`Files on ${title}`} icon={<FolderOpen size={16} />} size={980} onClose={onClose} data-testid="remote-files">
-        <DialogBody flush fill>
-          <div className="relative flex flex-col h-[68vh] min-h-[380px]" data-remote-drop="" onKeyDown={onKey}>
+      <div ref={rootEl} className="relative flex flex-col h-full min-h-0 bg-[var(--color-bg)] outline-none" tabIndex={-1}
+           data-remote-drop="" data-testid="remote-files" aria-label={`Files on ${title}`} onKeyDown={onKey}>
             {phase === "connecting" && (
               <p className="m-auto text-sm text-[var(--color-text-muted)]" role="status">Connecting to {target.title}…</p>
             )}
@@ -294,6 +301,7 @@ export function RemoteFilesDialog({ target, onClose }: { target: SshTarget; onCl
                   </div>
                   <RowIconButton label={showHidden ? "Hide dot files" : "Show dot files"} icon={showHidden ? <Eye size={14} /> : <EyeOff size={14} />}
                                  pressed={showHidden} onClick={() => setShowHidden((v) => !v)} />
+                  {onPopOut && <RowIconButton label="Open in new window" icon={<SquareArrowOutUpRight size={14} />} onClick={onPopOut} />}
                 </div>
 
                 <div className="flex items-center gap-1 px-3 py-1.5 border-b border-[var(--color-border)]">
@@ -315,12 +323,10 @@ export function RemoteFilesDialog({ target, onClose }: { target: SshTarget; onCl
                              onCancel={(id) => void sftpCancel(id)}
                              onClear={() => setTransfers((ts) => ts.filter((t) => t.state === "running"))} />
             {dropping && <DropHighlight icon={<Upload size={16} />}>Drop files to upload to {path}</DropHighlight>}
-          </div>
-        </DialogBody>
-        <DialogFooter start={<span className="text-xs text-[var(--color-text-muted)]" role="status">{status}</span>}>
-          <DialogButton cancel onClick={onClose}>Close</DialogButton>
-        </DialogFooter>
-      </Dialog>
+        <div className="shrink-0 flex items-center h-7 px-3 border-t border-[var(--color-border)] text-xs text-[var(--color-text-muted)]" role="status">
+          {status || `Files on ${title}`}
+        </div>
+      </div>
 
       {prompt?.kind === "folder" && (
         <NameDialog title="New folder" label="Folder name" initial="" confirm="Create" onSubmit={makeFolder} onClose={() => setPrompt(null)} />

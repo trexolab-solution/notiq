@@ -8,7 +8,12 @@ import { WhiteboardActions } from "./WhiteboardActions";
 import { ViewLoader } from "./ViewLoader";
 import { EditorContainer } from "../editor/EditorContainer";
 import { TerminalPanel } from "../terminal/TerminalPanel";
+import { RemoteFilesPanel } from "../remote/RemoteFilesPanel";
 import { ErrorBoundary } from "../ui/ErrorBoundary";
+import { useShallow } from "zustand/shallow";
+import { useAppStore } from "../../store";
+import { isFilesTab } from "../../lib/tabKinds";
+import { openRemoteFilesWindow } from "../../lib/remoteFilesWindow";
 
 import type { Tab, AppView } from "../../types";
 import type { UseTerminalPanelResult } from "../../hooks/useTerminalPanel";
@@ -53,6 +58,7 @@ export function AppWorkspace({
   activeTab, onLinkedWhiteboard, graphMounted, term,
   aiChatMounted, aiChatOpen, aiChatWidth, onAiChatResizeStart, onCloseAiChat,
 }: Props) {
+  const filesTabs = useAppStore(useShallow((s) => s.tabs.filter(isFilesTab)));
   return (
     <div className="app-body">
       <Sidebar
@@ -98,10 +104,27 @@ export function AppWorkspace({
                     <SettingsPage tabId={activeTab.id} />
                   </Suspense>
                 </ErrorBoundary>
-              ) : (
+              ) : activeTab?.kind === "files" ? null : (
                 <EditorContainer />
               )
             )}
+
+            {/* Remote file managers stay mounted while another tab is shown, so the connection and the folder survive a switch. */}
+            {filesTabs.map((t) => {
+              const shown = activeView === "editor" && activeTab?.id === t.id;
+              const title = t.title.replace(/^Files · /, "");
+              return (
+                <div key={t.id} className="flex-1 min-h-0 min-w-0" style={{ display: shown ? "block" : "none" }}>
+                  <ErrorBoundary>
+                    <RemoteFilesPanel
+                      target={{ path: t.remote!.path, auth: t.remote!.auth, title }}
+                      active={shown}
+                      onPopOut={() => { useAppStore.getState().removeTab(t.id); void openRemoteFilesWindow({ path: t.remote!.path, auth: t.remote!.auth, title }); }}
+                    />
+                  </ErrorBoundary>
+                </div>
+              );
+            })}
 
             {graphMounted && (
               <div

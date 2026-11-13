@@ -6,11 +6,14 @@ type KindOnly = Pick<Tab, "kind"> | null | undefined;
 /** The singleton Settings tab (no file, no content). */
 export const isSettingsTab = (t: KindOnly): boolean => t?.kind === "settings";
 
+/** A remote file manager tab (one per saved server); it lives only as long as the app does. */
+export const isFilesTab = (t: KindOnly): boolean => t?.kind === "files";
+
 /**
  * A tab that holds user content (a note or a whiteboard): it can be saved, linked, searched, counted,
- * graphed and sent to AI as context. The Settings tab is not a content tab.
+ * graphed and sent to AI as context. The Settings and remote-files tabs are not content tabs.
  */
-export const isContentTab = (t: KindOnly): boolean => !!t && t.kind !== "settings";
+export const isContentTab = (t: KindOnly): boolean => !!t && t.kind !== "settings" && t.kind !== "files";
 
 /** A text note (not a whiteboard, not Settings). */
 export const isNoteTab = (t: KindOnly): boolean => t?.kind === "note";
@@ -23,6 +26,9 @@ export interface SettingsTarget {
   settingId?: string;
   nonce: number;
 }
+
+/** A file manager's connection can't outlive the app, so its tab is left out of the saved session. */
+export const withoutFilesTabs = <T extends Pick<Tab, "kind">>(tabs: T[]): T[] => tabs.filter((t) => t.kind !== "files");
 
 /**
  * Session restore: keep at most one Settings tab (the first), normalised to its invariants

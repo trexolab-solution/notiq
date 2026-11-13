@@ -26,7 +26,6 @@ import { AppTitlebar }              from "./components/layout/AppTitlebar";
 import { AppWorkspace }             from "./components/layout/AppWorkspace";
 import { AppOverlays }              from "./components/layout/AppOverlays";
 import { RestoreRequestHost }       from "./components/vault/RestoreRequestHost";
-import { RemoteFilesHost }          from "./components/remote/RemoteFilesHost";
 import { StatusBar }               from "./components/layout/StatusBar";
 
 export default function App() {
@@ -218,7 +217,6 @@ export default function App() {
       />
 
       <RestoreRequestHost />
-      <RemoteFilesHost />
 
       <AppOverlays
         ctxMenu={ctxMenu}

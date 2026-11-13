@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { X, Plus, HardDrive, PenTool, ChevronLeft, ChevronRight, Pin, PinOff, Settings as SettingsIcon } from "lucide-react";
+import { X, Plus, HardDrive, PenTool, ChevronLeft, ChevronRight, Pin, PinOff, Settings as SettingsIcon, FolderOpen } from "lucide-react";
 import {
   DndContext,
   closestCenter,
@@ -92,6 +92,8 @@ function SortableTab({
         <PenTool size={9} className="tab-wb-icon" />
       ) : tab.kind === "settings" ? (
         <SettingsIcon size={10} aria-hidden style={{ color: "var(--color-text-muted)", flexShrink: 0 }} />
+      ) : tab.kind === "files" ? (
+        <FolderOpen size={10} aria-hidden style={{ color: "var(--color-text-muted)", flexShrink: 0 }} />
       ) : tab.isDirty ? (
         <span className="tab-dot" />
       ) : tab.filePath ? (
@@ -123,7 +125,7 @@ function SortableTab({
               e.stopPropagation();
               // A preview tab's first double-click keeps it (VS Code); renaming is a double-click after that.
               if (tab.isPreview) onKeep(tab.id);
-              else if (tab.kind !== "settings") onDoubleClick(tab.id, tab.title);
+              else if (tab.kind !== "settings" && tab.kind !== "files") onDoubleClick(tab.id, tab.title);
             }}
           >
             {tab.title}
@@ -206,7 +208,7 @@ export const TabBar = React.memo(function TabBar({ onCloseTab }: TabBarProps) {
     const isVault = isVaultPath(tab.filePath);
     setCtxMenu({
       x: e.clientX, y: e.clientY, tabId: tab.id, isPinned: tab.isPinned, title: tab.title,
-      canLock: tab.kind === "note" && !isVault, isVault, canRename: tab.kind !== "settings",
+      canLock: tab.kind === "note" && !isVault, isVault, canRename: tab.kind !== "settings" && tab.kind !== "files",
     });
   }, []);
 

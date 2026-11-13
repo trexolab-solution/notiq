@@ -25,7 +25,7 @@ import { toast } from "../lib/toast";
 import { planVaultOpen, type VaultOpenMode } from "../lib/vaultTabs";
 import { emit } from "@tauri-apps/api/event";
 import { buildPreferenceSlice, resetAllPreferences } from "./preferences";
-import { normalizeSettingsTabs, SETTINGS_TAB_TITLE, type SettingsTarget } from "../lib/tabKinds";
+import { normalizeSettingsTabs, SETTINGS_TAB_TITLE, withoutFilesTabs, type SettingsTarget } from "../lib/tabKinds";
 import type { SectionId } from "../lib/settingsIndex";
 
 // ─── debounced helpers ───────────────────────────────────────────────────────
@@ -116,6 +116,8 @@ export interface AppState {
    * `settingsTarget` the page consumes to scroll to and reveal that place.
    */
   openSettings: (section?: SectionId, settingId?: string) => void;
+  /** Opens (or focuses) the remote file manager tab for a saved server. */
+  openRemoteFiles: (target: { path: string; auth: "key" | "password"; title: string }) => void;
   /** Latest deep-link request for the Settings page (null = none yet). */
   settingsTarget: SettingsTarget | null;
 
@@ -268,7 +270,10 @@ export const useAppStore = create<AppState>((set, get) => {
     const safeTabs = tabs.map((t) =>
       isVaultPath(t.filePath) ? { ...t, content: "", isDirty: false, vaultLocked: true } : t,
     );
-    saveSession({ tabs: safeTabs, activeTabId, themeId, savedAt: Date.now() });
+    // A file manager's connection ends with the app, so its tab is not restored (and never the active one).
+    const saved = withoutFilesTabs(safeTabs);
+    const savedActive = saved.some((t) => t.id === activeTabId) ? activeTabId : (saved[saved.length - 1]?.id ?? null);
+    saveSession({ tabs: saved, activeTabId: savedActive, themeId, savedAt: Date.now() });
   };
 
   /** Update a single tab by id, merging `changes` into the matched tab. */
@@ -329,8 +334,8 @@ export const useAppStore = create<AppState>((set, get) => {
     if (!tab) return false;
     // A locked vault tab has empty content — saving it would wipe the note.
     if (tab.vaultLocked) return false;
-    // The Settings tab has nothing to save.
-    if (tab.kind === "settings") return false;
+    // The Settings and remote-files tabs have nothing to save.
+    if (tab.kind === "settings" || tab.kind === "files") return false;
     const path = forcePickPath
       ? await pickSavePath(tab.title)
       : (tab.filePath ?? await pickSavePath(tab.title));
@@ -426,7 +431,7 @@ export const useAppStore = create<AppState>((set, get) => {
 
     updateTabContent(id, content) {
       const tab = get().tabs.find((t) => t.id === id);
-      if (tab?.kind === "settings") return; // Settings has no content
+      if (tab?.kind === "settings" || tab?.kind === "files") return; // no content
       // An edit makes a preview tab permanent, so a later sidebar click never replaces unsaved work.
       const changes: Partial<Tab> = { content, isDirty: true, isPreview: false, updatedAt: Date.now() };
 
@@ -444,7 +449,8 @@ export const useAppStore = create<AppState>((set, get) => {
     },
 
     updateTabTitle(id, title) {
-      if (get().tabs.find((t) => t.id === id)?.kind === "settings") return; // not renameable
+      const kind = get().tabs.find((t) => t.id === id)?.kind;
+      if (kind === "settings" || kind === "files") return; // not renameable
       updateTab(id, { title, isPreview: false, updatedAt: Date.now() });
       debounceGraphRebuild(() => get().rebuildGraph());
       persist();
@@ -511,6 +517,18 @@ export const useAppStore = create<AppState>((set, get) => {
           tabs: [...s.tabs, tab], activeTabId: tab.id, activeView: "editor", settingsTarget: target, sessionReady: true,
         }));
       }
+      persist();
+    },
+
+    // ── remote files tab ──────────────────────────────────────
+    openRemoteFiles(target) {
+      const existing = get().tabs.find((t) => t.kind === "files" && t.remote?.path === target.path && t.remote.auth === target.auth);
+      if (existing) { set({ activeTabId: existing.id, activeView: "editor" }); return; }
+      const tab = makeTab({
+        kind: "files", title: `Files · ${target.title}`, editorMode: "preview", transient: true,
+        remote: { path: target.path, auth: target.auth },
+      });
+      set((s) => ({ tabs: [...s.tabs, tab], activeTabId: tab.id, activeView: "editor", sessionReady: true }));
       persist();
     },
 
@@ -856,7 +874,7 @@ export const useAppStore = create<AppState>((set, get) => {
     hydrate(tabs, activeTabId, themeId) {
       applyTheme(themeId);
       localStorage.setItem("pref:theme", themeId);
-      const migratedTabs = normalizeSettingsTabs(tabs.map((t) => ({
+      const migratedTabs = normalizeSettingsTabs(withoutFilesTabs(tabs).map((t) => ({
         ...t,
         kind: (t.kind ?? "note") as TabKind,
         editorMode: t.editorMode === ("rich" as EditorMode) ? "split" as EditorMode : t.editorMode,

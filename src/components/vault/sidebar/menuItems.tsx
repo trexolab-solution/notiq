@@ -2,6 +2,7 @@ import {
   ArrowDownAZ, ChevronsDownUp, ChevronsUpDown, Clock, Copy, ExternalLink, FolderInput, FolderOpen, FolderPlus, Pencil, Star,
   SquareArrowOutUpRight, SquareTerminal, StarOff, Tags, Trash2, Globe,
 } from "lucide-react";
+import { getFilesPlace } from "../../../lib/vaultPrefs";
 import type { ContextMenuItem } from "../../ui/ContextMenu";
 import { NEW_ENTRY_OPTIONS, type NewEntryKind } from "../../../lib/vaultCreate";
 import type { SortMode, TreeNode } from "../../../lib/vaultTree";
@@ -15,6 +16,8 @@ export interface MenuHandlers {
   openTerminal: (n: TreeNode) => void;
   /** SSH entries: open the server's files in the remote file manager. */
   openFiles: (n: TreeNode) => void;
+  /** The same, in the place the setting did not pick (a window when tabs are the default, and the other way round). */
+  openFilesElsewhere: (n: TreeNode) => void;
   rename: (n: TreeNode) => void;
   tags: (n: TreeNode) => void;
   star: (n: TreeNode) => void;
@@ -79,7 +82,9 @@ export function buildMenu(node: TreeNode | null, sort: SortMode, h: MenuHandlers
     { type: "item", label: "Open in new tab", shortcut: "Ctrl+Enter", icon: icon(<SquareArrowOutUpRight size={14} />), onClick: () => h.openNewTab(node) },
     ...(node.kind === "ssh"
       ? [{ type: "item" as const, label: "Open in terminal", icon: icon(<SquareTerminal size={14} />), onClick: () => h.openTerminal(node) },
-        { type: "item" as const, label: "Open file manager", icon: icon(<FolderOpen size={14} />), onClick: () => h.openFiles(node) }]
+        { type: "item" as const, label: "Open file manager", icon: icon(<FolderOpen size={14} />), onClick: () => h.openFiles(node) },
+        { type: "item" as const, label: getFilesPlace() === "tab" ? "Open file manager in new window" : "Open file manager in a tab",
+          icon: icon(<SquareArrowOutUpRight size={14} />), onClick: () => h.openFilesElsewhere(node) }]
       : []),
     { type: "item", label: "Rename", shortcut: "F2", icon: icon(<Pencil size={14} />), onClick: () => h.rename(node) },
     { type: "item", label: "Edit tags…", icon: icon(<Tags size={14} />), onClick: () => h.tags(node) },
