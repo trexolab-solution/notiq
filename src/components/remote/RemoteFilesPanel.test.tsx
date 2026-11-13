@@ -225,9 +225,12 @@ describe("RemoteFilesPanel", () => {
     expect(names()).toEqual(["projects", "notes.txt"]);
     expect(JSON.parse(localStorage.getItem("pref:filesPrefs")!)).toMatchObject({ view: "grid", gridSize: "medium" });
     // The size control appears with the grid and is remembered too.
-    await click([...document.querySelectorAll<HTMLElement>("[aria-label='Grid item size'] button, [aria-label='Grid item size'] [role=radio]")].find((b) => b.textContent === "L")!);
+    await click(document.querySelector<HTMLElement>("[aria-label='Grid item size'] [aria-label='Large items']")!);
     expect(JSON.parse(localStorage.getItem("pref:filesPrefs")!).gridSize).toBe("large");
     expect((document.querySelector("[data-remote-grid] .grid") as HTMLElement).style.gridTemplateColumns).toContain("172px");
+    // Ctrl + wheel over the grid steps the size down again.
+    await act(async () => { document.querySelector("[data-remote-grid]")!.dispatchEvent(Object.assign(new Event("wheel", { bubbles: true, cancelable: true }), { ctrlKey: true, deltaY: 100 })); });
+    expect(JSON.parse(localStorage.getItem("pref:filesPrefs")!).gridSize).toBe("medium");
     await click(rows()[1]);
     expect(rows()[1].getAttribute("aria-selected")).toBe("true");
     await act(async () => { rows()[0].dispatchEvent(new MouseEvent("dblclick", { bubbles: true })); });

@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import {
   ChevronDown, ChevronUp, File, FileArchive, FileAudio, FileCode, FileImage, FileSymlink, FileText, FileVideo, Folder, FolderSymlink,
 } from "lucide-react";
@@ -43,6 +44,8 @@ interface Props {
   sort: SortState;
   onSort: (key: SortKey) => void;
   size: GridSize;
+  /** Ctrl + mouse wheel over the grid: `1` bigger items, `-1` smaller. */
+  onZoom: (dir: 1 | -1) => void;
   onSelect: (name: string, mode: "single" | "toggle" | "range") => void;
   onOpen: (entry: RemoteEntry) => void;
   onMenu: (entry: RemoteEntry | null, x: number, y: number) => void;
@@ -50,8 +53,23 @@ interface Props {
 }
 
 /** The folder as a grid of icons (same selection, open and right-click behaviour as the list). */
-export function RemoteFileGrid({ entries, selected, sort, onSort, size, onSelect, onOpen, onMenu, empty }: Props) {
+export function RemoteFileGrid({ entries, selected, sort, onSort, size, onZoom, onSelect, onOpen, onMenu, empty }: Props) {
   const icon = ICON_PX[size];
+  const scroller = useRef<HTMLDivElement>(null);
+  const zoom = useRef(onZoom);
+  zoom.current = onZoom;
+  // A native, non-passive listener: React's onWheel can't stop the page itself from zooming.
+  useEffect(() => {
+    const el = scroller.current;
+    if (!el) return;
+    const wheel = (e: WheelEvent) => {
+      if (!e.ctrlKey && !e.metaKey) return;
+      e.preventDefault();
+      zoom.current(e.deltaY < 0 ? 1 : -1);
+    };
+    el.addEventListener("wheel", wheel, { passive: false });
+    return () => el.removeEventListener("wheel", wheel);
+  }, []);
   return (
     <div role="grid" aria-label="Remote files" aria-multiselectable className="flex flex-col min-h-0 flex-1">
       <div className="flex items-center gap-1 h-7 px-3 shrink-0 text-[11px] font-medium uppercase tracking-wide text-[var(--color-text-muted)] border-b border-[var(--color-border)]">
@@ -66,7 +84,7 @@ export function RemoteFileGrid({ entries, selected, sort, onSort, size, onSelect
           );
         })}
       </div>
-      <div className="flex-1 min-h-0 overflow-y-auto p-3" data-remote-rows="" data-remote-grid=""
+      <div ref={scroller} className="flex-1 min-h-0 overflow-y-auto p-3" data-remote-rows="" data-remote-grid=""
            onContextMenu={(ev) => { ev.preventDefault(); onMenu(null, ev.clientX, ev.clientY); }}
            onClick={(ev) => { if (ev.target === ev.currentTarget) onSelect("", "single"); }}>
         {entries.length === 0 && <p className="px-3 py-8 text-center text-sm text-[var(--color-text-muted)]">{empty}</p>}

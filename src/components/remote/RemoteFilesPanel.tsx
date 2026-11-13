@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { open as pickFiles, save as pickSave } from "@tauri-apps/plugin-dialog";
 import {
-  ArrowLeft, ArrowRight, ArrowUp, ClipboardPaste, Copy, Download, Eye, EyeOff, FilePenLine, FilePlus, FolderOpen, FolderPlus, LayoutGrid, List, Pencil,
+  ArrowLeft, ArrowRight, ArrowUp, ClipboardPaste, Copy, Download, Eye, EyeOff, FilePenLine, FilePlus, FolderOpen, FolderPlus, Pencil,
   RefreshCw, Scissors, Search, ShieldCheck, SquareArrowOutUpRight, Trash2, Upload,
 } from "lucide-react";
 import { Dialog, DialogBody, DialogButton, DialogFooter } from "../ui/Dialog";
@@ -14,7 +14,7 @@ import { DropHighlight, useDropTarget } from "../ui/DropZone";
 import { RowIconButton } from "../vault/ListEditor";
 import { RemoteFileTable } from "./RemoteFileTable";
 import { RemoteFileGrid } from "./RemoteFileGrid";
-import { SegmentedControl } from "../ui/SegmentedControl";
+import { ViewSwitcher, stepSize } from "./ViewSwitcher";
 import { RemoteFileViewer } from "./RemoteFileViewer";
 import { PermissionsDialog } from "./PermissionsDialog";
 import { RemoteTransfers, type Transfer } from "./RemoteTransfers";
@@ -413,15 +413,6 @@ export function RemoteFilesPanel({ target, active = true, onPopOut }: {
                     <Input className="!pl-7" value={filter} placeholder="Filter" aria-label="Filter files" spellCheck={false}
                            onChange={(e) => setFilter(e.target.value)} />
                   </div>
-                  <RowIconButton label={showHidden ? "Hide dot files" : "Show dot files"} icon={showHidden ? <Eye size={14} /> : <EyeOff size={14} />}
-                                 pressed={showHidden} onClick={() => setShowHidden((v) => !v)} />
-                  <RowIconButton label="List view" icon={<List size={14} />} pressed={view === "list"} onClick={() => setView("list")} />
-                  <RowIconButton label="Grid view" icon={<LayoutGrid size={14} />} pressed={view === "grid"} onClick={() => setView("grid")} />
-                  {view === "grid" && (
-                    <SegmentedControl aria-label="Grid item size" value={gridSize} onChange={(v) => setGridSize(v as GridSize)}
-                                      options={[{ value: "small", label: "S" }, { value: "medium", label: "M" }, { value: "large", label: "L" }]} />
-                  )}
-                  {onPopOut && <RowIconButton label="Open in new window" icon={<SquareArrowOutUpRight size={14} />} onClick={onPopOut} />}
                 </div>
 
                 <div className="flex items-center gap-0.5 px-3 py-1.5 border-b border-[var(--color-border)]" role="toolbar" aria-label="File actions">
@@ -439,13 +430,18 @@ export function RemoteFilesPanel({ target, active = true, onPopOut }: {
                   <RowIconButton label="Rename" tooltip="Rename (F2)" icon={<Pencil size={15} />} disabled={picked.length !== 1} onClick={() => setPrompt({ kind: "rename", entry: picked[0] })} />
                   <RowIconButton label="Permissions" icon={<ShieldCheck size={15} />} disabled={picked.length !== 1} onClick={() => setPrompt({ kind: "perms", entry: picked[0] })} />
                   <RowIconButton label="Delete" tooltip="Delete (Del)" icon={<Trash2 size={15} />} danger disabled={picked.length === 0} onClick={() => askDelete(picked)} />
-                  <span className="ml-auto hidden sm:flex items-center gap-1.5 text-xs text-[var(--color-text-muted)]" aria-hidden>
+                  <span className="ml-auto mr-2 hidden lg:flex items-center gap-1.5 text-xs text-[var(--color-text-muted)]" aria-hidden>
                     <Upload size={12} />Drag files here to upload
                   </span>
+                  <span className="w-px h-5 mx-1.5 bg-[var(--color-border)] max-lg:ml-auto" aria-hidden />
+                  <RowIconButton label={showHidden ? "Hide dot files" : "Show dot files"} icon={showHidden ? <Eye size={15} /> : <EyeOff size={15} />}
+                                 pressed={showHidden} onClick={() => setShowHidden((v) => !v)} />
+                  <ViewSwitcher view={view} size={gridSize} onView={setView} onSize={setGridSize} />
+                  {onPopOut && <RowIconButton label="Open in new window" icon={<SquareArrowOutUpRight size={15} />} onClick={onPopOut} />}
                 </div>
 
                 {view === "grid" ? (
-                  <RemoteFileGrid entries={shown} selected={selected} sort={sort} onSort={sortBy} size={gridSize} onOpen={openEntry} onMenu={openMenu}
+                  <RemoteFileGrid entries={shown} selected={selected} sort={sort} onSort={sortBy} size={gridSize} onZoom={(d) => setGridSize(stepSize(gridSize, d))} onOpen={openEntry} onMenu={openMenu}
                                   onSelect={(n, m) => (n === "" ? setSelected(new Set()) : select(n, m))} empty={emptyText} />
                 ) : (
                   <RemoteFileTable entries={shown} selected={selected} sort={sort} onSort={sortBy} onSelect={select} onOpen={openEntry} onMenu={openMenu}
