@@ -1,0 +1,129 @@
+import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
+
+/** Remote file manager: wrappers over the backend's `sftp_*` commands (sftp_client.rs) and the pure helpers around them. */
+
+export interface RemoteEntry {
+  name: string;
+  /** What it is; a link shows what it points at. */
+  kind: "dir" | "file" | "other";
+  link: boolean;
+  size: number;
+  /** Seconds since 1970. */
+  mtime: number | null;
+  /** Permission bits only (e.g. 0o755). */
+  mode: number | null;
+}
+
+export interface RemoteListing { path: string; entries: RemoteEntry[] }
+export interface OpenedSftp { title: string; home: string }
+
+/** What a transfer command says when the user stopped it, or when the target already exists. */
+export const SFTP_CANCELLED = "cancelled";
+export const SFTP_EXISTS = "already_exists";
+
+export const sftpOpen = (id: number, path: string, auth: string) => invoke<OpenedSftp>("sftp_open", { id, path, auth });
+export const sftpClose = (id: number) => invoke<void>("sftp_close", { id });
+export const sftpList = (id: number, path: string) => invoke<RemoteListing>("sftp_list", { id, path });
+export const sftpMkdir = (id: number, path: string) => invoke<void>("sftp_mkdir", { id, path });
+export const sftpRename = (id: number, from: string, to: string) => invoke<void>("sftp_rename", { id, from, to });
+export const sftpChmod = (id: number, path: string, mode: number) => invoke<void>("sftp_chmod", { id, path, mode });
+export const sftpRemove = (id: number, path: string) => invoke<void>("sftp_remove", { id, path });
+export const sftpCancel = (transfer: number) => invoke<void>("sftp_cancel", { transfer });
+export const sftpDownload = (id: number, transferId: number, remote: string, local: string, overwrite: boolean) =>
+  invoke<number>("sftp_download", { id, transferId, remote, local, overwrite });
+export const sftpUpload = (id: number, transferId: number, local: string, remote: string, overwrite: boolean) =>
+  invoke<number>("sftp_upload", { id, transferId, local, remote, overwrite });
+
+export interface SftpProgress { transfer: number; done: number; total: number }
+export const onSftpProgress = (fn: (p: SftpProgress) => void) => listen<SftpProgress>("sftp-progress", (e) => fn(e.payload));
+
+/** Backend errors arrive as plain strings. */
+export const sftpErrorMessage = (e: unknown): string => (typeof e === "string" ? e : e instanceof Error ? e.message : String(e));
+
+// ── remote paths (always `/`, whatever the local system is) ─────────────────────
+
+export function joinRemote(dir: string, name: string): string {
+  return dir.endsWith("/") ? `${dir}${name}` : `${dir}/${name}`;
+}
+
+/** The folder above `path`; the root stays the root. */
+export function parentRemote(path: string): string {
+  const t = path.replace(/\/+$/, "");
+  const i = t.lastIndexOf("/");
+  return i <= 0 ? "/" : t.slice(0, i);
+}
+
+/** `/var/log/nginx` → `[{name:"/",path:"/"},{name:"var",path:"/var"},…]`, for the clickable path bar. */
+export function crumbs(path: string): { name: string; path: string }[] {
+  const out = [{ name: "/", path: "/" }];
+  let acc = "";
+  for (const part of path.split("/").filter(Boolean)) {
+    acc += `/${part}`;
+    out.push({ name: part, path: acc });
+  }
+  return out;
+}
+
+/** A name for a new file or folder: not empty, no slash, not `.` or `..`. Returns the problem, or null when it's fine. */
+export function nameProblem(name: string): string | null {
+  const n = name.trim();
+  if (!n) return "Enter a name.";
+  if (n === "." || n === "..") return "That isn't a usable name.";
+  if (n.includes("/")) return "A name can't contain a slash.";
+  return null;
+}
+
+// ── showing entries ────────────────────────────────────────────────────────────
+
+export type SortKey = "name" | "size" | "mtime";
+export interface SortState { key: SortKey; desc: boolean }
+
+/** Folders first (always), then by the chosen column; names break ties. */
+export function sortEntries(entries: RemoteEntry[], sort: SortState): RemoteEntry[] {
+  const sign = sort.desc ? -1 : 1;
+  const byName = (a: RemoteEntry, b: RemoteEntry) =>
+    a.name.toLowerCase().localeCompare(b.name.toLowerCase()) || a.name.localeCompare(b.name);
+  const value = (e: RemoteEntry) => (sort.key === "size" ? e.size : e.mtime ?? 0);
+  return [...entries].sort((a, b) => {
+    if ((a.kind === "dir") !== (b.kind === "dir")) return a.kind === "dir" ? -1 : 1;
+    if (sort.key === "name") return sign * byName(a, b);
+    return value(a) === value(b) ? byName(a, b) : sign * (value(a) - value(b));
+  });
+}
+
+export function visibleEntries(entries: RemoteEntry[], filter: string, showHidden: boolean): RemoteEntry[] {
+  const q = filter.trim().toLowerCase();
+  return entries.filter((e) => (showHidden || !e.name.startsWith(".")) && (!q || e.name.toLowerCase().includes(q)));
+}
+
+/** `rwxr-xr-x` for 0o755. */
+export function modeString(mode: number | null): string {
+  if (mode == null) return "";
+  const bits = "rwxrwxrwx";
+  let out = "";
+  for (let i = 0; i < 9; i++) out += mode & (1 << (8 - i)) ? bits[i] : "-";
+  return out;
+}
+
+/** Octal text of the permission bits, `755`. */
+export const modeOctal = (mode: number | null): string => (mode == null ? "" : (mode & 0o777).toString(8).padStart(3, "0"));
+
+/** Parses `755` / `0644` (octal digits only). */
+export function parseOctalMode(text: string): number | null {
+  const t = text.trim();
+  if (!/^[0-7]{3,4}$/.test(t)) return null;
+  return parseInt(t, 8);
+}
+
+export function formatModified(mtime: number | null, now = new Date()): string {
+  if (mtime == null) return "";
+  const d = new Date(mtime * 1000);
+  const date = d.toLocaleDateString(undefined, d.getFullYear() === now.getFullYear()
+    ? { month: "short", day: "numeric" } : { year: "numeric", month: "short", day: "numeric" });
+  const time = d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+  return `${date}, ${time}`;
+}
+
+/** 0–100 for a progress bar; an empty file is done. */
+export const percent = (done: number, total: number): number => (total <= 0 ? 100 : Math.min(100, Math.floor((done / total) * 100)));

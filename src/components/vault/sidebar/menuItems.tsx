@@ -1,5 +1,5 @@
 import {
-  ArrowDownAZ, ChevronsDownUp, ChevronsUpDown, Clock, Copy, ExternalLink, FolderInput, FolderPlus, Pencil, Star,
+  ArrowDownAZ, ChevronsDownUp, ChevronsUpDown, Clock, Copy, ExternalLink, FolderInput, FolderOpen, FolderPlus, Pencil, Star,
   SquareArrowOutUpRight, SquareTerminal, StarOff, Tags, Trash2, Globe,
 } from "lucide-react";
 import type { ContextMenuItem } from "../../ui/ContextMenu";
@@ -13,6 +13,8 @@ export interface MenuHandlers {
   openNewTab: (n: TreeNode) => void;
   /** SSH entries: open the server in the built-in terminal. */
   openTerminal: (n: TreeNode) => void;
+  /** SSH entries: open the server's files in the remote file manager. */
+  openFiles: (n: TreeNode) => void;
   rename: (n: TreeNode) => void;
   tags: (n: TreeNode) => void;
   star: (n: TreeNode) => void;
@@ -76,7 +78,8 @@ export function buildMenu(node: TreeNode | null, sort: SortMode, h: MenuHandlers
     { type: "item", label: "Open", shortcut: "Enter", icon: icon(<ExternalLink size={14} />), onClick: () => h.open(node) },
     { type: "item", label: "Open in new tab", shortcut: "Ctrl+Enter", icon: icon(<SquareArrowOutUpRight size={14} />), onClick: () => h.openNewTab(node) },
     ...(node.kind === "ssh"
-      ? [{ type: "item" as const, label: "Open in terminal", icon: icon(<SquareTerminal size={14} />), onClick: () => h.openTerminal(node) }]
+      ? [{ type: "item" as const, label: "Open in terminal", icon: icon(<SquareTerminal size={14} />), onClick: () => h.openTerminal(node) },
+        { type: "item" as const, label: "Open file manager", icon: icon(<FolderOpen size={14} />), onClick: () => h.openFiles(node) }]
       : []),
     { type: "item", label: "Rename", shortcut: "F2", icon: icon(<Pencil size={14} />), onClick: () => h.rename(node) },
     { type: "item", label: "Edit tags…", icon: icon(<Tags size={14} />), onClick: () => h.tags(node) },

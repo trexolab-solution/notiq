@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useRef, useState } from "react";
-import { ArrowDownToLine, CircleCheck, FilePlus2, FileUp, KeyRound, ShieldCheck, SquareTerminal, Terminal, Trash2, TriangleAlert } from "lucide-react";
+import { ArrowDownToLine, CircleCheck, FilePlus2, FileUp, FolderOpen, KeyRound, ShieldCheck, SquareTerminal, Terminal, Trash2, TriangleAlert } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { readTextFile, stat } from "@tauri-apps/plugin-fs";
 import { Button } from "../ui/Button";
@@ -19,6 +19,7 @@ import { ImportErrors, KeyFactsRow, KeyFileList, KeyViewerDialog, useKeyFacts, t
 import { GenerateKeyDialog } from "./GenerateKeyDialog";
 import { SshAuthChoiceDialog } from "../terminal/SshAuthChoiceDialog";
 import { requestSshSession } from "../../lib/sshTerminalRequest";
+import { requestRemoteFiles } from "../../lib/sftpRequest";
 import { sshLabel, sshMethods } from "../../lib/sshConnect";
 import { applyGeneratedKey, defaultComment, type GeneratedKey } from "../../lib/sshKeygen";
 import { toast } from "../../lib/toast";
@@ -123,7 +124,8 @@ function SshEntryEditorInner({ tab }: { tab: Tab }) {
   const [errors, setErrors] = useState<ImportError[]>([]);
   const [importing, setImporting] = useState(false);
   const [generating, setGenerating] = useState(false);
-  const [choosing, setChoosing] = useState(false);
+  /** Which sign-in method to ask about, and where the server then opens (null = not asking). */
+  const [choosing, setChoosing] = useState<"terminal" | "files" | null>(null);
   const busy = useRef(false);
 
   const { announce, region } = useAnnouncer();
@@ -196,18 +198,20 @@ function SshEntryEditorInner({ tab }: { tab: Tab }) {
 
   // ── Open in the built-in terminal ──────────────────────────────────────────
 
-  const startTerminal = (method: SshAuth) => {
-    setChoosing(false);
+  const startServer = (where: "terminal" | "files", method: SshAuth) => {
+    setChoosing(null);
     if (!tab.filePath) return;
-    requestSshSession({ path: tab.filePath, auth: method, title: currentEntry(tab).title.trim() || sshLabel(f) });
+    const target = { path: tab.filePath, auth: method, title: currentEntry(tab).title.trim() || sshLabel(f) };
+    if (where === "files") requestRemoteFiles(target); else requestSshSession(target);
   };
 
-  const openInTerminal = () => {
+  const openServer = (where: "terminal" | "files") => {
     const methods = sshMethods(f);
     if (methods.length === 0) { toast.error("Add a private key or a password first"); return; }
-    if (methods.length === 1) startTerminal(methods[0]);
-    else setChoosing(true); // both saved: ask which one to sign in with
+    if (methods.length === 1) startServer(where, methods[0]);
+    else setChoosing(where); // both saved: ask which one to sign in with
   };
+  const openInTerminal = () => openServer("terminal");
 
   // ── Generate a new key pair ───────────────────────────────────────────────
 
@@ -321,6 +325,11 @@ function SshEntryEditorInner({ tab }: { tab: Tab }) {
                                : tab.vaultLocked ? "Unlock the vault first" : "Open in terminal"}
                              disabled={!!tab.isDirty || !!tab.vaultLocked || !tab.filePath}
                              onClick={openInTerminal} />
+              <RowIconButton label="Open file manager" icon={<FolderOpen size={13} />}
+                             tooltip={tab.isDirty ? "Save this entry first (Ctrl+S); the file manager uses the saved version"
+                               : tab.vaultLocked ? "Unlock the vault first" : "Open file manager"}
+                             disabled={!!tab.isDirty || !!tab.vaultLocked || !tab.filePath}
+                             onClick={() => openServer("files")} />
             </div>
           )}
         </Section>
@@ -462,8 +471,8 @@ function SshEntryEditorInner({ tab }: { tab: Tab }) {
         <SshAuthChoiceDialog
           name={currentEntry(tab).title.trim() || "this server"}
           label={sshLabel(f)}
-          onPick={startTerminal}
-          onClose={() => setChoosing(false)}
+          onPick={(m) => startServer(choosing, m)}
+          onClose={() => setChoosing(null)}
         />
       )}
       {generating && (

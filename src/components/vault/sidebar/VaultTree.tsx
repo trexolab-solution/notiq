@@ -52,6 +52,8 @@ interface Props {
   onTrash: (node: TreeNode) => void;
   /** SSH entries: open the server in the built-in terminal. */
   onOpenTerminal?: (node: TreeNode) => void;
+  /** SSH entries: open the server's files in the remote file manager. */
+  onOpenFiles?: (node: TreeNode) => void;
   onMenu: (key: string | null, node: TreeNode | null, x: number, y: number) => void;
   onMove: (rel: string, destFolder: string) => void;
   /** "Changed by sync" markers by lower-cased rel (dots on rows and collapsed folders). */
@@ -245,6 +247,11 @@ export function VaultTree(p: Props) {
     p.onOpenTerminal?.(node);
   }, [onSelectKey, p.onOpenTerminal]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const onRowOpenFiles = useCallback((key: string, node: TreeNode) => {
+    onSelectKey(key);
+    p.onOpenFiles?.(node);
+  }, [onSelectKey, p.onOpenFiles]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const onRowMenu = useCallback((key: string, node: TreeNode, x: number, y: number) => {
     onSelectKey(key);
     p.onMenu(key, node, x, y);
@@ -293,6 +300,7 @@ export function VaultTree(p: Props) {
       onSelect={onRowSelect}
       onOpenNew={onRowOpenNew}
       onOpenTerminal={p.onOpenTerminal ? onRowOpenTerminal : undefined}
+      onOpenFiles={p.onOpenFiles ? onRowOpenFiles : undefined}
       onToggle={p.onToggle}
       onMenu={onRowMenu}
       setRef={setRef}

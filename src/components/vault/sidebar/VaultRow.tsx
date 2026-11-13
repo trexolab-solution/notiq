@@ -1,6 +1,6 @@
 import { memo, useCallback, type MouseEvent, type ReactNode } from "react";
 import { useDraggable, useDroppable } from "@dnd-kit/core";
-import { ChevronRight, Ellipsis, SquareArrowOutUpRight, SquareTerminal, Star } from "lucide-react";
+import { ChevronRight, Ellipsis, FolderOpen, SquareArrowOutUpRight, SquareTerminal, Star } from "lucide-react";
 import type { TreeNode } from "../../../lib/vaultTree";
 import { isTextFieldTarget } from "../../../lib/contextMenu/target";
 import { Tooltip } from "../../ui/Tooltip";
@@ -42,6 +42,8 @@ interface Props {
   onOpenNew: (key: string, node: TreeNode) => void;
   /** SSH entries only: open the server in the built-in terminal (hover button). */
   onOpenTerminal?: (key: string, node: TreeNode) => void;
+  /** SSH entries only: open the server's files in the remote file manager (hover button). */
+  onOpenFiles?: (key: string, node: TreeNode) => void;
   onToggle: (rel: string) => void;
   onMenu: (key: string, node: TreeNode, x: number, y: number) => void;
   setRef: (key: string, el: HTMLDivElement | null) => void;
@@ -50,7 +52,7 @@ interface Props {
 /** One file-tree row: chevron, type icon, name, compact tags, star and a "more" button. */
 export const VaultRow = memo(function VaultRow({
   rowKey, node, depth, expanded, selected, isOpen, isDrop, dropFolder, showPath, subtitle, editor, isTarget,
-  syncMark, syncMarkInside, onSelect, onOpenNew, onOpenTerminal, onToggle, onMenu, setRef,
+  syncMark, syncMarkInside, onSelect, onOpenNew, onOpenTerminal, onOpenFiles, onToggle, onMenu, setRef,
 }: Props) {
   const drag = useDraggable({
     id: rowKey,
@@ -158,6 +160,21 @@ export const VaultRow = memo(function VaultRow({
                 onClick={(e) => { e.stopPropagation(); onOpenTerminal(rowKey, node); }}
               >
                 <SquareTerminal size={12} />
+              </button>
+            </Tooltip>
+          )}
+          {node.kind === "ssh" && onOpenFiles && (
+            <Tooltip content="Open file manager">
+              <button
+                type="button"
+                className="vt-icon-btn vt-row-more"
+                tabIndex={-1}
+                aria-label={`Open files on ${node.name}`}
+                onPointerDown={(e) => e.stopPropagation()}
+                onDoubleClick={(e) => e.stopPropagation()}
+                onClick={(e) => { e.stopPropagation(); onOpenFiles(rowKey, node); }}
+              >
+                <FolderOpen size={12} />
               </button>
             </Tooltip>
           )}
