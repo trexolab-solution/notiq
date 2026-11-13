@@ -2,14 +2,18 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { open as pickFiles, save as pickSave } from "@tauri-apps/plugin-dialog";
 import {
-  ArrowUp, Download, Eye, EyeOff, FolderPlus, Pencil, RefreshCw, Search, SquareArrowOutUpRight, Trash2, Upload,
+  ArrowUp, Copy, Download, Eye, EyeOff, FilePenLine, FolderOpen, FolderPlus, Pencil, RefreshCw, Search, SquareArrowOutUpRight,
+  Trash2, Upload,
 } from "lucide-react";
 import { Dialog, DialogBody, DialogButton, DialogFooter } from "../ui/Dialog";
 import { ConfirmDialog } from "../ui/ConfirmDialog";
+import { ContextMenu, type ContextMenuItem } from "../ui/ContextMenu";
+import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
 import { Input } from "../ui/Input";
 import { DropHighlight, useDropTarget } from "../ui/DropZone";
 import { RowIconButton } from "../vault/ListEditor";
 import { RemoteFileTable } from "./RemoteFileTable";
+import { RemoteFileViewer } from "./RemoteFileViewer";
 import { RemoteTransfers, type Transfer } from "./RemoteTransfers";
 import { toast } from "../../lib/toast";
 import { getFileName, joinPath } from "../../lib/pathUtils";
@@ -76,6 +80,10 @@ export function RemoteFilesPanel({ target, active = true, onPopOut }: {
   const [deleting, setDeleting] = useState<RemoteEntry[] | null>(null);
   const [replace, setReplace] = useState<{ name: string; answer: (yes: boolean) => void } | null>(null);
   const [editingPath, setEditingPath] = useState<string | null>(null);
+  const [menu, setMenu] = useState<{ x: number; y: number; entry: RemoteEntry | null } | null>(null);
+  /** The file open in the viewer, with the folder it is in. */
+  const [viewing, setViewing] = useState<{ entry: RemoteEntry; dir: string } | null>(null);
+  const { copy } = useCopyToClipboard();
 
   const rootEl = useRef<HTMLDivElement>(null);
   const sid = useRef(0);
@@ -216,9 +224,44 @@ export function RemoteFilesPanel({ target, active = true, onPopOut }: {
     } catch (e) { toast.error(sftpErrorMessage(e)); }
   };
 
+  /** A folder opens in the list; a file opens in the viewer (pictures shown, text edited); anything else is downloaded. */
   const openEntry = (e: RemoteEntry) => {
     if (e.kind === "dir") void load(joinRemote(path, e.name));
-    else if (e.kind === "file") void download([e]);
+    else if (e.kind === "file") setViewing({ entry: e, dir: path });
+    else void download([e]);
+  };
+
+  // Right-click: a row not in the selection becomes the selection first, like a file manager does.
+  const openMenu = (entry: RemoteEntry | null, x: number, y: number) => {
+    if (entry && !selected.has(entry.name)) select(entry.name, "single");
+    setMenu({ x, y, entry });
+  };
+
+  const menuItems = (entry: RemoteEntry | null): ContextMenuItem[] => {
+    const here: ContextMenuItem[] = [
+      { type: "item", label: "Upload here\u2026", icon: <Upload size={13} />, onClick: () => void chooseUpload() },
+      { type: "item", label: "New folder\u2026", icon: <FolderPlus size={13} />, onClick: () => setPrompt({ kind: "folder" }) },
+      { type: "item", label: "Refresh", icon: <RefreshCw size={13} />, onClick: () => void load(path) },
+      { type: "item", label: "Copy folder path", icon: <Copy size={13} />, onClick: () => void copy(path) },
+    ];
+    if (!entry) return here;
+    // The menu acts on the whole selection when the clicked row is part of it.
+    const group = selected.has(entry.name) && picked.length > 1 ? picked : [entry];
+    const files = group.filter((e) => e.kind !== "dir");
+    const one = group.length === 1;
+    return [
+      one && entry.kind === "dir"
+        ? { type: "item", label: "Open", icon: <FolderOpen size={13} />, onClick: () => openEntry(entry) }
+        : { type: "item", label: "Open / edit", icon: <FilePenLine size={13} />, disabled: !one || entry.kind !== "file", onClick: () => openEntry(entry) },
+      { type: "item", label: files.length > 1 ? `Download ${files.length} files\u2026` : "Download\u2026", icon: <Download size={13} />, disabled: files.length === 0, onClick: () => void download(files) },
+      { type: "separator" },
+      { type: "item", label: "Rename\u2026", icon: <Pencil size={13} />, shortcut: "F2", disabled: !one, onClick: () => setPrompt({ kind: "rename", entry }) },
+      { type: "item", label: "Copy path", icon: <Copy size={13} />, disabled: !one, onClick: () => void copy(joinRemote(path, entry.name)) },
+      { type: "separator" },
+      { type: "item", label: one ? "Delete\u2026" : `Delete ${group.length} items\u2026`, icon: <Trash2 size={13} />, shortcut: "Del", danger: true, onClick: () => setDeleting(group) },
+      { type: "separator" },
+      ...here,
+    ];
   };
 
   // ── changing things on the server ────────────────────────────────────────────
@@ -249,6 +292,11 @@ export function RemoteFilesPanel({ target, active = true, onPopOut }: {
     else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "a") { e.preventDefault(); setSelected(new Set(shown.map((x) => x.name))); }
   };
 
+  // Why nothing is listed: an empty folder, only dot files that are hidden, or a filter that matches nothing.
+  const emptyText = entries.length === 0 ? "This folder is empty."
+    : !showHidden && entries.every((e) => e.name.startsWith(".")) && !filter.trim()
+      ? "Only hidden (dot) files here. Use the eye button to show them."
+      : "Nothing matches the filter.";
   const count = entries.length;
   const status = !ready ? "" : loading ? "Loading…"
     : `${count} item${count === 1 ? "" : "s"}${picked.length ? ` · ${picked.length} selected` : ""}`;
@@ -315,19 +363,25 @@ export function RemoteFilesPanel({ target, active = true, onPopOut }: {
                   <DialogButton variant={picked.length === 0 ? "secondary" : "danger"} icon={<Trash2 size={13} />} disabled={picked.length === 0} onClick={() => setDeleting(picked)}>Delete</DialogButton>
                 </div>
 
-                <RemoteFileTable entries={shown} selected={selected} sort={sort} onSort={sortBy} onSelect={select} onOpen={openEntry}
-                                 empty={entries.length === 0 ? "This folder is empty." : "Nothing matches the filter."} />
+                <RemoteFileTable entries={shown} selected={selected} sort={sort} onSort={sortBy} onSelect={select} onOpen={openEntry} onMenu={openMenu}
+                                 empty={emptyText} />
               </>
             )}
             <RemoteTransfers items={transfers}
                              onCancel={(id) => void sftpCancel(id)}
                              onClear={() => setTransfers((ts) => ts.filter((t) => t.state === "running"))} />
+            {viewing && (
+              <RemoteFileViewer session={sid.current} path={joinRemote(viewing.dir, viewing.entry.name)} name={viewing.entry.name}
+                                onClose={() => setViewing(null)} onDownload={() => void download([viewing.entry])}
+                                onSaved={() => void load(pathRef.current)} />
+            )}
             {dropping && <DropHighlight icon={<Upload size={16} />}>Drop files to upload to {path}</DropHighlight>}
         <div className="shrink-0 flex items-center h-7 px-3 border-t border-[var(--color-border)] text-xs text-[var(--color-text-muted)]" role="status">
           {status || `Files on ${title}`}
         </div>
       </div>
 
+      {menu && <ContextMenu x={menu.x} y={menu.y} items={menuItems(menu.entry)} onClose={() => setMenu(null)} label={menu.entry ? `Actions for ${menu.entry.name}` : "Folder actions"} />}
       {prompt?.kind === "folder" && (
         <NameDialog title="New folder" label="Folder name" initial="" confirm="Create" onSubmit={makeFolder} onClose={() => setPrompt(null)} />
       )}

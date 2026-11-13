@@ -21,6 +21,9 @@ export interface OpenedSftp { title: string; home: string }
 /** What a transfer command says when the user stopped it, or when the target already exists. */
 export const SFTP_CANCELLED = "cancelled";
 export const SFTP_EXISTS = "already_exists";
+/** What reading a file for the viewer says when it is over the limit; what saving says when the file changed on the server. */
+export const SFTP_TOO_BIG = "too_big";
+export const SFTP_CHANGED = "changed";
 
 export const sftpOpen = (id: number, path: string, auth: string) => invoke<OpenedSftp>("sftp_open", { id, path, auth });
 export const sftpClose = (id: number) => invoke<void>("sftp_close", { id });
@@ -34,6 +37,12 @@ export const sftpDownload = (id: number, transferId: number, remote: string, loc
   invoke<number>("sftp_download", { id, transferId, remote, local, overwrite });
 export const sftpUpload = (id: number, transferId: number, local: string, remote: string, overwrite: boolean) =>
   invoke<number>("sftp_upload", { id, transferId, local, remote, overwrite });
+
+export interface RemoteFileData { data: string; mtime: number | null }
+export const sftpRead = (id: number, path: string, limit: number) => invoke<RemoteFileData>("sftp_read", { id, path, limit });
+/** Saves `text` over the file; `expect` is the modified time it was opened with, `force` overwrites a file changed since. */
+export const sftpWrite = (id: number, path: string, text: string, expect: number | null, force: boolean) =>
+  invoke<number | null>("sftp_write", { id, path, text, expect, force });
 
 export interface SftpProgress { transfer: number; done: number; total: number }
 export const onSftpProgress = (fn: (p: SftpProgress) => void) => listen<SftpProgress>("sftp-progress", (e) => fn(e.payload));
@@ -127,3 +136,34 @@ export function formatModified(mtime: number | null, now = new Date()): string {
 
 /** 0–100 for a progress bar; an empty file is done. */
 export const percent = (done: number, total: number): number => (total <= 0 ? 100 : Math.min(100, Math.floor((done / total) * 100)));
+
+// ── the in-app viewer ───────────────────────────────────────────────────────────
+
+/** Biggest image and biggest text file the viewer opens (bigger ones are downloaded instead). */
+export const MAX_IMAGE_BYTES = 25 * 1024 * 1024;
+export const MAX_TEXT_BYTES = 2 * 1024 * 1024;
+
+const IMAGE_MIME: Record<string, string> = {
+  png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp",
+  bmp: "image/bmp", svg: "image/svg+xml", ico: "image/x-icon", avif: "image/avif",
+};
+
+/** The picture type for a file name, or null when it isn't an image the viewer can show. */
+export function imageMime(name: string): string | null {
+  const i = name.lastIndexOf(".");
+  return i < 0 ? null : IMAGE_MIME[name.slice(i + 1).toLowerCase()] ?? null;
+}
+
+/** Bytes from the backend's base64. */
+export function bytesFromBase64(b64: string): Uint8Array {
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+/** The text in `bytes`, or null when they aren't text (a NUL byte, or not valid UTF-8). */
+export function decodeText(bytes: Uint8Array): string | null {
+  if (bytes.includes(0)) return null;
+  try { return new TextDecoder("utf-8", { fatal: true }).decode(bytes); } catch { return null; }
+}

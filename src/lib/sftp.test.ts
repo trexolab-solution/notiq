@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  imageMime, bytesFromBase64, decodeText,
   crumbs, joinRemote, modeOctal, modeString, nameProblem, parentRemote, parseOctalMode, percent, sortEntries, visibleEntries,
   type RemoteEntry,
 } from "./sftp";
@@ -72,5 +73,22 @@ describe("progress", () => {
     expect(percent(50, 200)).toBe(25);
     expect(percent(5, 3)).toBe(100);
     expect(percent(0, 0)).toBe(100);
+  });
+});
+
+describe("the viewer's helpers", () => {
+  it("knows which files are pictures", () => {
+    expect(imageMime("Photo.JPG")).toBe("image/jpeg");
+    expect(imageMime("logo.svg")).toBe("image/svg+xml");
+    expect(imageMime("notes.txt")).toBeNull();
+    expect(imageMime("png")).toBeNull();
+  });
+
+  it("decodes base64 and tells text from binary", () => {
+    const bytes = bytesFromBase64(btoa("héllo"));
+    expect(bytes.length).toBe(5);
+    expect(decodeText(new TextEncoder().encode("héllo ✓"))).toBe("héllo ✓");
+    expect(decodeText(new Uint8Array([104, 0, 105]))).toBeNull();
+    expect(decodeText(new Uint8Array([0xff, 0xfe, 0x41]))).toBeNull();
   });
 });

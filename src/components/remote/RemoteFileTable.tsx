@@ -12,6 +12,8 @@ interface Props {
   /** Click on a row: `mode` says whether Ctrl/Cmd (toggle) or Shift (range) was held. */
   onSelect: (name: string, mode: "single" | "toggle" | "range") => void;
   onOpen: (entry: RemoteEntry) => void;
+  /** Right-click on a row (`entry`) or on the empty space below the rows (`null`), at screen position x, y. */
+  onMenu: (entry: RemoteEntry | null, x: number, y: number) => void;
   /** The empty-state text (an empty folder, or nothing matches the filter). */
   empty: string;
 }
@@ -39,7 +41,7 @@ function Glyph({ e }: { e: RemoteEntry }) {
 }
 
 /** The folder's listing: name, size, modified, permissions; click selects, double-click opens. */
-export function RemoteFileTable({ entries, selected, sort, onSort, onSelect, onOpen, empty }: Props) {
+export function RemoteFileTable({ entries, selected, sort, onSort, onSelect, onOpen, onMenu, empty }: Props) {
   return (
     <div role="grid" aria-label="Remote files" aria-multiselectable className="flex flex-col min-h-0 flex-1">
       <div role="row" className={`grid ${COLUMNS} items-center h-7 shrink-0 text-[11px] font-medium uppercase tracking-wide text-[var(--color-text-muted)] border-b border-[var(--color-border)]`}>
@@ -48,7 +50,7 @@ export function RemoteFileTable({ entries, selected, sort, onSort, onSelect, onO
         <Header label="Modified" k="mtime" sort={sort} onSort={onSort} />
         <Header label="Access" sort={sort} onSort={onSort} />
       </div>
-      <div className="flex-1 min-h-0 overflow-y-auto" data-remote-rows="">
+      <div className="flex-1 min-h-0 overflow-y-auto" data-remote-rows="" onContextMenu={(ev) => { ev.preventDefault(); onMenu(null, ev.clientX, ev.clientY); }}>
         {entries.length === 0 && <p className="px-3 py-8 text-center text-sm text-[var(--color-text-muted)]">{empty}</p>}
         {entries.map((e) => {
           const on = selected.has(e.name);
@@ -56,6 +58,7 @@ export function RemoteFileTable({ entries, selected, sort, onSort, onSelect, onO
             <div key={e.name} role="row" aria-selected={on} tabIndex={-1} data-name={e.name}
                  onClick={(ev) => onSelect(e.name, ev.shiftKey ? "range" : ev.ctrlKey || ev.metaKey ? "toggle" : "single")}
                  onDoubleClick={() => onOpen(e)}
+                 onContextMenu={(ev) => { ev.preventDefault(); ev.stopPropagation(); onMenu(e, ev.clientX, ev.clientY); }}
                  className={`grid ${COLUMNS} items-center h-8 text-sm cursor-default select-none ${on
                    ? "bg-[var(--color-primary)]/15 text-[var(--color-text)]" : "hover:bg-[var(--color-bg-tertiary)]"}`}>
               <div role="gridcell" className="flex items-center gap-2 px-2 min-w-0">

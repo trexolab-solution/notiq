@@ -796,6 +796,8 @@ pub fn run() {
         sftp_client::sftp_cancel,
         sftp_client::sftp_download,
         sftp_client::sftp_upload,
+        sftp_client::sftp_read,
+        sftp_client::sftp_write,
         term::terminal_write,
         term::terminal_resize,
         term::terminal_kill,

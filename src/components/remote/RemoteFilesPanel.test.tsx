@@ -9,6 +9,12 @@ vi.mock("@tauri-apps/api/core", () => ({ invoke: (cmd: string, args?: unknown) =
 vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn(async () => () => {}) }));
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn(async () => null), save: (...a: unknown[]) => pickSave(...a) }));
 vi.mock("../../lib/toast", () => ({ toast: { info: vi.fn(), error: vi.fn(), success: vi.fn(), warning: vi.fn(), dismiss: vi.fn() } }));
+vi.mock("@monaco-editor/react", () => ({
+  default: (p: { value: string; onChange: (v: string) => void }) => (
+    <textarea data-testid="editor" value={p.value} onChange={(e) => p.onChange(e.target.value)} />
+  ),
+}));
+vi.mock("@tauri-apps/plugin-clipboard-manager", () => ({ writeText: vi.fn(async () => {}) }));
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const { RemoteFilesPanel } = await import("./RemoteFilesPanel");
@@ -34,6 +40,8 @@ function fakeServer() {
         return { path, entries: TREE[path] };
       }
       case "sftp_download": return 2048;
+      case "sftp_read": return { data: btoa("hello"), mtime: 1_700_000_000 };
+      case "sftp_write": return 1_700_000_001;
       case "sftp_remove": return undefined;
       default: return undefined;
     }
@@ -122,5 +130,32 @@ describe("RemoteFilesPanel", () => {
     await act(async () => root.unmount());
     expect(invoke).toHaveBeenCalledWith("sftp_close", expect.anything());
     root = createRoot(host); // so afterEach can unmount
+  });
+
+  it("right-click selects the row and offers the file actions", async () => {
+    fakeServer();
+    await show();
+    await act(async () => { rows()[1].dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 40, clientY: 40 })); });
+    const labels = [...document.querySelectorAll("[role=menu] button, [role=menuitem]")].map((b) => b.textContent?.trim());
+    for (const want of ["Open / edit", "Download…", "Rename…", "Copy path", "Delete…"]) {
+      expect(labels.some((l) => l?.startsWith(want))).toBe(true);
+    }
+    expect(rows()[1].getAttribute("aria-selected")).toBe("true");
+  });
+
+  it("opens a text file in the editor and saves the change back with the modified time it was opened with", async () => {
+    fakeServer();
+    await show();
+    await act(async () => { rows()[1].dispatchEvent(new MouseEvent("dblclick", { bubbles: true })); });
+    await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+    expect(invoke).toHaveBeenCalledWith("sftp_read", expect.objectContaining({ path: "/home/alice/notes.txt" }));
+    const ed = document.querySelector<HTMLTextAreaElement>("[data-testid=editor]")!;
+    expect(ed.value).toBe("hello");
+    expect(button("Save").disabled).toBe(true);
+    const set = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!;
+    await act(async () => { set.call(ed, "hello world"); ed.dispatchEvent(new Event("input", { bubbles: true })); });
+    expect(button("Save").disabled).toBe(false);
+    await click(button("Save"));
+    expect(invoke).toHaveBeenCalledWith("sftp_write", expect.objectContaining({ path: "/home/alice/notes.txt", text: "hello world", expect: 1_700_000_000, force: false }));
   });
 });

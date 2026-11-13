@@ -43,7 +43,7 @@ export async function openRemoteFilesWindow(t: SshTarget): Promise<void> {
       url: filesWindowUrl(t),
       title: `Files · ${t.title}`,
       width: 1040, height: 700, minWidth: 640, minHeight: 420,
-      center: true, decorations: true, visible: true, resizable: true,
+      center: true, decorations: false, shadow: true, visible: true, resizable: true,
     });
     await w.once("tauri://error", () => toast.error("Couldn't open the file manager window"));
   } catch (e) {

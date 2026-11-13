@@ -28,6 +28,10 @@ const MAX_DEPTH: u32 = 64;
 pub const CANCELLED: &str = "cancelled";
 /// What a transfer says when the target is already there and overwriting wasn't asked for.
 pub const EXISTS: &str = "already_exists";
+/// What reading a file for the viewer says when it is bigger than the viewer allows.
+pub const TOO_BIG: &str = "too_big";
+/// What saving an edited file says when it changed on the server after it was opened.
+pub const CHANGED: &str = "changed";
 
 // ── opening a session ────────────────────────────────────────────────────────
 
@@ -99,6 +103,14 @@ pub struct Entry {
     pub mtime: Option<u32>,
     /// Permission bits only (`0o755`).
     pub mode: Option<u32>,
+}
+
+/// A whole file read for the in-app viewer.
+#[derive(Debug)]
+pub struct Content {
+    pub data: Vec<u8>,
+    /// Seconds since 1970; saving compares it to notice a change made elsewhere.
+    pub mtime: Option<u32>,
 }
 
 #[derive(Serialize, Debug)]
@@ -198,6 +210,41 @@ impl Sftp {
         })
     }
 
+    /// Reads a whole file (following links) for the viewer. Files over `limit` bytes aren't read.
+    pub async fn read_file(&self, remote: &str, limit: u64) -> Result<Content, String> {
+        let meta = self.sftp.metadata(remote).await.map_err(nice)?;
+        if meta.is_dir() { return Err("That is a folder.".into()); }
+        if meta.size.unwrap_or(0) > limit { return Err(TOO_BIG.into()); }
+        let mut f = self.sftp.open(remote).await.map_err(nice)?;
+        let mut data = Vec::new();
+        // One byte more than the limit, so a file that grew since the listing is still refused.
+        let r = (&mut f).take(limit + 1).read_to_end(&mut data).await.map_err(|e| format!("Couldn't read the file: {e}"));
+        let _ = f.shutdown().await;
+        r?;
+        if data.len() as u64 > limit { return Err(TOO_BIG.into()); }
+        Ok(Content { data, mtime: meta.mtime })
+    }
+
+    /// Replaces a file's contents in place (so its owner and permissions stay). With `expect` (the modified time
+    /// the file had when it was opened) and no `force`, a file changed since then is refused with [`CHANGED`].
+    /// Returns the file's new modified time.
+    pub async fn write_file(&self, remote: &str, data: &[u8], expect: Option<u32>, force: bool) -> Result<Option<u32>, String> {
+        if !force {
+            if let Some(want) = expect {
+                let now = self.sftp.metadata(remote).await.map_err(nice)?.mtime;
+                if now != Some(want) { return Err(CHANGED.into()); }
+            }
+        }
+        let mut dst = self.sftp.open_with_flags(remote, OpenFlags::CREATE | OpenFlags::TRUNCATE | OpenFlags::WRITE).await.map_err(nice)?;
+        let r: Result<(), String> = async {
+            dst.write_all(data).await.map_err(|e| format!("The save stopped: {e}"))?;
+            dst.flush().await.map_err(|e| format!("The save stopped: {e}"))
+        }.await;
+        let _ = dst.shutdown().await;
+        r?;
+        Ok(self.sftp.metadata(remote).await.map_err(nice)?.mtime)
+    }
+
     /// Copies a remote file to `local`, reporting `(done, total)` bytes. A half-written file never takes the
     /// target's place: it is written beside it and renamed at the end.
     pub async fn download(&self, remote: &str, local: &Path, overwrite: bool, progress: &(dyn Fn(u64, u64) + Sync), cancel: &AtomicBool) -> Result<u64, String> {
@@ -290,6 +337,10 @@ mod commands {
     #[derive(Serialize)]
     pub struct Opened { title: String, home: String }
 
+    /// A file for the viewer: the bytes as base64 (an image is shown from them, text is decoded in the web view).
+    #[derive(Serialize)]
+    pub struct FileData { data: String, mtime: Option<u32> }
+
     #[tauri::command]
     pub async fn sftp_open(id: u32, path: String, auth: String, app: AppHandle, state: State<'_, SftpState>,
                            vault: State<'_, crate::vault::VaultState>) -> Result<Opened, String> {
@@ -331,6 +382,20 @@ mod commands {
     #[tauri::command]
     pub async fn sftp_remove(id: u32, path: String, state: State<'_, SftpState>) -> Result<(), String> {
         state.session(id)?.remove(&path).await
+    }
+
+    #[tauri::command]
+    pub async fn sftp_read(id: u32, path: String, limit: u64, state: State<'_, SftpState>) -> Result<FileData, String> {
+        use base64::Engine as _;
+        let c = state.session(id)?.read_file(&path, limit).await?;
+        Ok(FileData { data: base64::engine::general_purpose::STANDARD.encode(&c.data), mtime: c.mtime })
+    }
+
+    /// Saves text the viewer edited; `expect` is the modified time it was opened with (see `Sftp::write_file`).
+    #[tauri::command]
+    pub async fn sftp_write(id: u32, path: String, text: String, expect: Option<u32>, force: bool,
+                            state: State<'_, SftpState>) -> Result<Option<u32>, String> {
+        state.session(id)?.write_file(&path, text.as_bytes(), expect, force).await
     }
 
     /// Stops a running transfer; the transfer's own command then returns `cancelled`.
@@ -594,6 +659,37 @@ mod tests {
         assert_eq!(names, vec![("zdir", "dir"), ("A.txt", "file"), ("b.txt", "file")]);
         assert_eq!(l.entries.iter().filter(|e| e.kind == "file").map(|e| e.size).collect::<Vec<_>>(), vec![1, 2]);
         assert!(s.list("/nope").await.is_err());
+    }
+
+    #[tokio::test]
+    async fn reads_a_file_for_the_viewer_and_refuses_a_big_one() {
+        let f = start(true).await;
+        std::fs::write(f.root.join("note.txt"), "héllo").unwrap();
+        std::fs::write(f.root.join("big.bin"), vec![7u8; 5000]).unwrap();
+        let s = session(&f).await;
+        let c = s.read_file("/note.txt", 1000).await.unwrap();
+        assert_eq!(String::from_utf8(c.data).unwrap(), "héllo");
+        assert_eq!(s.read_file("/big.bin", 4999).await.unwrap_err(), TOO_BIG);
+        assert_eq!(s.read_file("/big.bin", 5000).await.unwrap().data.len(), 5000);
+        assert!(s.read_file("/nope", 10).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn saves_an_edit_in_place_and_notices_a_change_made_elsewhere() {
+        let f = start(true).await;
+        let file = f.root.join("conf.txt");
+        std::fs::write(&file, "one two three").unwrap();
+        let s = session(&f).await;
+        let opened = s.read_file("/conf.txt", 1000).await.unwrap();
+        // A shorter text replaces the longer one completely.
+        s.write_file("/conf.txt", b"new", opened.mtime, false).await.unwrap();
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "new");
+        // The file was changed behind the editor's back: refused, unless forced.
+        let stale = Some(opened.mtime.unwrap_or(0).wrapping_sub(100));
+        assert_eq!(s.write_file("/conf.txt", b"mine", stale, false).await.unwrap_err(), CHANGED);
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "new");
+        s.write_file("/conf.txt", b"mine", stale, true).await.unwrap();
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "mine");
     }
 
     #[tokio::test]

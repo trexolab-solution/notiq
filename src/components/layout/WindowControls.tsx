@@ -22,7 +22,8 @@ function RestoreIcon() {
   )
 }
 
-export function WindowControls() {
+/** `onClose` replaces the default (hide to the tray), for windows that really close, like the file manager's. */
+export function WindowControls({ onClose }: { onClose?: () => void } = {}) {
   const [maximized, setMaximized] = useState(false)
 
   useEffect(() => {
@@ -54,7 +55,7 @@ export function WindowControls() {
         </button>
       </Tooltip>
       <Tooltip content="Close" delay={800}>
-        <button className="win-btn win-btn--close" aria-label="Close" onClick={() => win.hide()}>
+        <button className="win-btn win-btn--close" aria-label="Close" onClick={() => (onClose ? onClose() : win.hide())}>
           <X size={11} strokeWidth={1.8} />
         </button>
       </Tooltip>

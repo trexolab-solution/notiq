@@ -1,7 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
+import type { MouseEvent } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { RemoteFilesPanel } from "./RemoteFilesPanel";
+import { WindowControls } from "../layout/WindowControls";
+import { appWin } from "../../lib/tauriWindow";
+import logoUrl from "../../assets/logo.png";
 import { parseFilesHash } from "../../lib/remoteFilesWindow";
 import { dragLeave, dragMove, dropAt } from "../../lib/dropTargets";
 import { applyTheme } from "../../lib/themes";
@@ -43,5 +47,26 @@ export default function RemoteFilesApp() {
   if (!target) {
     return <p className="p-6 text-sm text-[var(--color-text-muted)]">This window wasn't opened for a server. Close it and use “Open file manager” on a saved SSH entry.</p>;
   }
-  return <div className="h-screen w-screen"><RemoteFilesPanel target={target} /></div>;
+  // The same frameless header as the main window (brand, controls), so this window looks like part of the app.
+  const onHeaderMouseDown = (e: MouseEvent<HTMLElement>) => {
+    if (e.buttons !== 1 || (e.target as HTMLElement).closest("button, input, a, select")) return;
+    if (e.detail === 2) void appWin?.toggleMaximize(); else void appWin?.startDragging();
+  };
+  return (
+    <div className="h-screen w-screen flex flex-col bg-[var(--color-bg)]">
+      <header className="app-header" onMouseDown={onHeaderMouseDown}>
+        <div className="header-left">
+          <div className="app-brand">
+            <img src={logoUrl} alt="Notiq" draggable={false} className="app-brand-logo" />
+            <span className="app-brand-name">Notiq</span>
+          </div>
+        </div>
+        <div className="header-center">
+          <span className="text-xs text-[var(--color-text-muted)] truncate px-2">Files · {target.title}</span>
+        </div>
+        <div className="header-right"><WindowControls onClose={() => void appWin?.close()} /></div>
+      </header>
+      <div className="flex-1 min-h-0"><RemoteFilesPanel target={target} /></div>
+    </div>
+  );
 }
