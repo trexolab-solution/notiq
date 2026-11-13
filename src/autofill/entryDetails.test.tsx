@@ -191,7 +191,17 @@ describe("details view", () => {
   it("layout: websites as a list, notes in their own scrolling box, one action column per row", async () => {
     await render(deps(loginFile));
     expect(host.querySelectorAll('ul[aria-label="Websites"] > li')).toHaveLength(2);
+    // Notes start collapsed (not in the DOM at all); the row says how long they are and opens on a click.
+    expect(host.querySelector(".af-notes")).toBeNull();
+    expect(host.textContent).not.toContain("Branch 12");
+    const toggle = host.querySelector<HTMLButtonElement>("button.af-notes-toggle")!;
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(toggle.textContent).toContain("1 line");
+    await act(async () => { toggle.click(); });
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
     expect(host.querySelector(".af-notes")?.textContent).toBe("Branch 12");
+    await act(async () => { toggle.click(); });
+    expect(host.querySelector(".af-notes")).toBeNull();
     // Every row ends in the same two slots (reveal or a spacer, then copy), so the edges line up.
     for (const li of host.querySelectorAll('ul[aria-label="Fields"] > li, ul[aria-label="Custom fields"] > li')) {
       expect(li.lastElementChild!.children.length, li.textContent ?? "").toBe(2);

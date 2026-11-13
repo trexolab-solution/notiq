@@ -611,6 +611,12 @@ interface PanelProps {
 /** What a request will fill, for the header ("Login", "Payment card"…). */
 interface Kind { icon: ReactNode; label: string }
 
+/** Dragging the header moves the window (the window has no title bar); buttons in it stay clickable. */
+function dragWindow(e: React.MouseEvent<HTMLElement>) {
+  if (e.button !== 0 || (e.target as HTMLElement).closest("button, a, input, select, textarea")) return;
+  void getCurrentWindow().startDragging().catch(() => { /* not in a Tauri window (tests) */ });
+}
+
 /** The whole window as one dialog: site header, scrolling body, footer. Esc / × = deny. */
 function Panel({ refs, host, title, sub, icon, kind, tone = "primary", onClose, onEscape, defaultFocus, onSubmit, footer, children }: PanelProps) {
   const panelRef = useRef<HTMLElement | null>(null);
@@ -618,14 +624,14 @@ function Panel({ refs, host, title, sub, icon, kind, tone = "primary", onClose, 
   const { prefix, site } = splitHost(host);
   const inner = (
     <>
-      <div ref={refs.headRef} className="af-head" data-tauri-drag-region>
+      <div ref={refs.headRef} className="af-head" onMouseDown={dragWindow}>
         {icon === "site" ? <Avatar name={site} size={36} badge={kind?.icon} className="af-site-avatar" />
           : icon === "shield" ? <DialogIcon kind="shield" /> : <DialogIcon tone={tone}>{icon}</DialogIcon>}
-        <div className="af-head-text" data-tauri-drag-region>
+        <div className="af-head-text">
           <h1 className="af-host" id="af-title" title={title ?? host}>
             {title ?? <>{prefix && <span className="af-host-prefix">{prefix}</span>}{site}</>}
           </h1>
-          <p className="af-sub" id="af-desc" data-tauri-drag-region>
+          <p className="af-sub" id="af-desc">
             {kind && <span className="af-kind">{kind.icon}{kind.label}</span>}
             {kind && <span className="sr-only">: </span>}
             {sub}

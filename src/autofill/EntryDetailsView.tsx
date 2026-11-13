@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { ArrowLeft, ExternalLink, Eye, EyeOff, Lock, TriangleAlert } from "lucide-react";
+import { ArrowLeft, ChevronRight, ExternalLink, Eye, EyeOff, Lock, TriangleAlert } from "lucide-react";
 import { Avatar } from "../components/ui/Avatar";
 import { Button } from "../components/ui/Button";
 import { DialogButton } from "../components/ui/DialogParts";
@@ -66,7 +66,7 @@ export function EntryDetailsView({ path, title, onBack, onOpen, onFill, fillLabe
   }, [path, deps]);
 
   // The row's details button is gone now: keep the keyboard focus inside the window.
-  useEffect(() => { backRef.current?.focus({ preventScroll: true }); }, []);
+  useEffect(() => { backRef.current?.focus({ preventScroll: true, focusVisible: false } as FocusOptions); }, []);
 
   const d = load.status === "ready" ? load.d : null;
   const name = d?.title || title || "Entry";
@@ -129,40 +129,45 @@ function DetailsBody({ d }: { d: EntryDetails }) {
         </ul>
       )}
       {d.sites.length > 0 && (
-        <Group title={d.sites.length > 1 ? `Websites · ${d.sites.length}` : "Website"}>
-          <ul aria-label="Websites" className={listBoxClass}>
-            {d.sites.map((s, i) => (
-              <Field key={`site-${i}`} id={`site-${i}`} value={<span title={s}>{s}</span>}
-                     actions={<><RowIconSpacer /><CopyIconButton value={s} label={`website ${hostOf(s) || s}`} className={rowButtonClass} /></>} />
-            ))}
-          </ul>
-        </Group>
+        <ul aria-label="Websites" className={listBoxClass}>
+          {d.sites.map((s, i) => (
+            <Field key={`site-${i}`} id={`site-${i}`} label={d.sites.length > 1 ? `Website ${i + 1}` : "Website"} value={<span title={s}>{s}</span>}
+                   actions={<><RowIconSpacer /><CopyIconButton value={s} label={`website ${hostOf(s) || s}`} className={rowButtonClass} /></>} />
+          ))}
+        </ul>
       )}
       {custom.length > 0 && (
-        <Group title={`Custom fields · ${custom.length}`}>
-          <ul aria-label="Custom fields" className={listBoxClass}>
-            {custom.map((r) => <ValueRow key={r.id} row={r} />)}
-          </ul>
-        </Group>
+        <ul aria-label="Custom fields" className={listBoxClass}>
+          {custom.map((r) => <ValueRow key={r.id} row={r} />)}
+        </ul>
       )}
-      {d.notes && (
-        <Group title="Notes">
-          <div className="af-notes-wrap">
-            <div className="af-notes" tabIndex={0} aria-label="Notes" data-testid="af-dval-notes">{d.notes}</div>
-            <CopyIconButton value={d.notes} label="Notes" className={rowButtonClass} />
-          </div>
-        </Group>
-      )}
+      {d.notes && <NotesGroup notes={d.notes} />}
     </div>
   );
 }
 
-function Group({ title, children }: { title: string; children: ReactNode }) {
+/**
+ * The entry's notes: a row like every other field (label, value, the same action column), collapsed until asked for.
+ * They can hold recovery codes and long text, so they stay out of view (and out of the DOM) until the row is opened;
+ * the collapsed row only says how long they are. Copy works either way.
+ */
+function NotesGroup({ notes }: { notes: string }) {
+  const [open, setOpen] = useState(false);
+  const lines = notes.split("\n").length;
   return (
-    <div className="af-dgroup">
-      <h3 className="af-dgroup-title">{title}</h3>
-      {children}
-    </div>
+    <ul aria-label="Notes" className={listBoxClass}>
+      <li className={`af-field ${listRowHoverClass}`}>
+        <button type="button" className="af-field-main af-notes-toggle" aria-expanded={open} aria-controls="af-notes-body" onClick={() => setOpen((v) => !v)}>
+          <span className="af-field-label">Notes</span>
+          <span className="af-field-value af-notes-state">
+            <ChevronRight size={13} aria-hidden className={`af-notes-chev${open ? " is-open" : ""}`} />
+            {open ? "Hide" : `Show · ${lines} line${lines === 1 ? "" : "s"}`}
+          </span>
+        </button>
+        <RowActions><RowIconSpacer /><CopyIconButton value={notes} label="Notes" className={rowButtonClass} /></RowActions>
+      </li>
+      {open && <li id="af-notes-body" className="af-notes" tabIndex={0} aria-label="Notes text" data-testid="af-dval-notes">{notes}</li>}
+    </ul>
   );
 }
 

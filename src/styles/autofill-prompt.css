@@ -27,7 +27,7 @@ html.is-autofill-prompt #root { height: 100%; margin: 0; overflow: hidden; backg
   flex: none;
   padding: 14px 10px 12px var(--dlg-pad-x);
   border-bottom: 1px solid var(--color-border);
-  user-select: none;
+  user-select: none; cursor: grab;
 }
 .af-head > .dlg-icon { margin-top: 2px; }
 .af-head-text { flex: 1; min-width: 0; }
@@ -208,16 +208,22 @@ html.is-autofill-prompt #root { height: 100%; margin: 0; overflow: hidden; backg
 .af-totp-code[data-low] { color: var(--color-warning); }
 .af-totp-left { font-size: 11px; font-variant-numeric: tabular-nums; color: var(--color-text-muted); }
 
-/* Notes: their own scrolling box; copy sits in the same action column as every row above. */
-.af-notes-wrap { display: flex; align-items: flex-start; gap: 8px; }
+/* Notes: a row like the others, collapsed by default; opened, the text sits below it in the same box. */
+.af-notes-toggle {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 1px; text-align: left;
+  padding: 0; border: none; background: transparent; color: inherit; font: inherit; cursor: pointer;
+}
+.af-notes-toggle:focus-visible { outline: 2px solid color-mix(in srgb, var(--color-primary) 70%, transparent); outline-offset: 3px; border-radius: 4px; }
+.af-notes-state { display: inline-flex; align-items: center; gap: 4px; color: var(--color-text-muted); }
+.af-notes-chev { flex: none; transition: transform 0.15s ease; }
+.af-notes-chev.is-open { transform: rotate(90deg); }
+@media (prefers-reduced-motion: reduce) { .af-notes-chev { transition: none; } }
 .af-notes {
-  flex: 1; min-width: 0; max-height: 110px; overflow-y: auto; overscroll-behavior: contain;
-  padding: 8px 10px; border: 1px solid var(--color-border); border-radius: 6px;
-  background: var(--color-bg);
+  list-style: none; max-height: 140px; overflow-y: auto; overscroll-behavior: contain;
+  padding: 9px 12px 10px;
   font-size: 12px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere;
 }
-.af-notes:focus-visible { outline: 2px solid color-mix(in srgb, var(--color-primary) 70%, transparent); outline-offset: 1px; }
-.af-notes-wrap > :last-child { margin-right: 9px; }
+.af-notes:focus-visible { outline: 2px solid color-mix(in srgb, var(--color-primary) 70%, transparent); outline-offset: -2px; }
 
 /* The view's own actions, kept in sight at the bottom of the scrolling body. */
 .af-details-actions {
