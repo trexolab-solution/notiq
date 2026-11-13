@@ -1,6 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, Download, FileQuestion, RefreshCw, Save } from "lucide-react";
 import { DialogButton } from "../ui/Dialog";
+import { RowIconButton } from "../vault/ListEditor";
 import { ConfirmDialog } from "../ui/ConfirmDialog";
 import { toast } from "../../lib/toast";
 import { formatBytes } from "../../lib/vaultBackup";
@@ -101,17 +102,17 @@ export function RemoteFileViewer({ session, path, name, onClose, onDownload, onS
 
   return (
     <div className="absolute inset-0 z-10 flex flex-col bg-[var(--color-bg)]" role="region" aria-label={`Viewing ${name}`} onKeyDown={onKey}>
-      <div className="flex items-center gap-2 px-3 py-1.5 border-b border-[var(--color-border)]">
-        <DialogButton icon={<ArrowLeft size={13} />} onClick={close}>Back</DialogButton>
+      <div className="flex items-center gap-1 px-3 py-1.5 border-b border-[var(--color-border)]" role="toolbar" aria-label="File actions">
+        <RowIconButton label="Back" tooltip="Back to the folder (Esc)" icon={<ArrowLeft size={15} />} onClick={close} />
+        <span className="w-px h-5 mx-1.5 bg-[var(--color-border)]" aria-hidden />
         <span className="flex-1 min-w-0 truncate text-sm font-medium" title={path}>
           {name}{dirty && <span className="ml-1.5 text-[var(--color-warning,#d97706)]" aria-label="unsaved changes">●</span>}
         </span>
-        <DialogButton icon={<RefreshCw size={13} />} disabled={dirty} onClick={() => void load()}>Reload</DialogButton>
-        <DialogButton icon={<Download size={13} />} onClick={onDownload}>Download</DialogButton>
+        <RowIconButton label="Reload" tooltip="Reload from the server" icon={<RefreshCw size={15} />} disabled={dirty} onClick={() => void load()} />
+        <RowIconButton label="Download" icon={<Download size={15} />} onClick={onDownload} />
         {loaded.kind === "text" && (
-          <DialogButton variant="primary" icon={<Save size={13} />} disabled={!dirty || saving} onClick={() => void save()}>
-            {saving ? "Saving…" : "Save"}
-          </DialogButton>
+          <RowIconButton label="Save" tooltip={saving ? "Saving…" : "Save to the server (Ctrl+S)"} icon={<Save size={15} />} disabled={!dirty || saving}
+                         className={dirty ? "!bg-[var(--color-primary)] !text-[var(--color-bg)] hover:!bg-[var(--color-primary-hover)]" : ""} onClick={() => void save()} />
         )}
       </div>
 
