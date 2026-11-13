@@ -799,6 +799,7 @@ pub fn run() {
         sftp_client::sftp_upload,
         sftp_client::sftp_read,
         sftp_client::sftp_trash,
+        sftp_client::sftp_move,
         sftp_client::sftp_trash_list,
         sftp_client::sftp_trash_restore,
         sftp_client::sftp_trash_delete,

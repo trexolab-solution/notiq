@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  imageMime, bytesFromBase64, decodeText,
+  imageMime, bytesFromBase64, decodeText, isConnectionError,
   crumbs, joinRemote, modeOctal, modeString, nameProblem, parentRemote, parseOctalMode, percent, sortEntries, visibleEntries,
   type RemoteEntry,
 } from "./sftp";
@@ -90,5 +90,16 @@ describe("the viewer's helpers", () => {
     expect(decodeText(new TextEncoder().encode("héllo ✓"))).toBe("héllo ✓");
     expect(decodeText(new Uint8Array([104, 0, 105]))).toBeNull();
     expect(decodeText(new Uint8Array([0xff, 0xfe, 0x41]))).toBeNull();
+  });
+});
+
+describe("lost connections", () => {
+  it("tells a dropped connection from an action that failed on a live one", () => {
+    for (const m of ["The connection to the server was closed. Reconnect to continue.", "Connection reset by peer", "Unexpected EOF", "Broken pipe", "The operation timed out"]) {
+      expect(isConnectionError(m)).toBe(true);
+    }
+    for (const m of ["Permission denied.", "That file or folder no longer exists on the server.", "already_exists", "A name can't contain a slash."]) {
+      expect(isConnectionError(m)).toBe(false);
+    }
   });
 });

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { open as pickFiles, save as pickSave } from "@tauri-apps/plugin-dialog";
 import {
-  Archive, ArchiveRestore, ArrowLeft, ArrowRight, ArrowUp, ClipboardPaste, Copy, Download, Eye, EyeOff, FilePenLine, FilePlus, FileX, FolderOpen, FolderPlus, Pencil,
+  Archive, ArchiveRestore, ArrowLeft, ArrowRight, ArrowUp, ClipboardPaste, Copy, Download, Eye, EyeOff, FilePenLine, FilePlus, FileX, FolderUp, FolderOpen, FolderPlus, Pencil,
   RefreshCw, Scissors, Search, ShieldCheck, SquareArrowOutUpRight, Trash2, Upload,
 } from "lucide-react";
 import { DndContext, DragOverlay, PointerSensor, pointerWithin, useDroppable, useSensor, useSensors } from "@dnd-kit/core";
@@ -28,8 +28,8 @@ import { getFileName, joinPath } from "../../lib/pathUtils";
 import type { SshTarget } from "../../lib/sshConnect";
 import {
   clipboardFiles, crumbs, joinRemote, nameProblem, onSftpProgress, parentRemote, sftpCancel, sftpClose, sftpDownload, sftpErrorMessage,
-  sftpChmod, sftpList, sftpMkdir, sftpOpen, sftpRemove, sftpRename, sftpTrash, sftpTrashList, sftpUpload, sftpWrite, sortEntries, visibleEntries, SFTP_CANCELLED, SFTP_EXISTS, SFTP_TRASH_FAILED,
-  type RemoteEntry, type SortKey, type SortState,
+  sftpChmod, sftpList, sftpMkdir, sftpMove, sftpOpen, sftpRemove, sftpRename, sftpTrash, sftpTrashList, sftpUpload, sftpWrite, sortEntries, visibleEntries, isConnectionError, SFTP_CANCELLED, SFTP_EXISTS, SFTP_EXISTS_DIR, SFTP_TRASH_FAILED,
+  type MergeMode, type RemoteEntry, type SortKey, type SortState,
 } from "../../lib/sftp";
 
 // Session and transfer ids are shared by every window (the backend keeps them in one table), so each window starts
@@ -39,6 +39,9 @@ let nextSession = idBase + 1;
 let nextTransfer = idBase + 1;
 
 type Phase = "connecting" | "ready" | "failed";
+/** The answer to "this name is already taken": replace it, (for folders) keep the files that are already there, or stop. */
+type Conflict = "replace" | "skip-matching" | "cancel";
+type MoveChoice = { choice: "replace" | "keep_both" | "skip"; all: boolean };
 type Prompt = { kind: "folder" } | { kind: "file" } | { kind: "rename"; entry: RemoteEntry } | { kind: "perms"; entry: RemoteEntry };
 
 /** One part of the path bar: click to go there; an item dragged onto it is moved into that folder. */
@@ -125,7 +128,14 @@ export function RemoteFilesPanel({ target, active = true, onPopOut }: {
   const [transfers, setTransfers] = useState<Transfer[]>([]);
   const [prompt, setPrompt] = useState<Prompt | null>(null);
   const [deleting, setDeleting] = useState<RemoteEntry[] | null>(null);
-  const [replace, setReplace] = useState<{ name: string; answer: (yes: boolean) => void } | null>(null);
+  const [replace, setReplace] = useState<{ name: string; folder: boolean; answer: (c: Conflict) => void } | null>(null);
+  const [moveConflict, setMoveConflict] = useState<{ name: string; many: boolean; answer: (c: MoveChoice) => void } | null>(null);
+  const applyAll = useRef(false);
+  /** The connection to the server: fine, being re-established after it dropped, or lost for good (a button retries). */
+  const [link, setLink] = useState<"ok" | "reconnecting" | "lost">("ok");
+  const alive = useRef(true);
+  const reconnecting = useRef(false);
+  const reconnectRef = useRef<() => void>(() => {});
   const [editingPath, setEditingPath] = useState<string | null>(null);
   const [menu, setMenu] = useState<{ x: number; y: number; entry: RemoteEntry | null } | null>(null);
   /** The file open in the viewer, with the folder it is in. */
@@ -157,7 +167,10 @@ export function RemoteFilesPanel({ target, active = true, onPopOut }: {
       if (session !== sid.current) return;
       setPath(l.path); setEntries(l.entries); setSelected(new Set()); anchor.current = null;
     } catch (e) {
-      if (session === sid.current) toast.error(sftpErrorMessage(e));
+      if (session === sid.current) {
+        const m = sftpErrorMessage(e);
+        if (isConnectionError(m)) reconnectRef.current(); else toast.error(m);
+      }
     } finally {
       if (session === sid.current) setLoading(false);
     }
@@ -181,9 +194,50 @@ export function RemoteFilesPanel({ target, active = true, onPopOut }: {
     }
   }, [target, load]);
 
+  /** Signs in again after the connection dropped (up to three tries), then shows the same folder again. */
+  const reconnect = useCallback(async () => {
+    if (reconnecting.current || !alive.current) return;
+    reconnecting.current = true;
+    setLink("reconnecting");
+    if (sid.current) void sftpClose(sid.current);
+    for (const wait of [0, 1500, 4000]) {
+      if (wait) await new Promise((r) => setTimeout(r, wait));
+      if (!alive.current) { reconnecting.current = false; return; }
+      const session = nextSession++;
+      sid.current = session;
+      try {
+        await sftpOpen(session, target.path, target.auth);
+        if (!alive.current || session !== sid.current) { void sftpClose(session); reconnecting.current = false; return; }
+        reconnecting.current = false;
+        setLink("ok");
+        await load(pathRef.current || ".", session);
+        void sftpTrashList(session).then((l) => { if (session === sid.current) setTrashCount(l.length); }).catch(() => {});
+        return;
+      } catch { /* try again, or give up below */ }
+    }
+    reconnecting.current = false;
+    if (alive.current) setLink("lost");
+  }, [target, load]);
+  reconnectRef.current = () => void reconnect();
+
+  // Coming back to the window (or to this tab) after a while: find out quietly whether the connection survived.
   useEffect(() => {
+    if (phase !== "ready" || !active) return;
+    let last = 0;
+    const probe = () => {
+      if (link !== "ok" || Date.now() - last < 10_000) return;
+      last = Date.now();
+      sftpList(sid.current, pathRef.current || ".").catch((e) => { if (isConnectionError(sftpErrorMessage(e))) reconnectRef.current(); });
+    };
+    window.addEventListener("focus", probe);
+    return () => window.removeEventListener("focus", probe);
+  }, [phase, active, link]);
+
+  useEffect(() => {
+    alive.current = true;
     void connect();
-    return () => { const s = sid.current; sid.current = 0; if (s) void sftpClose(s); };
+    return () => {
+        alive.current = false; const s = sid.current; sid.current = 0; if (s) void sftpClose(s); };
   }, [connect]);
 
   // Progress events carry the transfer id; the list shows the latest of each.
@@ -199,7 +253,7 @@ export function RemoteFilesPanel({ target, active = true, onPopOut }: {
 
   const shown = useMemo(() => sortEntries(visibleEntries(entries, filter, showHidden), sort), [entries, filter, showHidden, sort]);
   const picked = useMemo(() => shown.filter((e) => selected.has(e.name)), [shown, selected]);
-  const pickedFiles = picked.filter((e) => e.kind !== "dir");
+  const pickedFiles = picked.filter((e) => e.kind !== "other");
   const ready = phase === "ready";
   const trashOn = getFilesPrefs().useTrash;
 
@@ -240,28 +294,35 @@ export function RemoteFilesPanel({ target, active = true, onPopOut }: {
 
   const track = (t: Transfer) => setTransfers((ts) => [...ts, t]);
   const finish = (id: number, patch: Partial<Transfer>) => setTransfers((ts) => ts.map((t) => (t.id === id ? { ...t, ...patch } : t)));
-  const askReplace = (name: string) => new Promise<boolean>((resolve) => setReplace({ name, answer: resolve }));
+  const askReplace = (name: string, folder: boolean) => new Promise<Conflict>((resolve) => setReplace({ name, folder, answer: resolve }));
 
-  /** One transfer: runs it, and when the target exists asks whether to replace it, then runs it again. */
-  const runTransfer = async (kind: "up" | "down", name: string, run: (id: number, overwrite: boolean) => Promise<number>) => {
+  type Run = (id: number, overwrite: boolean, merge?: MergeMode) => Promise<number>;
+  /**
+   * One transfer: runs it; when the target exists asks what to do (replace; for a folder also keep the files that are
+   * already there), then runs it again. A lost connection starts the reconnect.
+   */
+  const runTransfer = async (kind: "up" | "down", name: string, run: Run) => {
     const id = nextTransfer++;
     track({ id, kind, name, done: 0, total: 0, state: "running" });
+    const fail = (e: unknown) => {
+      const m = sftpErrorMessage(e);
+      if (m === SFTP_CANCELLED) { finish(id, { state: "cancelled" }); return; }
+      finish(id, { state: "error", error: m });
+      if (isConnectionError(m)) reconnectRef.current();
+    };
     try {
       await run(id, false);
       finish(id, { state: "done" });
     } catch (e) {
       const msg = sftpErrorMessage(e);
-      if (msg === SFTP_CANCELLED) { finish(id, { state: "cancelled" }); return; }
-      if (msg === SFTP_EXISTS) {
-        if (!(await askReplace(name))) { finish(id, { state: "skipped" }); return; }
-        try { await run(id, true); finish(id, { state: "done" }); }
-        catch (e2) {
-          const m2 = sftpErrorMessage(e2);
-          finish(id, m2 === SFTP_CANCELLED ? { state: "cancelled" } : { state: "error", error: m2 });
-        }
+      if (msg === SFTP_EXISTS || msg === SFTP_EXISTS_DIR) {
+        const c = await askReplace(name, msg === SFTP_EXISTS_DIR);
+        if (c === "cancel") { finish(id, { state: "skipped" }); return; }
+        try { await run(id, true, c === "skip-matching" ? "skip" : "replace"); finish(id, { state: "done" }); }
+        catch (e2) { fail(e2); }
         return;
       }
-      finish(id, { state: "error", error: msg });
+      fail(e);
     }
   };
 
@@ -276,9 +337,16 @@ export function RemoteFilesPanel({ target, active = true, onPopOut }: {
     recentUploads.current.set(key, now);
     for (const local of paths) {
       const name = getFileName(local);
-      await runTransfer("up", name, (id, ow) => sftpUpload(session, id, local, joinRemote(dir, name), ow));
+      await runTransfer("up", name, (id, ow, merge) => sftpUpload(session, id, local, joinRemote(dir, name), ow, merge));
     }
     if (session === sid.current && pathRef.current === dir) void load(dir, session);
+  };
+
+  const chooseUploadFolder = async () => {
+    try {
+      const sel = await pickFiles({ multiple: true, directory: true, title: `Upload folders to ${path}` });
+      await upload(typeof sel === "string" ? [sel] : Array.isArray(sel) ? sel : []);
+    } catch (e) { toast.error(sftpErrorMessage(e)); }
   };
 
   const chooseUpload = async () => {
@@ -288,22 +356,24 @@ export function RemoteFilesPanel({ target, active = true, onPopOut }: {
     } catch (e) { toast.error(sftpErrorMessage(e)); }
   };
 
-  const download = async (files: RemoteEntry[]) => {
-    if (!ready || files.length === 0) return;
+  /** Downloads files and folders: one file asks where to save it; anything else asks for the folder to save into. */
+  const download = async (items: RemoteEntry[]) => {
+    const list = items.filter((e) => e.kind !== "other");
+    if (!ready || list.length === 0) return;
     const session = sid.current, dir = pathRef.current;
     try {
       let locals: { entry: RemoteEntry; local: string }[];
-      if (files.length === 1) {
-        const dest = await pickSave({ title: "Save file", defaultPath: files[0].name });
+      if (list.length === 1 && list[0].kind === "file") {
+        const dest = await pickSave({ title: "Save file", defaultPath: list[0].name });
         if (!dest) return;
-        locals = [{ entry: files[0], local: dest }];
+        locals = [{ entry: list[0], local: dest }];
       } else {
-        const folder = await pickFiles({ directory: true, multiple: false, title: `Save ${files.length} files in…` });
+        const folder = await pickFiles({ directory: true, multiple: false, title: list.length === 1 ? `Save \u201c${list[0].name}\u201d in\u2026` : `Save ${list.length} items in\u2026` });
         if (typeof folder !== "string") return;
-        locals = files.map((entry) => ({ entry, local: joinPath(folder, entry.name) }));
+        locals = list.map((entry) => ({ entry, local: joinPath(folder, entry.name) }));
       }
       for (const { entry, local } of locals) {
-        await runTransfer("down", entry.name, (id, ow) => sftpDownload(session, id, joinRemote(dir, entry.name), local, ow));
+        await runTransfer("down", entry.name, (id, ow, merge) => sftpDownload(session, id, joinRemote(dir, entry.name), local, ow, merge));
       }
     } catch (e) { toast.error(sftpErrorMessage(e)); }
   };
@@ -323,7 +393,8 @@ export function RemoteFilesPanel({ target, active = true, onPopOut }: {
 
   const menuItems = (entry: RemoteEntry | null): ContextMenuItem[] => {
     const here: ContextMenuItem[] = [
-      { type: "item", label: "Upload here\u2026", icon: <Upload size={13} />, onClick: () => void chooseUpload() },
+      { type: "item", label: "Upload files here\u2026", icon: <Upload size={13} />, onClick: () => void chooseUpload() },
+      { type: "item", label: "Upload folder here\u2026", icon: <FolderUp size={13} />, onClick: () => void chooseUploadFolder() },
       { type: "item", label: "New folder\u2026", icon: <FolderPlus size={13} />, onClick: () => setPrompt({ kind: "folder" }) },
       { type: "item", label: "New file\u2026", icon: <FilePlus size={13} />, onClick: () => setPrompt({ kind: "file" }) },
       { type: "item", label: "Paste here", icon: <ClipboardPaste size={13} />, shortcut: "Ctrl+V", onClick: () => void paste(path) },
@@ -335,13 +406,13 @@ export function RemoteFilesPanel({ target, active = true, onPopOut }: {
     if (!entry) return here;
     // The menu acts on the whole selection when the clicked row is part of it.
     const group = selected.has(entry.name) && picked.length > 1 ? picked : [entry];
-    const files = group.filter((e) => e.kind !== "dir");
+    const files = group.filter((e) => e.kind !== "other");
     const one = group.length === 1;
     return [
       one && entry.kind === "dir"
         ? { type: "item", label: "Open", icon: <FolderOpen size={13} />, onClick: () => openEntry(entry) }
         : { type: "item", label: "Open / edit", icon: <FilePenLine size={13} />, disabled: !one || entry.kind !== "file", onClick: () => openEntry(entry) },
-      { type: "item", label: files.length > 1 ? `Download ${files.length} files\u2026` : "Download\u2026", icon: <Download size={13} />, disabled: files.length === 0, onClick: () => void download(files) },
+      { type: "item", label: files.length > 1 ? `Download ${files.length} items\u2026` : "Download\u2026", icon: <Download size={13} />, disabled: files.length === 0, onClick: () => void download(files) },
       { type: "separator" },
       { type: "item", label: "Cut", icon: <Scissors size={13} />, shortcut: "Ctrl+X", onClick: () => cut(group) },
       ...(one && entry.kind === "dir" ? [{ type: "item" as const, label: "Paste into folder", icon: <ClipboardPaste size={13} />, onClick: () => void paste(joinRemote(path, entry.name)) }] : []),
@@ -364,13 +435,19 @@ export function RemoteFilesPanel({ target, active = true, onPopOut }: {
     if (acting.current) return;
     acting.current = true;
     try { await job(); if (done) toast.success(done); await load(pathRef.current); }
-    catch (e) { toast.error(sftpErrorMessage(e)); }
+    catch (e) {
+      const m = sftpErrorMessage(e);
+      if (isConnectionError(m)) { toast.error("The connection to the server was lost. Reconnecting\u2026 Run that again once it is back."); reconnectRef.current(); }
+      else toast.error(m);
+    }
     finally { acting.current = false; }
   };
 
   const makeFolder = (name: string) => { setPrompt(null); void act(() => sftpMkdir(sid.current, joinRemote(path, name))); };
   const renameEntry = (e: RemoteEntry, name: string) => {
-    setPrompt(null); void act(() => sftpRename(sid.current, joinRemote(path, e.name), joinRemote(path, name)));
+    setPrompt(null);
+    if (name !== e.name && entries.some((x) => x.name === name)) { toast.error(`A file or folder named \u201c${name}\u201d already exists here.`); return; }
+    void act(() => sftpRename(sid.current, joinRemote(path, e.name), joinRemote(path, name)));
   };
   const makeFile = (name: string) => {
     setPrompt(null);
@@ -384,8 +461,24 @@ export function RemoteFilesPanel({ target, active = true, onPopOut }: {
     setPrompt(null); void act(() => sftpChmod(sid.current, joinRemote(path, e.name), mode), `Permissions updated for \u201c${e.name}\u201d`);
   };
   const osFiles = () => clipboardFiles().then((f) => f ?? []).catch(() => [] as string[]);
+  const askMoveConflict = (name: string, many: boolean) => new Promise<MoveChoice>((resolve) => { applyAll.current = false; setMoveConflict({ name, many, answer: resolve }); });
+  /** Moves items into `dest`. A taken name asks: replace it (the old one goes to the Trash), keep both, or skip; "for all" remembers it. */
   const moveTo = (names: string[], from: string, dest: string) => act(async () => {
-    for (const n of names) await sftpRename(sid.current, joinRemote(from, n), joinRemote(dest, n));
+    let remembered: MoveChoice["choice"] | null = null;
+    for (let i = 0; i < names.length; i++) {
+      const n = names[i], src = joinRemote(from, n), dst = joinRemote(dest, n);
+      let policy: "fail" | "replace" | "keep_both" = "fail";
+      for (;;) {
+        try { await sftpMove(sid.current, src, dst, policy, getFilesPrefs().useTrash); break; }
+        catch (e) {
+          if (sftpErrorMessage(e) !== SFTP_EXISTS) throw e;
+          const c: MoveChoice = remembered ? { choice: remembered, all: true } : await askMoveConflict(n, names.length - i > 1);
+          if (c.all) remembered = c.choice;
+          if (c.choice === "skip") break;
+          policy = c.choice;
+        }
+      }
+    }
   }, `Moved ${names.length === 1 ? `\u201c${names[0]}\u201d` : `${names.length} items`}`);
   /** Cut marks items for moving; paste (in another folder) moves them there. */
   const cut = async (list: RemoteEntry[]) => {
@@ -483,6 +576,14 @@ export function RemoteFilesPanel({ target, active = true, onPopOut }: {
             )}
             {ready && (
               <DndContext sensors={sensors} collisionDetection={pointerWithin} onDragStart={onDragStart} onDragEnd={onDragEnd} onDragCancel={() => setDragNames(null)}>
+                {link !== "ok" && (
+                  <div role="status" className="flex items-center gap-2 px-3 h-9 shrink-0 text-sm border-b border-[var(--color-border)] bg-[var(--color-warning,#d97706)]/15">
+                    <span className="flex-1 min-w-0 truncate">
+                      {link === "reconnecting" ? "Connection lost. Reconnecting\u2026" : "Connection lost. Your changes and transfers can't continue until it is back."}
+                    </span>
+                    {link === "lost" && <DialogButton variant="primary" icon={<RefreshCw size={13} />} onClick={() => void reconnect()}>Reconnect</DialogButton>}
+                  </div>
+                )}
                 <div className="flex items-center gap-1.5 px-3 py-2 border-b border-[var(--color-border)]">
                   <RowIconButton label="Back" tooltip="Back (Alt+Left)" icon={<ArrowLeft size={14} />} disabled={nav.back.length === 0} onClick={goBack} />
                   <RowIconButton label="Forward" tooltip="Forward (Alt+Right)" icon={<ArrowRight size={14} />} disabled={nav.fwd.length === 0} onClick={goForward} />
@@ -526,7 +627,8 @@ export function RemoteFilesPanel({ target, active = true, onPopOut }: {
 
                 <div className="flex items-center gap-0.5 px-3 py-1.5 border-b border-[var(--color-border)]" role="toolbar" aria-label="File actions">
                   <RowIconButton label="Upload" tooltip="Upload files (or drag and drop them here)" icon={<Upload size={15} />} onClick={() => void chooseUpload()} />
-                  <RowIconButton label="Download" tooltip={pickedFiles.length > 1 ? `Download ${pickedFiles.length} files` : "Download"} icon={<Download size={15} />}
+                  <RowIconButton label="Upload folder" tooltip="Upload a folder (or drag one here)" icon={<FolderUp size={15} />} onClick={() => void chooseUploadFolder()} />
+                  <RowIconButton label="Download" tooltip={pickedFiles.length > 1 ? `Download ${pickedFiles.length} items` : "Download (files and folders)"} icon={<Download size={15} />}
                                  disabled={pickedFiles.length === 0} onClick={() => void download(pickedFiles)} />
                   <span className="w-px h-5 mx-1.5 bg-[var(--color-border)]" aria-hidden />
                   <RowIconButton label="New folder" icon={<FolderPlus size={15} />} onClick={() => setPrompt({ kind: "folder" })} />
@@ -540,7 +642,7 @@ export function RemoteFilesPanel({ target, active = true, onPopOut }: {
                   <RowIconButton label="Permissions" icon={<ShieldCheck size={15} />} disabled={picked.length !== 1} onClick={() => setPrompt({ kind: "perms", entry: picked[0] })} />
                   <RowIconButton label="Delete" tooltip={trashOn ? "Move to Trash (Del)" : "Delete permanently (Del)"} icon={trashOn ? <Trash2 size={15} /> : <FileX size={15} />} danger disabled={picked.length === 0} onClick={() => askDelete(picked)} />
                   <span className="ml-auto mr-2 hidden lg:flex items-center gap-1.5 text-xs text-[var(--color-text-muted)]" aria-hidden>
-                    <Upload size={12} />Drag files here to upload
+                    <Upload size={12} />Drag files or folders here to upload
                   </span>
                   <span className="w-px h-5 mx-1.5 bg-[var(--color-border)] max-lg:ml-auto" aria-hidden />
                   <RowIconButton label={showHidden ? "Hide dot files" : "Show dot files"} icon={showHidden ? <Eye size={15} /> : <EyeOff size={15} />}
@@ -574,7 +676,7 @@ export function RemoteFilesPanel({ target, active = true, onPopOut }: {
                                 onClose={() => setViewing(null)} onDownload={() => void download([viewing.entry])}
                                 onSaved={() => void load(pathRef.current)} />
             )}
-            {dropping && <DropHighlight icon={<Upload size={16} />}>Drop files to upload to {path}</DropHighlight>}
+            {dropping && <DropHighlight icon={<Upload size={16} />}>Drop files or folders to upload to {path}</DropHighlight>}
         <div className="shrink-0 flex items-center h-7 px-3 border-t border-[var(--color-border)] text-xs text-[var(--color-text-muted)]" role="status">
           {status || `Files on ${title}`}
         </div>
@@ -599,12 +701,28 @@ export function RemoteFilesPanel({ target, active = true, onPopOut }: {
                        detail={`Location: ${path}`} icon="danger" danger confirmLabel="Delete permanently"
                        onConfirm={() => removeEntries(deleting)} onCancel={() => setDeleting(null)} />
       )}
-      {replace && (
+      {replace && (replace.folder ? (
+        <ConfirmDialog title={`Merge into the existing folder \u201c${replace.name}\u201d?`}
+                       message={`A folder named \u201c${replace.name}\u201d is already in the destination. Files that are only in one of them stay as they are. What should happen to files that have the same name in both?`}
+                       confirmLabel="Replace matching files" discardLabel="Skip matching files" cancelLabel="Cancel" danger
+                       onConfirm={() => { replace.answer("replace"); setReplace(null); }}
+                       onDiscard={() => { replace.answer("skip-matching"); setReplace(null); }}
+                       onCancel={() => { replace.answer("cancel"); setReplace(null); }} />
+      ) : (
         <ConfirmDialog title={`Replace \u201c${replace.name}\u201d?`}
                        message={`A file named \u201c${replace.name}\u201d already exists in this folder. Replacing it overwrites the existing file.`}
                        confirmLabel="Replace" cancelLabel="Keep existing" danger
-                       onConfirm={() => { replace.answer(true); setReplace(null); }}
-                       onCancel={() => { replace.answer(false); setReplace(null); }} />
+                       onConfirm={() => { replace.answer("replace"); setReplace(null); }}
+                       onCancel={() => { replace.answer("cancel"); setReplace(null); }} />
+      ))}
+      {moveConflict && (
+        <ConfirmDialog title={`\u201c${moveConflict.name}\u201d already exists there`}
+                       message={`An item named \u201c${moveConflict.name}\u201d is already in the destination folder. Replace it${getFilesPrefs().useTrash ? " (the existing one goes to the Trash)" : " (the existing one is deleted)"}, keep both (this one is renamed), or skip it?`}
+                       confirmLabel="Replace" discardLabel="Keep both" cancelLabel="Skip" danger
+                       checkbox={moveConflict.many ? { label: "Do this for all the other conflicts", onChange: (v) => { applyAll.current = v; } } : undefined}
+                       onConfirm={() => { moveConflict.answer({ choice: "replace", all: applyAll.current }); setMoveConflict(null); }}
+                       onDiscard={() => { moveConflict.answer({ choice: "keep_both", all: applyAll.current }); setMoveConflict(null); }}
+                       onCancel={() => { moveConflict.answer({ choice: "skip", all: applyAll.current }); setMoveConflict(null); }} />
       )}
     </>
   );

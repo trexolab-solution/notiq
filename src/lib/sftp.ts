@@ -26,6 +26,13 @@ export const SFTP_TOO_BIG = "too_big";
 export const SFTP_CHANGED = "changed";
 /** What moving an item to the Trash says when the server can't (another disk, no permission). */
 export const SFTP_TRASH_FAILED = "trash_failed";
+/** What a folder transfer says when the destination folder is already there (then `merge` says how to go on). */
+export const SFTP_EXISTS_DIR = "already_exists_folder";
+
+/** True when a backend message says the connection to the server is gone (as opposed to a failed action on a live one). */
+export function isConnectionError(message: string): boolean {
+  return /connection|disconnect|\bclosed\b|broken pipe|\beof\b|reset by|timed out|timeout/i.test(message);
+}
 
 export const sftpOpen = (id: number, path: string, auth: string) => invoke<OpenedSftp>("sftp_open", { id, path, auth });
 export const sftpClose = (id: number) => invoke<void>("sftp_close", { id });
@@ -35,10 +42,16 @@ export const sftpRename = (id: number, from: string, to: string) => invoke<void>
 export const sftpChmod = (id: number, path: string, mode: number) => invoke<void>("sftp_chmod", { id, path, mode });
 export const sftpRemove = (id: number, path: string) => invoke<void>("sftp_remove", { id, path });
 export const sftpCancel = (transfer: number) => invoke<void>("sftp_cancel", { transfer });
-export const sftpDownload = (id: number, transferId: number, remote: string, local: string, overwrite: boolean) =>
-  invoke<number>("sftp_download", { id, transferId, remote, local, overwrite });
-export const sftpUpload = (id: number, transferId: number, local: string, remote: string, overwrite: boolean) =>
-  invoke<number>("sftp_upload", { id, transferId, local, remote, overwrite });
+/** `merge` applies to a folder that already exists at the destination: keep (`skip`) or overwrite (`replace`) files with the same name. */
+export type MergeMode = "skip" | "replace";
+export const sftpDownload = (id: number, transferId: number, remote: string, local: string, overwrite: boolean, merge?: MergeMode) =>
+  invoke<number>("sftp_download", { id, transferId, remote, local, overwrite, merge: merge ?? null });
+export const sftpUpload = (id: number, transferId: number, local: string, remote: string, overwrite: boolean, merge?: MergeMode) =>
+  invoke<number>("sftp_upload", { id, transferId, local, remote, overwrite, merge: merge ?? null });
+/** What to do when something already has the target's name. Resolves to the path the item ended up at. */
+export type MoveConflict = "fail" | "replace" | "keep_both";
+export const sftpMove = (id: number, from: string, to: string, onConflict: MoveConflict, useTrash: boolean) =>
+  invoke<string>("sftp_move", { id, from, to, onConflict, useTrash });
 
 /** Full paths of the files copied in the system's file explorer (empty when there are none, or off Windows). */
 export const clipboardFiles = () => invoke<string[]>("clipboard_files");

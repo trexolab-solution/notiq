@@ -34,6 +34,64 @@ pub const TOO_BIG: &str = "too_big";
 pub const CHANGED: &str = "changed";
 /// What moving an item to the Trash says when the server can't (another disk, no permission): the UI offers to delete it for good.
 pub const TRASH_FAILED: &str = "trash_failed";
+/// What a folder transfer says when the destination folder is already there and no merge mode was given.
+pub const EXISTS_DIR: &str = "already_exists_folder";
+
+/// How a folder transfer treats files that are already in the destination folder.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Merge {
+    /// Keep the files that are already there; copy only what is missing.
+    Skip,
+    /// Overwrite the files that are already there.
+    Replace,
+}
+
+impl Merge {
+    pub fn parse(s: &str) -> Option<Merge> {
+        match s { "skip" => Some(Merge::Skip), "replace" => Some(Merge::Replace), _ => None }
+    }
+}
+
+/// What moving an item does when something already has the target's name.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum OnConflict {
+    Fail,
+    /// The existing item goes to the Trash (or is deleted when `use_trash` is off), then the move happens.
+    Replace,
+    /// The moved item gets a free name, `name (2).ext`.
+    KeepBoth,
+}
+
+impl OnConflict {
+    pub fn parse(s: &str) -> Option<OnConflict> {
+        match s { "fail" => Some(OnConflict::Fail), "replace" => Some(OnConflict::Replace), "keep_both" => Some(OnConflict::KeepBoth), _ => None }
+    }
+}
+
+/// `name (2).ext` for `n = 2`: the number goes before the extension (a leading dot isn't one).
+fn numbered(name: &str, n: u32) -> String {
+    match name.rfind('.') {
+        Some(i) if i > 0 => format!("{} ({n}){}", &name[..i], &name[i..]),
+        _ => format!("{name} ({n})"),
+    }
+}
+
+/// A name from the server that can safely become one part of a local path.
+fn local_component(name: &str) -> Result<&str, String> {
+    let bad_everywhere = name.is_empty() || name == "." || name == ".." || name.contains('/') || name.contains('\0');
+    let bad_here = cfg!(windows) && name.chars().any(|c| matches!(c, '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|'));
+    if bad_everywhere || bad_here { Err(format!("\u{201c}{name}\u{201d} has a name that can't be saved on this computer.")) } else { Ok(name) }
+}
+
+/// Everything under a folder, found before copying so the progress has a total.
+#[derive(Default, Debug)]
+struct Plan {
+    /// Folders below the root, as `a/b` (parents first).
+    dirs: Vec<String>,
+    /// Files with their size, as `a/b/c.txt`.
+    files: Vec<(String, u64)>,
+    total: u64,
+}
 /// The server's Trash, in the freedesktop.org layout (`files/` holds the items, `info/` one `.trashinfo` each), so a
 /// Linux file manager on the server sees and restores them too. Relative to the home folder.
 const TRASH_REL: &str = ".local/share/Trash";
@@ -439,6 +497,161 @@ impl Sftp {
         Ok(self.sftp.metadata(remote).await.map_err(nice)?.mtime)
     }
 
+    /// Whether `path` is a folder (links are followed).
+    pub async fn is_dir(&self, path: &str) -> Result<bool, String> {
+        Ok(self.sftp.metadata(path).await.map_err(nice)?.is_dir())
+    }
+
+    /// Lists a remote folder tree. Links aren't followed (a loop can't hang it) and are left out.
+    async fn plan_remote(&self, root: &str) -> Result<Plan, String> {
+        let mut plan = Plan::default();
+        let mut stack = vec![(root.to_string(), String::new(), 0u32)];
+        while let Some((abs, rel, depth)) = stack.pop() {
+            if depth >= MAX_DEPTH { return Err("That folder is nested too deeply to download here.".into()); }
+            let entries: Vec<_> = self.sftp.read_dir(abs.as_str()).await.map_err(nice)?.collect();
+            for e in entries {
+                let name = e.file_name();
+                if name == "." || name == ".." || e.file_type().is_symlink() { continue; }
+                local_component(&name)?;
+                let child_rel = if rel.is_empty() { name.clone() } else { format!("{rel}/{name}") };
+                let child_abs = format!("{}/{}", abs.trim_end_matches('/'), name);
+                let m = e.metadata();
+                if m.is_dir() {
+                    plan.dirs.push(child_rel.clone());
+                    stack.push((child_abs, child_rel, depth + 1));
+                } else if m.is_regular() {
+                    let size = m.size.unwrap_or(0);
+                    plan.total += size;
+                    plan.files.push((child_rel, size));
+                }
+            }
+        }
+        plan.dirs.sort();
+        Ok(plan)
+    }
+
+    /// Copies a remote folder with everything in it to `local` (the new folder). When it already exists, `merge` says
+    /// what to do with files that are there; without it the call stops with [`EXISTS_DIR`]. A cancelled transfer keeps
+    /// the files that were already copied. Returns the bytes copied or kept.
+    pub async fn download_tree(&self, remote: &str, local: &Path, merge: Option<Merge>, progress: &(dyn Fn(u64, u64) + Sync), cancel: &AtomicBool) -> Result<u64, String> {
+        let plan = self.plan_remote(remote).await?;
+        let exists = tokio::fs::try_exists(local).await.unwrap_or(false);
+        if exists {
+            if !tokio::fs::metadata(local).await.map(|m| m.is_dir()).unwrap_or(false) { return Err("A file with that name is in the way.".into()); }
+            if merge.is_none() { return Err(EXISTS_DIR.into()); }
+        }
+        tokio::fs::create_dir_all(local).await.map_err(|e| format!("Couldn't create {}: {e}", local.display()))?;
+        for d in &plan.dirs {
+            let mut p = local.to_path_buf();
+            for part in d.split('/') { p.push(part); }
+            tokio::fs::create_dir_all(&p).await.map_err(|e| format!("Couldn't create {}: {e}", p.display()))?;
+        }
+        let total = plan.total;
+        let mut done = 0u64;
+        progress(0, total);
+        for (rel, size) in &plan.files {
+            if cancel.load(Ordering::Relaxed) { return Err(CANCELLED.into()); }
+            let mut target = local.to_path_buf();
+            for part in rel.split('/') { target.push(part); }
+            if merge == Some(Merge::Skip) && tokio::fs::try_exists(&target).await.unwrap_or(false) {
+                done += size;
+                progress(done, total.max(done));
+                continue;
+            }
+            let base = done;
+            let cb = move |d: u64, _t: u64| progress(base + d, total.max(base + d));
+            self.download(&format!("{}/{}", remote.trim_end_matches('/'), rel), &target, true, &cb, cancel).await?;
+            done += size;
+        }
+        progress(done, total.max(done));
+        Ok(done)
+    }
+
+    /// Copies a local folder with everything in it to `remote` (the new folder); same rules as [`Self::download_tree`].
+    pub async fn upload_tree(&self, local: &Path, remote: &str, merge: Option<Merge>, progress: &(dyn Fn(u64, u64) + Sync), cancel: &AtomicBool) -> Result<u64, String> {
+        let mut plan = Plan::default();
+        let mut stack = vec![(local.to_path_buf(), String::new(), 0u32)];
+        while let Some((abs, rel, depth)) = stack.pop() {
+            if depth >= MAX_DEPTH { return Err("That folder is nested too deeply to upload.".into()); }
+            let mut rd = tokio::fs::read_dir(&abs).await.map_err(|e| format!("Couldn't read {}: {e}", abs.display()))?;
+            while let Some(e) = rd.next_entry().await.map_err(|e| format!("Couldn't read {}: {e}", abs.display()))? {
+                let name = e.file_name().to_string_lossy().into_owned();
+                let m = match tokio::fs::symlink_metadata(e.path()).await { Ok(m) => m, Err(_) => continue };
+                if m.file_type().is_symlink() { continue; }
+                let child_rel = if rel.is_empty() { name.clone() } else { format!("{rel}/{name}") };
+                if m.is_dir() {
+                    plan.dirs.push(child_rel.clone());
+                    stack.push((e.path(), child_rel, depth + 1));
+                } else if m.is_file() {
+                    plan.total += m.len();
+                    plan.files.push((child_rel, m.len()));
+                }
+            }
+        }
+        plan.dirs.sort();
+        let exists = self.sftp.try_exists(remote).await.unwrap_or(false);
+        if exists {
+            if !self.is_dir(remote).await.unwrap_or(false) { return Err("A file with that name is in the way.".into()); }
+            if merge.is_none() { return Err(EXISTS_DIR.into()); }
+        } else {
+            self.sftp.create_dir(remote).await.map_err(nice)?;
+        }
+        for d in &plan.dirs {
+            let path = format!("{}/{}", remote.trim_end_matches('/'), d);
+            if !self.sftp.try_exists(path.as_str()).await.unwrap_or(false) { self.sftp.create_dir(path.as_str()).await.map_err(nice)?; }
+        }
+        let total = plan.total;
+        let mut done = 0u64;
+        progress(0, total);
+        for (rel, size) in &plan.files {
+            if cancel.load(Ordering::Relaxed) { return Err(CANCELLED.into()); }
+            let mut src = local.to_path_buf();
+            for part in rel.split('/') { src.push(part); }
+            let dest = format!("{}/{}", remote.trim_end_matches('/'), rel);
+            if merge == Some(Merge::Skip) && self.sftp.try_exists(dest.as_str()).await.unwrap_or(false) {
+                done += size;
+                progress(done, total.max(done));
+                continue;
+            }
+            let base = done;
+            let cb = move |d: u64, _t: u64| progress(base + d, total.max(base + d));
+            self.upload(&src, &dest, true, &cb, cancel).await?;
+            done += size;
+        }
+        progress(done, total.max(done));
+        Ok(done)
+    }
+
+    /// Moves `from` to `to`. When something is already at `to`, `on` decides: fail with [`EXISTS`], replace it (the old
+    /// one goes to the Trash, or is deleted when `use_trash` is off) or keep both (the moved item gets a free name).
+    /// Returns where the item ended up.
+    pub async fn move_item(&self, from: &str, to: &str, on: OnConflict, use_trash: bool) -> Result<String, String> {
+        let from = from.trim_end_matches('/');
+        let to = to.trim_end_matches('/');
+        if to == from || to.starts_with(&format!("{from}/")) { return Err("A folder can't be moved into itself.".into()); }
+        let mut target = to.to_string();
+        if self.sftp.try_exists(to).await.unwrap_or(false) {
+            match on {
+                OnConflict::Fail => return Err(EXISTS.into()),
+                OnConflict::Replace => {
+                    if use_trash { self.trash(to).await? } else { self.remove(to).await? }
+                }
+                OnConflict::KeepBoth => {
+                    let (dir, name) = to.rsplit_once('/').unwrap_or(("", to));
+                    let mut n = 2;
+                    loop {
+                        let cand = format!("{dir}/{}", numbered(name, n));
+                        if !self.sftp.try_exists(cand.as_str()).await.unwrap_or(false) { target = cand; break; }
+                        n += 1;
+                        if n > 1000 { return Err("Couldn't find a free name for it.".into()); }
+                    }
+                }
+            }
+        }
+        self.sftp.rename(from, target.as_str()).await.map_err(nice)?;
+        Ok(target)
+    }
+
     /// Copies a remote file to `local`, reporting `(done, total)` bytes. A half-written file never takes the
     /// target's place: it is written beside it and renamed at the end.
     pub async fn download(&self, remote: &str, local: &Path, overwrite: bool, progress: &(dyn Fn(u64, u64) + Sync), cancel: &AtomicBool) -> Result<u64, String> {
@@ -646,22 +859,37 @@ mod commands {
         result
     }
 
+    /// Downloads a file, or a whole folder (`merge`: `skip` / `replace` when the folder already exists here).
     #[tauri::command]
-    pub async fn sftp_download(id: u32, transfer_id: u32, remote: String, local: String, overwrite: bool, app: AppHandle,
+    pub async fn sftp_download(id: u32, transfer_id: u32, remote: String, local: String, overwrite: bool, merge: Option<String>, app: AppHandle,
                                state: State<'_, SftpState>) -> Result<u64, String> {
         let s = state.session(id)?;
+        let merge = merge.as_deref().and_then(Merge::parse);
+        let dir = s.is_dir(&remote).await?;
         transfer(transfer_id, &app, &state, |cancel, progress| async move {
-            s.download(&remote, Path::new(&local), overwrite, &*progress, &cancel).await
+            if dir { s.download_tree(&remote, Path::new(&local), merge, &*progress, &cancel).await }
+            else { s.download(&remote, Path::new(&local), overwrite, &*progress, &cancel).await }
         }).await
     }
 
+    /// Uploads a file, or a whole folder (`merge`: `skip` / `replace` when the folder already exists on the server).
     #[tauri::command]
-    pub async fn sftp_upload(id: u32, transfer_id: u32, local: String, remote: String, overwrite: bool, app: AppHandle,
+    pub async fn sftp_upload(id: u32, transfer_id: u32, local: String, remote: String, overwrite: bool, merge: Option<String>, app: AppHandle,
                              state: State<'_, SftpState>) -> Result<u64, String> {
         let s = state.session(id)?;
+        let merge = merge.as_deref().and_then(Merge::parse);
+        let dir = tokio::fs::metadata(&local).await.map(|m| m.is_dir()).unwrap_or(false);
         transfer(transfer_id, &app, &state, |cancel, progress| async move {
-            s.upload(Path::new(&local), &remote, overwrite, &*progress, &cancel).await
+            if dir { s.upload_tree(Path::new(&local), &remote, merge, &*progress, &cancel).await }
+            else { s.upload(Path::new(&local), &remote, overwrite, &*progress, &cancel).await }
         }).await
+    }
+
+    /// Moves an item; `on_conflict`: `fail`, `replace` or `keep_both`. Returns the path it ended up at.
+    #[tauri::command]
+    pub async fn sftp_move(id: u32, from: String, to: String, on_conflict: String, use_trash: bool, state: State<'_, SftpState>) -> Result<String, String> {
+        let on = OnConflict::parse(&on_conflict).ok_or("Unknown conflict choice.")?;
+        state.session(id)?.move_item(&from, &to, on, use_trash).await
     }
 }
 
@@ -961,6 +1189,123 @@ mod tests {
         // Odd ids and the home folder are refused.
         assert!(s.restore("../x").await.is_err());
         assert!(s.trash("/").await.is_err());
+    }
+
+    #[test]
+    fn numbered_names_and_unsafe_local_names() {
+        assert_eq!(numbered("report.pdf", 2), "report (2).pdf");
+        assert_eq!(numbered("archive.tar.gz", 3), "archive.tar (3).gz");
+        assert_eq!(numbered("Makefile", 2), "Makefile (2)");
+        assert_eq!(numbered(".bashrc", 2), ".bashrc (2)");
+        assert!(local_component("ok name.txt").is_ok());
+        assert!(local_component("..").is_err());
+        assert!(local_component("a/b").is_err());
+        assert!(local_component("").is_err());
+        if cfg!(windows) { assert!(local_component("a:b").is_err()); assert!(local_component("a\\b").is_err()); }
+    }
+
+    /// A small tree: `top.txt`, `sub/inner.txt`, `sub/deep/leaf.bin` and an empty `empty/`.
+    fn make_tree(root: &Path) {
+        std::fs::create_dir_all(root.join("sub/deep")).unwrap();
+        std::fs::create_dir_all(root.join("empty")).unwrap();
+        std::fs::write(root.join("top.txt"), "top").unwrap();
+        std::fs::write(root.join("sub/inner.txt"), "inner!").unwrap();
+        std::fs::write(root.join("sub/deep/leaf.bin"), vec![9u8; 3000]).unwrap();
+    }
+
+    #[tokio::test]
+    async fn uploads_and_downloads_a_whole_folder_and_asks_before_merging() {
+        let f = start(true).await;
+        let s = session(&f).await;
+        let local = temp_root("tree-src");
+        make_tree(&local);
+        let seen = std::sync::Mutex::new((0u64, 0u64));
+        let rec = |d: u64, t: u64| *seen.lock().unwrap() = (d, t);
+        let cancel = AtomicBool::new(false);
+
+        // Up: the folder arrives with its structure, empty folders included, and the progress reaches the total.
+        let bytes = s.upload_tree(&local, "/proj", None, &rec, &cancel).await.unwrap();
+        assert_eq!(bytes, 3 + 6 + 3000);
+        assert_eq!(*seen.lock().unwrap(), (3009, 3009));
+        assert_eq!(std::fs::read_to_string(f.root.join("proj/sub/inner.txt")).unwrap(), "inner!");
+        assert!(f.root.join("proj/empty").is_dir());
+        assert_eq!(std::fs::read(f.root.join("proj/sub/deep/leaf.bin")).unwrap().len(), 3000);
+
+        // The folder is there now: asks, unless told how to merge.
+        assert_eq!(s.upload_tree(&local, "/proj", None, &rec, &cancel).await.unwrap_err(), EXISTS_DIR);
+        std::fs::write(f.root.join("proj/top.txt"), "changed on the server").unwrap();
+        s.upload_tree(&local, "/proj", Some(Merge::Skip), &rec, &cancel).await.unwrap();
+        assert_eq!(std::fs::read_to_string(f.root.join("proj/top.txt")).unwrap(), "changed on the server");
+        s.upload_tree(&local, "/proj", Some(Merge::Replace), &rec, &cancel).await.unwrap();
+        assert_eq!(std::fs::read_to_string(f.root.join("proj/top.txt")).unwrap(), "top");
+
+        // Down: the same, into a new local folder.
+        let dest = temp_root("tree-dst").join("proj");
+        assert_eq!(s.download_tree("/proj", &dest, None, &rec, &cancel).await.unwrap(), 3009);
+        assert_eq!(std::fs::read_to_string(dest.join("sub/inner.txt")).unwrap(), "inner!");
+        assert!(dest.join("empty").is_dir());
+        assert_eq!(s.download_tree("/proj", &dest, None, &rec, &cancel).await.unwrap_err(), EXISTS_DIR);
+        std::fs::write(dest.join("top.txt"), "mine").unwrap();
+        s.download_tree("/proj", &dest, Some(Merge::Skip), &rec, &cancel).await.unwrap();
+        assert_eq!(std::fs::read_to_string(dest.join("top.txt")).unwrap(), "mine");
+        s.download_tree("/proj", &dest, Some(Merge::Replace), &rec, &cancel).await.unwrap();
+        assert_eq!(std::fs::read_to_string(dest.join("top.txt")).unwrap(), "top");
+        // No half-written leftovers.
+        let leftovers = walk_names(&dest).into_iter().filter(|n| n.ends_with(".notiq-part")).count();
+        assert_eq!(leftovers, 0);
+    }
+
+    fn walk_names(dir: &Path) -> Vec<String> {
+        let mut out = Vec::new();
+        for e in std::fs::read_dir(dir).unwrap() {
+            let e = e.unwrap();
+            out.push(e.file_name().to_string_lossy().into_owned());
+            if e.path().is_dir() { out.extend(walk_names(&e.path())); }
+        }
+        out
+    }
+
+    #[tokio::test]
+    async fn a_cancelled_folder_transfer_stops() {
+        let f = start(true).await;
+        let s = session(&f).await;
+        let local = temp_root("tree-cancel");
+        make_tree(&local);
+        let cancel = AtomicBool::new(true);
+        assert_eq!(s.upload_tree(&local, "/proj", None, &|_, _| {}, &cancel).await.unwrap_err(), CANCELLED);
+        assert!(!f.root.join("proj/sub/inner.txt").exists());
+    }
+
+    #[tokio::test]
+    async fn moving_handles_a_taken_name_by_failing_replacing_or_keeping_both() {
+        let f = start(true).await;
+        std::fs::write(f.root.join("a.txt"), "new").unwrap();
+        std::fs::create_dir(f.root.join("d")).unwrap();
+        std::fs::write(f.root.join("d/a.txt"), "old").unwrap();
+        let s = session(&f).await;
+        // Free name: a plain move.
+        assert_eq!(s.move_item("/a.txt", "/b.txt", OnConflict::Fail, true).await.unwrap(), "/b.txt");
+        std::fs::rename(f.root.join("b.txt"), f.root.join("a.txt")).unwrap();
+        // Taken: refused unless a choice was made.
+        assert_eq!(s.move_item("/a.txt", "/d/a.txt", OnConflict::Fail, true).await.unwrap_err(), EXISTS);
+        assert!(f.root.join("a.txt").exists());
+        // Keep both: the moved one gets a free name.
+        assert_eq!(s.move_item("/a.txt", "/d/a.txt", OnConflict::KeepBoth, true).await.unwrap(), "/d/a (2).txt");
+        assert_eq!(std::fs::read_to_string(f.root.join("d/a (2).txt")).unwrap(), "new");
+        assert_eq!(std::fs::read_to_string(f.root.join("d/a.txt")).unwrap(), "old");
+        // Replace: the old one goes to the Trash.
+        std::fs::write(f.root.join("a.txt"), "newest").unwrap();
+        assert_eq!(s.move_item("/a.txt", "/d/a.txt", OnConflict::Replace, true).await.unwrap(), "/d/a.txt");
+        assert_eq!(std::fs::read_to_string(f.root.join("d/a.txt")).unwrap(), "newest");
+        let trash = s.list_trash().await.unwrap();
+        assert!(trash.iter().any(|t| t.original == "/d/a.txt"));
+        // Replace without the Trash deletes the old one.
+        std::fs::write(f.root.join("a.txt"), "last").unwrap();
+        s.move_item("/a.txt", "/d/a.txt", OnConflict::Replace, false).await.unwrap();
+        assert_eq!(std::fs::read_to_string(f.root.join("d/a.txt")).unwrap(), "last");
+        assert_eq!(s.list_trash().await.unwrap().len(), trash.len());
+        // A folder can't go into itself.
+        assert!(s.move_item("/d", "/d/inside", OnConflict::Fail, true).await.is_err());
     }
 
     #[tokio::test]

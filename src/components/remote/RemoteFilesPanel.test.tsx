@@ -5,9 +5,10 @@ import { createRoot, type Root } from "react-dom/client";
 
 const invoke = vi.fn();
 const pickSave = vi.fn();
+const pickOpen = vi.fn(async (..._a: unknown[]): Promise<string | string[] | null> => null);
 vi.mock("@tauri-apps/api/core", () => ({ invoke: (cmd: string, args?: unknown) => invoke(cmd, args) }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn(async () => () => {}) }));
-vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn(async () => null), save: (...a: unknown[]) => pickSave(...a) }));
+vi.mock("@tauri-apps/plugin-dialog", () => ({ open: (...a: unknown[]) => pickOpen(...a), save: (...a: unknown[]) => pickSave(...a) }));
 vi.mock("../../lib/toast", () => ({ toast: { info: vi.fn(), error: vi.fn(), success: vi.fn(), warning: vi.fn(), dismiss: vi.fn() } }));
 vi.mock("@monaco-editor/react", () => ({
   default: (p: { value: string; onChange: (v: string) => void }) => (
@@ -42,6 +43,7 @@ function fakeServer() {
       }
       case "sftp_download": return 2048;
       case "sftp_upload": return 7;
+      case "sftp_move": return args.to;
       case "clipboard_files": return osClipboard;
       case "sftp_read": return { data: btoa("hello"), mtime: 1_700_000_000 };
       case "sftp_write": return 1_700_000_001;
@@ -64,6 +66,7 @@ const button = (label: string) =>
 
 beforeEach(() => {
   osClipboard = [];
+  pickOpen.mockReset(); pickOpen.mockResolvedValue(null);
   invoke.mockReset(); pickSave.mockReset(); vi.mocked(toast.error).mockReset();
   host = document.createElement("div"); document.body.appendChild(host); root = createRoot(host);
 });
@@ -214,10 +217,10 @@ describe("RemoteFilesPanel", () => {
     await click(rows()[1]);                       // notes.txt
     await click(button("Cut"));
     await click(button("Paste"));                 // same folder: nothing to move
-    expect(invoke).not.toHaveBeenCalledWith("sftp_rename", expect.anything());
+    expect(invoke).not.toHaveBeenCalledWith("sftp_move", expect.anything());
     await act(async () => { rows()[0].dispatchEvent(new MouseEvent("dblclick", { bubbles: true })); });
     await click(button("Paste"));
-    expect(invoke).toHaveBeenCalledWith("sftp_rename", expect.objectContaining({ id: expect.any(Number), from: "/home/alice/notes.txt", to: "/home/alice/projects/notes.txt" }));
+    expect(invoke).toHaveBeenCalledWith("sftp_move", expect.objectContaining({ id: expect.any(Number), from: "/home/alice/notes.txt", to: "/home/alice/projects/notes.txt", onConflict: "fail" }));
   });
 
   it("changes permissions from the grid and applies the octal number", async () => {
@@ -297,7 +300,7 @@ describe("RemoteFilesPanel", () => {
     await click(item);
     await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
     expect(invoke).not.toHaveBeenCalledWith("sftp_upload", expect.anything());
-    expect(invoke).toHaveBeenCalledWith("sftp_rename", expect.objectContaining({ from: "/home/alice/notes.txt", to: "/home/alice/projects/notes.txt" }));
+    expect(invoke).toHaveBeenCalledWith("sftp_move", expect.objectContaining({ from: "/home/alice/notes.txt", to: "/home/alice/projects/notes.txt" }));
   });
 
   it("shows the Trash button as empty when nothing is in the Trash", async () => {
@@ -306,5 +309,84 @@ describe("RemoteFilesPanel", () => {
     invoke.mockImplementation(async (cmd: string, args: Record<string, unknown>) => (cmd === "sftp_trash_list" ? [] : base(cmd, args)));
     await show();
     expect(button("Trash").parentElement!.textContent).toBe("");   // no count badge
+  });
+
+  const dialogButton = (label: string) => [...document.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent?.trim() === label)!;
+  const settle = () => act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+
+  it("asks what to do when a moved item's name is taken, and keeps both when told to", async () => {
+    fakeServer();
+    const base = invoke.getMockImplementation()!;
+    let first = true;
+    invoke.mockImplementation(async (cmd: string, args: Record<string, unknown>) => {
+      if (cmd === "sftp_move" && first) { first = false; throw "already_exists"; }
+      return base(cmd, args);
+    });
+    await show();
+    await click(rows()[1]);                          // notes.txt
+    await click(button("Cut"));
+    await act(async () => { rows()[0].dispatchEvent(new MouseEvent("dblclick", { bubbles: true })); });
+    await click(button("Paste"));
+    await settle();
+    expect(document.body.textContent).toContain("already exists there");
+    await click(dialogButton("Keep both"));
+    await settle();
+    const moves = invoke.mock.calls.filter((c) => c[0] === "sftp_move").map((c) => (c[1] as Record<string, unknown>).onConflict);
+    expect(moves).toEqual(["fail", "keep_both"]);
+  });
+
+  it("downloads a folder into a chosen folder, and merges when it already exists there", async () => {
+    fakeServer();
+    const base = invoke.getMockImplementation()!;
+    let first = true;
+    invoke.mockImplementation(async (cmd: string, args: Record<string, unknown>) => {
+      if (cmd === "sftp_download" && first) { first = false; throw "already_exists_folder"; }
+      return base(cmd, args);
+    });
+    pickOpen.mockResolvedValue("C:/out");
+    await show();
+    await click(rows()[0]);                          // the "projects" folder
+    await click(button("Download"));
+    await settle();
+    expect(pickSave).not.toHaveBeenCalled();         // a folder asks for a folder, not a file name
+    expect(document.body.textContent).toContain("Merge into the existing folder");
+    await click(dialogButton("Skip matching files"));
+    await settle();
+    const calls = invoke.mock.calls.filter((c) => c[0] === "sftp_download").map((c) => c[1] as Record<string, unknown>);
+    expect(calls.map((c) => c.local)).toEqual(["C:/out/projects", "C:/out/projects"]);
+    expect(calls.map((c) => c.merge)).toEqual([null, "skip"]);
+  });
+
+  it("uploads a chosen folder", async () => {
+    fakeServer();
+    pickOpen.mockResolvedValue("C:/Users/me/site");
+    await show();
+    await click(button("Upload folder"));
+    await settle();
+    expect(pickOpen).toHaveBeenCalledWith(expect.objectContaining({ directory: true }));
+    expect(invoke).toHaveBeenCalledWith("sftp_upload", expect.objectContaining({ local: "C:/Users/me/site", remote: "/home/alice/site", merge: null }));
+  });
+
+  it("signs in again when the connection drops, and shows the same folder", async () => {
+    fakeServer();
+    const base = invoke.getMockImplementation()!;
+    let drop = false;
+    invoke.mockImplementation(async (cmd: string, args: Record<string, unknown>) => {
+      if (cmd === "sftp_list" && drop) { drop = false; throw "The connection to the server was closed. Reconnect to continue."; }
+      return base(cmd, args);
+    });
+    await show();
+    await act(async () => { rows()[0].dispatchEvent(new MouseEvent("dblclick", { bubbles: true })); });
+    expect(names()).toEqual(["app.log"]);
+    const opens = () => invoke.mock.calls.filter((c) => c[0] === "sftp_open").length;
+    expect(opens()).toBe(1);
+    drop = true;
+    await click(button("Refresh"));                  // the list call fails with a connection error
+    await settle();
+    expect(opens()).toBe(2);                         // signed in again
+    expect(names()).toEqual(["app.log"]);            // and the folder is back
+    expect(document.body.textContent).not.toContain("Connection lost");
+    const ids = invoke.mock.calls.filter((c) => c[0] === "sftp_open").map((c) => (c[1] as Record<string, unknown>).id);
+    expect(new Set(ids).size).toBe(2);               // under a new session id
   });
 });
