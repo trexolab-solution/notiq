@@ -248,7 +248,7 @@ pub fn start(app: &AppHandle) {
     let Ok(port) = listener.local_addr().map(|a| a.port()) else { return };
     let token = random_token();
     let doc = json!({ "port": port, "token": token }).to_string();
-    if atomic_write(&dir.join(IPC_FILE), doc.as_bytes()).is_err() {
+    if write_ipc_file(&dir.join(IPC_FILE), doc.as_bytes()).is_err() {
         return;
     }
     IPC_PORT.store(port as u32, Ordering::Relaxed);
@@ -540,6 +540,26 @@ pub fn validate_fill_identity(req: &Value) -> Result<(String, Option<String>), &
 
 /// Most identities listed for the right-click menu.
 pub const MAX_IDENTITIES: usize = 20;
+/// At most this many `identities` replies per window (the right-click menu asks once per few seconds at most).
+const IDENTITIES_RATE_WINDOW_MS: u64 = 60_000;
+const IDENTITIES_RATE_MAX: usize = 20;
+
+fn identities_rate_log() -> &'static Mutex<std::collections::VecDeque<u64>> {
+    static L: OnceLock<Mutex<std::collections::VecDeque<u64>>> = OnceLock::new();
+    L.get_or_init(Default::default)
+}
+
+/// Writes the `{port, token}` file readable by the current user only (0600 on Unix; on Windows the app-data
+/// folder already belongs to the user's profile).
+fn write_ipc_file(path: &std::path::Path, bytes: &[u8]) -> Result<(), String> {
+    atomic_write(path, bytes)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600)).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
 const IDENTITY_EXT: &str = "identity";
 
 /// `identities` reply from the vault listing: live Identity entries only, titled by their file name (control
@@ -716,6 +736,15 @@ fn handle(app: &AppHandle, req: Value) -> Value {
             let vault = app.state::<crate::vault::VaultState>();
             if !vault.is_unlocked() {
                 return json!({ "error": "locked" });
+            }
+            // The list needs no Allow, so cap how often anything can ask for it (the extension caches it).
+            if !crate::autofill_reuse::rate_ok(
+                &mut identities_rate_log().lock().unwrap_or_else(|e| e.into_inner()),
+                crate::vault_db::now_ms(),
+                IDENTITIES_RATE_WINDOW_MS,
+                IDENTITIES_RATE_MAX,
+            ) {
+                return json!({ "error": "rate_limited" });
             }
             return match vault.with_db_quiet(|db, _, _, _| Ok((db.list(), false))) {
                 Ok(items) => identities_reply(&items),
