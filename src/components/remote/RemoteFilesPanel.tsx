@@ -2,8 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { open as pickFiles, save as pickSave } from "@tauri-apps/plugin-dialog";
 import {
-  ArrowUp, Copy, Download, Eye, EyeOff, FilePenLine, FolderOpen, FolderPlus, Pencil, RefreshCw, Search, SquareArrowOutUpRight,
-  Trash2, Upload,
+  ArrowLeft, ArrowRight, ArrowUp, ClipboardPaste, Copy, Download, Eye, EyeOff, FilePenLine, FilePlus, FolderOpen, FolderPlus, Pencil,
+  RefreshCw, Scissors, Search, ShieldCheck, SquareArrowOutUpRight, Trash2, Upload,
 } from "lucide-react";
 import { Dialog, DialogBody, DialogButton, DialogFooter } from "../ui/Dialog";
 import { ConfirmDialog } from "../ui/ConfirmDialog";
@@ -14,13 +14,14 @@ import { DropHighlight, useDropTarget } from "../ui/DropZone";
 import { RowIconButton } from "../vault/ListEditor";
 import { RemoteFileTable } from "./RemoteFileTable";
 import { RemoteFileViewer } from "./RemoteFileViewer";
+import { PermissionsDialog } from "./PermissionsDialog";
 import { RemoteTransfers, type Transfer } from "./RemoteTransfers";
 import { toast } from "../../lib/toast";
 import { getFileName, joinPath } from "../../lib/pathUtils";
 import type { SshTarget } from "../../lib/sshConnect";
 import {
   crumbs, joinRemote, nameProblem, onSftpProgress, parentRemote, sftpCancel, sftpClose, sftpDownload, sftpErrorMessage,
-  sftpList, sftpMkdir, sftpOpen, sftpRemove, sftpRename, sftpUpload, sortEntries, visibleEntries, SFTP_CANCELLED, SFTP_EXISTS,
+  sftpChmod, sftpList, sftpMkdir, sftpOpen, sftpRemove, sftpRename, sftpUpload, sftpWrite, sortEntries, visibleEntries, SFTP_CANCELLED, SFTP_EXISTS,
   type RemoteEntry, type SortKey, type SortState,
 } from "../../lib/sftp";
 
@@ -28,7 +29,7 @@ let nextSession = 1;
 let nextTransfer = 1;
 
 type Phase = "connecting" | "ready" | "failed";
-type Prompt = { kind: "folder" } | { kind: "rename"; entry: RemoteEntry };
+type Prompt = { kind: "folder" } | { kind: "file" } | { kind: "rename"; entry: RemoteEntry } | { kind: "perms"; entry: RemoteEntry };
 
 /** A one-field dialog for a new folder's name or a rename. */
 function NameDialog({ title, label, initial, confirm, onSubmit, onClose }: {
@@ -84,6 +85,10 @@ export function RemoteFilesPanel({ target, active = true, onPopOut }: {
   /** The file open in the viewer, with the folder it is in. */
   const [viewing, setViewing] = useState<{ entry: RemoteEntry; dir: string } | null>(null);
   const { copy } = useCopyToClipboard();
+  /** Folders visited before and after this one (back / forward), like a browser. */
+  const [nav, setNav] = useState<{ back: string[]; fwd: string[] }>({ back: [], fwd: [] });
+  /** Items cut for moving: where they are and their names. */
+  const [clip, setClip] = useState<{ dir: string; names: string[] } | null>(null);
 
   const rootEl = useRef<HTMLDivElement>(null);
   const sid = useRef(0);
@@ -115,6 +120,7 @@ export function RemoteFilesPanel({ target, active = true, onPopOut }: {
       if (session !== sid.current) { void sftpClose(session); return; }
       setTitle(o.title || target.title);
       setPhase("ready");
+      setNav({ back: [], fwd: [] });
       await load(o.home, session);
     } catch (e) {
       if (session !== sid.current) return;
@@ -156,7 +162,25 @@ export function RemoteFilesPanel({ target, active = true, onPopOut }: {
   };
 
   const sortBy = (key: SortKey) => setSort((s) => (s.key === key ? { key, desc: !s.desc } : { key, desc: false }));
-  const goUp = () => { if (path !== "/") void load(parentRemote(path)); };
+  /** Goes to a folder and remembers where it came from for the back button. */
+  const navigate = (want: string) => {
+    const here = pathRef.current;
+    setNav((n) => ({ back: here ? [...n.back, here] : n.back, fwd: [] }));
+    void load(want);
+  };
+  const goBack = () => {
+    const prev = nav.back[nav.back.length - 1];
+    if (prev === undefined) return;
+    setNav({ back: nav.back.slice(0, -1), fwd: [...nav.fwd, pathRef.current] });
+    void load(prev);
+  };
+  const goForward = () => {
+    const next = nav.fwd[nav.fwd.length - 1];
+    if (next === undefined) return;
+    setNav({ back: [...nav.back, pathRef.current], fwd: nav.fwd.slice(0, -1) });
+    void load(next);
+  };
+  const goUp = () => { if (path !== "/") navigate(parentRemote(path)); };
 
   // ── transfers ────────────────────────────────────────────────────────────────
 
@@ -226,7 +250,7 @@ export function RemoteFilesPanel({ target, active = true, onPopOut }: {
 
   /** A folder opens in the list; a file opens in the viewer (pictures shown, text edited); anything else is downloaded. */
   const openEntry = (e: RemoteEntry) => {
-    if (e.kind === "dir") void load(joinRemote(path, e.name));
+    if (e.kind === "dir") navigate(joinRemote(path, e.name));
     else if (e.kind === "file") setViewing({ entry: e, dir: path });
     else void download([e]);
   };
@@ -241,6 +265,8 @@ export function RemoteFilesPanel({ target, active = true, onPopOut }: {
     const here: ContextMenuItem[] = [
       { type: "item", label: "Upload here\u2026", icon: <Upload size={13} />, onClick: () => void chooseUpload() },
       { type: "item", label: "New folder\u2026", icon: <FolderPlus size={13} />, onClick: () => setPrompt({ kind: "folder" }) },
+      { type: "item", label: "New file\u2026", icon: <FilePlus size={13} />, onClick: () => setPrompt({ kind: "file" }) },
+      { type: "item", label: "Paste here", icon: <ClipboardPaste size={13} />, shortcut: "Ctrl+V", disabled: !clip || clip.dir === path, onClick: () => paste(path) },
       { type: "item", label: "Refresh", icon: <RefreshCw size={13} />, onClick: () => void load(path) },
       { type: "item", label: "Copy folder path", icon: <Copy size={13} />, onClick: () => void copy(path) },
     ];
@@ -255,7 +281,10 @@ export function RemoteFilesPanel({ target, active = true, onPopOut }: {
         : { type: "item", label: "Open / edit", icon: <FilePenLine size={13} />, disabled: !one || entry.kind !== "file", onClick: () => openEntry(entry) },
       { type: "item", label: files.length > 1 ? `Download ${files.length} files\u2026` : "Download\u2026", icon: <Download size={13} />, disabled: files.length === 0, onClick: () => void download(files) },
       { type: "separator" },
+      { type: "item", label: "Cut", icon: <Scissors size={13} />, shortcut: "Ctrl+X", onClick: () => cut(group) },
+      ...(one && entry.kind === "dir" ? [{ type: "item" as const, label: "Paste into folder", icon: <ClipboardPaste size={13} />, disabled: !clip || clip.dir === joinRemote(path, entry.name), onClick: () => paste(joinRemote(path, entry.name)) }] : []),
       { type: "item", label: "Rename\u2026", icon: <Pencil size={13} />, shortcut: "F2", disabled: !one, onClick: () => setPrompt({ kind: "rename", entry }) },
+      { type: "item", label: "Permissions\u2026", icon: <ShieldCheck size={13} />, disabled: !one, onClick: () => setPrompt({ kind: "perms", entry }) },
       { type: "item", label: "Copy path", icon: <Copy size={13} />, disabled: !one, onClick: () => void copy(joinRemote(path, entry.name)) },
       { type: "separator" },
       { type: "item", label: one ? "Delete\u2026" : `Delete ${group.length} items\u2026`, icon: <Trash2 size={13} />, shortcut: "Del", danger: true, onClick: () => setDeleting(group) },
@@ -275,6 +304,27 @@ export function RemoteFilesPanel({ target, active = true, onPopOut }: {
   const renameEntry = (e: RemoteEntry, name: string) => {
     setPrompt(null); void act(() => sftpRename(sid.current, joinRemote(path, e.name), joinRemote(path, name)));
   };
+  const makeFile = (name: string) => {
+    setPrompt(null);
+    if (entries.some((e) => e.name === name)) { toast.error(`${name} already exists here.`); return; }
+    void act(async () => {
+      await sftpWrite(sid.current, joinRemote(path, name), "", null, false);
+      setViewing({ entry: { name, kind: "file", link: false, size: 0, mtime: null, mode: null }, dir: path });
+    });
+  };
+  const changeMode = (e: RemoteEntry, mode: number) => {
+    setPrompt(null); void act(() => sftpChmod(sid.current, joinRemote(path, e.name), mode), `Permissions of ${e.name} changed`);
+  };
+  /** Cut marks items for moving; paste (in another folder) moves them there. */
+  const cut = (list: RemoteEntry[]) => { if (list.length) setClip({ dir: pathRef.current, names: list.map((e) => e.name) }); };
+  const paste = (dest: string) => {
+    const c = clip;
+    if (!c || c.dir === dest) return;
+    void act(async () => {
+      for (const n of c.names) await sftpRename(sid.current, joinRemote(c.dir, n), joinRemote(dest, n));
+      setClip(null);
+    }, `Moved ${c.names.length === 1 ? c.names[0] : `${c.names.length} items`}`);
+  };
   const removeEntries = (list: RemoteEntry[]) => {
     setDeleting(null);
     void act(async () => { for (const e of list) await sftpRemove(sid.current, joinRemote(path, e.name)); },
@@ -288,7 +338,11 @@ export function RemoteFilesPanel({ target, active = true, onPopOut }: {
     if (e.key === "Delete" && picked.length) { e.preventDefault(); setDeleting(picked); }
     else if (e.key === "F2" && picked.length === 1) { e.preventDefault(); setPrompt({ kind: "rename", entry: picked[0] }); }
     else if (e.key === "Enter" && picked.length === 1) { e.preventDefault(); openEntry(picked[0]); }
+    else if (e.altKey && e.key === "ArrowLeft") { e.preventDefault(); goBack(); }
+    else if (e.altKey && e.key === "ArrowRight") { e.preventDefault(); goForward(); }
     else if (e.key === "Backspace" || (e.altKey && e.key === "ArrowUp")) { e.preventDefault(); goUp(); }
+    else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "x" && picked.length) { e.preventDefault(); cut(picked); }
+    else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "v" && clip) { e.preventDefault(); paste(pathRef.current); }
     else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "a") { e.preventDefault(); setSelected(new Set(shown.map((x) => x.name))); }
   };
 
@@ -299,7 +353,7 @@ export function RemoteFilesPanel({ target, active = true, onPopOut }: {
       : "Nothing matches the filter.";
   const count = entries.length;
   const status = !ready ? "" : loading ? "Loading…"
-    : `${count} item${count === 1 ? "" : "s"}${picked.length ? ` · ${picked.length} selected` : ""}`;
+    : `${count} item${count === 1 ? "" : "s"}${picked.length ? ` · ${picked.length} selected` : ""}${clip ? ` · ${clip.names.length} cut` : ""}`;
 
   return (
     <>
@@ -318,6 +372,8 @@ export function RemoteFilesPanel({ target, active = true, onPopOut }: {
             {ready && (
               <>
                 <div className="flex items-center gap-1.5 px-3 py-2 border-b border-[var(--color-border)]">
+                  <RowIconButton label="Back" tooltip="Back (Alt+Left)" icon={<ArrowLeft size={14} />} disabled={nav.back.length === 0} onClick={goBack} />
+                  <RowIconButton label="Forward" tooltip="Forward (Alt+Right)" icon={<ArrowRight size={14} />} disabled={nav.fwd.length === 0} onClick={goForward} />
                   <RowIconButton label="Up one folder" tooltip="Up (Backspace)" icon={<ArrowUp size={14} />} disabled={path === "/"} onClick={goUp} />
                   <RowIconButton label="Refresh" icon={<RefreshCw size={14} className={loading ? "animate-spin" : ""} />} onClick={() => void load(path)} />
                   {editingPath === null ? (
@@ -325,7 +381,7 @@ export function RemoteFilesPanel({ target, active = true, onPopOut }: {
                          onDoubleClick={() => setEditingPath(path)}>
                       {crumbs(path).map((c, i, all) => (
                         <span key={c.path} className="flex items-center shrink-0">
-                          <button type="button" onClick={() => void load(c.path)}
+                          <button type="button" onClick={() => navigate(c.path)}
                                   className={`px-1.5 py-0.5 rounded text-sm cursor-pointer hover:bg-[var(--color-bg-tertiary)] ${i === all.length - 1 ? "font-medium text-[var(--color-text)]" : "text-[var(--color-text-muted)]"}`}>
                             {c.name}
                           </button>
@@ -338,7 +394,7 @@ export function RemoteFilesPanel({ target, active = true, onPopOut }: {
                            onChange={(e) => setEditingPath(e.target.value)} onFocus={(e) => e.currentTarget.select()}
                            onBlur={() => setEditingPath(null)}
                            onKeyDown={(e) => {
-                             if (e.key === "Enter") { const p = editingPath.trim(); setEditingPath(null); if (p) void load(p); }
+                             if (e.key === "Enter") { const p = editingPath.trim(); setEditingPath(null); if (p) navigate(p); }
                              if (e.key === "Escape") { e.stopPropagation(); setEditingPath(null); }
                            }} />
                   )}
@@ -352,15 +408,24 @@ export function RemoteFilesPanel({ target, active = true, onPopOut }: {
                   {onPopOut && <RowIconButton label="Open in new window" icon={<SquareArrowOutUpRight size={14} />} onClick={onPopOut} />}
                 </div>
 
-                <div className="flex items-center gap-1 px-3 py-1.5 border-b border-[var(--color-border)]">
-                  <DialogButton icon={<Upload size={13} />} onClick={() => void chooseUpload()}>Upload</DialogButton>
-                  <DialogButton icon={<Download size={13} />} disabled={pickedFiles.length === 0} onClick={() => void download(pickedFiles)}>
-                    Download{pickedFiles.length > 1 ? ` (${pickedFiles.length})` : ""}
-                  </DialogButton>
-                  <span className="w-px h-5 mx-1 bg-[var(--color-border)]" aria-hidden />
-                  <DialogButton icon={<FolderPlus size={13} />} onClick={() => setPrompt({ kind: "folder" })}>New folder</DialogButton>
-                  <DialogButton icon={<Pencil size={13} />} disabled={picked.length !== 1} onClick={() => setPrompt({ kind: "rename", entry: picked[0] })}>Rename</DialogButton>
-                  <DialogButton variant={picked.length === 0 ? "secondary" : "danger"} icon={<Trash2 size={13} />} disabled={picked.length === 0} onClick={() => setDeleting(picked)}>Delete</DialogButton>
+                <div className="flex items-center gap-0.5 px-3 py-1.5 border-b border-[var(--color-border)]" role="toolbar" aria-label="File actions">
+                  <RowIconButton label="Upload" tooltip="Upload files (or drag and drop them here)" icon={<Upload size={15} />} onClick={() => void chooseUpload()} />
+                  <RowIconButton label="Download" tooltip={pickedFiles.length > 1 ? `Download ${pickedFiles.length} files` : "Download"} icon={<Download size={15} />}
+                                 disabled={pickedFiles.length === 0} onClick={() => void download(pickedFiles)} />
+                  <span className="w-px h-5 mx-1.5 bg-[var(--color-border)]" aria-hidden />
+                  <RowIconButton label="New folder" icon={<FolderPlus size={15} />} onClick={() => setPrompt({ kind: "folder" })} />
+                  <RowIconButton label="New file" icon={<FilePlus size={15} />} onClick={() => setPrompt({ kind: "file" })} />
+                  <span className="w-px h-5 mx-1.5 bg-[var(--color-border)]" aria-hidden />
+                  <RowIconButton label="Cut" tooltip="Cut (Ctrl+X): then open a folder and paste" icon={<Scissors size={15} />} disabled={picked.length === 0} onClick={() => cut(picked)} />
+                  <RowIconButton label="Paste" tooltip={clip ? `Paste ${clip.names.length === 1 ? clip.names[0] : `${clip.names.length} items`} here (Ctrl+V)` : "Paste (Ctrl+V)"}
+                                 icon={<ClipboardPaste size={15} />} disabled={!clip || clip.dir === path} onClick={() => paste(path)} />
+                  <span className="w-px h-5 mx-1.5 bg-[var(--color-border)]" aria-hidden />
+                  <RowIconButton label="Rename" tooltip="Rename (F2)" icon={<Pencil size={15} />} disabled={picked.length !== 1} onClick={() => setPrompt({ kind: "rename", entry: picked[0] })} />
+                  <RowIconButton label="Permissions" icon={<ShieldCheck size={15} />} disabled={picked.length !== 1} onClick={() => setPrompt({ kind: "perms", entry: picked[0] })} />
+                  <RowIconButton label="Delete" tooltip="Delete (Del)" icon={<Trash2 size={15} />} danger disabled={picked.length === 0} onClick={() => setDeleting(picked)} />
+                  <span className="ml-auto hidden sm:flex items-center gap-1.5 text-xs text-[var(--color-text-muted)]" aria-hidden>
+                    <Upload size={12} />Drag files here to upload
+                  </span>
                 </div>
 
                 <RemoteFileTable entries={shown} selected={selected} sort={sort} onSort={sortBy} onSelect={select} onOpen={openEntry} onMenu={openMenu}
@@ -384,6 +449,12 @@ export function RemoteFilesPanel({ target, active = true, onPopOut }: {
       {menu && <ContextMenu x={menu.x} y={menu.y} items={menuItems(menu.entry)} onClose={() => setMenu(null)} label={menu.entry ? `Actions for ${menu.entry.name}` : "Folder actions"} />}
       {prompt?.kind === "folder" && (
         <NameDialog title="New folder" label="Folder name" initial="" confirm="Create" onSubmit={makeFolder} onClose={() => setPrompt(null)} />
+      )}
+      {prompt?.kind === "file" && (
+        <NameDialog title="New file" label="File name" initial="" confirm="Create" onSubmit={makeFile} onClose={() => setPrompt(null)} />
+      )}
+      {prompt?.kind === "perms" && (
+        <PermissionsDialog name={prompt.entry.name} mode={prompt.entry.mode} onApply={(m) => changeMode(prompt.entry, m)} onClose={() => setPrompt(null)} />
       )}
       {prompt?.kind === "rename" && (
         <NameDialog title="Rename" label="New name" initial={prompt.entry.name} confirm="Rename"

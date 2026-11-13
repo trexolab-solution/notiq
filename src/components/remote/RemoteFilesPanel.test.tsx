@@ -158,4 +158,44 @@ describe("RemoteFilesPanel", () => {
     await click(button("Save"));
     expect(invoke).toHaveBeenCalledWith("sftp_write", expect.objectContaining({ path: "/home/alice/notes.txt", text: "hello world", expect: 1_700_000_000, force: false }));
   });
+
+  it("goes back and forward through the folders visited", async () => {
+    fakeServer();
+    await show();
+    expect(button("Back").disabled).toBe(true);
+    await act(async () => { rows()[0].dispatchEvent(new MouseEvent("dblclick", { bubbles: true })); });
+    expect(names()).toEqual(["app.log"]);
+    expect(button("Back").disabled).toBe(false);
+    await click(button("Back"));
+    expect(names()).toEqual(["projects", "notes.txt"]);
+    expect(button("Forward").disabled).toBe(false);
+    await click(button("Forward"));
+    expect(names()).toEqual(["app.log"]);
+  });
+
+  it("cuts an item and pastes it into another folder (a move)", async () => {
+    fakeServer();
+    await show();
+    await click(rows()[1]);                       // notes.txt
+    await click(button("Cut"));
+    expect(button("Paste").disabled).toBe(true);  // same folder: nothing to move
+    await act(async () => { rows()[0].dispatchEvent(new MouseEvent("dblclick", { bubbles: true })); });
+    expect(button("Paste").disabled).toBe(false);
+    await click(button("Paste"));
+    expect(invoke).toHaveBeenCalledWith("sftp_rename", expect.objectContaining({ id: expect.any(Number), from: "/home/alice/notes.txt", to: "/home/alice/projects/notes.txt" }));
+  });
+
+  it("changes permissions from the grid and applies the octal number", async () => {
+    fakeServer();
+    await show();
+    await click(rows()[1]);
+    await click(button("Permissions"));
+    const octal = document.querySelector<HTMLInputElement>("#remote-octal")!;
+    expect(octal.value).toBe("644");
+    const box = document.querySelector<HTMLInputElement>("input[aria-label='Others write']")!;
+    await click(box);
+    expect(octal.value).toBe("646");
+    await click([...document.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === "Apply")!);
+    expect(invoke).toHaveBeenCalledWith("sftp_chmod", expect.objectContaining({ path: "/home/alice/notes.txt", mode: 0o646 }));
+  });
 });
