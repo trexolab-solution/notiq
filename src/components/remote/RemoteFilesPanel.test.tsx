@@ -136,6 +136,8 @@ describe("RemoteFilesPanel", () => {
       return base(cmd, args);
     });
     await show();
+    // The button already shows that the Trash holds something (a count badge), before it is opened.
+    expect(button("Trash").parentElement!.textContent).toContain("1");
     await click(button("Trash"));
     await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
     expect(document.body.textContent).toContain("/home/alice/old.txt");
@@ -296,5 +298,13 @@ describe("RemoteFilesPanel", () => {
     await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
     expect(invoke).not.toHaveBeenCalledWith("sftp_upload", expect.anything());
     expect(invoke).toHaveBeenCalledWith("sftp_rename", expect.objectContaining({ from: "/home/alice/notes.txt", to: "/home/alice/projects/notes.txt" }));
+  });
+
+  it("shows the Trash button as empty when nothing is in the Trash", async () => {
+    fakeServer();
+    const base = invoke.getMockImplementation()!;
+    invoke.mockImplementation(async (cmd: string, args: Record<string, unknown>) => (cmd === "sftp_trash_list" ? [] : base(cmd, args)));
+    await show();
+    expect(button("Trash").parentElement!.textContent).toBe("");   // no count badge
   });
 });

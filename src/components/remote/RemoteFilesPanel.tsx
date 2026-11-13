@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { open as pickFiles, save as pickSave } from "@tauri-apps/plugin-dialog";
 import {
-  ArchiveRestore, ArrowLeft, ArrowRight, ArrowUp, ClipboardPaste, Copy, Download, Eye, EyeOff, FilePenLine, FilePlus, FileX, FolderOpen, FolderPlus, Pencil,
+  Archive, ArchiveRestore, ArrowLeft, ArrowRight, ArrowUp, ClipboardPaste, Copy, Download, Eye, EyeOff, FilePenLine, FilePlus, FileX, FolderOpen, FolderPlus, Pencil,
   RefreshCw, Scissors, Search, ShieldCheck, SquareArrowOutUpRight, Trash2, Upload,
 } from "lucide-react";
 import { DndContext, DragOverlay, PointerSensor, pointerWithin, useDroppable, useSensor, useSensors } from "@dnd-kit/core";
@@ -28,7 +28,7 @@ import { getFileName, joinPath } from "../../lib/pathUtils";
 import type { SshTarget } from "../../lib/sshConnect";
 import {
   clipboardFiles, crumbs, joinRemote, nameProblem, onSftpProgress, parentRemote, sftpCancel, sftpClose, sftpDownload, sftpErrorMessage,
-  sftpChmod, sftpList, sftpMkdir, sftpOpen, sftpRemove, sftpRename, sftpTrash, sftpUpload, sftpWrite, sortEntries, visibleEntries, SFTP_CANCELLED, SFTP_EXISTS, SFTP_TRASH_FAILED,
+  sftpChmod, sftpList, sftpMkdir, sftpOpen, sftpRemove, sftpRename, sftpTrash, sftpTrashList, sftpUpload, sftpWrite, sortEntries, visibleEntries, SFTP_CANCELLED, SFTP_EXISTS, SFTP_TRASH_FAILED,
   type RemoteEntry, type SortKey, type SortState,
 } from "../../lib/sftp";
 
@@ -137,6 +137,8 @@ export function RemoteFilesPanel({ target, active = true, onPopOut }: {
   const [clip, setClip] = useState<{ dir: string; names: string[]; /** What the system clipboard held when these were cut. */ osSig: string } | null>(null);
   /** The items being dragged (to move them into a folder). */
   const [showTrash, setShowTrash] = useState(false);
+  /** Items in the server's Trash (null until known): the Trash button shows empty / not empty. */
+  const [trashCount, setTrashCount] = useState<number | null>(null);
   const [dragNames, setDragNames] = useState<string[] | null>(null);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
 
@@ -171,6 +173,7 @@ export function RemoteFilesPanel({ target, active = true, onPopOut }: {
       setTitle(o.title || target.title);
       setPhase("ready");
       setNav({ back: [], fwd: [] });
+      void sftpTrashList(session).then((l) => { if (session === sid.current) setTrashCount(l.length); }).catch(() => {});
       await load(o.home, session);
     } catch (e) {
       if (session !== sid.current) return;
@@ -423,6 +426,7 @@ export function RemoteFilesPanel({ target, active = true, onPopOut }: {
   const askDeleteForever = (list: RemoteEntry[]) => { if (getFilesPrefs().confirmDelete) setDeleting(list); else removeEntries(list); };
 
   const label = (list: RemoteEntry[]) => (list.length === 1 ? `\u201c${list[0].name}\u201d` : `${list.length} items`);
+  const refreshTrash = () => sftpTrashList(sid.current).then((l) => setTrashCount(l.length)).catch(() => {});
   const trashEntries = (list: RemoteEntry[]) => {
     void act(async () => {
       for (const e of list) {
@@ -432,7 +436,7 @@ export function RemoteFilesPanel({ target, active = true, onPopOut }: {
           throw err;
         }
       }
-    }, `Moved ${label(list)} to the Trash`);
+    }, `Moved ${label(list)} to the Trash`).then(() => refreshTrash());
   };
   const removeEntries = (list: RemoteEntry[]) => {
     setDeleting(null);
@@ -508,7 +512,16 @@ export function RemoteFilesPanel({ target, active = true, onPopOut }: {
                     <Input className="!pl-7" value={filter} placeholder="Filter" aria-label="Filter files" spellCheck={false}
                            onChange={(e) => setFilter(e.target.value)} />
                   </div>
-                  <RowIconButton label="Trash" tooltip="Open the Trash: restore or empty" icon={<ArchiveRestore size={15} />} pressed={showTrash} onClick={() => setShowTrash((v) => !v)} />
+                  <span className="relative inline-flex">
+                    <RowIconButton label="Trash" pressed={showTrash} onClick={() => setShowTrash((v) => !v)}
+                                   tooltip={trashCount ? `Trash: ${trashCount} item${trashCount === 1 ? "" : "s"}. Restore or empty` : "Trash is empty"}
+                                   icon={trashCount ? <ArchiveRestore size={15} className="text-[var(--color-warning,#d97706)]" /> : <Archive size={15} />} />
+                    {!!trashCount && (
+                      <span aria-hidden className="pointer-events-none absolute -top-1 -right-1 min-w-[15px] h-[15px] px-1 grid place-items-center rounded-full text-[9px] font-semibold leading-none bg-[var(--color-warning,#d97706)] text-[var(--color-bg)]">
+                        {trashCount > 99 ? "99+" : trashCount}
+                      </span>
+                    )}
+                  </span>
                 </div>
 
                 <div className="flex items-center gap-0.5 px-3 py-1.5 border-b border-[var(--color-border)]" role="toolbar" aria-label="File actions">
@@ -555,7 +568,7 @@ export function RemoteFilesPanel({ target, active = true, onPopOut }: {
             <RemoteTransfers items={transfers}
                              onCancel={(id) => void sftpCancel(id)}
                              onClear={() => setTransfers((ts) => ts.filter((t) => t.state === "running"))} />
-            {showTrash && <RemoteTrashSheet session={sid.current} server={title} onClose={() => setShowTrash(false)} onChanged={() => void load(pathRef.current)} />}
+            {showTrash && <RemoteTrashSheet session={sid.current} server={title} onClose={() => setShowTrash(false)} onChanged={() => void load(pathRef.current)} onCount={setTrashCount} />}
             {viewing && (
               <RemoteFileViewer session={sid.current} path={joinRemote(viewing.dir, viewing.entry.name)} name={viewing.entry.name}
                                 onClose={() => setViewing(null)} onDownload={() => void download([viewing.entry])}

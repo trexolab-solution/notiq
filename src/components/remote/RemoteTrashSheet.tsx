@@ -17,12 +17,14 @@ type Confirm = { kind: "forever"; item: TrashItem } | { kind: "empty" } | null;
  * The server's Trash as a sheet on the right of the file manager: what was deleted from it, with Restore, Delete forever
  * and Empty Trash. The folder stays visible and usable beside it.
  */
-export function RemoteTrashSheet({ session, server, onClose, onChanged }: {
+export function RemoteTrashSheet({ session, server, onClose, onChanged, onCount }: {
   session: number;
   server: string;
   onClose: () => void;
   /** Something was put back: the folder listing behind the dialog may be stale. */
   onChanged: () => void;
+  /** How many items the Trash holds, each time the list is (re)loaded, for the button's state. */
+  onCount?: (n: number) => void;
 }) {
   const [items, setItems] = useState<TrashItem[] | null>(null);
   const [error, setError] = useState("");
@@ -32,9 +34,9 @@ export function RemoteTrashSheet({ session, server, onClose, onChanged }: {
   useEscapeKey(onClose, confirm === null);
 
   const load = useCallback(async () => {
-    try { setItems(await sftpTrashList(session)); setError(""); }
+    try { const list = await sftpTrashList(session); setItems(list); setError(""); onCount?.(list.length); }
     catch (e) { setError(sftpErrorMessage(e)); setItems([]); }
-  }, [session]);
+  }, [session, onCount]);
   useEffect(() => { void load(); }, [load]);
 
   const run = async (job: () => Promise<void>, done: string, changed = false) => {
