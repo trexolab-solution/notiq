@@ -502,7 +502,7 @@ async function onCapture(msg, sender) {
 // "update" / "save" set its wording. Locked, not running or an older app: the old offer (Notiq decides on Save).
 const saveChecksInFlight = new Map(); // tabId -> Promise
 async function checkSave(tabId, p) {
-  if (p.action !== undefined) return p.action;
+  if (p.action) return p.action; // a kept "update" / "save"; no answer yet (null) means ask again
   if (saveChecksInFlight.has(tabId)) return saveChecksInFlight.get(tabId);
   const run = (async () => {
     const req = { op: "save_check", host: p.host, username: p.username, password: p.password };
@@ -514,7 +514,9 @@ async function checkSave(tabId, p) {
     const now = (await chrome.storage.session.get(key))[key];
     if (now && now.at === p.at && now.password === p.password && now.username === p.username) {
       if (action === "none") await chrome.storage.session.remove(key);
-      else await chrome.storage.session.set({ [key]: { ...now, action } });
+      // An unknown answer (locked vault, Notiq not running) is not kept: the next look asks again, so unlocking
+      // in between turns the generic "Save" offer into "Update password".
+      else if (action) await chrome.storage.session.set({ [key]: { ...now, action } });
     }
     return action;
   })();

@@ -232,6 +232,18 @@ test("locked vault / older app: the old offer (wording from the form), Notiq dec
   }
 });
 
+test("an unanswered save_check (locked) is not remembered: once Notiq answers, Save turns into Update", async () => {
+  let reply = { error: "locked" };
+  const sw = saveSw(() => reply);
+  await sw.page("capture", { payload: CAPTURE });
+  assert.equal((await sw.page("pending")).pending.kind, "save", "no answer yet: the generic offer");
+  reply = { ok: true, action: "update", choices: 1 };   // the vault was unlocked meanwhile
+  assert.equal((await sw.page("pending")).pending.kind, "update");
+  assert.equal(sw.asked.length, 2);
+  await sw.page("pending");
+  assert.equal(sw.asked.length, 2, "a real answer is kept again");
+});
+
 test("change-password form: the current password goes to Notiq (check and save), never back to the page", async () => {
   const sw = saveSw({ ok: true, action: "update", choices: 1 });
   await sw.page("capture", { payload: { ...CAPTURE, username: "", change: true, current: "Old-Secret-1!" } });
