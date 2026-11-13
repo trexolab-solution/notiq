@@ -97,6 +97,7 @@ export function useAppStartup({
   const [dragOver, setDragOver] = useState(false);
   useEffect(() => {
     let unlisten: (() => void) | undefined;
+    let dead = false;
     getCurrentWebview().onDragDropEvent(async (event) => {
       const p = event.payload;
       // Parts of the window can claim drops (lib/dropTargets, e.g. a vault entry's attachments):
@@ -117,8 +118,10 @@ export function useAppStartup({
         }
         if (entries.length) openFilesAsTabs(entries);
       }
-    }).then((fn) => { unlisten = fn; });
-    return () => { unlisten?.(); };
+    }).then((fn) => { if (dead) fn(); else unlisten = fn; });
+    // `dead`: StrictMode (dev) unmounts before the listener is registered; without it that listener is never
+    // removed and every drop is handled twice.
+    return () => { dead = true; unlisten?.(); };
   }, []); // Init-once: drag-drop listener registered at mount
 
   // Open the command palette / global search from the Monaco editor (which

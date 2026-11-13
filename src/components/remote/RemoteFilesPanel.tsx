@@ -28,8 +28,11 @@ import {
   type RemoteEntry, type SortKey, type SortState,
 } from "../../lib/sftp";
 
-let nextSession = 1;
-let nextTransfer = 1;
+// Session and transfer ids are shared by every window (the backend keeps them in one table), so each window starts
+// from its own range: two file managers must never share an id.
+const idBase = (Date.now() % 1_000_000) * 1000;
+let nextSession = idBase + 1;
+let nextTransfer = idBase + 1;
 
 type Phase = "connecting" | "ready" | "failed";
 type Prompt = { kind: "folder" } | { kind: "file" } | { kind: "rename"; entry: RemoteEntry } | { kind: "perms"; entry: RemoteEntry };
@@ -219,9 +222,15 @@ export function RemoteFilesPanel({ target, active = true, onPopOut }: {
     }
   };
 
+  /** When each upload request started, so the very same request arriving twice (a doubled drop event) runs once. */
+  const recentUploads = useRef(new Map<string, number>());
   const upload = async (paths: string[]) => {
     if (!ready || paths.length === 0) return;
     const session = sid.current, dir = pathRef.current;
+    const key = `${session}\n${dir}\n${paths.join("\n")}`, now = Date.now();
+    const seen = recentUploads.current.get(key);
+    if (seen !== undefined && now - seen < 1500) return;
+    recentUploads.current.set(key, now);
     for (const local of paths) {
       const name = getFileName(local);
       await runTransfer("up", name, (id, ow) => sftpUpload(session, id, local, joinRemote(dir, name), ow));
@@ -303,9 +312,14 @@ export function RemoteFilesPanel({ target, active = true, onPopOut }: {
 
   // ── changing things on the server ────────────────────────────────────────────
 
+  // One change at a time: a second click or key press while one is running must not run it again.
+  const acting = useRef(false);
   const act = async (job: () => Promise<void>, done?: string) => {
+    if (acting.current) return;
+    acting.current = true;
     try { await job(); if (done) toast.success(done); await load(pathRef.current); }
     catch (e) { toast.error(sftpErrorMessage(e)); }
+    finally { acting.current = false; }
   };
 
   const makeFolder = (name: string) => { setPrompt(null); void act(() => sftpMkdir(sid.current, joinRemote(path, name))); };
