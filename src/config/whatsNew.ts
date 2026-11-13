@@ -13,21 +13,21 @@ import { APP_VERSION } from "./app";
  */
 export const WHATS_NEW = `# What's New in Notiq ${APP_VERSION}
 
-Thanks for updating! Here's what's new in this release.
+A small update with fixes and polish.
 
-## 🗂️ A file manager for your servers
+## 🗂️ File manager
 
-- **Open it from the vault** — use *Open file manager* on a saved SSH entry (or the folder icon on its row). It signs in like the terminal does, with nothing to install, and opens in a tab or in its own window (**Settings → Vault → File manager**).
-- **Open and edit files in place** — pictures are shown, text opens in the editor and saves straight back to the server. If the file changed on the server meanwhile, Notiq asks before overwriting.
-- **Folders and files, both ways** — upload and download whole folders, drag files in from your desktop, or paste files you copied in Explorer. A card in the corner shows progress, with cancel.
-- **Move things around** — cut and paste, or drag items onto a folder or a part of the path bar. When a name is taken you choose *Replace*, *Keep both* or *Skip*.
-- **Deleted items go to the Trash** — the server's own Trash, so you can restore them (or delete them for good with *Shift+Delete*).
-- **More** — right-click menus, list or grid layout with three sizes, permissions, new file and new folder, back and forward.
-- **It reconnects by itself** if the connection drops, and returns to the same folder.
+- **Ctrl+F** now goes to the file manager's own **Filter** box instead of the browser's find bar (and **Esc** clears it).
 
-## 🔒 A bit tighter
+## 🔑 Autofill window
 
-- The browser extension can list logins less often, and its connection file is private to your user.
+- **Notes are collapsed** in an entry's details until you open them, and the details are laid out like the vault form.
+- **You can drag the window** by its header.
+- It no longer pops up **empty or white** after a request was cancelled or timed out.
+
+## 🧩 Browser extension 0.8.2
+
+- If your vault was locked while you signed in and you unlocked it afterwards, the offer now correctly says **Update password in Notiq** instead of Save. Reload the extension after updating.
 
 ---
 
