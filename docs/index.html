@@ -6,6 +6,8 @@
 <title>Notiq: Markdown Editor with Encrypted Vault | Offline, Open Source</title>
 <meta name="description" content="Free, open-source desktop Markdown editor with a whiteboard, knowledge graph and an encrypted vault for passwords and SSH keys. No account, no telemetry.">
 <meta name="robots" content="index,follow,max-image-preview:large">
+<meta name="author" content="TrexoLab">
+<meta name="keywords" content="markdown editor, password manager, encrypted vault, offline password manager, SSH key manager, SFTP file manager, TOTP authenticator, local-first notes, open source, Windows, Linux">
 <link rel="canonical" href="https://trexolab-solution.github.io/notiq/">
 <link rel="icon" href="favicon.ico" sizes="any">
 <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
@@ -45,6 +47,11 @@
       "applicationSubCategory": "Markdown editor and password manager",
       "operatingSystem": "Windows, Linux",
       "softwareVersion": "0.11.0",
+      "dateModified": "2026-11-18",
+      "keywords": "markdown editor, encrypted vault, password manager, SSH keys, TOTP, offline, open source",
+      "installUrl": "https://github.com/trexolab-solution/notiq/releases/latest",
+      "releaseNotes": "https://github.com/trexolab-solution/notiq/releases/latest",
+      "softwareHelp": "https://trexolab-solution.github.io/notiq/#faq",
       "isAccessibleForFree": true,
       "license": "https://github.com/trexolab-solution/notiq/blob/main/LICENSE",
       "downloadUrl": "https://github.com/trexolab-solution/notiq/releases/latest",
@@ -83,6 +90,76 @@
       "publisher": {
         "@id": "https://trexolab-solution.github.io/notiq/#org"
       }
+    },
+    {
+        "@type": "FAQPage",
+        "@id": "https://trexolab-solution.github.io/notiq/#faq-ld",
+        "mainEntity": [
+            {
+                "@type": "Question",
+                "name": "Is Notiq free and open source?",
+                "acceptedAnswer": {
+                    "@type": "Answer",
+                    "text": "Yes. Notiq is free and open source under the MIT license. There is no account to create and no telemetry. The source code is on GitHub."
+                }
+            },
+            {
+                "@type": "Question",
+                "name": "Where is my vault stored?",
+                "acceptedAnswer": {
+                    "@type": "Answer",
+                    "text": "In one encrypted file, vault.nqdb, on your own computer. Nothing leaves your machine unless you turn on the optional Vault Sync with your own Google Drive, and then only the encrypted file is uploaded."
+                }
+            },
+            {
+                "@type": "Question",
+                "name": "How is the vault encrypted?",
+                "acceptedAnswer": {
+                    "@type": "Answer",
+                    "text": "Your master password is stretched with Argon2id (64 MiB, 3 passes) into a key that wraps a random 256-bit vault key. The database is sealed with XChaCha20-Poly1305 using a fresh random nonce on every save."
+                }
+            },
+            {
+                "@type": "Question",
+                "name": "Does Notiq work offline?",
+                "acceptedAnswer": {
+                    "@type": "Answer",
+                    "text": "Yes. Notiq is local-first: the editor, whiteboard, knowledge graph and vault all work without an internet connection. Network access is only used for the features you turn on, such as vault sync, update checks or AI."
+                }
+            },
+            {
+                "@type": "Question",
+                "name": "Which systems does Notiq run on?",
+                "acceptedAnswer": {
+                    "@type": "Answer",
+                    "text": "Windows (.exe and .msi installers) and Linux (AppImage, .deb and .rpm). There is no macOS installer yet; macOS can be built from source."
+                }
+            },
+            {
+                "@type": "Question",
+                "name": "Can Notiq fill my passwords in the browser?",
+                "acceptedAnswer": {
+                    "@type": "Answer",
+                    "text": "Yes. The Notiq Autofill extension for Chrome, Edge, Brave and Firefox fills and saves logins with your vault. Every fill and every save is approved inside Notiq, and passwords never leave your computer."
+                }
+            },
+            {
+                "@type": "Question",
+                "name": "Can I import passwords from another password manager?",
+                "acceptedAnswer": {
+                    "@type": "Answer",
+                    "text": "Yes. You can import logins from Chrome, Edge, Brave, Bitwarden or KeePass CSV files, or any CSV with a column mapping, with a preview and duplicate handling."
+                }
+            },
+            {
+                "@type": "Question",
+                "name": "What if I forget my master password?",
+                "acceptedAnswer": {
+                    "@type": "Answer",
+                    "text": "When you create the vault you get a recovery key, shown once, that unlocks the same vault. If you lose both the master password and the recovery key, the vault cannot be recovered."
+                }
+            }
+        ]
     },
     {
       "@type": "Organization",
@@ -808,6 +885,21 @@ nothing to commit, working tree clean
   </div>
 </section>
 
+<!-- ═════════════ FAQ ═════════════ -->
+<section class="band" id="faq" aria-labelledby="faq-title">
+  <div class="container faq">
+    <h2 id="faq-title">Questions people ask</h2>
+    <details class="faq-item"><summary>Is Notiq free and open source?</summary><p>Yes. Notiq is free and open source under the MIT license. There is no account to create and no telemetry. The source code is on GitHub.</p></details>
+    <details class="faq-item"><summary>Where is my vault stored?</summary><p>In one encrypted file, vault.nqdb, on your own computer. Nothing leaves your machine unless you turn on the optional Vault Sync with your own Google Drive, and then only the encrypted file is uploaded.</p></details>
+    <details class="faq-item"><summary>How is the vault encrypted?</summary><p>Your master password is stretched with Argon2id (64 MiB, 3 passes) into a key that wraps a random 256-bit vault key. The database is sealed with XChaCha20-Poly1305 using a fresh random nonce on every save.</p></details>
+    <details class="faq-item"><summary>Does Notiq work offline?</summary><p>Yes. Notiq is local-first: the editor, whiteboard, knowledge graph and vault all work without an internet connection. Network access is only used for the features you turn on, such as vault sync, update checks or AI.</p></details>
+    <details class="faq-item"><summary>Which systems does Notiq run on?</summary><p>Windows (.exe and .msi installers) and Linux (AppImage, .deb and .rpm). There is no macOS installer yet; macOS can be built from source.</p></details>
+    <details class="faq-item"><summary>Can Notiq fill my passwords in the browser?</summary><p>Yes. The Notiq Autofill extension for Chrome, Edge, Brave and Firefox fills and saves logins with your vault. Every fill and every save is approved inside Notiq, and passwords never leave your computer.</p></details>
+    <details class="faq-item"><summary>Can I import passwords from another password manager?</summary><p>Yes. You can import logins from Chrome, Edge, Brave, Bitwarden or KeePass CSV files, or any CSV with a column mapping, with a preview and duplicate handling.</p></details>
+    <details class="faq-item"><summary>What if I forget my master password?</summary><p>When you create the vault you get a recovery key, shown once, that unlocks the same vault. If you lose both the master password and the recovery key, the vault cannot be recovered.</p></details>
+  </div>
+</section>
+
 <!-- ═════════════ DOWNLOAD ═════════════ -->
 <section class="band band-dl" id="download" aria-labelledby="dl-title">
   <div class="container dl-grid">
@@ -842,6 +934,7 @@ nothing to commit, working tree clean
   <div class="container foot-in">
     <a class="brand" href="#top"><img src="logo.png" alt="" width="24" height="24"><span>Notiq</span></a>
     <nav aria-label="Footer">
+      <a href="#faq">FAQ</a>
       <a href="privacy.html">Privacy policy</a>
       <a href="extension-privacy.html">Extension privacy policy</a>
       <a href="https://github.com/trexolab-solution/notiq">Source on GitHub</a>
