@@ -116,6 +116,13 @@ export function VaultTree(p: Props) {
   const checked = p.checked;
   const selecting = !!checked && checked.size > 0;
   const lastChecked = useRef<string | null>(null);
+  // A ticked folder means everything inside it is ticked: ticking a folder ticks all its contents (even
+  // collapsed ones), and unticking anything inside a folder unticks the folders above it.
+  const withContents = (n: TreeNode): string[] => [n.rel, ...n.children.flatMap(withContents)];
+  const applyTick = (next: Set<string>, rels: string[], on: boolean) => {
+    for (const r of rels) { if (on) next.add(r); else next.delete(r); }
+    if (!on) for (const r of rels) for (let a = parentRel(r); a; a = parentRel(a)) next.delete(a);
+  };
   const check = (key: string, node: TreeNode, shift: boolean) => {
     if (!p.onCheckedChange) return;
     const next = new Set(checked ?? []);
@@ -123,10 +130,17 @@ export function VaultTree(p: Props) {
     const a = shift && lastChecked.current ? nodes.findIndex((r) => r.key === lastChecked.current) : -1;
     const b = nodes.findIndex((r) => r.key === key);
     if (a >= 0 && b >= 0) {
-      for (let i = Math.min(a, b); i <= Math.max(a, b); i++) next.add(nodes[i].node!.rel);
-    } else if (next.has(node.rel)) next.delete(node.rel);
-    else next.add(node.rel);
+      for (let i = Math.min(a, b); i <= Math.max(a, b); i++) applyTick(next, withContents(nodes[i].node!), true);
+    } else applyTick(next, withContents(node), !next.has(node.rel));
     lastChecked.current = key;
+    p.onCheckedChange(next);
+  };
+  /** Ticks (or unticks, when all are ticked) every login of a site group. */
+  const checkGroup = (group: SiteGroup) => {
+    if (!p.onCheckedChange) return;
+    const next = new Set(checked ?? []);
+    const all = group.members.length > 0 && group.members.every((m) => next.has(m.rel));
+    applyTick(next, group.members.flatMap(withContents), !all);
     p.onCheckedChange(next);
   };
 
@@ -153,7 +167,7 @@ export function VaultTree(p: Props) {
     }
     if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === "a" && p.onCheckedChange) {
       e.preventDefault();
-      p.onCheckedChange(new Set(visible.filter((r) => r.node).map((r) => r.node!.rel)));
+      p.onCheckedChange(new Set(visible.flatMap((r) => (r.node ? withContents(r.node) : []))));
       return;
     }
     if (e.key === "Escape" && selectedKey) {
@@ -188,6 +202,11 @@ export function VaultTree(p: Props) {
         case "Enter":
           e.preventDefault();
           p.onToggle(cur.group.rel);
+          return;
+        case " ":
+          if (!p.onCheckedChange) return;
+          e.preventDefault();
+          checkGroup(cur.group);
           return;
         case "ContextMenu":
         case "F10": {
@@ -319,6 +338,13 @@ export function VaultTree(p: Props) {
     p.onMenu(key, node, x, y);
   }, [onSelectKey, p.onMenu]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const groupCheckRef = useRef(checkGroup);
+  groupCheckRef.current = checkGroup;
+  const onGroupCheck = useCallback((key: string, group: SiteGroup) => {
+    onSelectKey(key);
+    groupCheckRef.current(group);
+  }, [onSelectKey]);
+
   const onGroupSelect = useCallback((key: string, group: SiteGroup, e: MouseEvent) => {
     onSelectKey(key);
     (e.currentTarget as HTMLElement).focus({ preventScroll: true });
@@ -338,6 +364,9 @@ export function VaultTree(p: Props) {
       depth={r.depth}
       expanded={isExpanded(r.group.rel)}
       selected={selectedKey === r.key}
+      checked={r.group.members.length > 0 && r.group.members.every((m) => !!checked?.has(m.rel))}
+      selecting={selecting}
+      onCheck={canCheck ? onGroupCheck : undefined}
       onToggle={p.onToggle}
       onSelect={onGroupSelect}
       onMenu={onGroupMenu}

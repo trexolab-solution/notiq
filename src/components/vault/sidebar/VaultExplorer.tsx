@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
-  ArrowDownAZ, CheckCheck, ChevronsDownUp, ChevronsUpDown, Clock, CloudDownload, FolderPlus, Globe, History, Lock, Search, TrendingUp, Trash2, X,
+  ArrowDownAZ, CheckCheck, ChevronsDownUp, ChevronsUpDown, Clock, CloudDownload, FolderPlus, Globe, History, Lock, Search, Tags, TrendingUp, Trash2, X,
 } from "lucide-react";
 import { useAppStore } from "../../../store";
 import { useVaultStore } from "../../../store/vaultStore";
@@ -28,6 +28,7 @@ import { TagBar } from "./TagBar";
 import { CreateRow, VaultTree, groupKey, starKey, treeKey } from "./VaultTree";
 import { InlineNameInput } from "./InlineNameInput";
 import { TagEditor } from "./TagEditor";
+import { TagManagerDialog } from "./TagManagerDialog";
 import { useOpenSshInTerminal } from "./useOpenSshInTerminal";
 import { copyLoginField } from "./copyLogin";
 import { BulkBar } from "./BulkBar";
@@ -78,6 +79,7 @@ export function VaultExplorer({ root, items, trash, loading, error, reload, foot
   const [bulkMoving, setBulkMoving] = useState(false);
   const [bulkTagging, setBulkTagging] = useState(false);
   const [confirmBulkTrash, setConfirmBulkTrash] = useState(false);
+  const [managingTags, setManagingTags] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
   const treeWrapRef = useRef<HTMLDivElement>(null);
 
@@ -377,6 +379,7 @@ export function VaultExplorer({ root, items, trash, loading, error, reload, foot
     { type: "item", label: sort === "used" ? "Most used  ✓" : "Most used", icon: menuIcon(<TrendingUp size={14} />),
       onClick: () => setSort("used") },
     { type: "separator" },
+    { type: "item", label: "Manage tags…", icon: menuIcon(<Tags size={14} />), onClick: () => setManagingTags(true) },
     { type: "item", label: groupBySite ? "Group logins by website  ✓" : "Group logins by website", icon: menuIcon(<Globe size={14} />),
       onClick: () => setGroupBySite(!groupBySite) },
     { type: "separator" },
@@ -485,11 +488,12 @@ export function VaultExplorer({ root, items, trash, loading, error, reload, foot
             onToggle={(t) => setSelTags((s) => s.some((x) => x.toLowerCase() === t.toLowerCase())
               ? s.filter((x) => x.toLowerCase() !== t.toLowerCase()) : [...s, t])}
             onClear={() => setSelTags([])}
+            onManage={() => setManagingTags(true)}
           />
 
           {checked.size > 0 && (
             <BulkBar
-              count={checked.size}
+              count={pickedItems.filter((i) => !i.dir).length || pickedItems.length}
               onStar={(v) => void A.starMany(root, [...checked], v)}
               onTags={() => setBulkTagging(true)}
               onMove={() => setBulkMoving(true)}
@@ -593,9 +597,21 @@ export function VaultExplorer({ root, items, trash, loading, error, reload, foot
           onMove={(dest) => { const n = moving; setMoving(null); void doMove(n.rel, dest); }}
         />
       )}
+      {managingTags && (
+        <TagManagerDialog
+          tags={tags}
+          onRename={async (from, to) => {
+            const ok = await A.renameTagEverywhere(root, items, from, to);
+            if (ok) setSelTags((s) => s.map((t) => (t.toLowerCase() === from.toLowerCase() ? to : t)));
+            return ok;
+          }}
+          onDelete={(tag) => A.deleteTagEverywhere(root, items, tag)}
+          onClose={() => setManagingTags(false)}
+        />
+      )}
       {bulkTagging && (
         <TagEditor
-          name={`${checked.size} selected items`}
+          name={`${pickedItems.filter((i) => !i.dir).length || pickedItems.length} selected items`}
           initial={[]}
           allTags={tags.map((t) => t.tag)}
           onSave={async (t) => {
@@ -610,7 +626,7 @@ export function VaultExplorer({ root, items, trash, loading, error, reload, foot
         <MoveDialog
           rel={pickedItems[0].rel}
           rels={pickedItems.map((i) => i.rel)}
-          name={`${pickedItems.length} items`}
+          name={`${pickedItems.filter((i) => !i.dir).length || pickedItems.length} items`}
           folders={folders}
           onClose={() => setBulkMoving(false)}
           onMove={(dest) => { setBulkMoving(false); void bulkMove(dest); }}

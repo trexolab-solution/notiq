@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Hash, X } from "lucide-react";
+import { Hash, Settings2, X } from "lucide-react";
 import { Tooltip } from "../../ui/Tooltip";
 
 interface Props {
@@ -7,6 +7,8 @@ interface Props {
   selected: string[];
   onToggle: (tag: string) => void;
   onClear: () => void;
+  /** Opens the tag manager (rename, merge, delete). */
+  onManage?: () => void;
 }
 
 const COLLAPSED_LIMIT = 8;
@@ -16,7 +18,7 @@ const COLLAPSED_LIMIT = 8;
  * several selected tags narrow the tree (AND). Selected tags always show,
  * even when the strip is collapsed.
  */
-export function TagBar({ tags, selected, onToggle, onClear }: Props) {
+export function TagBar({ tags, selected, onToggle, onClear, onManage }: Props) {
   const [showAll, setShowAll] = useState(false);
   if (tags.length === 0) return null;
 
@@ -52,6 +54,13 @@ export function TagBar({ tags, selected, onToggle, onClear }: Props) {
       )}
       {showAll && tags.length > COLLAPSED_LIMIT && (
         <button type="button" className="vt-chip" onClick={() => setShowAll(false)}>Less</button>
+      )}
+      {onManage && (
+        <Tooltip content="Manage tags">
+          <button type="button" className="vt-chip" onClick={onManage} aria-label="Manage tags">
+            <Settings2 size={10} aria-hidden />
+          </button>
+        </Tooltip>
       )}
       {selected.length > 0 && (
         <Tooltip content="Clear tag filter">

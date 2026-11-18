@@ -197,7 +197,9 @@ export async function starMany(root: string, rels: string[], starred: boolean) {
 /** Moves each picked entry into `dest`; returns [from, to] for every one that moved. */
 export async function moveMany(root: string, items: VaultItem[], rels: string[], dest: string): Promise<[string, string][]> {
   const moved: [string, string][] = [];
-  for (const r of rels) {
+  // Entries inside a picked folder travel with it; moving them on their own would break.
+  const top = rels.filter((r) => !rels.some((o) => o !== r && r.toLowerCase().startsWith(o.toLowerCase() + "/")));
+  for (const r of top) {
     const to = await moveEntry(root, items, r, dest);
     if (to) moved.push([r, to]);
   }
@@ -210,5 +212,30 @@ export async function addTagsMany(root: string, picked: { rel: string; tags: str
   for (const p of picked) {
     if (!(await setTags(root, p.rel, [...p.tags, ...tags]))) ok = false;
   }
+  return ok;
+}
+
+// ── tag housekeeping ─────────────────────────────────────────────────────────
+
+const hasTag = (i: VaultItem, tag: string) => (i.tags ?? []).some((t) => t.toLowerCase() === tag.toLowerCase());
+
+/** Renames `from` to `to` on every entry that has it. If `to` already exists on an entry the two merge into one. */
+export async function renameTagEverywhere(root: string, items: VaultItem[], from: string, to: string): Promise<boolean> {
+  let ok = true;
+  for (const i of items.filter((i) => hasTag(i, from))) {
+    const next = (i.tags ?? []).map((t) => (t.toLowerCase() === from.toLowerCase() ? to : t));
+    if (!(await setTags(root, i.rel, next))) ok = false;
+  }
+  if (ok) toast.success(`Renamed tag to "${to}"`);
+  return ok;
+}
+
+/** Removes `tag` from every entry that has it. */
+export async function deleteTagEverywhere(root: string, items: VaultItem[], tag: string): Promise<boolean> {
+  let ok = true;
+  for (const i of items.filter((i) => hasTag(i, tag))) {
+    if (!(await setTags(root, i.rel, (i.tags ?? []).filter((t) => t.toLowerCase() !== tag.toLowerCase())))) ok = false;
+  }
+  if (ok) toast.info(`Deleted tag "${tag}"`);
   return ok;
 }

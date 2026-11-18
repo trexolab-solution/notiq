@@ -19,6 +19,7 @@
 | Shortcut | Action |
 |---|---|
 | `Ctrl+Shift+P` | Open command palette (tabs, actions, AI, themes) |
+| `Ctrl+B` | Show / hide the side panel (inside the code editor Ctrl+B is Bold; use `Ctrl+Shift+B` there) |
 | `Alt+\` | Trigger inline autocomplete |
 | `Tab` | Accept the current ghost-text suggestion |
 | `Esc` | Dismiss the suggestion / stop in-flight AI |

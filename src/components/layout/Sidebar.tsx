@@ -24,6 +24,19 @@ export const Sidebar = React.memo(function Sidebar({
   // "Review" on a sync result opens the vault panel on its Recently synced view.
   const reviewRequest = useSyncMarkersStore((s) => s.reviewRequest);
   useEffect(() => { if (reviewRequest > 0) setVaultOpen(true); }, [reviewRequest]);
+  // Ctrl+B shows / hides the side panel (like VS Code). In the code editor Ctrl+B is Bold, so there it only
+  // toggles with Ctrl+Shift+B, which works from anywhere.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || e.altKey || e.key.toLowerCase() !== "b") return;
+      const inEditor = e.target instanceof Element && !!e.target.closest(".monaco-editor");
+      if (inEditor && !e.shiftKey) return;
+      e.preventDefault();
+      setVaultOpen((v) => !v);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
   const activeKind   = tabs.find((t) => t.id === activeTabId)?.kind;
   const isWbActive   = activeKind === "whiteboard";
   const isSettingsActive = activeView === "editor" && activeKind === "settings";
@@ -61,7 +74,7 @@ export const Sidebar = React.memo(function Sidebar({
           </button>
         </Tooltip>
 
-        <Tooltip content="Secure Vault" placement="right">
+        <Tooltip content="Secure Vault" shortcut="Ctrl+B" placement="right">
           <button
             className={`activity-btn${vaultOpen ? " is-active" : ""}`}
             aria-label="Secure Vault"

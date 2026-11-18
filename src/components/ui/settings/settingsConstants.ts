@@ -100,6 +100,7 @@ export interface ShortcutEntry {
 export const ALL_SHORTCUTS: ShortcutEntry[] = [
   { section: "App",    key: "Ctrl+,",       label: "Open settings" },
   { section: "App",    key: "Ctrl+⇧+P",    label: "Command palette" },
+  { section: "App",    key: "Ctrl+B",       label: "Show / hide the side panel (Ctrl+⇧+B inside the editor)" },
   { section: "App",    key: "Ctrl+⇧+F",    label: "Search in notes" },
   { section: "File",   key: "Ctrl+N",       label: "New note" },
   { section: "File",   key: "Ctrl+W",       label: "Close tab" },
