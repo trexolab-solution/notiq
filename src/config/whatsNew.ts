@@ -13,21 +13,21 @@ import { APP_VERSION } from "./app";
  */
 export const WHATS_NEW = `# What's New in Notiq ${APP_VERSION}
 
-Faster everyday work in the vault.
+Vault selection, tags and a few time savers.
 
 ## 🔐 Vault
 
-- **Select several entries** at once: tick the box that replaces an entry's icon on hover (**Shift+click** ticks a range, **Space** ticks, **Ctrl+A** ticks all), then star, tag, move or trash them together.
-- **Copy without opening:** hover a login for *Copy username* / *Copy password*, or select it and press **Ctrl+Shift+U** / **Ctrl+Shift+C**.
-- **Undo** after moving an entry to the Trash. A single entry no longer asks first; folders and bulk deletes still do.
-- **Sort by Recently used or Most used** (kept on this device only).
-- **Paste an \`otpauth://\` link** into the 2-step field and the setup key is filled in for you.
-- **Caps Lock indicator** inside every password field.
-- **Vault health:** a row now opens the entry with the cursor already in the password (or address) field.
+- **Select a whole folder or website:** ticking a folder ticks everything inside it, and a website row has its own tick box for all of its logins.
+- **Manage tags:** rename a tag, merge it into another, or delete it from every entry (the ⚙ button in the tag strip, or the vault's ⋯ menu).
+- **Hide for 5, 10 or 30 minutes:** in *Settings → Vault*, hide Notiq from screenshots and screen sharing for a set time, then your saved choice applies again by itself.
+- **Server sign-in remembers your choice:** when a saved server has both a key and a password, the one you used last is selected and marked *Last used*.
+- The **Caps Lock** indicator is now an icon inside the password field, so dialogs no longer jump.
 
-## 🖥️ Terminal
+## 🖥️ App
 
-- Apps like Claude Code, tmux and vim can now **copy to your clipboard** from inside the built-in terminal.
+- **Ctrl+B** shows or hides the side panel (inside the code editor, where Ctrl+B is Bold, use **Ctrl+Shift+B**).
+- Hover hints are now the app's own only: no more double tooltips.
+- Clearer section headings in Settings.
 
 ---
 
