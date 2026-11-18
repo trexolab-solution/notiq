@@ -40,9 +40,9 @@
   margin: 0;
   flex-shrink: 0;
   width: var(--settings-nav-w);
-  font-size: 18px;
+  font-size: 20px;
   font-weight: 600;
-  letter-spacing: -0.01em;
+  letter-spacing: -0.015em;
   line-height: 1.2;
 }
 
@@ -176,18 +176,20 @@
 
 /* Content + sections */
 .settings-content { min-width: 0; padding-top: 8px; }
-.settings-section { padding-top: 32px; }
-.settings-section + .settings-section { margin-top: 24px; }
+.settings-section { padding-top: 36px; }
+.settings-section + .settings-section { margin-top: 28px; }
 .settings-section[hidden] { display: none; }
 /* While searching, drop a section whose rows are all hidden or not rendered right now (e.g. AI-only rows
    while AI is off), so no empty heading is left behind. */
 .settings-filtering .settings-section:not(:has([data-setting-row], [data-setting-block])) { display: none; }
 .settings-section-title {
-  margin: 0 0 16px;
-  font-size: 15px;
+  margin: 0 0 18px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--settings-hairline, color-mix(in srgb, var(--color-border) 75%, transparent));
+  font-size: 19px;
   font-weight: 600;
-  letter-spacing: -0.005em;
-  line-height: 1.3;
+  letter-spacing: -0.015em;
+  line-height: 1.25;
   color: var(--color-text);
   scroll-margin-top: calc(var(--settings-header-h, 64px) + 16px);
 }
