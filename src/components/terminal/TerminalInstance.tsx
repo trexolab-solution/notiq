@@ -203,6 +203,22 @@ export const TerminalInstance = forwardRef<InstanceHandle, Props>(
         return true;
       });
 
+      // ── OSC 52: apps (Claude Code, tmux, vim…) copy to the clipboard themselves ──
+      // Full-screen apps grab the mouse and do their own selection, then send
+      // ESC ] 52 ; c ; <base64> BEL. Native terminals write that to the system
+      // clipboard; xterm ignores it unless handled. Read requests ("?") are
+      // refused so a program can never read the clipboard back.
+      term.parser.registerOscHandler(52, (data) => {
+        const b64 = data.slice(data.indexOf(";") + 1);
+        if (!b64 || b64 === "?" || b64.length > 2_000_000) return true;
+        try {
+          const bin = atob(b64);
+          const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
+          void writeText(new TextDecoder().decode(bytes)).catch(() => {});
+        } catch { /* malformed base64: ignore */ }
+        return true;
+      });
+
       // ── Re-fit when container resizes ─────────────────────────────────
       let fitTimer: ReturnType<typeof setTimeout>;
       const observer = new ResizeObserver(() => {
