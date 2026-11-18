@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://trexolab-solution.github.io/notiq/sitemap.xml
