@@ -77,7 +77,7 @@ function FieldRow({ id, field, index, count, error, lifted, sortDescribedBy, onS
         </div>
         <div className="relative min-w-0">
           {field.secret && (
-            <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[var(--color-text-muted)] pointer-events-none" title="Hidden value">
+            <span role="img" aria-label="Hidden value" className="absolute left-2 top-1/2 -translate-y-1/2 text-[var(--color-text-muted)] pointer-events-none">
               <Lock size={12} aria-hidden />
             </span>
           )}

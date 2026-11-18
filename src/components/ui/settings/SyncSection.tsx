@@ -331,7 +331,7 @@ export function DevicesBlock({ status }: { status: SyncStatus }) {
               <li key={d.id} className="flex items-center gap-2 px-2.5 py-1.5">
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-1.5 min-w-0">
-                    <span className={`text-sm truncate${d.name.trim() ? "" : " italic text-[var(--color-text-muted)]"}`} title={deviceDisplayName(d)}>
+                    <span className={`text-sm truncate${d.name.trim() ? "" : " italic text-[var(--color-text-muted)]"}`}>
                       {deviceDisplayName(d)}
                     </span>
                     {d.thisDevice && <span className="sync-device__badge">This PC</span>}

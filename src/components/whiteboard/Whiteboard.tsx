@@ -112,7 +112,6 @@ export function Whiteboard({ tabId, linkedNoteId }: WhiteboardProps) {
         <button
           className="wb-overlay-btn wb-new-btn"
           onClick={() => addTab({ kind: "whiteboard", title: "Whiteboard" })}
-          title="Create new whiteboard"
         >
           <Plus size={12} strokeWidth={2.2} />
           <span>New whiteboard</span>
@@ -125,7 +124,6 @@ export function Whiteboard({ tabId, linkedNoteId }: WhiteboardProps) {
           <button
             className="wb-overlay-btn"
             onClick={() => setActiveTab(linkedNote.id)}
-            title={`Open "${linkedNote.title}"`}
           >
             <ArrowLeft size={11} />
             <FileText size={11} />

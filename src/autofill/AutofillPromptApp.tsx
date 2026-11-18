@@ -410,7 +410,7 @@ export default function AutofillPromptApp() {
              onClose={deny} onEscape={viewed ? closeDetails : undefined} defaultFocus="cancel"
              footer={viewed ? null : <>
                <DialogButton cancel onClick={deny} disabled={o.busy}>Deny</DialogButton>
-               <DialogButton variant="primary" className="af-allow" title={o.allowLabel} disabled={nothing} loading={o.busy}
+               <DialogButton variant="primary" className="af-allow" disabled={nothing} loading={o.busy}
                              loadingText={o.busyText} onClick={() => dispatch({ type: "allow" })}>
                  <span className="af-allow-label">{o.allowLabel}</span>
                </DialogButton>
@@ -630,7 +630,7 @@ function Panel({ refs, host, title, sub, icon, kind, tone = "primary", onClose, 
         {icon === "site" ? <Avatar name={site} size={36} badge={kind?.icon} className="af-site-avatar" />
           : icon === "shield" ? <DialogIcon kind="shield" /> : <DialogIcon tone={tone}>{icon}</DialogIcon>}
         <div className="af-head-text">
-          <h1 className="af-host" id="af-title" title={title ?? host}>
+          <h1 className="af-host" id="af-title">
             {title ?? <>{prefix && <span className="af-host-prefix">{prefix}</span>}{site}</>}
           </h1>
           <p className="af-sub" id="af-desc">

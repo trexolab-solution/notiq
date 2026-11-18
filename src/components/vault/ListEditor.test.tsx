@@ -153,7 +153,7 @@ describe("Custom fields (CustomFieldsEditor)", () => {
     expect(btn("Copy value of Customer ID")).toBeTruthy();
     expect(btn("Show value of Customer ID")).toBeTruthy();
     expect(btn("More actions for Customer ID")!.getAttribute("aria-haspopup")).toBe("menu");
-    expect(host.querySelector("li[data-list-row] [title=\"Hidden value\"]")).toBeTruthy();
+    expect(host.querySelector("li[data-list-row] [aria-label=\"Hidden value\"]")).toBeTruthy();
     expect(input("Value of Customer ID").type).toBe("password");
     click(btn("Show value of Customer ID")!);
     expect(input("Value of Customer ID").type).toBe("text");
@@ -314,12 +314,12 @@ describe("Custom fields (CustomFieldsEditor)", () => {
       pick("PIN", "Hide value");
       expect(input("Value of PIN").type).toBe("password");
       expect(btn("Show value of PIN")).toBeTruthy();
-      expect(host.querySelector("li[data-list-row] [title=\"Hidden value\"]")).toBeTruthy();
+      expect(host.querySelector("li[data-list-row] [aria-label=\"Hidden value\"]")).toBeTruthy();
       flush();
       expect(live().textContent).toBe("PIN is now hidden");
       pick("PIN", "Show as text");
       expect(input("Value of PIN").type).toBe("text");
-      expect(host.querySelector("li[data-list-row] [title=\"Hidden value\"]")).toBeNull();
+      expect(host.querySelector("li[data-list-row] [aria-label=\"Hidden value\"]")).toBeNull();
     });
   });
 

@@ -20,6 +20,7 @@ import {
 } from "./totp";
 import { focusTarget, INITIAL_VISIBLE, onVaultState, openOnReady, shouldPollLock, type QuickPhase } from "./lifecycle";
 
+import { Tooltip } from "../components/ui/Tooltip";
 type Phase = QuickPhase;
 type ThemeId = Parameters<typeof applyTheme>[0];
 
@@ -449,11 +450,10 @@ function CodeButton({ name, code, left, waiting, onCopy }: {
   const [label, setLabel] = useState(() => codeLabel(name, left));
   const low = left < NEAR_EXPIRY_SECONDS;
   return (
-    <button
+    <Tooltip content="Copy 2FA code" shortcut="Shift+Enter"><button
       type="button"
       aria-label={label}
       aria-live="off"
-      title="Copy 2FA code (Shift+Enter)"
       className="shrink-0 flex items-center gap-1.5 px-2 py-1 rounded-md border border-[var(--color-border)] text-xs hover:bg-[var(--color-bg-secondary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--color-primary)]"
       onFocus={() => setLabel(codeLabel(name, left))}
       onMouseDown={(e) => e.preventDefault() /* keep the focus in the search box */}
@@ -467,6 +467,6 @@ function CodeButton({ name, code, left, waiting, onCopy }: {
       {waiting
         ? <Hourglass size={12} aria-hidden className="text-[var(--color-text-muted)]" />
         : <Copy size={12} aria-hidden className="text-[var(--color-text-muted)]" />}
-    </button>
+    </button></Tooltip>
   );
 }

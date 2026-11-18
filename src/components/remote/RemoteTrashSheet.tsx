@@ -78,8 +78,8 @@ export function RemoteTrashSheet({ session, server, onClose, onChanged, onCount 
                     {i.kind === "dir" ? <Folder size={16} /> : <File size={16} />}
                   </span>
                   <div className="flex-1 min-w-0">
-                    <p className="truncate text-sm" title={i.id}>{i.id}</p>
-                    <p className="truncate text-[11px] text-[var(--color-text-muted)]" title={i.original}>{i.original}</p>
+                    <p className="truncate text-sm">{i.id}</p>
+                    <p className="truncate text-[11px] text-[var(--color-text-muted)]">{i.original}</p>
                     <p className="truncate text-[11px] text-[var(--color-text-muted)]">
                       {i.deleted ? `Deleted ${formatModified(i.deleted)}` : "Deleted"}{i.kind === "file" ? ` · ${formatBytes(i.size)}` : ""}
                     </p>

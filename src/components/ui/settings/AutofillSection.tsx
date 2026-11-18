@@ -101,7 +101,7 @@ export const AutofillSection = React.memo(function AutofillSection() {
             </p>
           ) : (
             <div className="flex items-center gap-2 rounded-md px-2 py-1.5 bg-[var(--color-bg)] border border-[var(--color-border)]">
-              <code className="flex-1 min-w-0 truncate text-[11px] text-[var(--color-text)]" title={extDir ?? undefined}>{extDir ?? "…"}</code>
+              <code className="flex-1 min-w-0 truncate text-[11px] text-[var(--color-text)]">{extDir ?? "…"}</code>
               <Button className="settings-btn" size="sm" variant="ghost" aria-label="Copy folder path" disabled={!extDir}
                       icon={<Copy size={12} />} onClick={() => extDir && void copy(extDir)}>{copied ? "Copied" : "Copy"}</Button>
             </div>
@@ -169,7 +169,7 @@ export const AutofillSection = React.memo(function AutofillSection() {
                         {b.name}
                         {!b.installed && <span className="ml-1 font-normal text-[var(--color-text-muted)]">(not found)</span>}
                       </td>
-                      <td className="px-3 py-1.5" style={{ color: STATE_COLOR[st] }} title={b.manifest_path ?? undefined}>
+                      <td className="px-3 py-1.5" style={{ color: STATE_COLOR[st] }}>
                         {BROWSER_REG_LABEL[st]}
                       </td>
                     </tr>

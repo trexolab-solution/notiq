@@ -74,7 +74,7 @@ export function TrashView({ trash, onBack, onRestore, onPurge, onEmpty }: Props)
               const at = r.item.trashed_at ?? 0;
               const left = daysUntilPurge(at);
               return (
-                <div key={key} className="vt-trash-item" role="listitem" title={r.item.rel.replace(/\.nqv$/i, "")}>
+                <div key={key} className="vt-trash-item" role="listitem">
                   <EntryIcon kind={r.kind} />
                   <div className="flex-1 min-w-0">
                     <div className="truncate text-[12.5px]">{r.name}</div>

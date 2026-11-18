@@ -27,7 +27,7 @@ export function PasskeysList({ value, onChange }: { value: StoredPasskey[]; onCh
               className="flex items-center gap-2 rounded-md px-2.5 py-1.5 text-sm bg-[var(--color-bg-tertiary)] border border-[var(--color-border)]">
             <FingerprintPattern size={14} className="shrink-0 text-[var(--color-text-muted)]" aria-hidden />
             <span className="flex-1 min-w-0 flex flex-col">
-              <span className="truncate" title={p.rpId}>{p.rpId}</span>
+              <span className="truncate">{p.rpId}</span>
               <span className="truncate text-xs text-[var(--color-text-muted)]">
                 {[passkeyLabel(p), fmtDate(p.created) && `added ${fmtDate(p.created)}`].filter(Boolean).join(" · ")}
               </span>

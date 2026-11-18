@@ -113,7 +113,7 @@ export const StatusBar = React.memo(function StatusBar({
             ) : activeTab.isDirty ? (
               <span className="status-item unsaved">● Unsaved</span>
             ) : shortPath ? (
-              <span className="status-item saved" title={isVaultPath(activeTab.filePath) ? shortPath ?? undefined : activeTab.filePath ?? undefined}>
+              <span className="status-item saved">
                 <HardDrive size={9} />
                 {shortPath}
               </span>

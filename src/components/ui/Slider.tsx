@@ -1,6 +1,7 @@
 import React, { useCallback, useRef } from "react";
 import { RotateCcw } from "lucide-react";
 
+import { Tooltip } from "./Tooltip";
 interface SliderProps {
   value: number;
   onChange: (v: number) => void;
@@ -159,13 +160,12 @@ export const Slider = React.memo(function Slider({
       )}
 
       {resetValue !== undefined && (
-        <button
+        <Tooltip content="Reset to default"><button
           type="button"
           onClick={() => {
             if (!disabled && value !== resetValue) onChange(resetValue);
           }}
           aria-label="Reset to default"
-          title="Reset to default"
           tabIndex={value === resetValue ? -1 : 0}
           // visibility (not display:none) reserves layout space so the track
           // does not shift sideways mid-drag when the value changes.
@@ -194,7 +194,7 @@ export const Slider = React.memo(function Slider({
           }}
         >
           <RotateCcw size={12} strokeWidth={2} />
-        </button>
+        </button></Tooltip>
       )}
     </div>
   );

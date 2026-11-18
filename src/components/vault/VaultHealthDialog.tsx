@@ -11,6 +11,7 @@ import {
 import { BreachCheckError, checkBreaches } from "../../lib/vaultBreach";
 import { getBreachCheck, setBreachCheck } from "../../lib/vaultPrefs";
 import { Toggle } from "../ui/Toggle";
+import { Tooltip } from "../ui/Tooltip";
 import { openEntry } from "./sidebar/actions";
 import { requestEntryFocus } from "../../lib/entryFocus";
 import { toFull } from "../../lib/vaultTree";
@@ -129,7 +130,7 @@ export function VaultHealthDialog({ onClose }: { onClose: () => void }) {
                 {HEALTH_ISSUES.map((k) => {
                   const active = filter === k;
                   return (
-                    <button key={k} type="button" aria-pressed={active} title={ISSUE_HINT[k]}
+                    <Tooltip key={k} content={ISSUE_HINT[k]}><button type="button" aria-pressed={active}
                             onClick={() => setFilter(active ? null : k)}
                             className={`rounded-lg border px-2 py-2 text-left transition-colors ${active
                               ? "border-[var(--color-primary)] bg-[var(--color-bg-tertiary)]"
@@ -138,7 +139,7 @@ export function VaultHealthDialog({ onClose }: { onClose: () => void }) {
                         {report.counts[k]}
                       </div>
                       <div className="text-[11px] text-[var(--color-text-muted)]">{ISSUE_LABEL[k]}</div>
-                    </button>
+                    </button></Tooltip>
                   );
                 })}
               </div>
@@ -151,7 +152,7 @@ export function VaultHealthDialog({ onClose }: { onClose: () => void }) {
                   <ul>
                     {list.map((it) => (
                       <li key={it.rel}>
-                        <button type="button" title={`Open ${it.rel}`}
+                        <button type="button"
                                 onClick={() => {
                                   // Straight to the field that needs fixing (the address for an http-only login).
                                   const field = it.issues.every((k) => k === "http") ? "le-url" : "le-pass";
@@ -167,13 +168,12 @@ export function VaultHealthDialog({ onClose }: { onClose: () => void }) {
                           </span>
                           <span className="flex flex-wrap justify-end gap-1">
                             {it.issues.map((k) => (
-                              <span key={k} className="rounded px-1.5 py-0.5 text-[10px] bg-[var(--color-bg-tertiary)] text-[var(--color-text-muted)]"
-                                    title={ISSUE_HINT[k]}>
+                              <Tooltip key={k} content={ISSUE_HINT[k]}><span className="rounded px-1.5 py-0.5 text-[10px] bg-[var(--color-bg-tertiary)] text-[var(--color-text-muted)]">
                                 {k === "reused" ? `Reused ×${it.reusedWith + 1}`
                                   : k === "old" ? `${it.ageDays} days old`
                                   : k === "breached" ? `Found in a data breach · seen ${it.breachedCount.toLocaleString()} ${it.breachedCount === 1 ? "time" : "times"}`
                                   : ISSUE_LABEL[k]}
-                              </span>
+                              </span></Tooltip>
                             ))}
                             {it.issues.length > 0 && (
                               <span className="rounded px-1.5 py-0.5 text-[10px] text-[var(--color-primary)] underline">

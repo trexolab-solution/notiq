@@ -58,7 +58,6 @@ export function MoveDialog({ rel, rels, name, folders, onMove, onClose }: Props)
                 disabled={!ok}
                 className={`vt-folder-opt${sel === f ? " is-active" : ""}`}
                 style={{ paddingLeft: 8 + (query ? 0 : depth * 14) }}
-                title={f || "Vault root"}
                 onClick={() => setSel(f)}
                 onDoubleClick={() => ok && onMove(f)}
               >

@@ -15,6 +15,7 @@ import { cardBrand, cardNumberHint, digitsOnly, expiryError, formatCardNumber, f
 import { wifiQrText } from "../../lib/wifiEntry";
 import { copySecret } from "../../lib/secureCopy";
 import type { Tab } from "../../types";
+import { Tooltip } from "../ui/Tooltip";
 
 /** Applies a field's typing aid (`format`) and length cap. */
 function cleanValue(def: FieldDef, v: string): string {
@@ -152,11 +153,10 @@ export function SecretEntryEditor({ tab, kind }: { tab: Tab; kind: string }) {
               ))}
               {kind === "wifi" && g.title === "Network" && (
                 <div className="col-span-2 flex items-center gap-2">
-                  <Button size="sm" icon={<QrCode size={12} />} disabled={!qr}
-                          title={qr ? undefined : "Enter the network name first"}
+                  <Tooltip content="Enter the network name first" disabled={!!qr}><span className="inline-flex"><Button size="sm" icon={<QrCode size={12} />} disabled={!qr}
                           onClick={() => { if (qr) void copySecret(qr, "Wi-Fi QR text"); }}>
                     Copy Wi-Fi QR text
-                  </Button>
+                  </Button></span></Tooltip>
                   <span className="text-[11px] text-[var(--color-text-muted)]">Paste into any QR generator so phones can join by scanning.</span>
                 </div>
               )}

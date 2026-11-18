@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { Eye, EyeOff, ArrowBigUp } from "lucide-react";
 import { Input } from "./Input";
 
+import { Tooltip } from "./Tooltip";
 type Props = Omit<React.InputHTMLAttributes<HTMLInputElement>, "type">;
 
 /**
@@ -31,9 +32,9 @@ export const PasswordInput = React.memo(function PasswordInput({ style, onKeyDow
         {show ? <EyeOff size={14} /> : <Eye size={14} />}
       </button>
       {caps && (
-        <span title="Caps Lock is on" className="absolute right-7 top-1/2 -translate-y-1/2 inline-flex text-[var(--color-warning)] pointer-events-none">
+        <Tooltip content="Caps Lock is on"><span className="absolute right-7 top-1/2 -translate-y-1/2 inline-flex text-[var(--color-warning)]">
           <ArrowBigUp size={15} aria-hidden />
-        </span>
+        </span></Tooltip>
       )}
       <span role="status" className="sr-only">{caps ? "Caps Lock is on" : ""}</span>
     </div>

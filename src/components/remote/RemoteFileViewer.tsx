@@ -109,7 +109,7 @@ export function RemoteFileViewer({ session, path, name, onClose, onDownload, onS
       <div className="flex items-center gap-1 px-3 py-1.5 border-b border-[var(--color-border)]" role="toolbar" aria-label="File actions">
         <RowIconButton label="Back" tooltip="Back to the folder (Esc)" icon={<ArrowLeft size={15} />} onClick={close} />
         <span className="w-px h-5 mx-1.5 bg-[var(--color-border)]" aria-hidden />
-        <span className="flex-1 min-w-0 truncate text-sm font-medium" title={path}>
+        <span className="flex-1 min-w-0 truncate text-sm font-medium">
           {name}
         </span>
         {loaded.kind === "text" && (

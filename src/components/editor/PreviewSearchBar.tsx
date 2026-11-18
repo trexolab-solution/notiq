@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { X, ArrowUp, ArrowDown, CaseSensitive, WholeWord, Regex } from "lucide-react";
 
+import { Tooltip } from "../ui/Tooltip";
 interface PreviewSearchBarProps {
   /** The scrollable container element that holds the rendered markdown */
   containerEl: HTMLElement | null;
@@ -196,9 +197,8 @@ export const PreviewSearchBar = React.memo(function PreviewSearchBar({
   const renderToggle = (
     active: boolean, onToggle: () => void, title: string, icon: React.ReactNode,
   ) => (
-    <button
-      type="button"
-      title={title}
+    <Tooltip content={title}><button
+      type="button" aria-label={title}
       aria-pressed={active}
       // preventDefault on mousedown keeps focus in the input so Enter still works
       onMouseDown={(e) => e.preventDefault()}
@@ -215,7 +215,7 @@ export const PreviewSearchBar = React.memo(function PreviewSearchBar({
       onMouseLeave={(e) => { if (!active) e.currentTarget.style.background = "transparent"; }}
     >
       {icon}
-    </button>
+    </button></Tooltip>
   );
 
   // ── Flat action button (prev / next / close) ───────────────────────────────
@@ -315,37 +315,34 @@ export const PreviewSearchBar = React.memo(function PreviewSearchBar({
       </span>
 
       {/* Prev / Next */}
-      <button
+      <Tooltip content="Previous Match" shortcut="Shift+Enter"><button
         onClick={goPrev}
-        disabled={!hasResults}
-        title="Previous Match (Shift+Enter)"
+        disabled={!hasResults} aria-label="Previous Match (Shift+Enter)"
         style={actionBtn(hasResults)}
         onMouseEnter={hoverOn}
         onMouseLeave={hoverOff}
       >
         <ArrowUp size={14} />
-      </button>
-      <button
+      </button></Tooltip>
+      <Tooltip content="Next Match" shortcut="Enter"><button
         onClick={goNext}
-        disabled={!hasResults}
-        title="Next Match (Enter)"
+        disabled={!hasResults} aria-label="Next Match (Enter)"
         style={actionBtn(hasResults)}
         onMouseEnter={hoverOn}
         onMouseLeave={hoverOff}
       >
         <ArrowDown size={14} />
-      </button>
+      </button></Tooltip>
 
       {/* Close */}
-      <button
-        onClick={handleClose}
-        title="Close (Esc)"
+      <Tooltip content="Close" shortcut="Esc"><button
+        onClick={handleClose} aria-label="Close (Esc)"
         style={actionBtn(true)}
         onMouseEnter={hoverOn}
         onMouseLeave={hoverOff}
       >
         <X size={14} />
-      </button>
+      </button></Tooltip>
     </div>
   );
 });

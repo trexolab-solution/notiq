@@ -83,13 +83,6 @@ export const VaultRow = memo(function VaultRow({
   const shownTags = node.tags.slice(0, 2);
   const extraTags = node.tags.length - shownTags.length;
   const where = showPath && node.rel.includes("/") ? node.rel.slice(0, node.rel.lastIndexOf("/")) : "";
-  const tooltip = [
-    node.dir ? node.rel : node.rel.replace(/\.nqv$/i, ""),
-    kindLabel(node.kind),
-    subtitle ?? "",
-    node.tags.length ? `Tags: ${node.tags.join(", ")}` : "",
-    syncMark ?? syncMarkInside ?? "",
-  ].filter(Boolean).join("\n");
   const markLabel = syncMark ?? syncMarkInside;
 
   // dnd-kit's listeners include a keyboard handler (Space/Enter starts a drag) — the
@@ -106,7 +99,6 @@ export const VaultRow = memo(function VaultRow({
       aria-selected={checked || selected}
       aria-label={`${node.name}, ${kindLabel(node.kind)}${node.starred ? ", starred" : ""}${markLabel ? `, ${markLabel}` : ""}`}
       tabIndex={selected ? 0 : -1}
-      title={editor ? undefined : tooltip}
       className={`vt-row${selected ? " is-selected" : ""}${isTarget ? " is-target" : ""}${checked ? " is-checked" : ""}${selecting ? " is-selecting" : ""}${isOpen ? " is-open" : ""}${isDrop ? " is-drop" : ""}${drag.isDragging ? " is-dragging" : ""}`}
       style={{ paddingLeft: 4 + depth * INDENT }}
       onPointerDown={editor ? undefined : pointerDown}
@@ -163,7 +155,6 @@ export const VaultRow = memo(function VaultRow({
             <span
               className={`vt-sync-dot${syncMark ? "" : " is-inside"}`}
               data-sync-mark={syncMark ? "entry" : "inside"}
-              title={markLabel}
               aria-hidden
             />
           )}

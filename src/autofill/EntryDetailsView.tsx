@@ -83,8 +83,8 @@ export function EntryDetailsView({ path, title, onBack, onOpen, onFill, fillLabe
         </Tooltip>
         <Avatar name={name} size={34} />
         <div className="af-details-id">
-          <h2 className="af-details-title" title={name}>{name}</h2>
-          {subtitle && <p className="af-details-sub" title={subtitle}>{subtitle}</p>}
+          <h2 className="af-details-title">{name}</h2>
+          {subtitle && <p className="af-details-sub">{subtitle}</p>}
         </div>
       </div>
 
@@ -131,7 +131,7 @@ function DetailsBody({ d }: { d: EntryDetails }) {
       {d.sites.length > 0 && (
         <ul aria-label="Websites" className={listBoxClass}>
           {d.sites.map((s, i) => (
-            <Field key={`site-${i}`} id={`site-${i}`} label={d.sites.length > 1 ? `Website ${i + 1}` : "Website"} value={<span title={s}>{s}</span>}
+            <Field key={`site-${i}`} id={`site-${i}`} label={d.sites.length > 1 ? `Website ${i + 1}` : "Website"} value={<span>{s}</span>}
                    actions={<><RowIconSpacer /><CopyIconButton value={s} label={`website ${hostOf(s) || s}`} className={rowButtonClass} /></>} />
           ))}
         </ul>

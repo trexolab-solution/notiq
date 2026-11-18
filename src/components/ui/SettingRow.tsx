@@ -60,7 +60,7 @@ export const SettingRow = React.memo(function SettingRow({
     >
       <div className="setting-row-text">
         <span id={labelId} className="setting-row-label">
-          {modified && <span className="setting-row-marker" title="Modified from default" aria-label="Modified" role="img" />}
+          {modified && <Tooltip content="Modified from default"><span className="setting-row-marker" aria-label="Modified" role="img" /></Tooltip>}
           {label}
           {help && <HelpTip text={help} />}
         </span>

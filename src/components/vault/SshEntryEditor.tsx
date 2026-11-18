@@ -318,7 +318,7 @@ function SshEntryEditorInner({ tab }: { tab: Tab }) {
 
           {command && (
             <div className="flex items-center gap-2 rounded-md px-2.5 py-1.5 bg-[var(--color-bg-secondary)] border border-[var(--color-border)]">
-              <code className="flex-1 min-w-0 truncate text-xs font-mono" title={command}>{command}</code>
+              <code className="flex-1 min-w-0 truncate text-xs font-mono">{command}</code>
               <CopyIconButton value={command} label="ssh command" />
               <RowIconButton label="Open in terminal" icon={<SquareTerminal size={13} />}
                              tooltip={tab.isDirty ? "Save this entry first (Ctrl+S); the terminal uses the saved version"

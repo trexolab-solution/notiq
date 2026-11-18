@@ -69,16 +69,15 @@ export function GeneratePasswordButton({ onGenerate, current }: {
   return (
     <div className="relative flex items-center gap-1" ref={wrap}>
       <div ref={trigger} className="flex items-center gap-1">
-        <Button
+        <Tooltip content="Generate a strong password"><Button
           size="sm"
           icon={<Dices size={12} />}
-          title="Generate a strong password"
           aria-haspopup={ask ? "dialog" : undefined}
           aria-expanded={ask ? open : undefined}
           onClick={() => (ask ? (open ? setOpen(false) : openPopup()) : generate(getPwOptions()))}
         >
           Generate
-        </Button>
+        </Button></Tooltip>
         {!ask && (
           <Tooltip content="Password generator options">
             <Button size="sm" aria-label="Password generator options" aria-haspopup="dialog" aria-expanded={open}

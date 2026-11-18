@@ -80,13 +80,12 @@ export function RecentlySyncedView({ markers, items, onBack, onOpen, onMarkAllSe
                   role="listitem"
                   className="vt-trash-item w-full text-left cursor-pointer border-0 bg-transparent text-[var(--color-text)] focus-visible:outline-2 focus-visible:outline-[var(--color-primary)]"
                   aria-label={`${name}, ${label}. Open`}
-                  title={m.rel.replace(/\.nqv$/i, "")}
                   onClick={() => onOpen(m)}
                 >
                   {body}
                 </button>
               ) : (
-                <div key={m.id} role="listitem" className="vt-trash-item" aria-label={`${name}, ${label}`} title={m.rel}>
+                <div key={m.id} role="listitem" className="vt-trash-item" aria-label={`${name}, ${label}`}>
                   {body}
                 </div>
               );

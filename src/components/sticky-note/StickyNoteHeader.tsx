@@ -156,28 +156,25 @@ export function StickyNoteHeader({ noteId }: Props) {
               <button
                 className={`sn-color-swatch sn-color-reset${bgColor === "" ? " is-active" : ""}`}
                 onClick={() => updateNote(noteId, { bgColor: "" })}
-                title="Theme default"
               >
                 <span>Auto</span>
               </button>
               {COLOR_SWATCHES.map((s) => (
-                <button
+                <Tooltip content={s.label}><button
                   key={s.color}
                   className={`sn-color-swatch${bgColor === s.color ? " is-active" : ""}`}
                   style={{ background: s.color }}
-                  onClick={() => updateNote(noteId, { bgColor: s.color })}
-                  title={s.label}
-                />
+                  onClick={() => updateNote(noteId, { bgColor: s.color })} aria-label={s.label}
+                /></Tooltip>
               ))}
               {/* Custom color picker */}
-              <button
+              <Tooltip content="Custom color"><button
                 className={`sn-color-swatch sn-color-custom${isCustomColor ? " is-active" : ""}`}
                 style={isCustomColor ? { background: bgColor } : {}}
-                onClick={() => colorInputRef.current?.click()}
-                title="Custom color"
+                onClick={() => colorInputRef.current?.click()} aria-label="Custom color"
               >
                 {!isCustomColor && <span>+</span>}
-              </button>
+              </button></Tooltip>
               <input
                 ref={colorInputRef}
                 type="color"

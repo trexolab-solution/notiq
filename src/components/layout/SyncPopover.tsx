@@ -237,7 +237,7 @@ export function SyncPopoverPanel({
           <div className="flex items-center gap-2.5">
             <span className="sync-pop__avatar" aria-hidden>{model.avatar ?? "G"}</span>
             <div className="min-w-0 flex-1">
-              <div className="truncate text-[12.5px] text-[var(--color-text)]" title={model.account ?? undefined}>
+              <div className="truncate text-[12.5px] text-[var(--color-text)]">
                 {model.account ?? "Google account"}
               </div>
               {model.location && <div className="truncate text-[11px] text-[var(--color-text-muted)]">{model.location}</div>}

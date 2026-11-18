@@ -65,7 +65,7 @@ export function LoginSitesEditor({ entry, onChange }: { entry: LoginEntry; onCha
                 <li key={`${u}-${i}`} data-list-row
                     className={`flex items-center gap-2 pl-2.5 pr-1 py-0.5 text-[13px] ${listRowHoverClass}`}>
                   <Globe size={13} className="shrink-0 text-[var(--color-text-muted)]" aria-hidden />
-                  <span className="flex-1 min-w-0 truncate" title={u}>{u}</span>
+                  <span className="flex-1 min-w-0 truncate">{u}</span>
                   <RowActions>
                     {host && (
                       <RowIconButton data-row-focus label={`Open ${host}`} icon={<ExternalLink size={13} />}

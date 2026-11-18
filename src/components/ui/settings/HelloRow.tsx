@@ -6,6 +6,7 @@ import { toast } from "../../../lib/toast";
 import { useVaultStore } from "../../../store/vaultStore";
 import { vaultErrorMessage } from "../../../lib/vault";
 import { HELLO_OFF, helloDisable, helloEnable, helloStatus, isHelloCancel, type HelloStatus } from "../../../lib/hello";
+import { Tooltip } from "../Tooltip";
 
 const DESCRIPTION = "Unlock with your face, fingerprint or Windows PIN instead of typing the master password.";
 const HELP =
@@ -82,10 +83,10 @@ export function HelloRow() {
         {status.enabled ? (
           <Button className="settings-btn" size="sm" variant="ghost" loading={busy} loadingText="Turning off…" onClick={() => void disable()}>Turn off</Button>
         ) : !asking ? (
-          <Button className="settings-btn" size="sm" disabled={!exists || !unlocked || busy} onClick={() => setAsking(true)}
-                  title={unlocked ? undefined : "Unlock the vault first"}>
+          <Tooltip content="Unlock the vault first" disabled={unlocked}><span className="inline-flex">
+          <Button className="settings-btn" size="sm" disabled={!exists || !unlocked || busy} onClick={() => setAsking(true)}>
             Turn on
-          </Button>
+          </Button></span></Tooltip>
         ) : null}
       </SettingRow>
       {asking && !status.enabled && (

@@ -161,15 +161,14 @@ export const ProviderConfigCard = React.memo(function ProviderConfigCard({
               className="flex-1 min-w-0 bg-transparent border-0 outline-none px-2 py-1 text-sm text-[var(--color-text)] placeholder:text-[var(--color-text-muted)]"
             />
             {keyInput && (
-              <button
+              <Tooltip content={showKey ? "Hide" : "Show"}><button
                 type="button"
                 onClick={() => setShowKey((v) => !v)}
                 aria-label={showKey ? "Hide API key" : "Show API key"}
-                title={showKey ? "Hide" : "Show"}
                 className="flex items-center px-2 cursor-pointer text-[var(--color-text-muted)] hover:text-[var(--color-text)] transition-colors"
               >
                 {showKey ? <EyeOff size={14} /> : <Eye size={14} />}
-              </button>
+              </button></Tooltip>
             )}
             {keyInput.trim() ? (
               <button

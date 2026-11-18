@@ -57,13 +57,13 @@ function Row({ e, dir, on, onSelect, onOpen, onMenu }: {
            : on ? "bg-[var(--color-primary)]/15 text-[var(--color-text)]" : "hover:bg-[var(--color-bg-tertiary)]"}`}>
       <div role="gridcell" className="flex items-center gap-2 px-2 min-w-0">
         <span className={e.kind === "dir" ? "text-[var(--color-primary)]" : "text-[var(--color-text-muted)]"}><Glyph e={e} /></span>
-        <span className="truncate" title={e.name}>{e.name}</span>
+        <span className="truncate">{e.name}</span>
       </div>
       <div role="gridcell" className="px-2 text-right text-xs tabular-nums text-[var(--color-text-muted)]">
         {e.kind === "dir" ? "" : formatBytes(e.size)}
       </div>
       <div role="gridcell" className="px-2 text-xs text-[var(--color-text-muted)] truncate">{formatModified(e.mtime)}</div>
-      <div role="gridcell" className="px-2 text-[11px] font-mono text-[var(--color-text-muted)] truncate" title={modeString(e.mode)}>
+      <div role="gridcell" className="px-2 text-[11px] font-mono text-[var(--color-text-muted)] truncate">
         {modeString(e.mode)}
       </div>
     </div>

@@ -206,7 +206,7 @@ export function ChoiceList({ label, noun, items, pick, onPick, onAllow, onDetail
                 {!!item.badges?.length && (
                   <span className="af-badges">
                     {item.badges.map((b) => (
-                      <span key={b.label} className={`af-badge af-badge--${b.tone ?? "neutral"}`} title={b.title}>{b.label}</span>
+                      <span key={b.label} className={`af-badge af-badge--${b.tone ?? "neutral"}`}>{b.label}</span>
                     ))}
                   </span>
                 )}

@@ -185,7 +185,7 @@ export function RestoreBackupDialog({ onClose, initialPath }: { onClose: () => v
               <FileArchive size={18} />
             </span>
             <div className="flex-1 min-w-0">
-              <div className="text-sm font-medium" title={w.path} data-file-name="">{middleEllipsis(fileName, 44)}</div>
+              <div className="text-sm font-medium" data-file-name="">{middleEllipsis(fileName, 44)}</div>
               <div className="mt-0.5 text-xs" aria-live="polite">
                 {w.checking ? (
                   <span className="inline-flex items-center gap-1.5 text-[var(--color-text-muted)]"><Spinner size={12} /> Checking…</span>
@@ -244,7 +244,7 @@ export function RestoreBackupDialog({ onClose, initialPath }: { onClose: () => v
   );
 
   const fromLine = (
-    <p className="text-xs text-[var(--color-text-muted)] mb-3 truncate" title={w.path ?? undefined}>
+    <p className="text-xs text-[var(--color-text-muted)] mb-3 truncate">
       From <span className="font-medium text-[var(--color-text)]">{middleEllipsis(fileName, 48)}</span>
     </p>
   );

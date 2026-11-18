@@ -61,7 +61,7 @@ function GridItem({ e, dir, on, size, icon, onSelect, onOpen, onMenu }: {
 }) {
   const dnd = useEntryDnd(e, dir);
   return (
-    <div ref={dnd.setRef} role="row" aria-selected={on} tabIndex={-1} data-name={e.name} title={e.name} {...dnd.listeners}
+    <div ref={dnd.setRef} role="row" aria-selected={on} tabIndex={-1} data-name={e.name} {...dnd.listeners}
          onClick={(ev) => { ev.stopPropagation(); onSelect(e.name, ev.shiftKey ? "range" : ev.ctrlKey || ev.metaKey ? "toggle" : "single"); }}
          onDoubleClick={() => onOpen(e)}
          onContextMenu={(ev) => { ev.preventDefault(); ev.stopPropagation(); onMenu(e, ev.clientX, ev.clientY); }}

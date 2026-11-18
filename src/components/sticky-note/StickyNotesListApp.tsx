@@ -8,6 +8,7 @@ import { applyTheme } from "../../lib/themes";
 import { useStickyNotesStore, type StickyNoteData } from "../../store/stickyNoteStore";
 import { openStickyNote } from "../../lib/stickyNote";
 
+import { Tooltip } from "../ui/Tooltip";
 const NOTE_DOT_COLORS: Record<string, string> = {
   "#fffde7": "#f59e0b",
   "#e8f5e9": "#22c55e",
@@ -151,12 +152,12 @@ export default function StickyNotesListApp() {
           <span className="snl-brand__name">Sticky Notes</span>
         </div>
         <div className="snl-header__actions">
-          <button className="snl-icon-btn" onClick={handleNew} title="New Note" aria-label="New Note">
+          <Tooltip content="New Note"><button className="snl-icon-btn" onClick={handleNew} aria-label="New Note">
             <Plus size={15} strokeWidth={2} />
-          </button>
-          <button className="snl-icon-btn snl-icon-btn--close" onClick={handleClose} title="Close" aria-label="Close">
+          </button></Tooltip>
+          <Tooltip content="Close"><button className="snl-icon-btn snl-icon-btn--close" onClick={handleClose} aria-label="Close">
             <X size={14} strokeWidth={2} />
-          </button>
+          </button></Tooltip>
         </div>
       </header>
 

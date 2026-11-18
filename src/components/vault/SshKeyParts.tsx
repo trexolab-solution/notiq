@@ -39,11 +39,11 @@ export function KeyFactsRow({ facts, fingerprint, name, compact }: {
       {!compact && facts.side === "private" && facts.encrypted !== null && (
         <li className={chip}>{facts.encrypted ? "Passphrase protected" : "Not encrypted"}</li>
       )}
-      {facts.comment && <li className={`${chip} max-w-[220px]`}><span className="truncate" title={facts.comment}>{facts.comment}</span></li>}
+      {facts.comment && <li className={`${chip} max-w-[220px]`}><span className="truncate">{facts.comment}</span></li>}
       {fingerprint && (
         <li className={`${chip} !pr-0.5 max-w-full`}>
           <span className="sr-only">Fingerprint </span>
-          <code className="font-mono truncate" title={fingerprint}>{fingerprint}</code>
+          <code className="font-mono truncate">{fingerprint}</code>
           <CopyIconButton value={fingerprint} label={`${name} fingerprint`} className="!h-5 !w-5 !p-0 justify-center" />
         </li>
       )}
@@ -73,7 +73,7 @@ export function KeyFileList({ files, onView, onUse, onRemove }: {
               <Icon size={15} aria-hidden />
             </span>
             <div className="flex-1 min-w-0">
-              <div className="text-sm truncate" title={f.name}>{f.name}</div>
+              <div className="text-sm truncate">{f.name}</div>
               <div className="text-[11px] text-[var(--color-text-muted)] truncate">{detail}</div>
             </div>
             <RowActions>
@@ -106,7 +106,7 @@ export function ImportErrors({ errors, onDismiss }: { errors: ImportError[]; onD
             className="flex items-center gap-2.5 rounded-md px-2.5 py-1.5 border border-[var(--color-danger)]/40 bg-[var(--color-danger)]/5">
           <TriangleAlert size={15} aria-hidden className="shrink-0 text-[var(--color-danger)]" />
           <div className="flex-1 min-w-0">
-            <div className="text-sm truncate" title={e.name}>{e.name}</div>
+            <div className="text-sm truncate">{e.name}</div>
             <div className="text-[11px] text-[var(--color-danger)]">{e.error}</div>
           </div>
           <RowActions>

@@ -7,6 +7,7 @@ import { toast } from "../../../lib/toast";
 import { useSyncStatus } from "../../../lib/vaultSync";
 import { useVaultStore } from "../../../store/vaultStore";
 import { vaultErrorMessage, vaultRotateRecoveryKey } from "../../../lib/vault";
+import { Tooltip } from "../Tooltip";
 
 const DESCRIPTION =
   "Replace your recovery key if it may have been seen or lost. The old key stops working for this vault; " +
@@ -53,10 +54,10 @@ export function RecoveryKeyRow() {
         keywords={["recovery key", "new recovery key", "rotate", "replace", "lost", "reset", "forgot password"]}
       >
         {!asking && (
-          <Button className="settings-btn" size="sm" disabled={!exists || !unlocked || busy} onClick={() => setAsking(true)}
-                  title={unlocked ? undefined : "Unlock the vault first"}>
+          <Tooltip content="Unlock the vault first" disabled={unlocked}><span className="inline-flex">
+          <Button className="settings-btn" size="sm" disabled={!exists || !unlocked || busy} onClick={() => setAsking(true)}>
             Create new recovery key…
-          </Button>
+          </Button></span></Tooltip>
         )}
       </SettingRow>
       {asking && unlocked && (

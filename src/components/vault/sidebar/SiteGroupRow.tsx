@@ -38,7 +38,6 @@ export const SiteGroupRow = memo(function SiteGroupRow({ rowKey, group, depth, e
       aria-selected={selected}
       aria-label={`${group.domain}, ${group.members.length} logins`}
       tabIndex={selected ? 0 : -1}
-      title={`${group.domain}\n${group.members.length} logins for this website`}
       className={`vt-row${selected ? " is-selected" : ""}`}
       style={{ paddingLeft: 4 + depth * INDENT }}
       onClick={(e) => onSelect(rowKey, group, e)}

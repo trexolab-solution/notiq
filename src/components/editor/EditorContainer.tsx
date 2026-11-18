@@ -221,7 +221,6 @@ export const EditorContainer = React.memo(function EditorContainer() {
             <div
               className={`split-handle${isDragging ? " is-dragging" : ""}`}
               onMouseDown={startDrag}
-              title="Drag to resize"
             >
               <span className="split-handle-grip" />
             </div>

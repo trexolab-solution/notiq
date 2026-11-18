@@ -316,7 +316,7 @@ function AttachmentsPanelInner({ tab }: { tab: Tab }) {
                       <AttachmentIcon name={a.name} mime={a.mime} size={15} />
                     </span>
                     <div className="flex-1 min-w-0">
-                      <div className="text-sm truncate" title={a.name}>{a.name}</div>
+                      <div className="text-sm truncate">{a.name}</div>
                       <div className="text-[11px] text-[var(--color-text-muted)]">
                         {formatBytes(a.size)} · added {new Date(a.added).toLocaleDateString()}
                       </div>
@@ -351,7 +351,7 @@ function AttachmentsPanelInner({ tab }: { tab: Tab }) {
                       : <Spinner size={15} />}
                   </span>
                   <div className="flex-1 min-w-0">
-                    <div className="text-sm truncate" title={j.name}>{j.name}</div>
+                    <div className="text-sm truncate">{j.name}</div>
                     <div className={`text-[11px] ${j.status === "error" ? "text-[var(--color-danger)]" : "text-[var(--color-text-muted)]"}`}>
                       {j.status === "error" ? j.error : j.status === "adding" ? "Encrypting and adding…" : "Waiting…"}
                     </div>

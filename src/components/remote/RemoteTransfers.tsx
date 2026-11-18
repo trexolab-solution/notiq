@@ -3,6 +3,7 @@ import { AlertCircle, ArrowDownToLine, ArrowUpFromLine, Check, ChevronDown, Chev
 import { formatBytes } from "../../lib/vaultBackup";
 import { percent } from "../../lib/sftp";
 
+import { Tooltip } from "../ui/Tooltip";
 export interface Transfer {
   id: number;
   kind: "up" | "down";
@@ -53,7 +54,7 @@ function detail(t: Transfer): string {
 function Ring({ pct, onCancel, label }: { pct: number; onCancel: () => void; label: string }) {
   const r = 11, c = 2 * Math.PI * r;
   return (
-    <button type="button" onClick={onCancel} aria-label={label} title="Cancel"
+    <Tooltip content="Cancel"><button type="button" onClick={onCancel} aria-label={label}
             className="group relative grid place-items-center w-7 h-7 shrink-0 cursor-pointer rounded-full text-[var(--color-text-muted)] hover:text-[var(--color-text)]">
       <svg width="28" height="28" viewBox="0 0 28 28" className="absolute inset-0 -rotate-90" aria-hidden>
         <circle cx="14" cy="14" r={r} fill="none" strokeWidth="2.5" className="stroke-[var(--color-bg-tertiary)]" />
@@ -61,7 +62,7 @@ function Ring({ pct, onCancel, label }: { pct: number; onCancel: () => void; lab
                 strokeDasharray={c} strokeDashoffset={c * (1 - pct / 100)} />
       </svg>
       <X size={12} aria-hidden className="opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 transition-opacity" />
-    </button>
+    </button></Tooltip>
   );
 }
 
@@ -127,8 +128,8 @@ export function RemoteTransfers({ items, onCancel, onClear }: { items: Transfer[
                 {t.kind === "up" ? <ArrowUpFromLine size={15} /> : <ArrowDownToLine size={15} />}
               </span>
               <div className="flex-1 min-w-0">
-                <p className="truncate text-sm" title={t.name}>{t.name}</p>
-                <p className={`truncate text-[11px] ${t.state === "error" ? "text-[var(--color-danger)]" : "text-[var(--color-text-muted)]"}`} title={t.error}>{detail(t)}</p>
+                <p className="truncate text-sm">{t.name}</p>
+                <p className={`truncate text-[11px] ${t.state === "error" ? "text-[var(--color-danger)]" : "text-[var(--color-text-muted)]"}`}>{detail(t)}</p>
               </div>
               {t.state === "running" && <Ring pct={percent(t.done, t.total)} label={`Cancel ${t.name}`} onCancel={() => onCancel(t.id)} />}
               {t.state === "done" && <Check size={16} className="shrink-0 text-[var(--color-success)]" aria-label="Done" />}

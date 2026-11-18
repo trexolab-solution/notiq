@@ -49,7 +49,7 @@ export function SaveFields({
     <>
       <dl className="af-fields">
         <dt>Website</dt>
-        <dd className="truncate" title={req.host}>{req.host}</dd>
+        <dd className="truncate">{req.host}</dd>
         <dt>Username</dt>
         <dd className="truncate">{req.username || <span className="af-muted">(none)</span>}</dd>
         {update && choice.length > 0 && (

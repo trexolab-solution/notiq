@@ -14,6 +14,7 @@ import { useSyncStatus } from "../../lib/vaultSync";
 import { startSyncSetup } from "../../lib/syncSetupFlow";
 import { useVaultPanelResize } from "../../hooks/useVaultPanelResize";
 
+import { Tooltip } from "../ui/Tooltip";
 const baseName = (p: string) => p.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || p;
 
 /**
@@ -31,20 +32,18 @@ export function VaultPanel() {
   const { width, dragging, handleProps } = useVaultPanelResize();
 
   const storageRow = (
-    <div className="vt-footer-row" title={data.root ? `Stored in ${data.root}` : undefined}>
+    <div className="vt-footer-row">
       <HardDrive size={13} className="shrink-0" aria-hidden />
       <span className="flex-1 min-w-0 truncate text-[11px]">
         {!data.root ? "…" : custom ? baseName(data.root) : "App data (default)"}
       </span>
-      <button type="button" className="vt-icon-btn" style={{ width: 20, height: 20 }}
-              title="Choose storage folder" aria-label="Choose storage folder" onClick={() => void pickVaultDir()}>
+      <Tooltip content="Choose storage folder"><button type="button" className="vt-icon-btn" style={{ width: 20, height: 20 }} aria-label="Choose storage folder" onClick={() => void pickVaultDir()}>
         <FolderOpen size={12} />
-      </button>
+      </button></Tooltip>
       {custom && (
-        <button type="button" className="vt-icon-btn" style={{ width: 20, height: 20 }}
-                title="Use default folder" aria-label="Use default folder" onClick={resetVaultDir}>
+        <Tooltip content="Use default folder"><button type="button" className="vt-icon-btn" style={{ width: 20, height: 20 }} aria-label="Use default folder" onClick={resetVaultDir}>
           <RotateCcw size={11} />
-        </button>
+        </button></Tooltip>
       )}
     </div>
   );

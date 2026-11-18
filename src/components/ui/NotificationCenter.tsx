@@ -41,7 +41,7 @@ function CenterItem({ n, now }: { n: Notification; now: number }) {
         )}
         <div className="notif-meta">
           {n.source && <span className="notif-source">{n.source}</span>}
-          <time dateTime={new Date(n.updatedAt).toISOString()} title={new Date(n.updatedAt).toLocaleString()}>
+          <time dateTime={new Date(n.updatedAt).toISOString()}>
             {N.formatRelative(n.updatedAt, now)}
           </time>
         </div>

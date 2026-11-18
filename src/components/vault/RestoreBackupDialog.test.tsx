@@ -97,7 +97,7 @@ describe("RestoreBackupDialog", () => {
     expect(await drop(["C:/Users/me/Backups/notiq-vault-2026-11-01-from-the-old-laptop-before-reinstall.nqbackup"])).toBe(true);
     expect(invoke).toHaveBeenCalledWith("vault_backup_inspect", { path: expect.stringContaining("before-reinstall.nqbackup") });
     const name = q("[data-file-name]")!;
-    expect(name.getAttribute("title")).toBe("C:/Users/me/Backups/notiq-vault-2026-11-01-from-the-old-laptop-before-reinstall.nqbackup");
+    expect(name.getAttribute("title")).toBeNull(); // no native tooltip; the long name is shortened in the middle
     expect(name.textContent).toContain("…");
     expect(name.textContent!.endsWith(".nqbackup")).toBe(true);
     expect(q("[data-file-card]")?.textContent).toContain("Valid backup");
