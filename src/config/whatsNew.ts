@@ -13,21 +13,21 @@ import { APP_VERSION } from "./app";
  */
 export const WHATS_NEW = `# What's New in Notiq ${APP_VERSION}
 
-A small update with fixes and polish.
+Faster everyday work in the vault.
 
-## 🗂️ File manager
+## 🔐 Vault
 
-- **Ctrl+F** now goes to the file manager's own **Filter** box instead of the browser's find bar (and **Esc** clears it).
+- **Select several entries** at once: tick the box that replaces an entry's icon on hover (**Shift+click** ticks a range, **Space** ticks, **Ctrl+A** ticks all), then star, tag, move or trash them together.
+- **Copy without opening:** hover a login for *Copy username* / *Copy password*, or select it and press **Ctrl+Shift+U** / **Ctrl+Shift+C**.
+- **Undo** after moving an entry to the Trash. A single entry no longer asks first; folders and bulk deletes still do.
+- **Sort by Recently used or Most used** (kept on this device only).
+- **Paste an \`otpauth://\` link** into the 2-step field and the setup key is filled in for you.
+- **Caps Lock warning** under every password field.
+- **Vault health:** a row now opens the entry with the cursor already in the password (or address) field.
 
-## 🔑 Autofill window
+## 🖥️ Terminal
 
-- **Notes are collapsed** in an entry's details until you open them, and the details are laid out like the vault form.
-- **You can drag the window** by its header.
-- It no longer pops up **empty or white** after a request was cancelled or timed out.
-
-## 🧩 Browser extension 0.8.2
-
-- If your vault was locked while you signed in and you unlocked it afterwards, the offer now correctly says **Update password in Notiq** instead of Save. Reload the extension after updating.
+- Apps like Claude Code, tmux and vim can now **copy to your clipboard** from inside the built-in terminal.
 
 ---
 
