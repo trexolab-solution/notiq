@@ -126,6 +126,22 @@
 }
 .vt-sync-dot.is-inside { background: transparent; box-shadow: inset 0 0 0 1.5px var(--color-primary); }
 @keyframes vt-sync-dot-in { from { transform: scale(0.2); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+/* Leading slot: the type icon, swapped for a tick box on hover (and on every row once something is ticked). */
+.vt-lead { position: relative; width: 16px; height: 16px; flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; }
+.vt-check {
+  position: absolute; inset: 1px; display: none; align-items: center; justify-content: center; padding: 0; cursor: pointer;
+  border-radius: 4px; border: 1.5px solid var(--color-text-muted); background: var(--color-bg); color: var(--color-bg);
+}
+.vt-check.is-on { background: var(--color-primary); border-color: var(--color-primary); }
+.vt-row:hover .vt-check, .vt-row.is-selecting .vt-check, .vt-check:focus-visible { display: inline-flex; }
+.vt-row:hover .vt-lead > .vt-row-icon, .vt-row.is-selecting .vt-lead > .vt-row-icon { visibility: hidden; }
+.vt-row.is-checked { background: color-mix(in srgb, var(--color-primary) 16%, transparent); }
+.vt-bulk {
+  display: flex; align-items: center; gap: 2px; margin: 0 6px 4px; padding: 3px 4px 3px 8px; border-radius: 6px;
+  background: color-mix(in srgb, var(--color-primary) 14%, var(--color-bg-tertiary));
+  border: 1px solid color-mix(in srgb, var(--color-primary) 35%, transparent);
+}
+.vt-bulk-count { flex: 1; min-width: 0; font-size: 12px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .vt-row-more { opacity: 0; width: 20px; height: 20px; }
 .vt-row:hover .vt-row-more, .vt-row.is-selected .vt-row-more, .vt-row-more[aria-expanded="true"] { opacity: 1; }
 .vt-row-input {

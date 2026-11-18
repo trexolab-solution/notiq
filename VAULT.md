@@ -15,9 +15,12 @@ All locked entries (notes, logins, SSH entries, API keys, cards, Wi-Fi, recovery
 - **Resizable** — drag the sidebar's edge (or use the arrow keys); Notiq remembers the width
 - **Folders** with expand/collapse, new folder, rename, drag-and-drop move and "Move to…"
 - **Tags and search** — filter by one or more tags (AND), search names and tags; contents are never searched
-- **Starred** items pinned at the top, **duplicate**, sort by name or last modified
+- **Starred** items pinned at the top, **duplicate**, sort by name, last modified, **recently used** or **most used** (the usage counts stay on this device only, they are never stored in the vault or synced)
 - **Recycle Bin** — deleting moves items to the trash; restore them, delete forever, or empty the bin (items are removed for good after 30 days)
 - Right-click menus and keyboard control (Enter to open, `F2` rename, `Delete` to trash, arrow keys)
+- **Select several entries** — tick the box that replaces an entry's icon on hover (Shift+click ticks a range, `Space` ticks the focused row, `Ctrl+A` ticks all), then use the bar above the list to star, tag, move or trash them together. `Esc` clears the selection
+- **Copy without opening** — hover a login for *Copy username* / *Copy password* buttons, or select it and press `Ctrl+Shift+U` / `Ctrl+Shift+C`. Passwords are wiped from the clipboard after your usual delay
+- **Undo** — moving an entry to the Trash shows a notice with **Undo** (folders and bulk deletes still ask first)
 - **Vault health** (shield icon) — a check for weak, reused, very old and empty passwords and http-only sites, done on your computer; passwords are never shown in the report. An optional breached-password check (off by default) can also flag passwords found in known data breaches: only the first 5 characters of each password's SHA-1 hash are sent to [Have I Been Pwned](https://haveibeenpwned.com/Passwords), so the password and full hash never leave your computer
 - **Import logins** — from Chrome / Edge / Brave, Bitwarden or KeePass CSV files (or any CSV with a column mapping), with a preview, duplicate handling and folder mapping
 

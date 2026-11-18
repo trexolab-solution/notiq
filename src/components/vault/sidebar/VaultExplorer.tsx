@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
-  ArrowDownAZ, CheckCheck, ChevronsDownUp, ChevronsUpDown, Clock, CloudDownload, FolderPlus, Globe, Lock, Search, Trash2, X,
+  ArrowDownAZ, CheckCheck, ChevronsDownUp, ChevronsUpDown, Clock, CloudDownload, FolderPlus, Globe, History, Lock, Search, TrendingUp, Trash2, X,
 } from "lucide-react";
 import { useAppStore } from "../../../store";
 import { useVaultStore } from "../../../store/vaultStore";
@@ -20,6 +20,7 @@ import { Tooltip } from "../../ui/Tooltip";
 import { InlineLoading } from "../../ui/Loading";
 import * as A from "./actions";
 import { useExpanded, useGroupBySite, useSortMode, useStarredOpen } from "./prefs";
+import { useVaultUsage } from "../../../lib/vaultUsage";
 import { useLoginSites } from "./useLoginSites";
 import { PanelHeader } from "./PanelHeader";
 import { NewEntryMenu } from "./NewEntryMenu";
@@ -28,6 +29,8 @@ import { CreateRow, VaultTree, groupKey, starKey, treeKey } from "./VaultTree";
 import { InlineNameInput } from "./InlineNameInput";
 import { TagEditor } from "./TagEditor";
 import { useOpenSshInTerminal } from "./useOpenSshInTerminal";
+import { copyLoginField } from "./copyLogin";
+import { BulkBar } from "./BulkBar";
 import { openRemoteFiles } from "../../../lib/remoteFiles";
 import { getFilesPlace, otherFilesPlace } from "../../../lib/vaultPrefs";
 import { MoveDialog } from "./MoveDialog";
@@ -56,6 +59,7 @@ const menuIcon = (el: JSX.Element) => <span className="inline-flex">{el}</span>;
 export function VaultExplorer({ root, items, trash, loading, error, reload, footer }: Props) {
   const { expanded, toggle, expandAll, collapseAll, remap } = useExpanded();
   const [sort, setSort] = useSortMode();
+  const usage = useVaultUsage();
   const [starredOpen, setStarredOpen] = useStarredOpen();
   const [groupBySite, setGroupBySite] = useGroupBySite();
 
@@ -69,6 +73,11 @@ export function VaultExplorer({ root, items, trash, loading, error, reload, foot
   const [moving, setMoving] = useState<TreeNode | null>(null);
   const [confirmTrash, setConfirmTrash] = useState<TreeNode | null>(null);
   const [showTrash, setShowTrash] = useState(false);
+  // Rows ticked for a bulk action (rels), and the bulk dialogs.
+  const [checked, setChecked] = useState<Set<string>>(() => new Set());
+  const [bulkMoving, setBulkMoving] = useState(false);
+  const [bulkTagging, setBulkTagging] = useState(false);
+  const [confirmBulkTrash, setConfirmBulkTrash] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
   const treeWrapRef = useRef<HTMLDivElement>(null);
 
@@ -92,7 +101,7 @@ export function VaultExplorer({ root, items, trash, loading, error, reload, foot
   const filter = useMemo(() => ({ query, tags: selTags, extra: siteExtra }), [query, selTags, siteExtra]);
   const filtering = isFiltering(filter);
   const filtered = useMemo(() => filterItems(items, filter), [items, filter]);
-  const tree = useMemo(() => buildTree(filtered, sort), [filtered, sort]);
+  const tree = useMemo(() => buildTree(filtered, sort, usage), [filtered, sort, usage]);
   // Searching shows everything open, groups included.
   const isExpanded = useCallback((rel: string) => filtering || expanded.has(rel), [filtering, expanded]);
   const siteOf = useMemo(
@@ -118,8 +127,8 @@ export function VaultExplorer({ root, items, trash, loading, error, reload, foot
     return m;
   }, [rows, sites, query]);
   const starred = useMemo(
-    () => starredNodes(filtering ? items.filter((i) => matchesFilter(i, filter)) : items, sort),
-    [filtering, filter, items, sort],
+    () => starredNodes(filtering ? items.filter((i) => matchesFilter(i, filter)) : items, sort, usage),
+    [filtering, filter, items, sort, usage],
   );
   const tags = useMemo(() => tagCounts(items), [items]);
   const folders = useMemo(() => allFolders(items), [items]);
@@ -153,6 +162,19 @@ export function VaultExplorer({ root, items, trash, loading, error, reload, foot
       setSelectedKey(null);
     }
   }, [byRel, folders, selectedKey]);
+
+  // Forget ticked rows that no longer exist (trashed, renamed or moved elsewhere, vault locked).
+  useEffect(() => {
+    setChecked((c) => {
+      if (!c.size) return c;
+      const next = new Set([...c].filter((r) => byRel.has(r.toLowerCase())));
+      return next.size === c.size ? c : next;
+    });
+  }, [byRel]);
+  const pickedItems = useMemo(
+    () => [...checked].map((r) => byRel.get(r.toLowerCase())).filter((i): i is VaultItem => !!i),
+    [checked, byRel],
+  );
 
   /** Folder new things go into: none selected → root; a folder → it; an entry → its folder. */
   const targetFolder = targetFolderOf(selectedKey, (rel) => {
@@ -207,8 +229,20 @@ export function VaultExplorer({ root, items, trash, loading, error, reload, foot
     setMenu({ x, y, node });
   }, []);
 
-  // Folders and entries both ask first (Delete key, the row menu and the context menu all come here).
-  const askTrash = useCallback((node: TreeNode) => { setConfirmTrash(node); }, []);
+  // A folder asks first (it takes everything inside it along). A single entry goes straight to the Trash:
+  // the notice has an Undo, and the Recycle Bin keeps it for 30 days.
+  const askTrash = useCallback((node: TreeNode) => {
+    if (node.dir) setConfirmTrash(node);
+    else void A.trashEntry(root, node.rel, false);
+  }, [root]);
+
+  const bulkMove = useCallback(async (dest: string) => {
+    const rels = pickedItems.map((i) => i.rel);
+    const moved = await A.moveMany(root, items, rels, dest);
+    moved.forEach(([from, to]) => remap(from, to));
+    if (dest) expandAll([...ancestorsOf(dest), dest]);
+    setChecked(new Set());
+  }, [expandAll, items, pickedItems, remap, root]);
 
   const doMove = useCallback(async (rel: string, dest: string) => {
     const to = await A.moveEntry(root, items, rel, dest);
@@ -228,6 +262,7 @@ export function VaultExplorer({ root, items, trash, loading, error, reload, foot
     openTerminal: (n) => void sshTerminal.open(n.rel),
     openFiles: (n) => void sshFiles.open(n.rel),
     openFilesElsewhere: (n) => void sshFilesElsewhere.open(n.rel),
+    copyLogin: (n, field) => void copyLoginField(root, n.rel, field),
     rename: (n) => {
       // Rename happens in the tree row (a starred row edits in place too).
       const key = selectedKey && relOfKey(selectedKey) === n.rel ? selectedKey : treeKey(n.rel);
@@ -337,6 +372,10 @@ export function VaultExplorer({ root, items, trash, loading, error, reload, foot
     { type: "item", label: sort === "name" ? "Name  ✓" : "Name", icon: menuIcon(<ArrowDownAZ size={14} />), onClick: () => setSort("name") },
     { type: "item", label: sort === "modified" ? "Recently modified  ✓" : "Recently modified", icon: menuIcon(<Clock size={14} />),
       onClick: () => setSort("modified") },
+    { type: "item", label: sort === "recent" ? "Recently used  ✓" : "Recently used", icon: menuIcon(<History size={14} />),
+      onClick: () => setSort("recent") },
+    { type: "item", label: sort === "used" ? "Most used  ✓" : "Most used", icon: menuIcon(<TrendingUp size={14} />),
+      onClick: () => setSort("used") },
     { type: "separator" },
     { type: "item", label: groupBySite ? "Group logins by website  ✓" : "Group logins by website", icon: menuIcon(<Globe size={14} />),
       onClick: () => setGroupBySite(!groupBySite) },
@@ -448,6 +487,17 @@ export function VaultExplorer({ root, items, trash, loading, error, reload, foot
             onClear={() => setSelTags([])}
           />
 
+          {checked.size > 0 && (
+            <BulkBar
+              count={checked.size}
+              onStar={(v) => void A.starMany(root, [...checked], v)}
+              onTags={() => setBulkTagging(true)}
+              onMove={() => setBulkMoving(true)}
+              onTrash={() => setConfirmBulkTrash(true)}
+              onClear={() => setChecked(new Set())}
+            />
+          )}
+
           <div ref={treeWrapRef} className="flex flex-col flex-1 min-h-0">
             <VaultTree
               rows={rows}
@@ -470,6 +520,10 @@ export function VaultExplorer({ root, items, trash, loading, error, reload, foot
               onTrash={askTrash}
               onOpenTerminal={(n) => void sshTerminal.open(n.rel)}
               onOpenFiles={(n) => void sshFiles.open(n.rel)}
+              onCopyLogin={(n, field) => void copyLoginField(root, n.rel, field)}
+              checked={checked}
+              onCheckedChange={setChecked}
+              onTrashChecked={() => setConfirmBulkTrash(true)}
               onMenu={openMenu}
               onMove={(rel, dest) => void doMove(rel, dest)}
               marks={marks}
@@ -537,6 +591,42 @@ export function VaultExplorer({ root, items, trash, loading, error, reload, foot
           folders={folders}
           onClose={() => setMoving(null)}
           onMove={(dest) => { const n = moving; setMoving(null); void doMove(n.rel, dest); }}
+        />
+      )}
+      {bulkTagging && (
+        <TagEditor
+          name={`${checked.size} selected items`}
+          initial={[]}
+          allTags={tags.map((t) => t.tag)}
+          onSave={async (t) => {
+            const ok = await A.addTagsMany(root, pickedItems.map((i) => ({ rel: i.rel, tags: i.tags ?? [] })), t);
+            if (ok) setChecked(new Set());
+            return ok;
+          }}
+          onClose={() => setBulkTagging(false)}
+        />
+      )}
+      {bulkMoving && pickedItems.length > 0 && (
+        <MoveDialog
+          rel={pickedItems[0].rel}
+          rels={pickedItems.map((i) => i.rel)}
+          name={`${pickedItems.length} items`}
+          folders={folders}
+          onClose={() => setBulkMoving(false)}
+          onMove={(dest) => { setBulkMoving(false); void bulkMove(dest); }}
+        />
+      )}
+      {confirmBulkTrash && (
+        <ConfirmDialog
+          title="Move selected items to Trash?"
+          message={`${pickedItems.length} item${pickedItems.length === 1 ? "" : "s"} (and anything inside the folders among them) will be moved to Trash. You can restore them for 30 days.`}
+          confirmLabel="Move to Trash"
+          danger
+          onCancel={() => setConfirmBulkTrash(false)}
+          onConfirm={() => {
+            setConfirmBulkTrash(false);
+            void A.trashMany(root, pickedItems.map((i) => ({ rel: i.rel, dir: i.dir }))).then(() => setChecked(new Set()));
+          }}
         />
       )}
       {confirmTrash && (

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { emptyLogin, generatePassword, hostOf, loginUrls, parseLogin, serializeLogin, totpCode } from "./loginEntry";
+import { emptyLogin, generatePassword, hostOf, loginUrls, parseLogin, serializeLogin, secretFromOtpauth, totpCode } from "./loginEntry";
 
 describe("loginEntry", () => {
   it("round-trips and tolerates garbage", () => {
@@ -45,5 +45,15 @@ describe("login urls", () => {
 
   it("ignores non-string urls entries", () => {
     expect(parseLogin('{"url":"a.com","urls":[1,null,"b.com"]}').urls).toEqual(["b.com"]);
+  });
+});
+
+describe("secretFromOtpauth", () => {
+  it("pulls the setup key out of an otpauth link", () => {
+    expect(secretFromOtpauth("otpauth://totp/Acme:me@x.com?secret=JBSW Y3DP&issuer=Acme")).toBe("JBSWY3DP");
+  });
+  it("ignores anything else", () => {
+    expect(secretFromOtpauth("JBSWY3DPEHPK3PXP")).toBeNull();
+    expect(secretFromOtpauth("otpauth://totp/x")).toBeNull();
   });
 });

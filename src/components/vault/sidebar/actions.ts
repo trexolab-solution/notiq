@@ -12,6 +12,7 @@ import {
 } from "../../../lib/vaultTree";
 import { toast } from "../../../lib/toast";
 import { useSyncMarkersStore } from "../../../lib/syncMarkers";
+import { recordUse, remapUsage } from "../../../lib/vaultUsage";
 import type { VaultOpenMode } from "../../../lib/vaultTabs";
 
 /**
@@ -28,6 +29,7 @@ export async function openEntry(root: string, rel: string, mode: VaultOpenMode =
   try {
     useAppStore.getState().openVaultEntry(await readFileEntry(toFull(root, rel)), mode);
     useSyncMarkersStore.getState().markOpened(rel); // opening an entry marks a sync change as seen
+    recordUse(rel);
     if (await useVaultStore.getState().ensureUnlocked()) await useAppStore.getState().unlockVaultTabs();
   } catch (e) { fail(e); }
 }
@@ -52,6 +54,7 @@ export async function renameEntry(root: string, items: VaultItem[], rel: string,
   try {
     await vaultRename(toFull(root, rel), toFull(root, to));
     useAppStore.getState().remapVaultTabs(toFull(root, rel), toFull(root, to));
+    remapUsage(rel, to);
   } catch (e) { fail(e); return null; }
   if (!dir) await syncEntryTitle(toFull(root, to));
   return to;
@@ -100,6 +103,7 @@ export async function moveEntry(root: string, items: VaultItem[], rel: string, d
   try {
     await vaultRename(toFull(root, rel), toFull(root, to));
     useAppStore.getState().remapVaultTabs(toFull(root, rel), toFull(root, to));
+    remapUsage(rel, to);
     return to;
   } catch (e) { fail(e); return null; }
 }
@@ -124,7 +128,10 @@ export async function trashEntry(root: string, rel: string, dir: boolean): Promi
   try {
     await vaultTrash(toFull(root, rel));
     useAppStore.getState().closeVaultTabs(toFull(root, rel));
-    toast.info(`Moved "${displayName(rel)}"${dir ? " and its contents" : ""} to Trash`);
+    toast.info(`Moved "${displayName(rel)}"${dir ? " and its contents" : ""} to Trash`, {
+      duration: 8000,
+      actions: [{ label: "Undo", primary: true, onClick: () => { void restoreEntry(root, rel); } }],
+    });
     return true;
   } catch (e) { fail(e); return false; }
 }
@@ -156,4 +163,52 @@ export async function createEntry(root: string, items: VaultItem[], kind: NewEnt
   if (!checkName(items, parent, name)) return null;
   const rel = joinRel(parent, `${name.trim()}.nqv`);
   return (await createVaultEntryAt(kind, toFull(root, rel))) ? rel : null;
+}
+
+// ── bulk actions (rows ticked in the sidebar) ───────────────────────────────
+
+export interface Picked { rel: string; dir: boolean }
+
+/** Moves every picked entry to the Trash; one notice, with one Undo that brings them all back. */
+export async function trashMany(root: string, picked: Picked[]): Promise<string[]> {
+  // A picked folder already takes what is inside it along.
+  const top = picked.filter((p) => !picked.some((o) => o !== p && p.rel.toLowerCase().startsWith(o.rel.toLowerCase() + "/")));
+  const done: string[] = [];
+  for (const p of top) {
+    try {
+      await vaultTrash(toFull(root, p.rel));
+      useAppStore.getState().closeVaultTabs(toFull(root, p.rel));
+      done.push(p.rel);
+    } catch (e) { fail(e); }
+  }
+  if (done.length) {
+    toast.info(done.length === 1 ? `Moved "${displayName(done[0])}" to Trash` : `Moved ${done.length} items to Trash`, {
+      duration: 8000,
+      actions: [{ label: "Undo", primary: true, onClick: () => { void Promise.all(done.map((r) => vaultRestore(toFull(root, r)).catch(fail))); } }],
+    });
+  }
+  return done;
+}
+
+export async function starMany(root: string, rels: string[], starred: boolean) {
+  for (const r of rels) { try { await vaultSetStarred(toFull(root, r), starred); } catch (e) { fail(e); } }
+}
+
+/** Moves each picked entry into `dest`; returns [from, to] for every one that moved. */
+export async function moveMany(root: string, items: VaultItem[], rels: string[], dest: string): Promise<[string, string][]> {
+  const moved: [string, string][] = [];
+  for (const r of rels) {
+    const to = await moveEntry(root, items, r, dest);
+    if (to) moved.push([r, to]);
+  }
+  return moved;
+}
+
+/** Adds `tags` to every picked entry, keeping the tags each already has. */
+export async function addTagsMany(root: string, picked: { rel: string; tags: string[] }[], tags: string[]): Promise<boolean> {
+  let ok = true;
+  for (const p of picked) {
+    if (!(await setTags(root, p.rel, [...p.tags, ...tags]))) ok = false;
+  }
+  return ok;
 }

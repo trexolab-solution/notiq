@@ -7,6 +7,8 @@ import { EntryIcon } from "./EntryIcon";
 interface Props {
   /** The entry being moved. */
   rel: string;
+  /** Several entries moved together: a folder is only a valid target when it is for every one of them. */
+  rels?: string[];
   name: string;
   folders: string[];
   onMove: (destFolder: string) => void;
@@ -14,10 +16,12 @@ interface Props {
 }
 
 /** "Move to…" folder picker. Folders that aren't valid targets are shown disabled. */
-export function MoveDialog({ rel, name, folders, onMove, onClose }: Props) {
+export function MoveDialog({ rel, rels, name, folders, onMove, onClose }: Props) {
+  const all = rels ?? [rel];
+  const canMove = (f: string) => all.every((r) => canMoveTo(r, f));
   const [q, setQ] = useState("");
   const options = useMemo(() => ["", ...folders], [folders]);
-  const firstValid = options.find((f) => canMoveTo(rel, f));
+  const firstValid = options.find(canMove);
   const [sel, setSel] = useState<string | undefined>(firstValid);
 
   const query = q.trim().toLowerCase();
@@ -30,7 +34,7 @@ export function MoveDialog({ rel, name, folders, onMove, onClose }: Props) {
       size="sm"
       title={`Move “${name}” to…`}
       icon={<FolderInput size={16} />}
-      onSubmit={(e) => { e.preventDefault(); if (sel !== undefined && canMoveTo(rel, sel)) onMove(sel); }}
+      onSubmit={(e) => { e.preventDefault(); if (sel !== undefined && canMove(sel)) onMove(sel); }}
     >
       <DialogBody>
         {folders.length > 6 && (
@@ -42,8 +46,8 @@ export function MoveDialog({ rel, name, folders, onMove, onClose }: Props) {
 
         <div className="vt-folder-list" role="listbox" aria-label="Destination folder">
           {shown.map((f) => {
-            const ok = canMoveTo(rel, f);
-            const here = parentRel(rel) === f;
+            const ok = canMove(f);
+            const here = all.length === 1 && parentRel(rel) === f;
             const depth = f ? f.split("/").length : 0;
             return (
               <button
@@ -69,7 +73,7 @@ export function MoveDialog({ rel, name, folders, onMove, onClose }: Props) {
       </DialogBody>
       <DialogFooter>
         <DialogButton cancel onClick={onClose}>Cancel</DialogButton>
-        <DialogButton type="submit" variant="primary" disabled={sel === undefined || !canMoveTo(rel, sel)} autoFocus={folders.length <= 6}>
+        <DialogButton type="submit" variant="primary" disabled={sel === undefined || !canMove(sel)} autoFocus={folders.length <= 6}>
           Move here
         </DialogButton>
       </DialogFooter>

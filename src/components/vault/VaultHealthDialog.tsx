@@ -12,6 +12,8 @@ import { BreachCheckError, checkBreaches } from "../../lib/vaultBreach";
 import { getBreachCheck, setBreachCheck } from "../../lib/vaultPrefs";
 import { Toggle } from "../ui/Toggle";
 import { openEntry } from "./sidebar/actions";
+import { requestEntryFocus } from "../../lib/entryFocus";
+import { toFull } from "../../lib/vaultTree";
 
 const ISSUE_LABEL: Record<HealthIssue, string> = {
   breached: "Breached", weak: "Weak", reused: "Reused", old: "Old", empty: "Empty", http: "Not HTTPS",
@@ -150,7 +152,12 @@ export function VaultHealthDialog({ onClose }: { onClose: () => void }) {
                     {list.map((it) => (
                       <li key={it.rel}>
                         <button type="button" title={`Open ${it.rel}`}
-                                onClick={() => { void openEntry(root, it.rel); onClose(); }}
+                                onClick={() => {
+                                  // Straight to the field that needs fixing (the address for an http-only login).
+                                  const field = it.issues.every((k) => k === "http") ? "le-url" : "le-pass";
+                                  void openEntry(root, it.rel).then(() => requestEntryFocus(toFull(root, it.rel), field));
+                                  onClose();
+                                }}
                                 className="w-full flex items-center gap-2 px-3 py-2 text-left text-xs border-b border-[var(--color-border)] last:border-b-0 hover:bg-[var(--color-bg-tertiary)]">
                           <span className="min-w-0 flex-1">
                             <span className="block font-medium truncate">{it.title}</span>
@@ -168,8 +175,10 @@ export function VaultHealthDialog({ onClose }: { onClose: () => void }) {
                                   : ISSUE_LABEL[k]}
                               </span>
                             ))}
-                            {it.issues.includes("breached") && (
-                              <span className="rounded px-1.5 py-0.5 text-[10px] text-[var(--color-primary)] underline">Change password</span>
+                            {it.issues.length > 0 && (
+                              <span className="rounded px-1.5 py-0.5 text-[10px] text-[var(--color-primary)] underline">
+                                {it.issues.every((k) => k === "http") ? "Edit address" : "Change password"}
+                              </span>
                             )}
                           </span>
                         </button>

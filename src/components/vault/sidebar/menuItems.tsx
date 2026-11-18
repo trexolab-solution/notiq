@@ -1,6 +1,6 @@
 import {
   ArrowDownAZ, ChevronsDownUp, ChevronsUpDown, Clock, Copy, ExternalLink, FolderInput, FolderOpen, FolderPlus, Pencil, Star,
-  SquareArrowOutUpRight, SquareTerminal, StarOff, Tags, Trash2, Globe,
+  SquareArrowOutUpRight, SquareTerminal, StarOff, Tags, Trash2, Globe, History, TrendingUp, Lock, UserRound,
 } from "lucide-react";
 import { getFilesPlace } from "../../../lib/vaultPrefs";
 import type { ContextMenuItem } from "../../ui/ContextMenu";
@@ -18,6 +18,8 @@ export interface MenuHandlers {
   openFiles: (n: TreeNode) => void;
   /** The same, in the place the setting did not pick (a window when tabs are the default, and the other way round). */
   openFilesElsewhere: (n: TreeNode) => void;
+  /** Logins: copy the username or password without opening the entry. */
+  copyLogin: (n: TreeNode, field: "username" | "password") => void;
   rename: (n: TreeNode) => void;
   tags: (n: TreeNode) => void;
   star: (n: TreeNode) => void;
@@ -53,6 +55,8 @@ export function buildMenu(node: TreeNode | null, sort: SortMode, h: MenuHandlers
       { type: "label", label: "Sort by" },
       { type: "item", label: sort === "name" ? "Name  ✓" : "Name", icon: icon(<ArrowDownAZ size={14} />), onClick: () => h.sort("name") },
       { type: "item", label: sort === "modified" ? "Recently modified  ✓" : "Recently modified", icon: icon(<Clock size={14} />), onClick: () => h.sort("modified") },
+      { type: "item", label: sort === "recent" ? "Recently used  ✓" : "Recently used", icon: icon(<History size={14} />), onClick: () => h.sort("recent") },
+      { type: "item", label: sort === "used" ? "Most used  ✓" : "Most used", icon: icon(<TrendingUp size={14} />), onClick: () => h.sort("used") },
       { type: "separator" },
       { type: "item", label: "Expand all folders", icon: icon(<ChevronsUpDown size={14} />), onClick: h.expandAll },
       { type: "item", label: "Collapse all folders", icon: icon(<ChevronsDownUp size={14} />), onClick: h.collapseAll },
@@ -80,6 +84,10 @@ export function buildMenu(node: TreeNode | null, sort: SortMode, h: MenuHandlers
   return [
     { type: "item", label: "Open", shortcut: "Enter", icon: icon(<ExternalLink size={14} />), onClick: () => h.open(node) },
     { type: "item", label: "Open in new tab", shortcut: "Ctrl+Enter", icon: icon(<SquareArrowOutUpRight size={14} />), onClick: () => h.openNewTab(node) },
+    ...(node.kind === "login"
+      ? [{ type: "item" as const, label: "Copy password", shortcut: "Ctrl+Shift+C", icon: icon(<Lock size={14} />), onClick: () => h.copyLogin(node, "password") },
+        { type: "item" as const, label: "Copy username", shortcut: "Ctrl+Shift+U", icon: icon(<UserRound size={14} />), onClick: () => h.copyLogin(node, "username") }]
+      : []),
     ...(node.kind === "ssh"
       ? [{ type: "item" as const, label: "Open in terminal", icon: icon(<SquareTerminal size={14} />), onClick: () => h.openTerminal(node) },
         { type: "item" as const, label: "Open file manager", icon: icon(<FolderOpen size={14} />), onClick: () => h.openFiles(node) },

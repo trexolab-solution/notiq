@@ -4,7 +4,7 @@ import { TotpRing } from "../ui/TotpRing";
 import { useAutoHide } from "../../hooks/useAutoHide";
 import { CopyIconButton } from "./CopyIconButton";
 import { FieldRow, RevealButton, Section } from "./EntryParts";
-import { totpCode, totpRemaining } from "../../lib/loginEntry";
+import { secretFromOtpauth, totpCode, totpRemaining } from "../../lib/loginEntry";
 
 const PERIOD = 30;
 /** Seconds left at which the code is about to change (the ring and the digits turn to the warning colour). */
@@ -40,14 +40,14 @@ export function TotpPanel({ secret, onChange }: { secret: string; onChange: (sec
   const low = left <= LOW;
   return (
     <Section title="Two-step verification"
-             hint="Optional. Paste the setup key a site shows next to its QR code, and Notiq shows the current code.">
+             hint="Optional. Paste the setup key (or the otpauth:// link) a site shows next to its QR code, and Notiq shows the current code.">
       <FieldRow htmlFor="le-totp" text="Setup key" hint="· optional"
                 actions={<>
                   <RevealButton shown={show} onToggle={() => setShow((v) => !v)} name="setup key" />
                   <CopyIconButton value={secret} label="setup key" />
                 </>}
                 error={has && !code ? "That doesn't look like a valid setup key." : null}>
-        <Input id="le-totp" type={show ? "text" : "password"} value={secret} onChange={(e) => onChange(e.target.value)}
+        <Input id="le-totp" type={show ? "text" : "password"} value={secret} onChange={(e) => onChange(secretFromOtpauth(e.target.value) ?? e.target.value)}
                placeholder="Base32 key, e.g. JBSW Y3DP EHPK 3PXP" autoComplete="off" spellCheck={false} className="font-mono" />
       </FieldRow>
 

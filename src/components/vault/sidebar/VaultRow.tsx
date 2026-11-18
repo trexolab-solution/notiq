@@ -1,10 +1,11 @@
 import { memo, useCallback, type MouseEvent, type ReactNode } from "react";
 import { useDraggable, useDroppable } from "@dnd-kit/core";
-import { ChevronRight, Ellipsis, FolderOpen, SquareArrowOutUpRight, SquareTerminal, Star } from "lucide-react";
+import { Check, ChevronRight, Ellipsis, FolderOpen, Lock, SquareArrowOutUpRight, SquareTerminal, Star, UserRound } from "lucide-react";
 import type { TreeNode } from "../../../lib/vaultTree";
 import { isTextFieldTarget } from "../../../lib/contextMenu/target";
 import { Tooltip } from "../../ui/Tooltip";
 import { EntryIcon, kindLabel } from "./EntryIcon";
+import type { LoginField } from "./copyLogin";
 
 export const INDENT = 14;
 export const rowDomId = (key: string) => `vt-row-${key.replace(/[^A-Za-z0-9_-]/g, (c) => `_${c.charCodeAt(0)}`)}`;
@@ -36,6 +37,14 @@ interface Props {
   syncMark?: string;
   /** A collapsed folder holding entries a sync brought in: the hollow dot's label. */
   syncMarkInside?: string;
+  /** Ticked for a bulk action (Move, Star, Trash…). */
+  checked?: boolean;
+  /** Some row is ticked: a click on any row ticks it instead of opening it, and every tick box shows. */
+  selecting?: boolean;
+  /** The tick box was clicked (Shift extends the tick from the last ticked row to this one). */
+  onCheck?: (key: string, node: TreeNode, e: MouseEvent) => void;
+  /** Logins only: copy the username or password without opening the entry (hover buttons). */
+  onCopyLogin?: (key: string, node: TreeNode, field: LoginField) => void;
   /** Click (Ctrl/Cmd+click and middle-click included — the handler reads the event). */
   onSelect: (key: string, node: TreeNode, e: MouseEvent) => void;
   /** Open an entry in a new permanent tab (double-click, hover button). */
@@ -52,7 +61,7 @@ interface Props {
 /** One file-tree row: chevron, type icon, name, compact tags, star and a "more" button. */
 export const VaultRow = memo(function VaultRow({
   rowKey, node, depth, expanded, selected, isOpen, isDrop, dropFolder, showPath, subtitle, editor, isTarget,
-  syncMark, syncMarkInside, onSelect, onOpenNew, onOpenTerminal, onOpenFiles, onToggle, onMenu, setRef,
+  checked, selecting, onCheck, onCopyLogin, syncMark, syncMarkInside, onSelect, onOpenNew, onOpenTerminal, onOpenFiles, onToggle, onMenu, setRef,
 }: Props) {
   const drag = useDraggable({
     id: rowKey,
@@ -94,11 +103,11 @@ export const VaultRow = memo(function VaultRow({
       role="treeitem"
       aria-level={depth + 1}
       aria-expanded={node.dir ? expanded : undefined}
-      aria-selected={selected}
+      aria-selected={checked || selected}
       aria-label={`${node.name}, ${kindLabel(node.kind)}${node.starred ? ", starred" : ""}${markLabel ? `, ${markLabel}` : ""}`}
       tabIndex={selected ? 0 : -1}
       title={editor ? undefined : tooltip}
-      className={`vt-row${selected ? " is-selected" : ""}${isTarget ? " is-target" : ""}${isOpen ? " is-open" : ""}${isDrop ? " is-drop" : ""}${drag.isDragging ? " is-dragging" : ""}`}
+      className={`vt-row${selected ? " is-selected" : ""}${isTarget ? " is-target" : ""}${checked ? " is-checked" : ""}${selecting ? " is-selecting" : ""}${isOpen ? " is-open" : ""}${isDrop ? " is-drop" : ""}${drag.isDragging ? " is-dragging" : ""}`}
       style={{ paddingLeft: 4 + depth * INDENT }}
       onPointerDown={editor ? undefined : pointerDown}
       onClick={(e) => onSelect(rowKey, node, e)}
@@ -125,7 +134,24 @@ export const VaultRow = memo(function VaultRow({
       ) : (
         <span className="vt-row-chevron" aria-hidden />
       )}
-      <EntryIcon kind={node.kind} open={node.dir && expanded} />
+      <span className="vt-lead">
+        <EntryIcon kind={node.kind} open={node.dir && expanded} />
+        {onCheck && !editor && (
+          <button
+            type="button"
+            tabIndex={-1}
+            className={`vt-check${checked ? " is-on" : ""}`}
+            role="checkbox"
+            aria-checked={!!checked}
+            aria-label={`Select ${node.name}`}
+            onPointerDown={(e) => e.stopPropagation()}
+            onDoubleClick={(e) => e.stopPropagation()}
+            onClick={(e) => { e.stopPropagation(); onCheck(rowKey, node, e); }}
+          >
+            {checked && <Check size={11} strokeWidth={3} />}
+          </button>
+        )}
+      </span>
       {editor ?? (
         <>
           <span className="vt-row-name">
@@ -148,6 +174,36 @@ export const VaultRow = memo(function VaultRow({
             </span>
           )}
           {node.starred && !showPath && <Star size={11} className="vt-row-star" fill="currentColor" aria-hidden />}
+          {node.kind === "login" && onCopyLogin && !selecting && (
+            <>
+              <Tooltip content="Copy username">
+                <button
+                  type="button"
+                  className="vt-icon-btn vt-row-more"
+                  tabIndex={-1}
+                  aria-label={`Copy username of ${node.name}`}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onDoubleClick={(e) => e.stopPropagation()}
+                  onClick={(e) => { e.stopPropagation(); onCopyLogin(rowKey, node, "username"); }}
+                >
+                  <UserRound size={12} />
+                </button>
+              </Tooltip>
+              <Tooltip content="Copy password" shortcut="Ctrl+Shift+C">
+                <button
+                  type="button"
+                  className="vt-icon-btn vt-row-more"
+                  tabIndex={-1}
+                  aria-label={`Copy password of ${node.name}`}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onDoubleClick={(e) => e.stopPropagation()}
+                  onClick={(e) => { e.stopPropagation(); onCopyLogin(rowKey, node, "password"); }}
+                >
+                  <Lock size={12} />
+                </button>
+              </Tooltip>
+            </>
+          )}
           {node.kind === "ssh" && onOpenTerminal && (
             <Tooltip content="Open in terminal">
               <button

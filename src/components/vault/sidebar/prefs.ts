@@ -45,7 +45,10 @@ export function useExpanded() {
 }
 
 export function useSortMode() {
-  const [sort, setSort] = useState<SortMode>(() => (read<string>(KEY_SORT, "name") === "modified" ? "modified" : "name"));
+  const [sort, setSort] = useState<SortMode>(() => {
+    const v = read<string>(KEY_SORT, "name");
+    return v === "modified" || v === "recent" || v === "used" ? v : "name";
+  });
   const set = useCallback((m: SortMode) => { setSort(m); write(KEY_SORT, m); }, []);
   return [sort, set] as const;
 }

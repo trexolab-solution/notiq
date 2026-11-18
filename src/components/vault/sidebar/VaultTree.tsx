@@ -12,6 +12,7 @@ import { EntryIcon } from "./EntryIcon";
 import { INDENT, VaultRow, rowDomId, type DragData, type DropData } from "./VaultRow";
 import { SiteGroupRow } from "./SiteGroupRow";
 import { markedInside, markerLabel, type SyncMarker } from "../../../lib/syncMarkers";
+import type { LoginField } from "./copyLogin";
 
 /**
  * A visible, focusable row (Starred group rows and tree rows share one keyboard order). Either a real
@@ -54,6 +55,13 @@ interface Props {
   onOpenTerminal?: (node: TreeNode) => void;
   /** SSH entries: open the server's files in the remote file manager. */
   onOpenFiles?: (node: TreeNode) => void;
+  /** Logins: copy the username / password without opening the entry. */
+  onCopyLogin?: (node: TreeNode, field: LoginField) => void;
+  /** Rels ticked for a bulk action. While any is ticked a plain click ticks instead of opening. */
+  checked?: ReadonlySet<string>;
+  onCheckedChange?: (next: Set<string>) => void;
+  /** Delete pressed while rows are ticked. */
+  onTrashChecked?: () => void;
   onMenu: (key: string | null, node: TreeNode | null, x: number, y: number) => void;
   onMove: (rel: string, destFolder: string) => void;
   /** "Changed by sync" markers by lower-cased rel (dots on rows and collapsed folders). */
@@ -104,6 +112,24 @@ export function VaultTree(p: Props) {
     el?.scrollIntoView({ block: "nearest" });
   }, [selectedKey, visible]);
 
+  // ── ticking rows for bulk actions ──────────────────────────────────────────
+  const checked = p.checked;
+  const selecting = !!checked && checked.size > 0;
+  const lastChecked = useRef<string | null>(null);
+  const check = (key: string, node: TreeNode, shift: boolean) => {
+    if (!p.onCheckedChange) return;
+    const next = new Set(checked ?? []);
+    const nodes = visible.filter((r) => r.node);
+    const a = shift && lastChecked.current ? nodes.findIndex((r) => r.key === lastChecked.current) : -1;
+    const b = nodes.findIndex((r) => r.key === key);
+    if (a >= 0 && b >= 0) {
+      for (let i = Math.min(a, b); i <= Math.max(a, b); i++) next.add(nodes[i].node!.rel);
+    } else if (next.has(node.rel)) next.delete(node.rel);
+    else next.add(node.rel);
+    lastChecked.current = key;
+    p.onCheckedChange(next);
+  };
+
   // Focusing the tree itself selects the first row only when it was tabbed into — not when the user
   // clicked empty space or pressed Escape to clear the selection (that's how you target the root).
   const treeRef = useRef<HTMLDivElement>(null);
@@ -120,6 +146,16 @@ export function VaultTree(p: Props) {
     if (!(e.target as HTMLElement).matches('[role="treeitem"], [role="tree"]')) return;
     const idx = visible.findIndex((r) => r.key === selectedKey);
     const cur = idx >= 0 ? visible[idx] : null;
+    if (e.key === "Escape" && selecting) {
+      e.preventDefault(); e.stopPropagation();
+      p.onCheckedChange?.(new Set());
+      return;
+    }
+    if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === "a" && p.onCheckedChange) {
+      e.preventDefault();
+      p.onCheckedChange(new Set(visible.filter((r) => r.node).map((r) => r.node!.rel)));
+      return;
+    }
     if (e.key === "Escape" && selectedKey) {
       e.preventDefault(); e.stopPropagation();
       clearSelection();
@@ -164,6 +200,11 @@ export function VaultTree(p: Props) {
       return;
     }
     const node = cur.node!;
+    if (e.ctrlKey && e.shiftKey && !e.altKey && p.onCopyLogin && node.kind === "login") {
+      const k = e.key.toLowerCase();
+      if (k === "c" || k === "u") { e.preventDefault(); p.onCopyLogin(node, k === "c" ? "password" : "username"); return; }
+    }
+    if (e.key === " " && p.onCheckedChange) { e.preventDefault(); check(cur.key, node, e.shiftKey); return; }
     switch (e.key) {
       case "ArrowRight":
         e.preventDefault();
@@ -191,7 +232,7 @@ export function VaultTree(p: Props) {
         return;
       case "Delete":
         e.preventDefault();
-        p.onTrash(node);
+        if (selecting && p.onTrashChecked) p.onTrashChecked(); else p.onTrash(node);
         return;
       case "ContextMenu":
       case "F10":
@@ -231,11 +272,32 @@ export function VaultTree(p: Props) {
   const onDragCancel = () => { clearHover(); setDragging(null); setDropFolder(null); };
   useEffect(() => clearHover, []);
 
+  // Kept in refs so the row callbacks below stay stable (rows are memoised).
+  const checkRef = useRef(check);
+  checkRef.current = check;
+  const selectingRef = useRef(selecting);
+  selectingRef.current = selecting;
+  const canCheck = !!p.onCheckedChange;
+
   const onRowSelect = useCallback((key: string, node: TreeNode, e: MouseEvent) => {
     onSelectKey(key);
     (e.currentTarget as HTMLElement).focus({ preventScroll: true });
+    // Shift+click, or any click while rows are ticked, ticks instead of opening.
+    if (canCheck && e.button === 0 && ((e.shiftKey && !e.ctrlKey && !e.metaKey) || selectingRef.current)) {
+      checkRef.current(key, node, e.shiftKey);
+      return;
+    }
     p.onActivate(node, key, openModeFromEvent(e));
-  }, [onSelectKey, p.onActivate]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [onSelectKey, p.onActivate, canCheck]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const onRowCheckStable = useCallback((key: string, node: TreeNode, e: MouseEvent) => {
+    onSelectKey(key);
+    checkRef.current(key, node, e.shiftKey);
+  }, [onSelectKey]);
+
+  const onRowCopyLogin = useCallback((_key: string, node: TreeNode, field: LoginField) => {
+    p.onCopyLogin?.(node, field);
+  }, [p.onCopyLogin]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const onRowOpenNew = useCallback((key: string, node: TreeNode) => {
     onSelectKey(key);
@@ -297,6 +359,10 @@ export function VaultTree(p: Props) {
       showPath={r.starred}
       editor={p.editingKey === r.key ? p.renderEditor(r.node) : undefined}
       {...rowMarkLabels(p.marks, r.node, r.node.dir && !r.starred && isExpanded(r.node.rel))}
+      checked={!!checked?.has(r.node.rel)}
+      selecting={selecting}
+      onCheck={canCheck ? onRowCheckStable : undefined}
+      onCopyLogin={p.onCopyLogin ? onRowCopyLogin : undefined}
       onSelect={onRowSelect}
       onOpenNew={onRowOpenNew}
       onOpenTerminal={p.onOpenTerminal ? onRowOpenTerminal : undefined}

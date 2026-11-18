@@ -107,5 +107,18 @@ export async function totpCode(secret: string, nowMs = Date.now(), digits = 6): 
   return String(bin % 10 ** digits).padStart(digits, "0");
 }
 
+/**
+ * An `otpauth://totp/...?secret=KEY` link (what a site's QR code holds) → its setup key, or null when the
+ * text is not such a link. Notiq makes 6-digit, 30-second, SHA-1 codes, the default almost every site uses.
+ */
+export function secretFromOtpauth(text: string): string | null {
+  const t = text.trim();
+  if (!/^otpauth:\/\/totp\//i.test(t)) return null;
+  try {
+    const secret = new URL(t).searchParams.get("secret");
+    return secret ? secret.replace(/\s+/g, "") : null;
+  } catch { return null; }
+}
+
 /** Seconds left in the current TOTP window. */
 export const totpRemaining = (nowMs = Date.now()) => 30 - (Math.floor(nowMs / 1000) % 30);

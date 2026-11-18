@@ -1,10 +1,11 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ExternalLink, KeyRound } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { Button } from "../ui/Button";
 import { Input } from "../ui/Input";
 import { useAppStore } from "../../store";
 import { useFocusNameOnCreate } from "../../hooks/useFocusNameOnCreate";
+import { ENTRY_FOCUS_EVENT, takeEntryFocus } from "../../lib/entryFocus";
 import { CopyIconButton } from "./CopyIconButton";
 import { useAutoHide } from "../../hooks/useAutoHide";
 import { GeneratePasswordButton } from "./GeneratePasswordButton";
@@ -21,6 +22,21 @@ import type { Tab } from "../../types";
 export function LoginEntryEditor({ tab }: { tab: Tab }) {
   const entry = useMemo(() => parseLogin(tab.content), [tab.content]);
   useFocusNameOnCreate(tab.filePath, "le-title");
+  // Vault health → "Fix": open the entry with the cursor already in the field that needs changing.
+  useEffect(() => {
+    const go = () => {
+      const id = takeEntryFocus(tab.filePath);
+      if (!id) return;
+      requestAnimationFrame(() => {
+        const el = document.getElementById(id);
+        el?.scrollIntoView({ block: "center" });
+        el?.focus();
+      });
+    };
+    go();
+    window.addEventListener(ENTRY_FOCUS_EVENT, go);
+    return () => window.removeEventListener(ENTRY_FOCUS_EVENT, go);
+  }, [tab.filePath]);
   const [show, setShow] = useState(false);
   useAutoHide(show, setShow);
   const set = (patch: Partial<LoginEntry>) =>

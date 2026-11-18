@@ -1,4 +1,5 @@
 import type { VaultItem } from "./vault";
+import type { Usage, UsageMap } from "./vaultUsage";
 
 /**
  * Pure helpers behind the Secure Vault sidebar: turning the flat backend list
@@ -10,7 +11,7 @@ import type { VaultItem } from "./vault";
  */
 
 export type EntryKind = "folder" | "note" | "login" | "ssh" | "secret" | "card" | "wifi" | "codes" | "identity";
-export type SortMode = "name" | "modified";
+export type SortMode = "name" | "modified" | "recent" | "used";
 
 export interface TreeNode {
   rel: string;
@@ -217,10 +218,21 @@ export function filterItems(items: VaultItem[], f: Filter): VaultItem[] {
 
 // ── tree ─────────────────────────────────────────────────────────────────────
 
-function compareNodes(sort: SortMode) {
+const usageFor = (m: UsageMap, rel: string): Usage | undefined => m[normRel(rel).toLowerCase()];
+
+function compareNodes(sort: SortMode, usage: UsageMap = {}) {
   return (a: TreeNode, b: TreeNode) => {
     if (a.dir !== b.dir) return a.dir ? -1 : 1; // folders first
     if (sort === "modified" && a.updated !== b.updated) return b.updated - a.updated;
+    if (sort === "recent" || sort === "used") {
+      const ua = usageFor(usage, a.rel), ub = usageFor(usage, b.rel);
+      // Used entries first (most recent / most often), never-used ones keep the name order below them.
+      if (!!ua !== !!ub) return ua ? -1 : 1;
+      if (ua && ub) {
+        const d = sort === "recent" ? ub.last - ua.last : (ub.count - ua.count || ub.last - ua.last);
+        if (d) return d;
+      }
+    }
     return collator.compare(a.name, b.name);
   };
 }
@@ -229,7 +241,7 @@ function compareNodes(sort: SortMode) {
  * Builds a nested tree from the flat list. Folders that only appear as a
  * parent of something (not listed themselves) are created implicitly.
  */
-export function buildTree(items: VaultItem[], sort: SortMode = "name"): TreeNode[] {
+export function buildTree(items: VaultItem[], sort: SortMode = "name", usage: UsageMap = {}): TreeNode[] {
   const byRel = new Map<string, TreeNode>();
   const roots: TreeNode[] = [];
 
@@ -265,7 +277,7 @@ export function buildTree(items: VaultItem[], sort: SortMode = "name"): TreeNode
     (p ? ensureFolder(p).children : roots).push(n);
   }
 
-  const cmp = compareNodes(sort);
+  const cmp = compareNodes(sort, usage);
   const finish = (nodes: TreeNode[]): number => {
     let newest = 0;
     for (const n of nodes) {
@@ -293,13 +305,13 @@ export function flattenTree(nodes: TreeNode[], isExpanded: (rel: string) => bool
 }
 
 /** Starred notes and folders (flat), for the pinned "Starred" group. */
-export function starredNodes(items: VaultItem[], sort: SortMode = "name"): TreeNode[] {
+export function starredNodes(items: VaultItem[], sort: SortMode = "name", usage: UsageMap = {}): TreeNode[] {
   const nodes: TreeNode[] = items.filter((i) => i.starred).map((i) => {
     const rel = normRel(i.rel);
     return { rel, name: displayName(rel), dir: i.dir, kind: entryKind(i), ext: i.ext, updated: i.updated || 0,
              tags: normalizeTags(i.tags ?? []), starred: true, depth: 0, children: [] };
   });
-  return nodes.sort(compareNodes(sort));
+  return nodes.sort(compareNodes(sort, usage));
 }
 
 /** All folder rels (explicit and implied by notes), sorted — for the "Move to…" picker. */
