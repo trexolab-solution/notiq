@@ -43,7 +43,7 @@ export function useOpenSshInTerminal(root: string, start: (t: SshTarget) => void
   };
 
   const dialog = choice
-    ? <SshAuthChoiceDialog name={choice.name} label={choice.label} onPick={pick} onClose={() => setChoice(null)} />
+    ? <SshAuthChoiceDialog name={choice.name} label={choice.label} entryKey={choice.path} onPick={pick} onClose={() => setChoice(null)} />
     : null;
   return { open, dialog };
 }

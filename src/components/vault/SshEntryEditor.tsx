@@ -471,6 +471,7 @@ function SshEntryEditorInner({ tab }: { tab: Tab }) {
         <SshAuthChoiceDialog
           name={currentEntry(tab).title.trim() || "this server"}
           label={sshLabel(f)}
+          entryKey={tab.filePath}
           onPick={(m) => startServer(choosing, m)}
           onClose={() => setChoosing(null)}
         />

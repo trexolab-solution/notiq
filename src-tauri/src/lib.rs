@@ -881,6 +881,8 @@ pub fn run() {
         // 0.7.0 quick search
         capture_shield::capture_shield_get,
         capture_shield::capture_shield_set,
+        capture_shield::capture_shield_status,
+        capture_shield::capture_shield_hide_for,
         quick_search::quick_search_get,
         quick_search::quick_search_set,
         quick_search::quick_search_hide,
@@ -992,6 +994,8 @@ pub fn run() {
         // 0.7.0 quick search
         capture_shield::capture_shield_get,
         capture_shield::capture_shield_set,
+        capture_shield::capture_shield_status,
+        capture_shield::capture_shield_hide_for,
         quick_search::quick_search_get,
         quick_search::quick_search_set,
         quick_search::quick_search_hide,

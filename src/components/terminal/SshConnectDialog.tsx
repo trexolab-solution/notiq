@@ -69,7 +69,7 @@ export function SshConnectDialog({ onConnect, onClose }: Props) {
 
   if (choosing) {
     return (
-      <SshAuthChoiceDialog name={choosing.name} label={choosing.label} onPick={(auth) => connect(choosing, auth)}
+      <SshAuthChoiceDialog name={choosing.name} label={choosing.label} entryKey={choosing.path} onPick={(auth) => connect(choosing, auth)}
                            onClose={onClose} cancelLabel="Back" onCancel={() => setChoose(null)} />
     );
   }
