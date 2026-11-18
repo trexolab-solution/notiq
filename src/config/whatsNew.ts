@@ -22,7 +22,7 @@ Faster everyday work in the vault.
 - **Undo** after moving an entry to the Trash. A single entry no longer asks first; folders and bulk deletes still do.
 - **Sort by Recently used or Most used** (kept on this device only).
 - **Paste an \`otpauth://\` link** into the 2-step field and the setup key is filled in for you.
-- **Caps Lock warning** under every password field.
+- **Caps Lock indicator** inside every password field.
 - **Vault health:** a row now opens the entry with the cursor already in the password (or address) field.
 
 ## 🖥️ Terminal
