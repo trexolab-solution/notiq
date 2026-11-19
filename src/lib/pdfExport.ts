@@ -65,6 +65,12 @@ async function waitForRender(root: HTMLElement, content: string, timeoutMs = 800
     }
   }
 
+  // 2a. Vault images (`vault-attachment:`) are decrypted asynchronously and only then become <img>.
+  while (root.querySelector("[data-vault-image-pending]") && performance.now() - start < timeoutMs) {
+    await new Promise((r) => setTimeout(r, 60));
+  }
+  await nextFrames();
+
   // 2. Images — wait for load/error, each capped so a slow/broken URL can't hang.
   //    The preview marks images loading="lazy"; off-screen (below the fold) they
   //    would never load here, so force eager loading before we wait on them.

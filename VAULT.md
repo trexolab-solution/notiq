@@ -50,7 +50,8 @@ All locked entries (notes, logins, SSH entries, API keys, cards, Wi-Fi, recovery
 - **Recovery kit:** when you create a vault you can print a one-page recovery kit (the key is shown once and never stored).
 - **AI & search:** vault content is never sent to AI (chat, actions, autocomplete) and is excluded from global search and the graph.
 - **Brute force:** repeated wrong passwords are throttled in-app; offline resistance comes from the Argon2 cost, so choose a long, unique password. Anyone who gets a copy of `vault.nqdb` can only try to guess it offline.
-- **Not covered:** a compromised OS (keylogger, memory dump while unlocked) defeats any in-app encryption, and images pasted into notes are stored outside the vault.
+- **Images in secure notes:** an image pasted into a vault Secure note is stored as an encrypted attachment of that note (same limits: 5 MB each, 25 MB per vault, 20 per item) and referenced as `vault-attachment:<id>`; it is never written to disk, is included in backups and Vault Sync, and is decrypted in memory only while shown. Images pasted into ordinary notes are still plain files next to the note. Deleting the image from the text does not remove the attachment; a duplicated note starts without attachments.
+- **Not covered:** a compromised OS (keylogger, memory dump while unlocked) defeats any in-app encryption.
 
 **Losing both your master password and recovery key means the vault cannot be recovered.**
 

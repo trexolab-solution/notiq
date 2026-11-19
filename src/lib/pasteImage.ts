@@ -3,6 +3,10 @@
 import type * as monaco from "monaco-editor";
 import { useAppStore } from "../store";
 import { writeAssetNextToNote, writeTempImage } from "./attachments";
+import { attachmentLimitError, vaultAttachmentsUsed } from "./attachmentLimits";
+import { resolveVaultDir } from "./vaultDir";
+import { bytesToBase64, isVaultPath, vaultAttachAdd, vaultAttachList, vaultErrorMessage } from "./vault";
+import { vaultImageMarkdown } from "./vaultImages";
 
 const MIME_TO_EXT: Record<string, string> = {
   "image/png":     "png",
@@ -72,6 +76,10 @@ export async function handlePastedImage(
 ): Promise<void> {
   const tab = useAppStore.getState().tabs.find((t) => t.id === tabId);
   if (!tab) return;
+  if (tab.filePath && isVaultPath(tab.filePath)) {
+    await handlePastedVaultImage(editor, tab.filePath, blob);
+    return;
+  }
 
   const ext = extFromMime(blob.type);
   const filename = nextImageFilename(Object.keys(tab.attachments ?? {}), ext);
@@ -90,5 +98,31 @@ export async function handlePastedImage(
       range: sel,
       text: `![pasted-image](${relPath})`,
     }]);
+  }
+}
+
+/**
+ * Pasted image in a Secure Vault note: stored as an encrypted attachment of the entry (the same
+ * storage the attachments panel uses, so backups, sync and entry deletion cover it) and referenced
+ * as `![pasted-image](vault-attachment:<id>)`. Nothing is written to disk. Over a limit (5 MB each,
+ * 25 MB per vault, 20 per entry) it throws an Error whose message is meant for the user.
+ */
+async function handlePastedVaultImage(
+  editor: monaco.editor.IStandaloneCodeEditor,
+  path: string,
+  blob: Blob,
+): Promise<void> {
+  try {
+    const existing = await vaultAttachList(path);
+    const used = await vaultAttachmentsUsed(await resolveVaultDir());
+    const why = attachmentLimitError(blob.size, existing.length, used);
+    if (why) throw new Error(why);
+    const name = nextImageFilename(existing.map((a) => a.name), extFromMime(blob.type));
+    // Bytes live only in this scope: read → encode → send.
+    const meta = await vaultAttachAdd(path, name, bytesToBase64(await blobToBytes(blob)));
+    const sel = editor.getSelection();
+    if (sel) editor.executeEdits("paste-image", [{ range: sel, text: vaultImageMarkdown(meta.id) }]);
+  } catch (e) {
+    throw e instanceof Error ? e : new Error(vaultErrorMessage(e));
   }
 }
