@@ -3,7 +3,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { save } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { MarkdownPreview } from "../components/editor/MarkdownPreview";
+// MarkdownPreview is imported on demand (heavy: react-markdown, katex, highlight.js).
 import { useAppStore } from "../store";
 import { toast } from "./toast";
 import { isVaultPath } from "./vault";
@@ -153,6 +153,7 @@ export async function exportToPDF(title: string, content: string): Promise<void>
     const root: Root = createRoot(container);
 
     try {
+      const { MarkdownPreview } = await import("../components/editor/MarkdownPreview");
       root.render(createElement(MarkdownPreview, { content }));
       await waitForRender(container, content);
 

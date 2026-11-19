@@ -1,6 +1,5 @@
 import React, { lazy, Suspense } from "react";
 import ReactDOM from "react-dom/client";
-import "./lib/monacoWorkers"; // must be imported before any Monaco editor renders
 import "./App.css"; // load CSS synchronously for all windows (main + sticky notes)
 import { QuickErrorBoundary, QuickLoading } from "./quick/QuickErrorBoundary";
 

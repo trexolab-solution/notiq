@@ -41,12 +41,10 @@ export default defineConfig(async () => ({
     chunkSizeWarningLimit: 750,
     rollupOptions: {
       output: {
+        // Heavy libs (monaco, excalidraw, three, react-markdown) are deliberately NOT forced into named
+        // vendor chunks: those became shared bins that the entry statically imported, defeating lazy loading.
         manualChunks: {
           "vendor-react": ["react", "react-dom"],
-          "vendor-monaco": ["@monaco-editor/react", "monaco-editor"],
-          "vendor-excalidraw":  ["@excalidraw/excalidraw"],
-          "vendor-3d-graph": ["3d-force-graph", "react-kapsule", "three"],
-          "vendor-markdown": ["react-markdown", "remark-gfm", "rehype-highlight"],
           "vendor-state": ["zustand", "idb"],
         },
       },
