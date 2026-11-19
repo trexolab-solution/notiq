@@ -485,7 +485,8 @@ pub fn format_recovery_key(key: &[u8; KEY_LEN]) -> String {
     let raw = b32_encode(key);
     raw.as_bytes()
         .chunks(4)
-        .map(|c| std::str::from_utf8(c).unwrap())
+        // SAFETY: b32_encode emits only ASCII alphabet characters, so every chunk is valid UTF-8.
+        .map(|c| std::str::from_utf8(c).unwrap_or_default())
         .collect::<Vec<_>>()
         .join("-")
 }

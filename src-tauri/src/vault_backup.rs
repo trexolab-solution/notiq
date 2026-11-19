@@ -98,10 +98,12 @@ pub(crate) fn parse_container(data: &[u8]) -> Result<Parsed<'_>, String> {
         return Err(BAD.into());
     }
     let (body, tail) = data.split_at(data.len() - 4);
-    if crc32(body) != u32::from_be_bytes(tail.try_into().unwrap()) {
+    let tail: [u8; 4] = tail.try_into().map_err(|_| BAD.to_string())?;
+    if crc32(body) != u32::from_be_bytes(tail) {
         return Err("The backup file is damaged or incomplete (checksum mismatch)".into());
     }
-    let meta_len = u32::from_be_bytes(body[4..8].try_into().unwrap()) as usize;
+    let meta_len_bytes: [u8; 4] = body[4..8].try_into().map_err(|_| BAD.to_string())?;
+    let meta_len = u32::from_be_bytes(meta_len_bytes) as usize;
     if meta_len == 0 || meta_len > MAX_META || 8 + meta_len > body.len() {
         return Err(BAD.into());
     }
@@ -146,7 +148,7 @@ fn keep_copy(data_dir: &Path, prefix: &str, ts: u64, meta_file: &Path, db_file: 
     fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     for f in [meta_file, db_file] {
         if f.exists() {
-            let name = f.file_name().expect("file name");
+            let name = f.file_name().ok_or_else(|| "Couldn't keep a copy of the current vault: invalid file name".to_string())?;
             fs::copy(f, dir.join(name)).map_err(|e| format!("Couldn't keep a copy of the current vault: {e}"))?;
         }
     }
