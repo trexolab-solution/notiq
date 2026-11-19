@@ -39,8 +39,10 @@ export function Modal({
       ref={overlayRef}
       className={`dlg-scrim fixed inset-0 ${zClassName}`}
       style={overlayStyle}
-      role="dialog"
-      aria-modal="true"
+      // Only add dialog semantics when the caller names the dialog; callers that
+      // render their own role="dialog" panel must not end up with two nested ones.
+      role={ariaLabel ? "dialog" : undefined}
+      aria-modal={ariaLabel ? true : undefined}
       aria-label={ariaLabel}
       onMouseDown={(e) => {
         if (dismissable && e.target === overlayRef.current) onClose();

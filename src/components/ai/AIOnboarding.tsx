@@ -71,7 +71,7 @@ export function AIOnboarding({ onClose }: AIOnboardingProps) {
   const dismiss = () => { setAiOnboarded(true); onClose(); };
 
   return (
-    <Modal onClose={onClose}>
+    <Modal onClose={onClose} ariaLabel="Set up AI">
       <div
         className="flex flex-col rounded-xl overflow-hidden"
         style={{
