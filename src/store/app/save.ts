@@ -1,6 +1,7 @@
 import type { Tab } from "../../types";
 import { pickSavePath, writeFile } from "../../lib/fileOps";
 import { isVaultPath, vaultRename, vaultWriteFile, vaultErrorMessage } from "../../lib/vault";
+import { sweepUnusedVaultImages } from "../../lib/vaultImageSweep";
 import { entryTitleOf, isStructuredExt, withEntryTitle } from "../../lib/entryName";
 import { planEntryRename } from "../../lib/entrySync";
 import { migrateTempToSaveDir } from "../../lib/attachments";
@@ -93,6 +94,8 @@ export function createSaveTab({ get, persist, updateTab }: Omit<SliceContext, "s
         toast.error(`Couldn't save locked note: ${vaultErrorMessage(e)}`);
         return false;
       }
+      // Not awaited: the save never waits on (or fails because of) the image cleanup.
+      void sweepUnusedVaultImages(path, tab.content);
     } else {
       await writeFile(path, tab.content);
       vaultExt = undefined;
