@@ -1,29 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import {
-  ArrowDownAZ, CheckCheck, ChevronsDownUp, ChevronsUpDown, Clock, CloudDownload, FolderPlus, Globe, History, Lock, Search, Tags, TrendingUp, Trash2, X,
-} from "lucide-react";
-import { useAppStore } from "../../../store";
-import { useVaultStore } from "../../../store/vaultStore";
-import { isVaultPath, type VaultItem } from "../../../lib/vault";
+import type { VaultItem } from "../../../lib/vault";
 import { DEFAULT_ENTRY_NAME, type NewEntryKind } from "../../../lib/vaultCreate";
 import {
-  allFolders, ancestorsOf, buildTree, childNames, displayName, entryKind, filterItems, isFiltering, normRel,
-  isSameOrUnder, matchesFilter, nameError, nameTaken, parentRel, starredNodes, tagCounts, toRel, trashRoots, uniqueName,
+  ancestorsOf, childNames, displayName, entryKind, isSameOrUnder, nameError, nameTaken, parentRel, uniqueName,
   type TreeNode,
 } from "../../../lib/vaultTree";
-import { flattenGrouped, isGroupRow, searchTextOf, siteMatchReason } from "../../../lib/vaultSites";
-import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu";
+import { isGroupRow } from "../../../lib/vaultSites";
+import { ContextMenu } from "../../ui/ContextMenu";
 import type { VaultOpenMode } from "../../../lib/vaultTabs";
 import { anyExpanded, relOfKey, targetFolderOf } from "./target";
 import { ConfirmDialog } from "../../ui/ConfirmDialog";
-import { Tooltip } from "../../ui/Tooltip";
-import { InlineLoading } from "../../ui/Loading";
 import * as A from "./actions";
 import { useExpanded, useGroupBySite, useSortMode, useStarredOpen } from "./prefs";
 import { useVaultUsage } from "../../../lib/vaultUsage";
-import { useLoginSites } from "./useLoginSites";
 import { PanelHeader } from "./PanelHeader";
-import { NewEntryMenu } from "./NewEntryMenu";
 import { TagBar } from "./TagBar";
 import { CreateRow, VaultTree, groupKey, starKey, treeKey } from "./VaultTree";
 import { InlineNameInput } from "./InlineNameInput";
@@ -38,7 +28,14 @@ import { MoveDialog } from "./MoveDialog";
 import { TrashView } from "./TrashView";
 import { buildMenu, type MenuHandlers } from "./menuItems";
 import { RecentlySyncedView } from "./RecentlySyncedView";
-import { followSyncMarkers, markerIndex, reviewList, useSyncMarkersStore } from "../../../lib/syncMarkers";
+import { useExplorerTree } from "./explorer/useExplorerTree";
+import { useSyncReview } from "./explorer/useSyncReview";
+import { ExplorerHeaderActions } from "./explorer/ExplorerHeaderActions";
+import { explorerMoreItems } from "./explorer/moreItems";
+import { ExplorerEmptyState } from "./explorer/ExplorerEmptyState";
+import { ExplorerSearch } from "./explorer/ExplorerSearch";
+import { ExplorerFooter } from "./explorer/ExplorerFooter";
+import { BulkDialogs } from "./explorer/BulkDialogs";
 
 interface Props {
   root: string;
@@ -53,8 +50,6 @@ interface Props {
 
 type Creating = { parent: string; kind: NewEntryKind | "folder"; suggested: string };
 type Menu = { x: number; y: number; node: TreeNode | null };
-
-const menuIcon = (el: JSX.Element) => <span className="inline-flex">{el}</span>;
 
 /** The unlocked vault: toolbar, search, tag filter, tree, trash, and every entry action. */
 export function VaultExplorer({ root, items, trash, loading, error, reload, footer }: Props) {
@@ -80,73 +75,14 @@ export function VaultExplorer({ root, items, trash, loading, error, reload, foot
   const [bulkTagging, setBulkTagging] = useState(false);
   const [confirmBulkTrash, setConfirmBulkTrash] = useState(false);
   const [managingTags, setManagingTags] = useState(false);
-  const searchRef = useRef<HTMLInputElement>(null);
   const treeWrapRef = useRef<HTMLDivElement>(null);
 
-  // Open tabs, as a stable string so typing in an editor doesn't re-render the tree.
-  const openPathsKey = useAppStore((s) =>
-    s.tabs.filter((t) => isVaultPath(t.filePath)).map((t) => t.filePath).join("\n"));
-  const openRels = useMemo(() => {
-    const set = new Set<string>();
-    for (const p of openPathsKey ? openPathsKey.split("\n") : []) {
-      const r = root ? toRel(root, p) : null;
-      if (r) set.add(r.toLowerCase());
-    }
-    return set;
-  }, [openPathsKey, root]);
+  const {
+    openRels, filtering, isExpanded, rows, subtitles, starred, tags, folders, trashCount,
+  } = useExplorerTree({ root, items, trash, query, selTags, sort, usage, groupBySite, expanded });
 
-  // ── derived tree ───────────────────────────────────────────────────────────
-  // Sites and usernames of logins (read while unlocked; hosts only, never passwords).
-  const unlocked = useVaultStore((s) => s.unlocked);
-  const sites = useLoginSites(root, items, unlocked);
-  const siteExtra = useCallback((i: VaultItem) => searchTextOf(sites.get(normRel(i.rel).toLowerCase())), [sites]);
-  const filter = useMemo(() => ({ query, tags: selTags, extra: siteExtra }), [query, selTags, siteExtra]);
-  const filtering = isFiltering(filter);
-  const filtered = useMemo(() => filterItems(items, filter), [items, filter]);
-  const tree = useMemo(() => buildTree(filtered, sort, usage), [filtered, sort, usage]);
-  // Searching shows everything open, groups included.
-  const isExpanded = useCallback((rel: string) => filtering || expanded.has(rel), [filtering, expanded]);
-  const siteOf = useMemo(
-    () => (groupBySite ? (n: TreeNode) => sites.get(n.rel.toLowerCase())?.domain ?? null : null),
-    [groupBySite, sites],
-  );
-  const rows = useMemo(() => flattenGrouped(tree, isExpanded, siteOf), [tree, isExpanded, siteOf]);
-  // Muted text after a login: the username inside a site group; otherwise, when a search matched
-  // only by site or username, what matched.
-  const subtitles = useMemo(() => {
-    const m = new Map<string, string>();
-    const q = query.trim();
-    for (const r of rows) {
-      if (isGroupRow(r) || r.node.dir) continue;
-      const key = r.node.rel.toLowerCase();
-      const site = sites.get(key);
-      if (r.inGroup) { if (site?.username) m.set(key, site.username); continue; }
-      const byNameOrTag = r.node.name.toLowerCase().includes(q.toLowerCase())
-        || r.node.tags.some((t) => t.toLowerCase().includes(q.toLowerCase()));
-      const why = q && !byNameOrTag ? siteMatchReason(site, q) : null;
-      if (why) m.set(key, why);
-    }
-    return m;
-  }, [rows, sites, query]);
-  const starred = useMemo(
-    () => starredNodes(filtering ? items.filter((i) => matchesFilter(i, filter)) : items, sort, usage),
-    [filtering, filter, items, sort, usage],
-  );
-  const tags = useMemo(() => tagCounts(items), [items]);
-  const folders = useMemo(() => allFolders(items), [items]);
-  const trashCount = useMemo(() => trashRoots(trash).length, [trash]);
-
-  // "Changed by sync" markers: dots in the tree, the Recently synced view.
-  const syncMarkers = useSyncMarkersStore((s) => s.markers);
-  const reviewOpen = useSyncMarkersStore((s) => s.reviewOpen);
-  const setReviewOpen = useSyncMarkersStore((s) => s.setReviewOpen);
-  useEffect(() => followSyncMarkers(), []);
-  // A rename or move here changes where a marked entry is.
-  useEffect(() => { void useSyncMarkersStore.getState().refresh(); }, [items]);
-  const marks = useMemo(() => markerIndex(syncMarkers), [syncMarkers]);
-  const syncedCount = useMemo(() => reviewList(syncMarkers).length, [syncMarkers]);
+  const { syncMarkers, reviewOpen, setReviewOpen, marks, syncedCount, markAllSeen } = useSyncReview(items);
   const showReview = reviewOpen && !showTrash;
-  const markAllSeen = () => void useSyncMarkersStore.getState().clearAll();
 
   // Drop tag filters for tags that no longer exist.
   useEffect(() => {
@@ -335,32 +271,9 @@ export function VaultExplorer({ root, items, trash, loading, error, reload, foot
     </CreateRow>
   );
 
-  const emptyState = loading ? (
-    <div className="vt-empty"><InlineLoading label="Loading items…" className="items-center" /></div>
-  ) : error ? (
-    <div className="vt-empty" role="alert">
-      <div className="vt-empty-title text-[var(--color-danger)]">Couldn't read the vault</div>
-      <div className="mb-2 break-words">{error}</div>
-      <button type="button" className="vt-link" onClick={() => void reload()}>Try again</button>
-    </div>
-  ) : filtering ? (
-    <div className="vt-empty">
-      <div className="vt-empty-title">No matches</div>
-      Only names, websites, usernames and tags are searched — everything else stays encrypted.
-      <div className="mt-2">
-        <button type="button" className="vt-link" onClick={() => { setQuery(""); setSelTags([]); }}>Clear search and tags</button>
-      </div>
-    </div>
-  ) : (
-    <div className="vt-empty">
-      <div className="vt-empty-title">Your vault is empty</div>
-      Keep notes, logins, SSH servers and API keys here, encrypted with your master password.
-      <div className="mt-2 flex flex-col items-center gap-1">
-        <button type="button" className="vt-link" onClick={() => startCreate("note", "")}>New secure note</button>
-        <button type="button" className="vt-link" onClick={() => startCreate("login", "")}>New login</button>
-        <button type="button" className="vt-link" onClick={() => startCreate("folder", "")}>New folder</button>
-      </div>
-    </div>
+  const emptyState = (
+    <ExplorerEmptyState loading={loading} error={error} filtering={filtering} onReload={() => void reload()}
+                        onClearSearch={() => { setQuery(""); setSelTags([]); }} onCreate={(k) => startCreate(k, "")} />
   );
 
   const targetLabel = targetFolder ? displayName(targetFolder) : "the vault root";
@@ -369,26 +282,10 @@ export function VaultExplorer({ root, items, trash, loading, error, reload, foot
     : 0;
 
   // Rare actions and view options live in the header's "More actions" menu.
-  const moreItems: ContextMenuItem[] = [
-    { type: "label", label: "Sort by" },
-    { type: "item", label: sort === "name" ? "Name  ✓" : "Name", icon: menuIcon(<ArrowDownAZ size={14} />), onClick: () => setSort("name") },
-    { type: "item", label: sort === "modified" ? "Recently modified  ✓" : "Recently modified", icon: menuIcon(<Clock size={14} />),
-      onClick: () => setSort("modified") },
-    { type: "item", label: sort === "recent" ? "Recently used  ✓" : "Recently used", icon: menuIcon(<History size={14} />),
-      onClick: () => setSort("recent") },
-    { type: "item", label: sort === "used" ? "Most used  ✓" : "Most used", icon: menuIcon(<TrendingUp size={14} />),
-      onClick: () => setSort("used") },
-    { type: "separator" },
-    { type: "item", label: "Manage tags…", icon: menuIcon(<Tags size={14} />), onClick: () => setManagingTags(true) },
-    { type: "item", label: groupBySite ? "Group logins by website  ✓" : "Group logins by website", icon: menuIcon(<Globe size={14} />),
-      onClick: () => setGroupBySite(!groupBySite) },
-    { type: "separator" },
-    { type: "item", label: `Recently synced (${syncedCount})`, icon: menuIcon(<CloudDownload size={14} />),
-      onClick: () => { setShowTrash(false); setReviewOpen(true); } },
-    ...(syncedCount > 0
-      ? [{ type: "item", label: "Mark all as seen", icon: menuIcon(<CheckCheck size={14} />), onClick: markAllSeen } as ContextMenuItem]
-      : []),
-  ];
+  const moreItems = explorerMoreItems({
+    sort, setSort, groupBySite, setGroupBySite, syncedCount, onManageTags: () => setManagingTags(true),
+    onRecentlySynced: () => { setShowTrash(false); setReviewOpen(true); }, onMarkAllSeen: markAllSeen,
+  });
   const collapseDisabled = filtering || folders.length === 0;
 
   return (
@@ -397,41 +294,16 @@ export function VaultExplorer({ root, items, trash, loading, error, reload, foot
         unlocked
         moreItems={moreItems}
         actions={
-          <>
-            {/* Most used first: create, then tree view, then lock; the rest is under "More actions". */}
-            <NewEntryMenu targetLabel={targetLabel} onPick={(k) => startCreate(k, targetFolder)} />
-            <Tooltip content="New folder" description={`Creates in ${targetLabel}`}>
-              <button type="button" className="vt-icon-btn" aria-label={`New folder in ${targetLabel}`}
-                      onClick={() => startCreate("folder", targetFolder)}>
-                <FolderPlus size={14} />
-              </button>
-            </Tooltip>
-            <Tooltip
-              content={foldersOpen ? "Collapse all folders" : "Expand all folders"}
-              description={collapseDisabled ? (filtering ? "Clear the search to collapse folders" : "No folders yet") : undefined}
-            >
-              <button
-                type="button"
-                className="vt-icon-btn"
-                aria-label={foldersOpen ? "Collapse all folders" : "Expand all folders"}
-                aria-pressed={!foldersOpen}
-                // aria-disabled (not disabled) so the tooltip still explains why.
-                aria-disabled={collapseDisabled || undefined}
-                onClick={() => {
-                  if (collapseDisabled) return;
-                  if (foldersOpen) collapseAll(); else expandAll(folders);
-                }}
-              >
-                {foldersOpen ? <ChevronsDownUp size={14} /> : <ChevronsUpDown size={14} />}
-              </button>
-            </Tooltip>
-            <Tooltip content="Lock vault now">
-              <button type="button" className="vt-icon-btn" aria-label="Lock vault now"
-                      onClick={() => void useAppStore.getState().lockVault()}>
-                <Lock size={13} />
-              </button>
-            </Tooltip>
-          </>
+          <ExplorerHeaderActions
+            targetLabel={targetLabel}
+            onCreate={(k) => startCreate(k, targetFolder)}
+            onNewFolder={() => startCreate("folder", targetFolder)}
+            foldersOpen={foldersOpen}
+            collapseDisabled={collapseDisabled}
+            filtering={filtering}
+            onCollapseAll={collapseAll}
+            onExpandAll={() => expandAll(folders)}
+          />
         }
       />
 
@@ -453,34 +325,16 @@ export function VaultExplorer({ root, items, trash, loading, error, reload, foot
         />
       ) : (
         <>
-          <label className="vt-search">
-            <Search size={13} aria-hidden />
-            <input
-              ref={searchRef}
-              type="search"
-              value={query}
-              placeholder="Search names, sites and tags"
-              aria-label="Search vault by name, website, username or tag"
-              spellCheck={false}
-              onChange={(e) => setQuery(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Escape" && query) { e.preventDefault(); e.stopPropagation(); setQuery(""); }
-                else if (e.key === "ArrowDown") {
-                  e.preventDefault();
-                  const r0 = rows[0];
-                  if (r0) setSelectedKey(isGroupRow(r0) ? groupKey(r0.group.rel) : treeKey(r0.node.rel));
-                  else if (starred[0]) setSelectedKey(starKey(starred[0].rel));
-                  if (r0 || starred[0]) focusTreeSoon();
-                }
-              }}
-            />
-            {query && (
-              <button type="button" className="vt-icon-btn" style={{ width: 18, height: 18 }} aria-label="Clear search"
-                      onClick={() => { setQuery(""); searchRef.current?.focus(); }}>
-                <X size={12} />
-              </button>
-            )}
-          </label>
+          <ExplorerSearch
+            query={query}
+            onQuery={setQuery}
+            onArrowDown={() => {
+              const r0 = rows[0];
+              if (r0) setSelectedKey(isGroupRow(r0) ? groupKey(r0.group.rel) : treeKey(r0.node.rel));
+              else if (starred[0]) setSelectedKey(starKey(starred[0].rel));
+              if (r0 || starred[0]) focusTreeSoon();
+            }}
+          />
 
           <TagBar
             tags={tags}
@@ -536,37 +390,16 @@ export function VaultExplorer({ root, items, trash, loading, error, reload, foot
         </>
       )}
 
-      <div className="vt-footer">
-        {/* Announced once per change of the count (screen readers); the row below is the visible part. */}
-        <span className="sr-only" role="status" aria-live="polite">
-          {syncedCount > 0 ? `${syncedCount} item${syncedCount === 1 ? "" : "s"} changed by sync` : ""}
-        </span>
-        {syncedCount > 0 && (
-          <Tooltip content="Items sync brought in from Google Drive" description="Opening an item marks it as seen" placement="top">
-            <button
-              type="button"
-              className={`vt-footer-row${showReview ? " is-active" : ""}`}
-              aria-pressed={showReview}
-              onClick={() => { setShowTrash(false); setReviewOpen(!showReview); }}
-            >
-              <span className="vt-sync-dot" aria-hidden /> Recently synced
-              <span className="vt-count">{syncedCount}</span>
-            </button>
-          </Tooltip>
-        )}
-        <Tooltip content="Deleted items are kept for 30 days" placement="top">
-          <button
-            type="button"
-            className={`vt-footer-row${showTrash ? " is-active" : ""}`}
-            aria-pressed={showTrash}
-            onClick={() => { setReviewOpen(false); setShowTrash((v) => !v); }}
-          >
-            <Trash2 size={13} aria-hidden /> Trash
-            {trashCount > 0 && <span className="vt-count">{trashCount}</span>}
-          </button>
-        </Tooltip>
+      <ExplorerFooter
+        syncedCount={syncedCount}
+        showReview={showReview}
+        onToggleReview={() => { setShowTrash(false); setReviewOpen(!showReview); }}
+        showTrash={showTrash}
+        onToggleTrash={() => { setReviewOpen(false); setShowTrash((v) => !v); }}
+        trashCount={trashCount}
+      >
         {footer}
-      </div>
+      </ExplorerFooter>
 
       {menu && (
         <ContextMenu
@@ -609,42 +442,20 @@ export function VaultExplorer({ root, items, trash, loading, error, reload, foot
           onClose={() => setManagingTags(false)}
         />
       )}
-      {bulkTagging && (
-        <TagEditor
-          name={`${pickedItems.filter((i) => !i.dir).length || pickedItems.length} selected items`}
-          initial={[]}
-          allTags={tags.map((t) => t.tag)}
-          onSave={async (t) => {
-            const ok = await A.addTagsMany(root, pickedItems.map((i) => ({ rel: i.rel, tags: i.tags ?? [] })), t);
-            if (ok) setChecked(new Set());
-            return ok;
-          }}
-          onClose={() => setBulkTagging(false)}
-        />
-      )}
-      {bulkMoving && pickedItems.length > 0 && (
-        <MoveDialog
-          rel={pickedItems[0].rel}
-          rels={pickedItems.map((i) => i.rel)}
-          name={`${pickedItems.filter((i) => !i.dir).length || pickedItems.length} items`}
-          folders={folders}
-          onClose={() => setBulkMoving(false)}
-          onMove={(dest) => { setBulkMoving(false); void bulkMove(dest); }}
-        />
-      )}
-      {confirmBulkTrash && (
-        <ConfirmDialog
-          title="Move selected items to Trash?"
-          message={`${pickedItems.length} item${pickedItems.length === 1 ? "" : "s"} (and anything inside the folders among them) will be moved to Trash. You can restore them for 30 days.`}
-          confirmLabel="Move to Trash"
-          danger
-          onCancel={() => setConfirmBulkTrash(false)}
-          onConfirm={() => {
-            setConfirmBulkTrash(false);
-            void A.trashMany(root, pickedItems.map((i) => ({ rel: i.rel, dir: i.dir }))).then(() => setChecked(new Set()));
-          }}
-        />
-      )}
+      <BulkDialogs
+        root={root}
+        pickedItems={pickedItems}
+        allTags={tags.map((t) => t.tag)}
+        folders={folders}
+        tagging={bulkTagging}
+        moving={bulkMoving}
+        confirmingTrash={confirmBulkTrash}
+        onCloseTagging={() => setBulkTagging(false)}
+        onCloseMoving={() => setBulkMoving(false)}
+        onCloseTrash={() => setConfirmBulkTrash(false)}
+        onMove={(dest) => void bulkMove(dest)}
+        onDone={() => setChecked(new Set())}
+      />
       {confirmTrash && (
         <ConfirmDialog
           title={confirmTrash.dir ? "Move folder to Trash?" : "Move to Trash?"}
