@@ -13,6 +13,8 @@ interface ModalProps {
   zClassName?: string;
   /** When false, Escape and backdrop clicks no longer dismiss. Defaults to true. */
   dismissable?: boolean;
+  /** Accessible name for the dialog when the panel has no visible title. */
+  ariaLabel?: string;
 }
 
 /**
@@ -27,6 +29,7 @@ export function Modal({
   overlayStyle,
   zClassName = "z-50",
   dismissable = true,
+  ariaLabel,
 }: ModalProps) {
   const overlayRef = useRef<HTMLDivElement>(null);
   useDialogBehaviour(overlayRef, { onClose, dismissable });
@@ -36,6 +39,11 @@ export function Modal({
       ref={overlayRef}
       className={`dlg-scrim fixed inset-0 ${zClassName}`}
       style={overlayStyle}
+      // Only add dialog semantics when the caller names the dialog; callers that
+      // render their own role="dialog" panel must not end up with two nested ones.
+      role={ariaLabel ? "dialog" : undefined}
+      aria-modal={ariaLabel ? true : undefined}
+      aria-label={ariaLabel}
       onMouseDown={(e) => {
         if (dismissable && e.target === overlayRef.current) onClose();
       }}

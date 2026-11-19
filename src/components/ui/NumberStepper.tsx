@@ -94,7 +94,10 @@ export const NumberStepper = React.memo(function NumberStepper({
       }}
     >
       <button
+        type="button"
         aria-label="Decrease"
+        // Keyboard activation (Enter/Space) arrives as a click with detail 0; mouse presses are handled on mousedown.
+        onClick={(e) => { if (e.detail === 0 && !disabled && !atMin) onChange(clamp(value + (-1) * step)); }}
         disabled={disabled || atMin}
         onMouseDown={() => !atMin && startRepeat(-1)}
         style={btnStyle(disabled || atMin)}
@@ -105,7 +108,7 @@ export const NumberStepper = React.memo(function NumberStepper({
           e.currentTarget.style.background = "var(--color-bg)";
         }}
       >
-        <Minus size={12} />
+        <Minus size={12} aria-hidden />
       </button>
 
       <span
@@ -116,7 +119,10 @@ export const NumberStepper = React.memo(function NumberStepper({
       </span>
 
       <button
+        type="button"
         aria-label="Increase"
+        // Keyboard activation (Enter/Space) arrives as a click with detail 0; mouse presses are handled on mousedown.
+        onClick={(e) => { if (e.detail === 0 && !disabled && !atMax) onChange(clamp(value + (1) * step)); }}
         disabled={disabled || atMax}
         onMouseDown={() => !atMax && startRepeat(1)}
         style={btnStyle(disabled || atMax)}
@@ -127,7 +133,7 @@ export const NumberStepper = React.memo(function NumberStepper({
           e.currentTarget.style.background = "var(--color-bg)";
         }}
       >
-        <Plus size={12} />
+        <Plus size={12} aria-hidden />
       </button>
     </div>
   );
