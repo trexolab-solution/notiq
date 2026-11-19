@@ -20,6 +20,9 @@ import { remarkAlerts } from "../../lib/remarkAlerts";
 import { resolveNoteHref } from "../../lib/resolveNote";
 import { dirname, isAbsolute, joinPath } from "../../lib/pathUtils";
 import type { Tab } from "../../types";
+import { isVaultPath } from "../../lib/vault";
+import { isVaultImageSrc, parseVaultImageRef, VAULT_ATTACHMENT_ID_RE } from "../../lib/vaultImages";
+import { VaultImage } from "./VaultImage";
 
 // ── KaTeX CSS (loaded once) ────────────────────────────────────────────────────
 import "katex/dist/katex.min.css";
@@ -66,6 +69,8 @@ const sanitizeSchema: typeof defaultSchema = {
     img: [
       ...(defaultSchema.attributes?.["img"] ?? []),
       "width", "height", "loading",
+      // Set by rehypeLocalImages for `vault-attachment:<id>` images in vault notes; only a bare id passes.
+      ["dataVaultAttachment", VAULT_ATTACHMENT_ID_RE],
     ],
     a: [
       ...(defaultSchema.attributes?.["a"] ?? []),
@@ -185,7 +190,14 @@ function makeRehypeLocalImages(activeTab: Tab | undefined) {
       (function walk(node: { tagName?: string; properties?: Record<string, unknown>; children?: unknown[] }) {
         if (node.tagName === "img" && typeof node.properties?.src === "string") {
           const src = node.properties.src as string;
-          if (
+          if (isVaultImageSrc(src)) {
+            // Encrypted vault attachment: never a file path. The id moves to a data attribute (the
+            // scheme itself isn't an allowed URL) and the img component decrypts it. Outside a vault
+            // note, or when malformed, the image just has no source.
+            const id = parseVaultImageRef(src);
+            delete node.properties.src;
+            if (id && isVaultPath(activeTab?.filePath)) node.properties.dataVaultAttachment = id;
+          } else if (
             !src.startsWith("http://") &&
             !src.startsWith("https://") &&
             !src.startsWith("data:") &&
@@ -312,6 +324,9 @@ export const MarkdownPreview = React.memo(
       tabsRef.current = tabs.filter(isContentTab);
       const setActiveTabRef = useRef(setActiveTab);
       setActiveTabRef.current = setActiveTab;
+      // The vault entry whose attachments `vault-attachment:` images are read from.
+      const activeTabPathRef = useRef(activeTab?.filePath);
+      activeTabPathRef.current = activeTab?.filePath;
 
       // Tracks which checkbox is being rendered; reset to 0 before each render pass
       const checkboxIdxRef = useRef(0);
@@ -443,8 +458,12 @@ export const MarkdownPreview = React.memo(
         // ── Style tags: stripped for security (CSS injection risk) ────────
 
         // ── Images with custom tooltip on alt text + lightbox click ───────
-        img({ src, alt, ...props }) {
-          const imgEl = (
+        img({ src, alt, node: _node, ...props }) {
+          const vaultId = (props as Record<string, unknown>)["data-vault-attachment"];
+          const vaultPath = activeTabPathRef.current;
+          const imgEl = typeof vaultId === "string" && vaultPath && isVaultPath(vaultPath) ? (
+            <VaultImage path={vaultPath} attachmentId={vaultId} alt={alt ?? ""} loading="lazy" {...props} />
+          ) : (
             <img
               src={src}
               alt={alt ?? ""}
