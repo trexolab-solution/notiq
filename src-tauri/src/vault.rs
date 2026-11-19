@@ -159,7 +159,7 @@ impl VaultState {
         }
         // Normally set by vault_set_root; a session-only id keeps stamps well-formed otherwise.
         let device = st.device.get_or_insert_with(crate::vault_hlc::new_device_id).clone();
-        let db = st.db.as_mut().expect("loaded above");
+        let db = st.db.as_mut().ok_or("The vault isn't loaded")?;
         if db.device.is_empty() { db.device = device; }
         // Just restored from a backup: the restore is a new change, so the synced copy's later
         // deletions can't remove the restored entries again (Db::restamp_restored).
@@ -174,7 +174,10 @@ impl VaultState {
         let dirty = dirty || purged || restamped;
         if dirty {
             // save_db keeps a one-time vault.nqdb.v{N}.bak when this save upgrades an older format.
-            let saved = vdb::save_db(&root, st.db.as_mut().expect("still loaded"), &u.key, &u.vault_id);
+            let saved = match st.db.as_mut() {
+            Some(d) => vdb::save_db(&root, d, &u.key, &u.vault_id),
+            None => Err("The vault isn't loaded".to_string()),
+        };
             if let Err(e) = saved { st.db = None; return Err(e); }
             st.stamp = fs::metadata(vdb::db_path(&root)).and_then(|m| m.modified()).ok();
         }
