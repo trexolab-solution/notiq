@@ -52,3 +52,8 @@ Screenshot*.jpg
 *.key
 *.key.pub
 notiq-updater.key
+
+# Local-only helper scripts, notes and design screenshots
+nul
+.local-scripts/
+ui-preview-shots/
