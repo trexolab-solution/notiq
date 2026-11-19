@@ -26,6 +26,7 @@ export const Toggle = React.memo(function Toggle({
 
   return (
     <button
+      type="button"
       role="switch"
       aria-checked={value}
       aria-label={ariaLabel}
@@ -47,6 +48,7 @@ export const Toggle = React.memo(function Toggle({
       }}
     >
       <span
+        aria-hidden
         style={{
           position: "absolute",
           top: s.offset,

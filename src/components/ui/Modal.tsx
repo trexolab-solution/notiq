@@ -13,6 +13,8 @@ interface ModalProps {
   zClassName?: string;
   /** When false, Escape and backdrop clicks no longer dismiss. Defaults to true. */
   dismissable?: boolean;
+  /** Accessible name for the dialog when the panel has no visible title. */
+  ariaLabel?: string;
 }
 
 /**
@@ -27,6 +29,7 @@ export function Modal({
   overlayStyle,
   zClassName = "z-50",
   dismissable = true,
+  ariaLabel,
 }: ModalProps) {
   const overlayRef = useRef<HTMLDivElement>(null);
   useDialogBehaviour(overlayRef, { onClose, dismissable });
@@ -36,6 +39,9 @@ export function Modal({
       ref={overlayRef}
       className={`dlg-scrim fixed inset-0 ${zClassName}`}
       style={overlayStyle}
+      role="dialog"
+      aria-modal="true"
+      aria-label={ariaLabel}
       onMouseDown={(e) => {
         if (dismissable && e.target === overlayRef.current) onClose();
       }}
