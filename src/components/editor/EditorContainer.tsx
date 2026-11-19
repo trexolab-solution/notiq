@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { LoginEntryEditor } from "../vault/LoginEntryEditor";
 import { LOGIN_EXT } from "../../lib/loginEntry";
 import { isVaultPath } from "../../lib/vault";
@@ -9,13 +9,23 @@ import { RecoveryCodesEditor } from "../vault/RecoveryCodesEditor";
 import { CODES_EXT } from "../../lib/recoveryCodes";
 import { FileText, Plus } from "lucide-react";
 import { useAppStore } from "../../store";
-import { MonacoMarkdownEditor, type MonacoEditorHandle } from "./MonacoMarkdownEditor";
-import { MarkdownPreview, type PreviewHandle } from "./MarkdownPreview";
+import type { MonacoEditorHandle } from "./MonacoMarkdownEditor";
+import type { PreviewHandle } from "./MarkdownPreview";
 import { PreviewSearchBar } from "./PreviewSearchBar";
 import { Button } from "../ui/Button";
 import { getLanguageFromPath, isMarkdownLike } from "../../lib/language";
 import { displayPathOf } from "../../lib/vault";
 import { LockedNoteView } from "../vault/LockedNoteView";
+
+// Monaco and the markdown renderer (react-markdown, katex, highlight.js) are heavy; load them on first use.
+const MonacoMarkdownEditor = lazy(() =>
+  import("./MonacoMarkdownEditor").then((m) => ({ default: m.MonacoMarkdownEditor }))
+);
+const MarkdownPreview = lazy(() =>
+  import("./MarkdownPreview").then((m) => ({ default: m.MarkdownPreview }))
+);
+
+const PaneFallback = () => <div className="flex-1 min-h-0 bg-[var(--color-editor-bg)]" />;
 
 export const EditorContainer = React.memo(function EditorContainer() {
   const tabs        = useAppStore((s) => s.tabs);
@@ -170,10 +180,12 @@ export const EditorContainer = React.memo(function EditorContainer() {
   // Full-width Monaco pane (source mode)
   const MonacoPane = (
     <div className="flex-1 min-h-0 overflow-hidden flex flex-col bg-[var(--color-editor-bg)]">
-      <MonacoMarkdownEditor
-        tabId={id} content={content} themeId={themeId}
-        language={language} horizontalPadding showToolbar={!isMdNote}
-      />
+      <Suspense fallback={<PaneFallback />}>
+        <MonacoMarkdownEditor
+          tabId={id} content={content} themeId={themeId}
+          language={language} horizontalPadding showToolbar={!isMdNote}
+        />
+      </Suspense>
     </div>
   );
 
@@ -190,7 +202,9 @@ export const EditorContainer = React.memo(function EditorContainer() {
                 onClose={() => setPreviewSearchOpen(false)}
               />
             )}
-            <MarkdownPreview ref={previewOnlyHandleRef} content={content} />
+            <Suspense fallback={<PaneFallback />}>
+              <MarkdownPreview ref={previewOnlyHandleRef} content={content} />
+            </Suspense>
           </div>
         )}
 
@@ -209,11 +223,13 @@ export const EditorContainer = React.memo(function EditorContainer() {
               style={{ width: `${splitPct}%`, height: "100%" }}
             >
               <div className="flex-1 min-h-0 overflow-hidden flex flex-col bg-[var(--color-editor-bg)]">
-                <MonacoMarkdownEditor
-                  ref={monacoHandleRef}
-                  tabId={id} content={content} themeId={themeId}
-                  language={language} onScrollChange={handleEditorScroll} horizontalPadding showToolbar={!isMdNote}
-                />
+                <Suspense fallback={<PaneFallback />}>
+                  <MonacoMarkdownEditor
+                    ref={monacoHandleRef}
+                    tabId={id} content={content} themeId={themeId}
+                    language={language} onScrollChange={handleEditorScroll} horizontalPadding showToolbar={!isMdNote}
+                  />
+                </Suspense>
               </div>
             </div>
 
@@ -234,11 +250,13 @@ export const EditorContainer = React.memo(function EditorContainer() {
                 />
               )}
               <div className="flex-1 min-h-0 overflow-hidden">
-                <MarkdownPreview
-                  ref={previewHandleRef}
-                  content={content}
-                  onScrollChange={handlePreviewScroll}
-                />
+                <Suspense fallback={<PaneFallback />}>
+                  <MarkdownPreview
+                    ref={previewHandleRef}
+                    content={content}
+                    onScrollChange={handlePreviewScroll}
+                  />
+                </Suspense>
               </div>
             </div>
           </div>

@@ -1,3 +1,4 @@
+import "../../lib/monacoWorkers"; // must run before any Monaco editor renders
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";

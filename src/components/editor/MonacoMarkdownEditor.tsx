@@ -1,3 +1,4 @@
+import "../../lib/monacoWorkers"; // must run before any Monaco editor renders
 import React, { useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
 import Editor, { type OnMount, type OnChange } from "@monaco-editor/react";
 import * as monaco from "monaco-editor";

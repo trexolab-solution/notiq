@@ -5,7 +5,6 @@ import { mapAiError } from "./errors";
 import { mermaidFenceAt, allMermaidFences, type MermaidFence } from "./context";
 import { aiActivity } from "./activity";
 import { validateMermaid } from "./mermaid";
-import { showReview } from "./reviewEdit";
 import { toast } from "../toast";
 import { isVaultPath, AI_BLOCKED_FOR_VAULT_MSG } from "../vault";
 import * as P from "./prompts";
@@ -206,15 +205,18 @@ function showReviewRetry(
   opts: CompleteOpts,
   source: string,
 ): void {
-  showReview(editor, res.text, original, res.startOffset, {
-    onRetry: () => {
-      void (async () => {
-        // The current result occupies the span now — replace IT (revert target stays `original`).
-        const r2 = await streamReplace(editor, res.startOffset, res.text, messages, opts, source);
-        if (r2) showReviewRetry(editor, r2, original, messages, opts, source);
-      })();
-    },
-  });
+  // reviewEdit pulls in the full monaco-editor runtime; load it lazily.
+  void import("./reviewEdit").then(({ showReview }) =>
+    showReview(editor, res.text, original, res.startOffset, {
+      onRetry: () => {
+        void (async () => {
+          // The current result occupies the span now — replace IT (revert target stays `original`).
+          const r2 = await streamReplace(editor, res.startOffset, res.text, messages, opts, source);
+          if (r2) showReviewRetry(editor, r2, original, messages, opts, source);
+        })();
+      },
+    }),
+  );
 }
 
 // ── Continue writing (streamed) ─────────────────────────────────────────────────
