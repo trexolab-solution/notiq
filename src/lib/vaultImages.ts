@@ -95,3 +95,37 @@ export function createVaultImageCache(deps: VaultImageCacheDeps) {
     size: () => entries.size,
   };
 }
+
+// ── Sweeping unreferenced pasted images ───────────────────────────────────────
+
+/** Ids of every `vault-attachment:<id>` mentioned anywhere in `text` (markdown or HTML image forms). Deliberately broad: over-counting only keeps an attachment. */
+export function referencedVaultImageIds(text: string): Set<string> {
+  const ids = new Set<string>();
+  for (const m of text.matchAll(/vault-attachment:\s*([0-9a-f]{32})(?![0-9a-f])/gi)) ids.add(m[1].toLowerCase());
+  return ids;
+}
+
+/** Name given to a pasted vault image by `nextImageFilename` (`img-N.ext`). */
+export const PASTED_IMAGE_NAME_RE = /^img-\d+\.[a-z0-9]+$/i;
+
+/** Attachments added more recently than this are never swept (a paste may not be in the saved text yet). */
+export const SWEEP_GRACE_MS = 30_000;
+
+/**
+ * Attachment ids that are safe to delete: pasted images (by name) that no text in `texts` refers to.
+ * `texts` must include the note being saved plus every retained history version, so restoring an
+ * older version keeps its images. When `textReliable` is false nothing is selected.
+ */
+export function unreferencedPastedImages(
+  attachments: { id: string; name: string; added: number }[],
+  texts: string[],
+  textReliable: boolean,
+  now = Date.now(),
+): string[] {
+  if (!textReliable) return [];
+  const keep = new Set<string>();
+  for (const t of texts) for (const id of referencedVaultImageIds(t)) keep.add(id);
+  return attachments
+    .filter((a) => PASTED_IMAGE_NAME_RE.test(a.name) && !keep.has(a.id.toLowerCase()) && now - a.added >= SWEEP_GRACE_MS)
+    .map((a) => a.id);
+}

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createVaultImageCache, formatVaultImageRef, isVaultImageSrc, parseVaultImageRef, vaultImageMarkdown,
-  VAULT_ATTACHMENT_ID_RE,
+  VAULT_ATTACHMENT_ID_RE, referencedVaultImageIds, unreferencedPastedImages,
 } from "./vaultImages";
 import { attachmentLimitError } from "./attachmentLimits";
 import { VAULT_ATTACH_MAX_BYTES, VAULT_ATTACH_MAX_PER_NOTE, VAULT_ATTACH_MAX_TOTAL } from "./vault";
@@ -106,5 +106,33 @@ describe("createVaultImageCache", () => {
     await Promise.resolve();
     expect(revoked.sort()).toEqual(["blob:1", "blob:2"]);
     expect(cache.size()).toBe(0);
+  });
+});
+
+describe("sweeping unreferenced pasted images", () => {
+  const A = "a".repeat(32), B = "b".repeat(32), C = "c".repeat(32);
+  const att = (id: string, name: string, added = 0) => ({ id, name, added });
+
+  it("extracts valid ids from markdown and html, deduped", () => {
+    const t = `![x](vault-attachment:${A}) text ![y](VAULT-ATTACHMENT:${B}) <img src="vault-attachment:${A}">`;
+    expect([...referencedVaultImageIds(t)].sort()).toEqual([A, B]);
+  });
+  it("ignores invalid ids and other schemes", () => {
+    const t = `![x](vault-attachment:xyz) ![y](vault-attachment:${"a".repeat(31)}) ![z](https://e.com/${A}) ![w](file:${A})`;
+    expect(referencedVaultImageIds(t).size).toBe(0);
+  });
+  it("selects only unreferenced pasted-name attachments", () => {
+    const list = [att(A, "img-1.png"), att(B, "img-2.png"), att(C, "report.pdf")];
+    expect(unreferencedPastedImages(list, [`![](vault-attachment:${A})`], true, 1e9)).toEqual([B]);
+  });
+  it("keeps ids referenced by history texts", () => {
+    const list = [att(A, "img-1.png"), att(B, "img-2.png")];
+    expect(unreferencedPastedImages(list, ["", `vault-attachment:${B}`], true, 1e9)).toEqual([A]);
+  });
+  it("deletes nothing when text is unreliable, and spares fresh pastes", () => {
+    const list = [att(A, "img-1.png")];
+    expect(unreferencedPastedImages(list, [""], false, 1e9)).toEqual([]);
+    expect(unreferencedPastedImages([att(A, "img-1.png", 1e9 - 1000)], [""], true, 1e9)).toEqual([]);
+    expect(unreferencedPastedImages(list, [""], true, 1e9)).toEqual([A]);
   });
 });
