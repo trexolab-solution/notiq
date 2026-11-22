@@ -36,9 +36,10 @@ export function NoteActions({ tab, onLinkedWhiteboard }: Props) {
         <button
           className="header-icon-btn"
           onClick={onLinkedWhiteboard}
+          aria-label={linkedWhiteboard ? "Open linked whiteboard" : "Create linked whiteboard"}
           style={linkedWhiteboard ? { color: "var(--color-primary)" } : undefined}
         >
-          <PenTool size={13} strokeWidth={1.8} />
+          <PenTool size={13} strokeWidth={1.8} aria-hidden="true" />
         </button>
       </Tooltip>
     </div>

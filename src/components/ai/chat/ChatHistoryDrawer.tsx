@@ -36,7 +36,12 @@ export function ChatHistoryDrawer({
               <li
                 key={c.id}
                 className={`ai-chat__history-item${c.id === currentId ? " is-current" : ""}`}
+                tabIndex={0}
+                aria-current={c.id === currentId ? "true" : undefined}
                 onClick={() => onLoad(c)}
+                onKeyDown={(e) => {
+                  if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); onLoad(c); }
+                }}
               >
                 <span className="ai-chat__history-title">{c.title}</span>
                 <span className="ai-chat__history-time">{relativeTime(c.updatedAt, now)}</span>

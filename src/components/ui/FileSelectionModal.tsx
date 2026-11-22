@@ -359,7 +359,13 @@ export function FileSelectionModal({ files, folderPath, onConfirm, onCancel }: F
                 <div
                   key={f.path}
                   className={`fsel-row${isSel ? " is-selected" : ""}`}
+                  role="checkbox"
+                  aria-checked={isSel}
+                  tabIndex={0}
                   onClick={() => toggle(f.path)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(f.path); }
+                  }}
                   style={{
                     display: "flex", alignItems: "center", gap: 10,
                     padding: "7px 12px", borderRadius: 8, cursor: "pointer",
