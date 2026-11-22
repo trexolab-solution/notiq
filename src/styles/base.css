@@ -7,12 +7,17 @@
   --color-text-muted:    var(--color-text-muted);
   --color-primary:       var(--color-primary);
   --color-primary-hover: var(--color-primary-hover);
+  --color-on-primary:    var(--color-on-primary);
   --color-accent:        var(--color-accent);
   --color-success:       var(--color-success);
   --color-warning:       var(--color-warning);
   --color-danger:        var(--color-danger);
   --color-editor-bg:     var(--color-editor-bg);
   --color-editor-text:   var(--color-editor-text);
+}
+
+:root {
+  --font-mono: "Cascadia Code", "JetBrains Mono", "Fira Code", ui-monospace, Consolas, monospace;
 }
 
 /* ── Reset ────────────────────────────────────────────────────────────────── */

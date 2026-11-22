@@ -40,6 +40,7 @@ export interface Theme {
     textMuted: string;
     primary: string;
     primaryHover: string;
+    onPrimary: string;
     accent: string;
     success: string;
     warning: string;

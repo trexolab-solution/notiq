@@ -35,7 +35,7 @@ export function QuickErrorFallback({ message, onRetry }: { message: string; onRe
         <button
           type="button"
           autoFocus
-          className="px-3 py-1.5 rounded-md text-xs font-medium bg-[var(--color-primary)] text-white hover:opacity-90"
+          className="px-3 py-1.5 rounded-md text-xs font-medium bg-[var(--color-primary)] text-[var(--color-on-primary)] hover:opacity-90"
           onClick={onRetry}
         >
           Try again

@@ -322,7 +322,7 @@ export default function QuickSearchApp() {
       className="h-screen flex flex-col overflow-hidden bg-[var(--color-bg-secondary)] text-[var(--color-text)] border border-[var(--color-border)]"
       onKeyDown={onKeyDown}
     >
-      <div className="flex items-center gap-2 px-3 py-2.5 border-b border-[var(--color-border)] focus-within:border-[color-mix(in_srgb,var(--color-primary)_55%,transparent)] transition-colors motion-reduce:transition-none" data-tauri-drag-region>
+      <div className="flex items-center gap-2 px-3 py-2.5 border-b border-[var(--color-border)] focus-within:border-[var(--color-primary)] focus-within:shadow-[0_1px_0_0_var(--color-primary)] transition-colors motion-reduce:transition-none" data-tauri-drag-region>
         <Search size={16} className="text-[var(--color-text-muted)] shrink-0" aria-hidden />
         <input
           ref={inputRef}
@@ -347,7 +347,7 @@ export default function QuickSearchApp() {
             <p className="text-xs text-[var(--color-text-muted)]">Unlock it in Notiq; this list refreshes on its own.</p>
             <button
               type="button"
-              className="px-3 py-1.5 rounded-md text-xs font-medium bg-[var(--color-primary)] text-white hover:opacity-90"
+              className="px-3 py-1.5 rounded-md text-xs font-medium bg-[var(--color-primary)] text-[var(--color-on-primary)] hover:opacity-90"
               onClick={unlock}
             >
               Unlock
@@ -361,7 +361,7 @@ export default function QuickSearchApp() {
             <p className="text-xs text-[var(--color-text-muted)]">Set up the Secure Vault in Notiq first.</p>
             <button
               type="button"
-              className="px-3 py-1.5 rounded-md text-xs font-medium bg-[var(--color-primary)] text-white hover:opacity-90"
+              className="px-3 py-1.5 rounded-md text-xs font-medium bg-[var(--color-primary)] text-[var(--color-on-primary)] hover:opacity-90"
               onClick={unlock}
             >
               Open Notiq
