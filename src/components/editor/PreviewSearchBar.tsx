@@ -287,6 +287,7 @@ export const PreviewSearchBar = React.memo(function PreviewSearchBar({
       >
         <input
           ref={inputRef}
+          aria-label="Find in preview"
           type="text"
           value={query}
           onChange={(e) => setQuery(e.target.value)}

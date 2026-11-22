@@ -257,6 +257,7 @@ export function FileSelectionModal({ files, folderPath, onConfirm, onCancel }: F
             />
             <input
               ref={searchRef}
+              aria-label="Search files"
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
