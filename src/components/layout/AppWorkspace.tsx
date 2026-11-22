@@ -1,4 +1,5 @@
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useEffect } from "react";
+import { listen } from "@tauri-apps/api/event";
 import { Network } from "lucide-react";
 
 import { Sidebar } from "./Sidebar";
@@ -7,7 +8,7 @@ import { NoteActions } from "./NoteActions";
 import { WhiteboardActions } from "./WhiteboardActions";
 import { ViewLoader } from "./ViewLoader";
 import { EditorContainer } from "../editor/EditorContainer";
-import { TerminalPanel } from "../terminal/TerminalPanel";
+import { maybeShowTrayNotice } from "./trayNotice";
 import { RemoteFilesPanel } from "../remote/RemoteFilesPanel";
 import { ErrorBoundary } from "../ui/ErrorBoundary";
 import { useShallow } from "zustand/shallow";
@@ -18,6 +19,9 @@ import { openRemoteFilesWindow } from "../../lib/remoteFilesWindow";
 import type { Tab, AppView } from "../../types";
 import type { UseTerminalPanelResult } from "../../hooks/useTerminalPanel";
 
+const TerminalPanel = lazy(() =>
+  import("../terminal/TerminalPanel").then((m) => ({ default: m.TerminalPanel }))
+);
 const KnowledgeGraph = lazy(() =>
   import("../graph/KnowledgeGraph").then((m) => ({ default: m.KnowledgeGraph }))
 );
@@ -59,6 +63,16 @@ export function AppWorkspace({
   aiChatMounted, aiChatOpen, aiChatWidth, onAiChatResizeStart, onCloseAiChat,
 }: Props) {
   const filesTabs = useAppStore(useShallow((s) => s.tabs.filter(isFilesTab)));
+
+  // Every close path (OS X button, Alt+F4) hides to the tray via the Rust handler, which emits this.
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    let cancelled = false;
+    listen("vault-window-hidden", () => { maybeShowTrayNotice(); })
+      .then((fn) => { if (cancelled) fn(); else unlisten = fn; })
+      .catch(() => {});
+    return () => { cancelled = true; unlisten?.(); };
+  }, []);
   return (
     <div className="app-body">
       <Sidebar
@@ -155,13 +169,15 @@ export function AppWorkspace({
                 onMouseDown={term.onResizeDrag}
               />
               <ErrorBoundary>
-                <TerminalPanel
-                  ref={term.panelRef}
-                  isOpen={term.isOpen}
-                  onClose={term.close}
-                  layout={term.layout}
-                  onToggleLayout={term.toggleLayout}
-                />
+                <Suspense fallback={null}>
+                  <TerminalPanel
+                    ref={term.panelRef}
+                    isOpen={term.isOpen}
+                    onClose={term.close}
+                    layout={term.layout}
+                    onToggleLayout={term.toggleLayout}
+                  />
+                </Suspense>
               </ErrorBoundary>
             </div>
           )}
