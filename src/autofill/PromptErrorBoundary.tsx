@@ -48,7 +48,7 @@ export class PromptErrorBoundary extends Component<{ children: ReactNode }, Stat
         <button
           type="button"
           autoFocus
-          className="mt-1 px-3 py-1.5 rounded-md text-xs font-medium bg-[var(--color-primary)] text-white hover:opacity-90"
+          className="mt-1 px-3 py-1.5 rounded-md text-xs font-medium bg-[var(--color-primary)] text-[var(--color-on-primary)] hover:opacity-90"
           onClick={this.close}
         >
           Close
