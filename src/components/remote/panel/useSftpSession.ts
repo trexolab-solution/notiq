@@ -57,7 +57,7 @@ export function useSftpSession(target: SshTarget, active: boolean) {
       setTitle(o.title || target.title);
       setPhase("ready");
       setNav({ back: [], fwd: [] });
-      void sftpTrashList(session).then((l) => { if (session === sid.current) setTrashCount(l.length); }).catch(() => {});
+      void sftpTrashList(session).then((l) => { if (session === sid.current) setTrashCount(l.length); }).catch(() => { toast.warning("Couldn't check the trash. Try again.", { id: "sftp-trash-failed" }); });
       await load(o.home, session);
     } catch (e) {
       if (session !== sid.current) return;
@@ -82,7 +82,7 @@ export function useSftpSession(target: SshTarget, active: boolean) {
         reconnecting.current = false;
         setLink("ok");
         await load(pathRef.current || ".", session);
-        void sftpTrashList(session).then((l) => { if (session === sid.current) setTrashCount(l.length); }).catch(() => {});
+        void sftpTrashList(session).then((l) => { if (session === sid.current) setTrashCount(l.length); }).catch(() => { toast.warning("Couldn't check the trash. Try again.", { id: "sftp-trash-failed" }); });
         return;
       } catch { /* try again, or give up below */ }
     }

@@ -87,7 +87,7 @@ export async function runGuardChoice(choice: "apply" | "restore"): Promise<Guard
     } else {
       toast.success(driveFirstMessage(out.result), { source: SOURCE, detail: out.backupPath ?? undefined });
     }
-    await refreshVaultUi().catch(() => {}); // restored items show up without a reload
+    await refreshVaultUi().catch(() => { toast.warning("Couldn't refresh the vault list. Try again.", { id: "vault-refresh-failed" }); }); // restored items show up without a reload
     return { ok: true, choice, result: out.result, backupPath: out.backupPath };
   } catch (e) {
     const error = syncErrorMessage(e);

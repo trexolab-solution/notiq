@@ -54,7 +54,7 @@ export function followSyncLifecycle(): () => void {
     onStatus(st.status);
     // Sync turned on/off or the account changed: the vault on this PC may be new (join), replaced or unlocked.
     if (vaultMayHaveChanged(st.status, prev.status)) {
-      void import("../store/vaultStore").then(({ useVaultStore }) => useVaultStore.getState().refresh()).catch(() => {});
+      void import("../store/vaultStore").then(({ useVaultStore }) => useVaultStore.getState().refresh()).catch(() => { toast.warning("Couldn't refresh the vault list. Try again.", { id: "vault-refresh-failed" }); });
     }
   });
 }

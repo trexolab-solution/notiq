@@ -296,7 +296,7 @@ export function RemoteFilesPanel({ target, active = true, onPopOut }: {
   const askDeleteForever = (list: RemoteEntry[]) => { if (getFilesPrefs().confirmDelete) setDeleting(list); else removeEntries(list); };
 
   const label = (list: RemoteEntry[]) => (list.length === 1 ? `\u201c${list[0].name}\u201d` : `${list.length} items`);
-  const refreshTrash = () => sftpTrashList(sid.current).then((l) => setTrashCount(l.length)).catch(() => {});
+  const refreshTrash = () => sftpTrashList(sid.current).then((l) => setTrashCount(l.length)).catch(() => { toast.warning("Couldn't check the trash. Try again.", { id: "sftp-trash-failed" }); });
   const trashEntries = (list: RemoteEntry[]) => {
     void act(async () => {
       for (const e of list) {

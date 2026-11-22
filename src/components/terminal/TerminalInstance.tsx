@@ -7,6 +7,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { readText, writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { useAppStore } from "../../store";
+import { toast } from "../../lib/toast";
 import { THEMES } from "../../lib/themes";
 import type { ThemeId } from "../../types";
 import { ContextMenu } from "../ui/ContextMenu";
@@ -180,10 +181,10 @@ export const TerminalInstance = forwardRef<InstanceHandle, Props>(
             if (txt) term.paste(txt);
             else invoke("terminal_write", { id: sessionId, data: "\x16" }).catch(console.error); // let the app handle e.g. image paste
           })
-          .catch(() => {});
+          .catch(() => { toast.warning("Couldn't paste from the clipboard.", { id: "terminal-paste-failed" }); });
       };
       const doCopy = () => {
-        writeText(term.getSelection()).catch(() => {});
+        writeText(term.getSelection()).catch(() => { toast.warning("Couldn't copy to the clipboard.", { id: "terminal-copy-failed" }); });
       };
       term.attachCustomKeyEventHandler((ev) => {
         if (ev.type !== "keydown") return true;
@@ -214,7 +215,7 @@ export const TerminalInstance = forwardRef<InstanceHandle, Props>(
         try {
           const bin = atob(b64);
           const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
-          void writeText(new TextDecoder().decode(bytes)).catch(() => {});
+          void writeText(new TextDecoder().decode(bytes)).catch(() => { toast.warning("Couldn't copy to the clipboard.", { id: "terminal-copy-failed" }); });
         } catch { /* malformed base64: ignore */ }
         return true;
       });
@@ -275,10 +276,10 @@ export const TerminalInstance = forwardRef<InstanceHandle, Props>(
       const t = termRef.current;
       if (!e.shiftKey && t) {
         if (t.hasSelection()) {
-          void writeText(t.getSelection()).catch(() => {});
+          void writeText(t.getSelection()).catch(() => { toast.warning("Couldn't copy to the clipboard.", { id: "terminal-copy-failed" }); });
           t.clearSelection();
         } else {
-          void readText().then((txt) => { if (txt) t.paste(txt); }).catch(() => {});
+          void readText().then((txt) => { if (txt) t.paste(txt); }).catch(() => { toast.warning("Couldn't paste from the clipboard.", { id: "terminal-paste-failed" }); });
         }
         t.focus();
         return;
@@ -291,14 +292,14 @@ export const TerminalInstance = forwardRef<InstanceHandle, Props>(
       const t = termRef.current;
       if (!t) return;
       if (t.hasSelection()) {
-        await writeText(t.getSelection()).catch(() => {});
+        await writeText(t.getSelection()).catch(() => { toast.warning("Couldn't copy to the clipboard.", { id: "terminal-copy-failed" }); });
         t.clearSelection();
       }
       t.focus();
     }, []);
 
     const handlePaste = useCallback(async () => {
-      const text = await readText().catch(() => "");
+      const text = await readText().catch(() => { toast.warning("Couldn't paste from the clipboard.", { id: "terminal-paste-failed" }); return ""; });
       if (text) termRef.current?.paste(text);
       termRef.current?.focus();
     }, [sessionId]);
