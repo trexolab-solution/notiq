@@ -31,13 +31,18 @@ export function AIOnboarding({ onClose }: AIOnboardingProps) {
   const [step, setStep] = useState<Step>(0);
   const [keyInput, setKeyInput] = useState("");
   const [keyPresent, setKeyPresent] = useState(false);
+  const [keyCheckFailed, setKeyCheckFailed] = useState(false);
   const [models, setModels] = useState<{ id: string; context_length?: number }[]>([]);
   const [busy, setBusy] = useState(false);
 
   const isCloud = aiProvider === "cloud";
   const needsKey = aiProvider !== "local";
 
-  useEffect(() => { hasApiKey(aiProvider).then(setKeyPresent).catch(() => {}); }, [aiProvider]);
+  const [keyCheckTick, setKeyCheckTick] = useState(0);
+  useEffect(() => {
+    setKeyCheckFailed(false);
+    hasApiKey(aiProvider).then(setKeyPresent).catch(() => setKeyCheckFailed(true));
+  }, [aiProvider, keyCheckTick]);
 
   // Step 2 → test connection (also fetches models), advance on success.
   const connectAndContinue = async () => {
@@ -151,9 +156,14 @@ export function AIOnboarding({ onClose }: AIOnboardingProps) {
                     type="password"
                     value={keyInput}
                     onChange={(e) => setKeyInput(e.target.value)}
-                    placeholder={keyPresent ? "•••••••• (a key is already saved)" : "Paste API key"}
+                    placeholder={keyCheckFailed ? "Couldn't check for a saved key" : keyPresent ? "•••••••• (a key is already saved)" : "Paste API key"}
                     aria-label="API key"
                   />
+                  {keyCheckFailed && (
+                    <p className="text-xs" role="alert" style={{ color: "var(--color-text-secondary)" }}>
+                      Couldn't check for a saved key. <button type="button" className="underline" onClick={() => setKeyCheckTick((n) => n + 1)}>Retry</button>
+                    </p>
+                  )}
                   <a href={isCloud ? "https://ollama.com/settings/keys" : "https://openrouter.ai/keys"} target="_blank" rel="noreferrer"
                     className="inline-flex items-center gap-1.5 text-xs" style={{ color: "var(--color-primary)" }}>
                     <ExternalLink size={12} /> Get an {isCloud ? "Ollama" : "OpenRouter"} API key

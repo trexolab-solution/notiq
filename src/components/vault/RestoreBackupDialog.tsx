@@ -133,7 +133,7 @@ export function RestoreBackupDialog({ onClose, initialPath }: { onClose: () => v
       const result = await vaultBackupMerge(w.path, w.password);
       window.dispatchEvent(new Event("vault:file-saved"));
       window.dispatchEvent(new Event(VAULT_CHANGED_EVENT));
-      void useAppStore.getState().refreshVaultTabs().catch(() => {});
+      void useAppStore.getState().refreshVaultTabs().catch(() => { toast.warning("Couldn't refresh the vault list. Try again.", { id: "vault-refresh-failed" }); });
       dispatch({ type: "merged", result });
     } catch (e) {
       const msg = vaultErrorMessage(e);

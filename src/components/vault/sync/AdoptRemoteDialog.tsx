@@ -136,8 +136,8 @@ export function AdoptRemoteDialog({ onClose }: { onClose: (done: boolean) => voi
 
   useEffect(() => {
     let live = true;
-    if (localUnlocked) vaultList().then((l) => { if (live) setItems(countEntries(l)); }).catch(() => {});
-    syncDevices().then((d) => { if (live) setLastChanged(lastChangedText(d)); }).catch(() => {});
+    if (localUnlocked) vaultList().then((l) => { if (live) setItems(countEntries(l)); }).catch(() => { if (live) toast.warning("Couldn't load the entry count.", { id: "adopt-count-failed" }); });
+    syncDevices().then((d) => { if (live) setLastChanged(lastChangedText(d)); }).catch(() => { if (live) toast.warning("Couldn't load device info.", { id: "adopt-devices-failed" }); });
     return () => { live = false; };
   }, [localUnlocked]);
 

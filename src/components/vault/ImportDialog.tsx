@@ -6,6 +6,7 @@ import { AlertTriangle, FileUp } from "lucide-react";
 import { Dialog, DialogBody, DialogButton, DialogFooter } from "../ui/Dialog";
 import { useVaultStore } from "../../store/vaultStore";
 import { useAppStore } from "../../store";
+import { toast } from "../../lib/toast";
 import {
   VAULT_CHANGED_EVENT, vaultErrorMessage, vaultList, vaultMkdir, vaultReadFile, vaultWriteFile, type VaultItem,
 } from "../../lib/vault";
@@ -95,7 +96,7 @@ export function ImportDialog({ onClose }: { onClose: () => void }) {
     }, (done, total) => { if (alive.current) setProgress({ done, total }); });
     window.dispatchEvent(new Event("vault:file-saved"));
     window.dispatchEvent(new Event(VAULT_CHANGED_EVENT));
-    void useAppStore.getState().refreshVaultTabs().catch(() => {});
+    void useAppStore.getState().refreshVaultTabs().catch(() => { toast.warning("Couldn't refresh the vault list. Try again.", { id: "vault-refresh-failed" }); });
     if (!alive.current) return;
     setResult(res); setStage("done");
   };
