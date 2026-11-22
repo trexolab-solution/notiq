@@ -166,6 +166,7 @@ export default function StickyNotesListApp() {
         <Search size={13} strokeWidth={1.6} className="snl-searchbar__icon" />
         <input
           ref={searchRef}
+          aria-label="Search notes"
           className="snl-searchbar__input"
           type="text"
           placeholder="Search notes…"

@@ -177,6 +177,7 @@ export function StickyNoteHeader({ noteId }: Props) {
               </button></Tooltip>
               <input
                 ref={colorInputRef}
+                aria-label="Custom note color"
                 type="color"
                 value={bgColor || "#ffffff"}
                 onChange={onCustomColor}
@@ -191,6 +192,7 @@ export function StickyNoteHeader({ noteId }: Props) {
             <div className="sn-opacity-row">
               <input
                 type="range"
+                aria-label="Unfocused opacity"
                 min="10"
                 max="100"
                 value={Math.round(unfocusedOpacity * 100)}

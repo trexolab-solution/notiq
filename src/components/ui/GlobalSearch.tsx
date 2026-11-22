@@ -104,6 +104,7 @@ export function GlobalSearch({ tabs, onJump, onClose }: Props) {
           <Search size={15} className="gsearch__icon" />
           <input
             ref={inputRef}
+            aria-label="Search across open notes"
             className="cmdk__input gsearch__input"
             placeholder="Search across all open notes…"
             value={query}

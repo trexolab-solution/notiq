@@ -18,6 +18,7 @@ export function ChatInputBar({ inputRef, input, onInputChange, onKeyDown, busy, 
     <div className="ai-chat__inputwrap">
       <textarea
         ref={inputRef}
+        aria-label="Message to the assistant"
         className="ai-chat__input"
         placeholder="Ask anything…  (Enter to send, Shift+Enter for newline)"
         value={input}

@@ -78,6 +78,7 @@ export function CommandPalette({ commands, queryCommands, onClose }: Props) {
       <div className="cmdk" role="dialog" aria-label="Command palette">
         <input
           ref={inputRef}
+          aria-label="Search commands"
           className="cmdk__input"
           placeholder={queryCommands ? "Search tabs, actions, settings…" : "Search tabs, actions, themes…"}
           value={query}
