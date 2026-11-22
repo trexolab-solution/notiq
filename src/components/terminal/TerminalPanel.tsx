@@ -278,20 +278,20 @@ export const TerminalPanel = forwardRef<TerminalPanelHandle, Props>(
 
           <div className="terminal-header-actions">
             <Tooltip content="Split Terminal">
-              <button className="terminal-icon-btn" onClick={handleSplit}>
+              <button className="terminal-icon-btn" onClick={handleSplit} aria-label="Split Terminal">
                 {splitDir === "row"
-                  ? <SplitSquareHorizontal size={13} />
-                  : <SplitSquareVertical   size={13} />}
+                  ? <SplitSquareHorizontal size={13} aria-hidden="true" />
+                  : <SplitSquareVertical   size={13} aria-hidden="true" />}
               </button>
             </Tooltip>
             <Tooltip
               content={layout === "horizontal" ? "Move to right" : "Move to bottom"}
               shortcut="Ctrl+Shift+\"
             >
-              <button className="terminal-icon-btn" onClick={onToggleLayout}>
+              <button className="terminal-icon-btn" onClick={onToggleLayout} aria-label={layout === "horizontal" ? "Move to right" : "Move to bottom"}>
                 {layout === "horizontal"
-                  ? <PanelRight  size={13} />
-                  : <PanelBottom size={13} />}
+                  ? <PanelRight  size={13} aria-hidden="true" />
+                  : <PanelBottom size={13} aria-hidden="true" />}
               </button>
             </Tooltip>
             <Tooltip content="Connect to a saved server (SSH)">
@@ -300,13 +300,13 @@ export const TerminalPanel = forwardRef<TerminalPanelHandle, Props>(
               </button>
             </Tooltip>
             <Tooltip content="New Terminal" shortcut="Ctrl+Shift+`">
-              <button className="terminal-icon-btn" onClick={handleNewTab}>
-                <Plus size={13} />
+              <button className="terminal-icon-btn" onClick={handleNewTab} aria-label="New Terminal">
+                <Plus size={13} aria-hidden="true" />
               </button>
             </Tooltip>
             <Tooltip content="Close panel" shortcut="Ctrl+`">
-              <button className="terminal-icon-btn" onClick={onClose}>
-                <X size={12} />
+              <button className="terminal-icon-btn" onClick={onClose} aria-label="Close panel">
+                <X size={12} aria-hidden="true" />
               </button>
             </Tooltip>
           </div>

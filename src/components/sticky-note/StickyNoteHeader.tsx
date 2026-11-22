@@ -208,10 +208,11 @@ export function StickyNoteHeader({ noteId }: Props) {
           <button
             className={`sn-bar-btn${alwaysOnTop ? " sn-pin-active" : ""}`}
             onClick={togglePin}
+            aria-label={alwaysOnTop ? "Unpin from top" : "Pin on top"}
           >
             {alwaysOnTop
-              ? <Pin size={13} strokeWidth={2} />
-              : <PinOff size={13} strokeWidth={2} />}
+              ? <Pin size={13} strokeWidth={2} aria-hidden="true" />
+              : <PinOff size={13} strokeWidth={2} aria-hidden="true" />}
           </button>
         </Tooltip>
       </div>
@@ -219,24 +220,25 @@ export function StickyNoteHeader({ noteId }: Props) {
       {/* Right — save + new note + close */}
       <div className="sn-bar-right">
         <Tooltip content="Save as file" delay={300}>
-          <button className="sn-bar-btn" onClick={handleSave}>
-            <Save size={13} strokeWidth={2} />
+          <button className="sn-bar-btn" onClick={handleSave} aria-label="Save as file">
+            <Save size={13} strokeWidth={2} aria-hidden="true" />
           </button>
         </Tooltip>
         <Tooltip content="New Note" delay={300}>
-          <button className="sn-bar-btn" onClick={() => openStickyNote()}>
-            <Plus size={15} strokeWidth={2} />
+          <button className="sn-bar-btn" onClick={() => openStickyNote()} aria-label="New Note">
+            <Plus size={15} strokeWidth={2} aria-hidden="true" />
           </button>
         </Tooltip>
         <Tooltip content="Close" delay={300}>
           <button
             className="sn-bar-btn sn-bar-close"
+            aria-label="Close"
             onClick={() => {
               useStickyNotesStore.getState().removeOpenWindow(noteId);
               getCurrentWindow().destroy();
             }}
           >
-            <X size={14} strokeWidth={2} />
+            <X size={14} strokeWidth={2} aria-hidden="true" />
           </button>
         </Tooltip>
       </div>

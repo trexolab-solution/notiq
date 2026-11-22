@@ -59,7 +59,13 @@ export function ContextFilesPopover({ tabs, selected, onToggle, onSelectAll, onC
                 <li
                   key={t.id}
                   className={`ai-chat__ctx-popover-row${isSel ? " is-selected" : ""}`}
+                  role="checkbox"
+                  aria-checked={isSel}
+                  tabIndex={0}
                   onClick={() => onToggle(t.id)}
+                  onKeyDown={(e) => {
+                    if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); onToggle(t.id); }
+                  }}
                 >
                   {isSel ? <CheckSquare size={13} className="ai-chat__ctx-popover-check" /> : <Square size={13} className="ai-chat__ctx-popover-check" />}
                   {isCode
