@@ -11,7 +11,7 @@ import { clipboardClearLabel, getClipboardClearSeconds } from "../../lib/vaultPr
 /** Shared building blocks for the structured vault entry editors. */
 
 export const fieldLabel = "block text-xs mb-1 text-[var(--color-text-muted)]";
-export const textArea = "w-full rounded-md px-2.5 py-2 text-sm bg-[var(--color-bg-tertiary)] border border-[var(--color-border)] outline-none focus:border-[var(--color-primary)]";
+export const textArea = "w-full rounded-md px-2.5 py-2 text-sm bg-[var(--color-bg-tertiary)] border border-[var(--color-border)] outline-none focus:border-[var(--color-primary)] focus-visible:ring-2 focus-visible:ring-[var(--color-primary)]/40";
 
 /**
  * Lets the header's History button toggle the panel that `EntryLayout` renders beside the form, and

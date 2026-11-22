@@ -350,9 +350,15 @@
   flex-shrink: 0;
   transition: background 0.1s, opacity 0.1s, color 0.1s;
   padding: 0;
+  position: relative;
 }
+/* 24x24 hit area around the 16x16 visual button */
+.tab-close-btn::before { content: ""; position: absolute; inset: -4px; }
 .tab-item:hover .tab-close-btn,
 .tab-item.is-active .tab-close-btn { opacity: 0.6; }
+.tab-item:focus-within .tab-close-btn,
+.tab-close-btn:focus-visible { opacity: 1; }
+@media (hover: none) { .tab-close-btn { opacity: 0.6; } }
 .tab-close-btn:hover {
   background: color-mix(in srgb, var(--color-danger) 14%, var(--color-bg-tertiary)) !important;
   color: var(--color-danger) !important;
@@ -746,6 +752,7 @@
    Switch terminal-section to row so the resize handle (first child) lives on the
    left edge rather than the top. */
 .app-main-row.vertical .terminal-section {
+  max-width: 45vw;
   flex-direction: row;
   border-top: none;
   border-left: 1px solid var(--color-border);

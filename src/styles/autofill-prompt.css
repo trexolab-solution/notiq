@@ -16,8 +16,8 @@ html.is-autofill-prompt #root { height: 100%; margin: 0; overflow: hidden; backg
   color: var(--color-text);
   border: 1px solid var(--color-border);
   font-size: 12.5px;
-  outline: none;
 }
+.af-window:focus-visible { outline: 1px solid var(--color-primary); outline-offset: -2px; }
 .af-window ::selection { background: color-mix(in srgb, var(--color-primary) 35%, transparent); }
 .af-window input { caret-color: var(--color-primary); }
 
@@ -148,6 +148,8 @@ html.is-autofill-prompt #root { height: 100%; margin: 0; overflow: hidden; backg
   width: 20px; height: 20px; padding: 0; border: none; border-radius: 4px;
   background: transparent; color: var(--color-text-muted); cursor: pointer;
 }
+.af-search-clear::before { content: ""; position: absolute; inset: -2px; }
+.af-search-clear:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 1px; }
 .af-search-clear:hover { background: var(--color-bg-tertiary); color: var(--color-text); }
 
 /* Intentional empty / loading / error blocks. */

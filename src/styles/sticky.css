@@ -258,9 +258,9 @@ html.is-sticky-note #root {
   appearance: none;
   background: var(--color-bg-tertiary);
   border-radius: 2px;
-  outline: none;
   cursor: pointer;
 }
+.sn-opacity-slider:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 3px; }
 .sn-opacity-slider::-webkit-slider-thumb {
   -webkit-appearance: none;
   width: 12px;
@@ -393,6 +393,7 @@ html.is-sticky-note #root {
   background: var(--color-bg-secondary);
   border-bottom: 1px solid var(--color-border);
 }
+.snl-searchbar:focus-within { box-shadow: inset 0 -2px 0 var(--color-primary); }
 .snl-searchbar__icon {
   color: var(--color-text-muted);
   flex-shrink: 0;
