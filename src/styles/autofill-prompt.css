@@ -202,7 +202,7 @@ html.is-autofill-prompt #root { height: 100%; margin: 0; overflow: hidden; backg
 /* 2-step code: large, grouped, with the shared countdown ring. */
 .af-totp { display: inline-flex; align-items: center; gap: 8px; }
 .af-totp-code {
-  font-family: var(--font-mono, ui-monospace, monospace); font-size: 19px; font-weight: 600;
+  font-family: var(--font-mono, "Cascadia Code", ui-monospace, Consolas, monospace); font-size: 19px; font-weight: 600;
   letter-spacing: 0.06em; font-variant-numeric: tabular-nums; line-height: 1.25; color: var(--color-text);
 }
 .af-totp-code[data-low] { color: var(--color-warning); }
