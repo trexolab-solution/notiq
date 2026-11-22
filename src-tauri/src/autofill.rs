@@ -1072,6 +1072,8 @@ fn ensure_prompt(app: &AppHandle) -> Result<(), String> {
             crate::quick_search::set_webview_visible(&w, false);
         }
         crate::capture_shield::refresh(app);
+        eprintln!("[window] autofill prompt created (hidden)");
+        start_prompt_guard(app);
     }
     if wait_for(&PROMPT_READY, PROMPT_READY_WAIT) { Ok(()) } else { Err("the prompt window did not load".into()) }
 }
@@ -1080,6 +1082,7 @@ fn hide_prompt(app: &AppHandle, restore: bool) {
     let Some(w) = app.get_webview_window(PROMPT_LABEL) else { return };
     // Only hand the focus back when the prompt still has it (the user may have moved on meanwhile).
     let had_focus = w.is_focused().unwrap_or(false);
+    eprintln!("[window] autofill prompt hide (restore={restore}, was visible={:?})", w.is_visible().ok());
     let _ = w.hide();
     // The webview goes with the window: a hidden Chromium surface is stale, and showing it again could flash blank / white.
     crate::quick_search::set_webview_visible(&w, false);
@@ -1181,6 +1184,7 @@ pub fn autofill_prompt_show(app: AppHandle) -> Result<(), String> {
         hide_prompt(&app, false);
         return Ok(());
     }
+    eprintln!("[window] autofill prompt show ({waiting} request(s) waiting)");
     remember_prev_foreground(&w);
     let monitor = app
         .cursor_position()
@@ -1206,6 +1210,47 @@ pub fn autofill_prompt_show(app: AppHandle) -> Result<(), String> {
     let _ = w.show();
     let _ = w.unminimize();
     w.set_focus().map_err(|e| e.to_string())
+}
+
+/// How often the guard looks at the prompt window, and how many looks in a row it must be on screen with
+/// nobody waiting before it is taken down (a normal hide right after a reply is not interfered with).
+const PROMPT_GUARD_TICK: Duration = Duration::from_millis(300);
+const PROMPT_GUARD_STRIKES: u32 = 2;
+
+/// The prompt window is on screen but no request waits for an answer (pure). Counts consecutive such
+/// looks in `strikes`; returns true once the window should be taken down.
+pub fn prompt_guard_step(visible: bool, waiting_requests: usize, strikes: &mut u32) -> bool {
+    if visible && !should_show_prompt(waiting_requests) {
+        *strikes += 1;
+        *strikes >= PROMPT_GUARD_STRIKES
+    } else {
+        *strikes = 0;
+        false
+    }
+}
+
+/// Safety net: whatever puts the (hidden) prompt window on screen without a request (OS / WebView2 quirk,
+/// a stale show), it is hidden again instead of staying up as an empty window.
+fn start_prompt_guard(app: &AppHandle) {
+    static STARTED: AtomicBool = AtomicBool::new(false);
+    if STARTED.swap(true, Ordering::AcqRel) {
+        return;
+    }
+    let app = app.clone();
+    std::thread::spawn(move || {
+        let mut strikes = 0u32;
+        loop {
+            std::thread::sleep(PROMPT_GUARD_TICK);
+            let Some(w) = app.get_webview_window(PROMPT_LABEL) else { strikes = 0; continue };
+            let visible = w.is_visible().unwrap_or(false);
+            let waiting = pending().lock().unwrap_or_else(|e| e.into_inner()).len();
+            if prompt_guard_step(visible, waiting, &mut strikes) {
+                eprintln!("[window] autofill prompt was on screen without a request: hiding it");
+                strikes = 0;
+                hide_prompt(&app, false);
+            }
+        }
+    });
 }
 
 /// Whether the prompt window may come on screen: only while at least one request still waits for an answer.
@@ -1928,6 +1973,17 @@ mod tests {
         let r = forward(&mut None, &json!({ "op": "theme" }));
         assert_eq!(r["ok"], json!(true));
         assert!(r.get("theme").is_some());
+    }
+
+    #[test]
+    fn prompt_guard_hides_only_a_window_nobody_asked_for() {
+        let mut n = 0;
+        assert!(!prompt_guard_step(true, 0, &mut n)); // first look: may be a normal hide in progress
+        assert!(prompt_guard_step(true, 0, &mut n)); // still up with nobody waiting
+        n = 1;
+        assert!(!prompt_guard_step(true, 2, &mut n)); // a request waits: leave it
+        assert_eq!(n, 0);
+        assert!(!prompt_guard_step(false, 0, &mut n)); // hidden: nothing to do
     }
 
     #[test]

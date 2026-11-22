@@ -128,10 +128,33 @@ fn config_path(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(app.path().app_data_dir().map_err(|e| e.to_string())?.join(CONFIG_FILE))
 }
 
+/// What was last applied to each window: `(window handle, protected)`. Re-setting the display affinity
+/// makes Windows rebuild the window's surface, which a hidden WebView2 window should not go through on
+/// every lock / unlock, so a call that would change nothing is skipped. The handle tells a re-created
+/// window (new handle) from the one that already has the setting.
+static APPLIED: std::sync::Mutex<Vec<(String, isize, bool)>> = std::sync::Mutex::new(Vec::new());
+
+/// Whether `protect` still has to be applied to the window `handle` (pure). A handle of 0 (unknown)
+/// always applies.
+pub fn needs_apply(last: Option<(isize, bool)>, handle: isize, protect: bool) -> bool {
+    handle == 0 || last != Some((handle, protect))
+}
+
 fn apply_to(app: &AppHandle, label: &str, protect: bool) {
-    if let Some(w) = app.get_webview_window(label) {
-        let _ = w.set_content_protected(protect);
+    let Some(w) = app.get_webview_window(label) else { return };
+    #[cfg(windows)]
+    let handle = w.hwnd().map(|h| h.0 as isize).unwrap_or(0);
+    #[cfg(not(windows))]
+    let handle = 0isize;
+    let mut applied = APPLIED.lock().unwrap_or_else(|e| e.into_inner());
+    let last = applied.iter().find(|(l, _, _)| l == label).map(|(_, h, p)| (*h, *p));
+    if !needs_apply(last, handle, protect) {
+        return;
     }
+    eprintln!("[window] capture shield: {label} protected={protect} visible={:?}", w.is_visible().ok());
+    let _ = w.set_content_protected(protect);
+    applied.retain(|(l, _, _)| l != label);
+    applied.push((label.to_string(), handle, protect));
 }
 
 /// Re-applies the display affinity of every window from the current mode and lock state.
@@ -203,6 +226,15 @@ pub fn capture_shield_hide_for(app: AppHandle, minutes: u32) -> Result<(), Strin
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_unchanged_setting_is_not_applied_again() {
+        assert!(needs_apply(None, 7, true)); // first time
+        assert!(!needs_apply(Some((7, true)), 7, true)); // same window, same value
+        assert!(needs_apply(Some((7, true)), 7, false)); // value changed
+        assert!(needs_apply(Some((7, true)), 8, true)); // window was re-created
+        assert!(needs_apply(Some((0, true)), 0, true)); // handle unknown: always apply
+    }
 
     #[test]
     fn off_never_protects() {
