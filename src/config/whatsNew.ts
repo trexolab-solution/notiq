@@ -13,21 +13,21 @@ import { APP_VERSION } from "./app";
  */
 export const WHATS_NEW = `# What's New in Notiq ${APP_VERSION}
 
-Vault selection, tags and a few time savers.
+Easier to read, easier to use with the keyboard, and fewer surprises.
 
-## 🔐 Vault
+## ♿ Readability and keyboard use
 
-- **Select a whole folder or website:** ticking a folder ticks everything inside it, and a website row has its own tick box for all of its logins.
-- **Manage tags:** rename a tag, merge it into another, or delete it from every entry (the ⚙ button in the tag strip, or the vault's ⋯ menu).
-- **Hide for 5, 10 or 30 minutes:** in *Settings → Vault*, hide Notiq from screenshots and screen sharing for a set time, then your saved choice applies again by itself.
-- **Server sign-in remembers your choice:** when a saved server has both a key and a password, the one you used last is selected and marked *Last used*.
-- The **Caps Lock** indicator is now an icon inside the password field, so dialogs no longer jump.
+- **Clearer secondary text:** muted text now has enough contrast in every theme.
+- **Keyboard focus is visible** in more places: search boxes, the vault list, menus and the autofill window.
+- **Screen-reader labels** on the terminal, sticky-note and whiteboard buttons, and chat history, context files and file pickers now work with Tab, Enter and Space.
+- **Bigger click targets** for tab close buttons and small icon buttons.
 
 ## 🖥️ App
 
-- **Ctrl+B** shows or hides the side panel (inside the code editor, where Ctrl+B is Bold, use **Ctrl+Shift+B**).
-- Hover hints are now the app's own only: no more double tooltips.
-- Clearer section headings in Settings.
+- **No more blank pop-up window** after locking and unlocking the vault: a stray empty autofill window now hides itself, and shows a message instead of a blank screen if it ever fails.
+- **A heads-up when Notiq goes to the tray:** the first time you close the window, a short note tells you it is still running (right-click the tray icon to quit).
+- **Errors are no longer silent:** failed refreshes after an import, restore or sync, the SFTP trash check and terminal copy/paste now tell you.
+- **Smaller window limit:** the window can't be shrunk below a usable size, and the terminal loads only when you open it.
 
 ---
 
