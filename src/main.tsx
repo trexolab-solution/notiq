@@ -2,6 +2,7 @@ import React, { lazy, Suspense } from "react";
 import ReactDOM from "react-dom/client";
 import "./App.css"; // load CSS synchronously for all windows (main + sticky notes)
 import { QuickErrorBoundary, QuickLoading } from "./quick/QuickErrorBoundary";
+import { PromptErrorBoundary } from "./autofill/PromptErrorBoundary";
 
 const hash = window.location.hash;
 const isStickyNote = hash.startsWith("#/sticky-note/");
@@ -53,9 +54,11 @@ if (isStickyNote) {
 
   ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
     <React.StrictMode>
-      <Suspense fallback={null}>
-        <AutofillPromptApp />
-      </Suspense>
+      <PromptErrorBoundary>
+        <Suspense fallback={null}>
+          <AutofillPromptApp />
+        </Suspense>
+      </PromptErrorBoundary>
     </React.StrictMode>,
   );
 } else if (isRemoteFiles) {
