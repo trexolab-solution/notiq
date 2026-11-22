@@ -8,7 +8,7 @@ export const THEMES: Record<ThemeId, Theme> = {
     label: "Dark",
     colors: {
       bg: "#0f172a", bgSecondary: "#1e293b", bgTertiary: "#334155",
-      border: "#334155", text: "#e2e8f0", textMuted: "#64748b",
+      border: "#334155", text: "#e2e8f0", textMuted: "#8290a3",
       primary: "#c9a84c", primaryHover: "#e2bc5e", accent: "#38bdf8",
       success: "#4ade80", warning: "#fb923c", danger: "#f87171",
       editorBg: "#0f172a", editorText: "#e2e8f0",
@@ -25,7 +25,7 @@ export const THEMES: Record<ThemeId, Theme> = {
     label: "Light",
     colors: {
       bg: "#f8fafc", bgSecondary: "#f1f5f9", bgTertiary: "#e2e8f0",
-      border: "#cbd5e1", text: "#1e293b", textMuted: "#64748b",
+      border: "#cbd5e1", text: "#1e293b", textMuted: "#617188",
       primary: "#b45309", primaryHover: "#92400e", accent: "#0284c7",
       success: "#16a34a", warning: "#d97706", danger: "#dc2626",
       editorBg: "#ffffff", editorText: "#1e293b",
@@ -42,7 +42,7 @@ export const THEMES: Record<ThemeId, Theme> = {
     label: "One Dark Pro",
     colors: {
       bg: "#282c34", bgSecondary: "#21252b", bgTertiary: "#3a3f4b",
-      border: "#3e4451", text: "#abb2bf", textMuted: "#5c6370",
+      border: "#3e4451", text: "#abb2bf", textMuted: "#8d94a1",
       primary: "#61afef", primaryHover: "#7bc0f7", accent: "#c678dd",
       success: "#98c379", warning: "#e5c07b", danger: "#e06c75",
       editorBg: "#282c34", editorText: "#abb2bf",
@@ -59,7 +59,7 @@ export const THEMES: Record<ThemeId, Theme> = {
     label: "Nord",
     colors: {
       bg: "#2e3440", bgSecondary: "#3b4252", bgTertiary: "#434c5e",
-      border: "#4c566a", text: "#eceff4", textMuted: "#8892a4",
+      border: "#4c566a", text: "#eceff4", textMuted: "#a6aebc",
       primary: "#88c0d0", primaryHover: "#8fbcbb", accent: "#81a1c1",
       success: "#a3be8c", warning: "#ebcb8b", danger: "#bf616a",
       editorBg: "#2e3440", editorText: "#eceff4",
@@ -93,7 +93,7 @@ export const THEMES: Record<ThemeId, Theme> = {
     label: "Catppuccin Mocha",
     colors: {
       bg: "#1e1e2e", bgSecondary: "#181825", bgTertiary: "#313244",
-      border: "#45475a", text: "#cdd6f4", textMuted: "#6c7086",
+      border: "#45475a", text: "#cdd6f4", textMuted: "#81869e",
       primary: "#cba6f7", primaryHover: "#d5b8f8", accent: "#89dceb",
       success: "#a6e3a1", warning: "#f9e2af", danger: "#f38ba8",
       editorBg: "#1e1e2e", editorText: "#cdd6f4",
@@ -110,7 +110,7 @@ export const THEMES: Record<ThemeId, Theme> = {
     label: "Tokyo Night",
     colors: {
       bg: "#1a1b26", bgSecondary: "#16161e", bgTertiary: "#24283b",
-      border: "#3b4261", text: "#c0caf5", textMuted: "#565f89",
+      border: "#3b4261", text: "#c0caf5", textMuted: "#7881ac",
       primary: "#7aa2f7", primaryHover: "#89b4fa", accent: "#bb9af7",
       success: "#9ece6a", warning: "#e0af68", danger: "#f7768e",
       editorBg: "#1a1b26", editorText: "#c0caf5",
@@ -127,7 +127,7 @@ export const THEMES: Record<ThemeId, Theme> = {
     label: "Rose Pine",
     colors: {
       bg: "#191724", bgSecondary: "#1f1d2e", bgTertiary: "#26233a",
-      border: "#403d52", text: "#e0def4", textMuted: "#6e6a86",
+      border: "#403d52", text: "#e0def4", textMuted: "#87849e",
       primary: "#c4a7e7", primaryHover: "#d4baef", accent: "#9ccfd8",
       success: "#31748f", warning: "#f6c177", danger: "#eb6f92",
       editorBg: "#191724", editorText: "#e0def4",
@@ -147,7 +147,7 @@ export const THEMES: Record<ThemeId, Theme> = {
     label: "Gruvbox Dark",
     colors: {
       bg: "#282828", bgSecondary: "#3c3836", bgTertiary: "#504945",
-      border: "#665c54", text: "#ebdbb2", textMuted: "#a89984",
+      border: "#665c54", text: "#ebdbb2", textMuted: "#afa089",
       primary: "#fabd2f", primaryHover: "#d79921", accent: "#fe8019",
       success: "#b8bb26", warning: "#fe8019", danger: "#fb4934",
       editorBg: "#282828", editorText: "#ebdbb2",
@@ -164,7 +164,7 @@ export const THEMES: Record<ThemeId, Theme> = {
     label: "Solarized Dark",
     colors: {
       bg: "#002b36", bgSecondary: "#073642", bgTertiary: "#094655",
-      border: "#586e75", text: "#839496", textMuted: "#657b83",
+      border: "#586e75", text: "#839496", textMuted: "#839496",
       primary: "#268bd2", primaryHover: "#2aa198", accent: "#6c71c4",
       success: "#859900", warning: "#b58900", danger: "#dc322f",
       editorBg: "#002b36", editorText: "#839496",
@@ -215,7 +215,7 @@ export const THEMES: Record<ThemeId, Theme> = {
     label: "Kanagawa",
     colors: {
       bg: "#1F1F28", bgSecondary: "#2A2A37", bgTertiary: "#363646",
-      border: "#54546D", text: "#DCD7BA", textMuted: "#727169",
+      border: "#54546D", text: "#DCD7BA", textMuted: "#949283",
       primary: "#7E9CD8", primaryHover: "#7FB4CA", accent: "#957FB8",
       success: "#98BB6C", warning: "#E6C384", danger: "#E46876",
       editorBg: "#1F1F28", editorText: "#DCD7BA",
