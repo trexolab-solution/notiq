@@ -160,7 +160,7 @@ export function AIOnboarding({ onClose }: AIOnboardingProps) {
                     aria-label="API key"
                   />
                   {keyCheckFailed && (
-                    <p className="text-xs" role="alert" style={{ color: "var(--color-text-secondary)" }}>
+                    <p className="text-xs" role="alert" style={{ color: "var(--color-text-muted)" }}>
                       Couldn't check for a saved key. <button type="button" className="underline" onClick={() => setKeyCheckTick((n) => n + 1)}>Retry</button>
                     </p>
                   )}
