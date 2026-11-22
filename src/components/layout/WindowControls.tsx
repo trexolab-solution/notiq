@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { Minus, X } from 'lucide-react'
 import { appWin } from '../../lib/tauriWindow'
 import { Tooltip } from '../ui/Tooltip'
+import { maybeShowTrayNotice } from './trayNotice'
 
 function MaximizeIcon() {
   return (
@@ -55,7 +56,7 @@ export function WindowControls({ onClose }: { onClose?: () => void } = {}) {
         </button>
       </Tooltip>
       <Tooltip content="Close" delay={800}>
-        <button className="win-btn win-btn--close" aria-label="Close" onClick={() => (onClose ? onClose() : win.hide())}>
+        <button className="win-btn win-btn--close" aria-label="Close" onClick={() => { if (onClose) onClose(); else { win.hide(); maybeShowTrayNotice() } }}>
           <X size={11} strokeWidth={1.8} />
         </button>
       </Tooltip>
