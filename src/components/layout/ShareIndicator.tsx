@@ -9,7 +9,7 @@ import { useAppStore } from "../../store";
 import { useClickOutside } from "../../hooks/useClickOutside";
 import { useEscapeKey } from "../../hooks/useEscapeKey";
 import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
-import { getShareFolder, shareErrorMessage, shareLink, useShareStore } from "../../lib/webdavShare";
+import { getShareFolder, shareErrorMessage, shareLink, shareMode, useShareStore } from "../../lib/webdavShare";
 
 /**
  * Status-bar quick access for "Share files to phone": a button that shows whether sharing is on, and a small panel in
@@ -17,7 +17,7 @@ import { getShareFolder, shareErrorMessage, shareLink, useShareStore } from "../
  * address or jump to the QR code.
  */
 export function ShareIndicator() {
-  const { info, busy, upload, refresh, start, stop } = useShareStore();
+  const { info, busy, upload, manage, refresh, start, stop } = useShareStore();
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLDivElement>(null);
   const { copied, copy } = useCopyToClipboard();
@@ -32,7 +32,7 @@ export function ShareIndicator() {
     try { if (info) await stop(); else await start(folder); } catch (e) { toast.error(shareErrorMessage(e)); }
   };
   const on = !!info;
-  const mode = (info ? info.upload : upload) ? "Uploads allowed" : "Read-only";
+  const mode = info ? shareMode(info.upload, info.manage) : shareMode(upload, manage);
 
   return (
     <div ref={box} className="relative flex items-center">
@@ -80,7 +80,7 @@ export function ShareIndicator() {
             ) : (
               <>
                 <p className="m-0 text-[11.5px] leading-relaxed text-[var(--color-text-muted)]">
-                  Share a folder of this computer with a phone on the same Wi-Fi. {mode === "Read-only" ? "The phone can look and download." : "The phone can look, download and upload."}
+                  Share a folder of this computer with a phone on the same Wi-Fi. {mode === "Read-only" ? "The phone can look and download." : mode === "Full access" ? "The phone can look, download, upload, rename, move and delete." : "The phone can look, download and upload."}
                 </p>
                 <div className="flex items-center gap-1.5 rounded-md border border-[var(--color-border)] bg-[var(--color-bg-tertiary)] px-2.5 py-1.5 text-[12px]" title={folder}>
                   <Folder size={13} className="shrink-0 text-[var(--color-text-muted)]" aria-hidden />

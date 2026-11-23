@@ -1,4 +1,4 @@
-//! 0.13.0 "Share files to phone": a WebDAV server (read-only unless uploads are turned on) for one folder of this computer, reachable on the local
+//! 0.13.0 "Share files to phone": a WebDAV server (read-only unless uploads / file management are turned on) for one folder of this computer, reachable on the local
 //! network only. A phone's WebDAV client (Solid Explorer, Documents, Files, FolderSync, …) can browse and download.
 //!
 //! Safety, in order of importance:
@@ -6,7 +6,8 @@
 //!  * every request needs the user name and password (HTTP Basic): the ones the user typed, or `notiq` + a random password;
 //!  * only OPTIONS / GET / HEAD / PROPFIND are answered, so nothing can be written, moved or deleted. When the user
 //!    turns uploads on, PUT and MKCOL are answered too, but only for a NEW file or folder inside the shared folder:
-//!    nothing is overwritten, deleted or moved;
+//!    nothing is overwritten, deleted or moved. A second switch, "manage", also answers MOVE (rename / move), COPY and
+//!    DELETE, still never replacing an existing file, never touching the shared folder itself and never following links;
 //!  * symbolic links are hidden, so a link inside the folder can't lead out of it;
 //!  * sharing lasts until it is stopped or the app closes. Nothing is stored on disk.
 //!
@@ -43,6 +44,8 @@ const PREFERRED_PORT: u16 = 8765;
 const ALLOWED: &str = "OPTIONS, GET, HEAD, PROPFIND";
 /// The same, with uploads on.
 const ALLOWED_UPLOAD: &str = "OPTIONS, GET, HEAD, PROPFIND, PUT, MKCOL";
+/// The same, with file management on.
+const ALLOWED_MANAGE: &str = "OPTIONS, GET, HEAD, PROPFIND, PUT, MKCOL, MOVE, COPY, DELETE";
 
 /// What the settings page shows while a folder is shared.
 #[derive(Clone, Serialize)]
@@ -53,6 +56,8 @@ pub struct ShareInfo {
     folder: String,
     /// Whether a phone may add new files and folders.
     upload: bool,
+    /// Whether a phone may also rename, move, copy and delete.
+    manage: bool,
 }
 
 struct Running {
@@ -159,11 +164,12 @@ struct Guard {
     /// "user:password".
     login: String,
     upload: bool,
+    manage: bool,
     /// The shared folder, canonical.
     root: std::path::PathBuf,
 }
 
-fn allowed(g: &Guard) -> &'static str { if g.upload { ALLOWED_UPLOAD } else { ALLOWED } }
+fn allowed(g: &Guard) -> &'static str { if g.manage { ALLOWED_MANAGE } else if g.upload { ALLOWED_UPLOAD } else { ALLOWED } }
 
 /// Names Windows refuses (or treats as a device) in any folder.
 fn windows_reserved(name: &str) -> bool {
@@ -186,28 +192,56 @@ fn percent_decode(s: &str) -> Option<String> {
     String::from_utf8(out).ok()
 }
 
-/// Where a new file or folder named by a request path would go, if that is allowed: a name that does not exist yet,
-/// directly inside a real folder of the share. Refuses `..`, drive letters / streams (`:`), backslashes, device names,
-/// a parent that is missing or a link leading out of the shared folder, and anything that already exists.
-fn new_target(root: &Path, uri_path: &str) -> Result<std::path::PathBuf, &'static str> {
+/// The names in a request path, if each is acceptable: no `..` or `.`, no empty name, no drive letter / stream (`:`), no
+/// backslash or other characters Windows refuses, no device names, no trailing dot or space.
+fn clean_parts(uri_path: &str) -> Result<Vec<String>, &'static str> {
     let decoded = percent_decode(uri_path).ok_or("That name isn't valid.")?;
-    let parts: Vec<&str> = decoded.trim_end_matches('/').split('/').skip(1).collect();
+    let parts: Vec<String> = decoded.trim_end_matches('/').split('/').skip(1).map(str::to_string).collect();
     if parts.is_empty() { return Err("That name isn't valid."); }
     for p in &parts {
-        let bad = p.is_empty() || *p == "." || *p == ".." || p.contains(['\\', ':', '<', '>', '"', '|', '?', '*']) || p.chars().any(char::is_control)
+        let bad = p.is_empty() || p == "." || p == ".." || p.contains(['\\', ':', '<', '>', '"', '|', '?', '*']) || p.chars().any(char::is_control)
             || p.ends_with('.') || p.ends_with(' ') || windows_reserved(p);
         if bad { return Err("That name isn't valid."); }
     }
+    Ok(parts)
+}
+
+/// The path of `parts` under `root`, with its parent folder checked to be a real folder inside the share.
+fn under_root(root: &Path, parts: &[String]) -> Result<std::path::PathBuf, &'static str> {
     let target = parts.iter().fold(root.to_path_buf(), |acc, p| acc.join(p));
     let parent = target.parent().ok_or("That name isn't valid.")?;
     let parent = std::fs::canonicalize(parent).map_err(|_| "The folder doesn't exist.")?;
     if !parent.starts_with(root) || !parent.is_dir() { return Err("That name isn't valid."); }
+    Ok(target)
+}
+
+/// Where a new file or folder named by a request path would go, if that is allowed: a name that does not exist yet,
+/// directly inside a real folder of the share (see `clean_parts` for the refused names; also a missing parent, a link
+/// leading out of the shared folder, and anything that already exists).
+fn new_target(root: &Path, uri_path: &str) -> Result<std::path::PathBuf, &'static str> {
+    let target = under_root(root, &clean_parts(uri_path)?)?;
     if std::fs::symlink_metadata(&target).is_ok() { return Err("A file or folder with that name already exists."); }
     Ok(target)
 }
 
+/// An existing file or folder inside the share that may be renamed, moved, copied or deleted: never the shared folder
+/// itself, and never a link.
+fn existing_target(root: &Path, uri_path: &str) -> Result<std::path::PathBuf, &'static str> {
+    let target = under_root(root, &clean_parts(uri_path)?)?;
+    let meta = std::fs::symlink_metadata(&target).map_err(|_| "That file or folder doesn't exist.")?;
+    if meta.file_type().is_symlink() { return Err("That name isn't valid."); }
+    Ok(target)
+}
+
+/// The path part of a MOVE / COPY `Destination` header (it may be a full address or just a path).
+fn destination_path(req: &Request<Incoming>) -> Option<String> {
+    let v = req.headers().get("destination")?.to_str().ok()?;
+    let uri: hyper::Uri = v.parse().ok()?;
+    Some(uri.path().to_string())
+}
+
 /// One request: password check, then only the reading methods (and, if turned on, adding new things) go on to the WebDAV handler.
-async fn serve(req: Request<Incoming>, dav: DavHandler, guard: std::sync::Arc<Guard>) -> Result<Response<Body>, Infallible> {
+async fn serve(mut req: Request<Incoming>, dav: DavHandler, guard: std::sync::Arc<Guard>) -> Result<Response<Body>, Infallible> {
     let header = req.headers().get(AUTHORIZATION).and_then(|v| v.to_str().ok());
     if !authorized(header, &guard.login) {
         // A short pause makes guessing passwords slow.
@@ -219,23 +253,39 @@ async fn serve(req: Request<Incoming>, dav: DavHandler, guard: std::sync::Arc<Gu
         Method::GET if wants_page(&req) => Ok(page()),
         Method::GET | Method::HEAD => Ok(harden(dav.handle(req).await)),
         ref m if m.as_str() == "PROPFIND" => Ok(dav.handle(req).await),
+        ref m if guard.manage && m.as_str() == "DELETE" => match existing_target(&guard.root, req.uri().path()) {
+            Ok(_) => Ok(dav.handle(req).await),
+            Err(why) => Ok(reply(StatusCode::CONFLICT, &[], why)),
+        },
+        ref m if guard.manage && (m.as_str() == "MOVE" || m.as_str() == "COPY") => {
+            // Both ends must be acceptable, and nothing that exists may be replaced.
+            let from = existing_target(&guard.root, req.uri().path()).map(|_| ());
+            let to = match destination_path(&req) { Some(d) => new_target(&guard.root, &d).map(|_| ()), None => Err("Missing destination.") };
+            match from.and(to) {
+                Ok(()) => {
+                    req.headers_mut().insert("overwrite", hyper::header::HeaderValue::from_static("F"));
+                    Ok(dav.handle(req).await)
+                }
+                Err(why) => Ok(reply(StatusCode::CONFLICT, &[], why)),
+            }
+        }
         ref m if guard.upload && (m == Method::PUT || m.as_str() == "MKCOL") => match new_target(&guard.root, req.uri().path()) {
             Ok(_) => Ok(dav.handle(req).await),
             Err(why) => Ok(reply(StatusCode::CONFLICT, &[], why)),
         },
-        _ => Ok(reply(StatusCode::METHOD_NOT_ALLOWED, &[(ALLOW.as_str(), allowed(&guard))], if guard.upload { "Only new files and folders can be added" } else { "This share is read-only" })),
+        _ => Ok(reply(StatusCode::METHOD_NOT_ALLOWED, &[(ALLOW.as_str(), allowed(&guard))], if guard.manage { "That request isn't allowed" } else if guard.upload { "Only new files and folders can be added" } else { "This share is read-only" })),
     }
 }
 
 /// Answers requests on `listener` until `stopped` changes.
-async fn run(listener: TcpListener, dir: std::path::PathBuf, login: String, upload: bool, mut stopped: watch::Receiver<bool>) {
+async fn run(listener: TcpListener, dir: std::path::PathBuf, login: String, upload: bool, manage: bool, mut stopped: watch::Receiver<bool>) {
     let dav = DavHandler::builder()
         .filesystem(LocalFs::new(&dir, false, false, false))
         .locksystem(FakeLs::new())
         .hide_symlinks(true)
         .autoindex(true) // a browser opening the address gets a page listing the folder
         .build_handler();
-    let guard = std::sync::Arc::new(Guard { login, upload, root: dir.clone() });
+    let guard = std::sync::Arc::new(Guard { login, upload: upload || manage, manage, root: dir.clone() });
     loop {
         tokio::select! {
             _ = stopped.changed() => break,
@@ -255,7 +305,7 @@ async fn run(listener: TcpListener, dir: std::path::PathBuf, login: String, uplo
 }
 
 #[tauri::command]
-pub async fn webdav_start(folder: String, username: Option<String>, password: Option<String>, upload: Option<bool>, state: State<'_, WebdavState>) -> Result<ShareInfo, String> {
+pub async fn webdav_start(folder: String, username: Option<String>, password: Option<String>, upload: Option<bool>, manage: Option<bool>, state: State<'_, WebdavState>) -> Result<ShareInfo, String> {
     if state.0.lock().unwrap_or_else(|e| e.into_inner()).is_some() { return Err("Sharing is already on.".into()); }
     let dir = std::fs::canonicalize(Path::new(&folder)).map_err(|_| "That folder doesn't exist.".to_string())?;
     if !dir.is_dir() { return Err("Pick a folder to share.".into()); }
@@ -273,11 +323,12 @@ pub async fn webdav_start(folder: String, username: Option<String>, password: Op
         username: username.clone(),
         password: password.clone(),
         folder: dir.to_string_lossy().trim_start_matches(r"\\?\").to_string(),
-        upload: upload.unwrap_or(false),
+        upload: upload.unwrap_or(false) || manage.unwrap_or(false),
+        manage: manage.unwrap_or(false),
     };
 
     let (stop, stopped) = watch::channel(false);
-    tokio::spawn(run(listener, dir, format!("{username}:{password}"), info.upload, stopped));
+    tokio::spawn(run(listener, dir, format!("{username}:{password}"), info.upload, info.manage, stopped));
 
     *state.0.lock().unwrap_or_else(|e| e.into_inner()) = Some(Running { info: info.clone(), stop });
     Ok(info)
@@ -341,7 +392,7 @@ mod tests {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let base = format!("http://{}", listener.local_addr().unwrap());
         let (stop, stopped) = watch::channel(false);
-        tokio::spawn(run(listener, dir.clone(), "notiq:pw".into(), true, stopped));
+        tokio::spawn(run(listener, dir.clone(), "notiq:pw".into(), true, false, stopped));
 
         let c = reqwest::Client::new();
         let call = |m: &str, path: &str, body: Option<&'static str>| {
@@ -365,6 +416,67 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
     }
 
+    #[tokio::test]
+    async fn managing_renames_moves_copies_and_deletes_without_replacing_anything() {
+        let dir = std::env::temp_dir().join(format!("notiq-dav-mg-{}", make_password()));
+        std::fs::create_dir_all(dir.join("Sub")).unwrap();
+        std::fs::write(dir.join("a.txt"), "A").unwrap();
+        std::fs::write(dir.join("b.txt"), "B").unwrap();
+        let dir = std::fs::canonicalize(&dir).unwrap();
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let base = format!("http://{addr}");
+        let (stop, stopped) = watch::channel(false);
+        tokio::spawn(run(listener, dir.clone(), "notiq:pw".into(), false, true, stopped));
+
+        let c = reqwest::Client::new();
+        let call = |m: &str, path: &str, dest: Option<&str>| {
+            let r = c.request(Method::from_bytes(m.as_bytes()).unwrap(), format!("{base}{path}")).basic_auth("notiq", Some("pw"));
+            if let Some(d) = dest { r.header("Destination", format!("{base}{d}")) } else { r }.send()
+        };
+        // Rename, move into a folder, copy.
+        assert!(call("MOVE", "/a.txt", Some("/renamed.txt")).await.unwrap().status().is_success());
+        assert!(!dir.join("a.txt").exists() && dir.join("renamed.txt").exists());
+        assert!(call("MOVE", "/renamed.txt", Some("/Sub/renamed.txt")).await.unwrap().status().is_success());
+        assert!(call("COPY", "/b.txt", Some("/Sub/b-copy.txt")).await.unwrap().status().is_success());
+        assert!(dir.join("b.txt").exists() && dir.join("Sub").join("b-copy.txt").exists());
+        // Nothing that exists is replaced, nothing leaves the share, and the share itself can't be touched.
+        assert_eq!(call("MOVE", "/b.txt", Some("/Sub/renamed.txt")).await.unwrap().status(), 409);
+        assert_eq!(call("COPY", "/b.txt", Some("/Sub/renamed.txt")).await.unwrap().status(), 409);
+        assert_eq!(call("MOVE", "/b.txt", Some("/%2e%2e/out.txt")).await.unwrap().status(), 409);
+        assert_eq!(call("DELETE", "/", None).await.unwrap().status(), 409);
+        assert_eq!(call("DELETE", "/nope.txt", None).await.unwrap().status(), 409);
+        assert_eq!(std::fs::read_to_string(dir.join("Sub").join("renamed.txt")).unwrap(), "A");
+        // Delete a file and a folder (with what is inside).
+        assert!(call("DELETE", "/b.txt", None).await.unwrap().status().is_success());
+        assert!(call("DELETE", "/Sub/", None).await.unwrap().status().is_success());
+        assert!(!dir.join("b.txt").exists() && !dir.join("Sub").exists());
+        let o = call("OPTIONS", "/", None).await.unwrap();
+        assert!(o.headers()["allow"].to_str().unwrap().contains("DELETE"));
+        stop.send(true).unwrap();
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[tokio::test]
+    async fn uploads_alone_do_not_allow_rename_move_or_delete() {
+        let dir = std::env::temp_dir().join(format!("notiq-dav-ro-{}", make_password()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("a.txt"), "A").unwrap();
+        let dir = std::fs::canonicalize(&dir).unwrap();
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let (stop, stopped) = watch::channel(false);
+        tokio::spawn(run(listener, dir.clone(), "notiq:pw".into(), true, false, stopped));
+        let c = reqwest::Client::new();
+        for m in ["DELETE", "MOVE", "COPY"] {
+            let res = c.request(Method::from_bytes(m.as_bytes()).unwrap(), format!("{base}/a.txt")).basic_auth("notiq", Some("pw")).header("Destination", format!("{base}/z.txt")).send().await.unwrap();
+            assert_eq!(res.status(), 405, "{m}");
+        }
+        assert!(dir.join("a.txt").exists());
+        stop.send(true).unwrap();
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
     #[test]
     fn only_the_right_user_and_password_pass() {
         assert!(authorized(Some(&basic("notiq:secret")), "notiq:secret"));
@@ -383,7 +495,7 @@ mod tests {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let base = format!("http://{}", listener.local_addr().unwrap());
         let (stop, stopped) = watch::channel(false);
-        tokio::spawn(run(listener, dir.clone(), "notiq:pw".into(), false, stopped));
+        tokio::spawn(run(listener, dir.clone(), "notiq:pw".into(), false, false, stopped));
 
         let c = reqwest::Client::new();
         let m = |s: &str| Method::from_bytes(s.as_bytes()).unwrap();

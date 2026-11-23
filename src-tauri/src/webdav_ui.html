@@ -35,8 +35,8 @@ header { position: sticky; top: 0; z-index: 5; background: color-mix(in srgb, va
 .crumbs .cur { font-weight: 600; }
 .crumbs .sep { color: var(--muted); }
 .crumbs .home { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; }
-.tools { display: flex; gap: 8px; align-items: center; flex: 1 1 280px; justify-content: flex-end; }
-.search { position: relative; flex: 1 1 140px; max-width: 280px; }
+.tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; flex: 1 1 280px; justify-content: flex-end; }
+.search { position: relative; flex: 1 1 140px; min-width: 120px; max-width: 280px; }
 .search svg { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--muted); }
 .search input { width: 100%; padding: 8px 10px 8px 32px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel); outline: none; }
 .search input:focus, select:focus-visible, button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
@@ -87,6 +87,46 @@ select, .btn { padding: 8px 10px; border-radius: 10px; border: 1px solid var(--l
 .up.ok .upb i { background: var(--c-image); width: 100%; }
 .up.bad .upb i { background: var(--danger); width: 100%; }
 .up.bad .upm { color: var(--danger); }
+.row, .card { -webkit-touch-callout: none; user-select: none; -webkit-user-select: none; }
+.chk { display: none; width: 22px; height: 22px; border-radius: 7px; border: 2px solid var(--muted); background: var(--panel); place-items: center; color: transparent; flex: none; }
+.chk svg { width: 14px; height: 14px; stroke-width: 3.2; }
+.selecting .chk { display: grid; }
+.sel .chk { background: var(--accent); border-color: var(--accent); color: var(--panel); }
+.list.selecting .row { grid-template-columns: 22px 28px 1fr auto auto 36px; }
+.row.sel { background: var(--accent-bg); }
+.card { position: relative; }
+.card .chk { position: absolute; top: 9px; left: 9px; z-index: 2; }
+.card.sel { outline: 2px solid var(--accent); outline-offset: -2px; }
+.selbar { display: none; align-items: center; gap: 6px; flex-wrap: wrap; max-width: 1040px; margin: 10px auto 0; padding: 6px 8px; background: var(--accent-bg); border-radius: 12px; }
+.selbar.on { display: flex; }
+.selbar .selc { font-weight: 600; color: var(--accent); padding: 0 6px; margin-right: auto; }
+.sb { display: inline-flex; align-items: center; gap: 6px; padding: 7px 10px; border: 0; border-radius: 9px; background: transparent; cursor: pointer; font-size: 14px; }
+.sb:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.sb:disabled { opacity: .4; cursor: default; }
+.sb.danger { color: var(--danger); }
+.modal { position: fixed; inset: 0; z-index: 25; background: rgba(0,0,0,.5); display: grid; place-items: center; padding: 16px; }
+.mbox { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; width: min(460px, 100%); max-height: min(560px, 86vh); display: flex; flex-direction: column; box-shadow: var(--shadow); overflow: hidden; }
+.mh { padding: 14px 16px 4px; font-weight: 600; font-size: 16px; }
+.mcrumb { padding: 0 16px 10px; color: var(--muted); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mlist { flex: 1; min-height: 120px; overflow: auto; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.mitem { display: flex; align-items: center; gap: 10px; width: 100%; padding: 11px 16px; border: 0; border-top: 1px solid var(--line); background: transparent; cursor: pointer; text-align: left; }
+.mitem:first-child { border-top: 0; }
+.mitem:hover:not(:disabled) { background: var(--panel-2); }
+.mitem:disabled { opacity: .45; cursor: default; }
+.mitem svg { font-size: 20px; }
+.mitem span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mempty { padding: 26px 16px; color: var(--muted); text-align: center; }
+.mf { display: flex; align-items: center; gap: 8px; padding: 12px 14px; }
+.mf .sp { flex: 1; }
+.mhint { padding: 8px 16px 0; color: var(--danger); font-size: 12.5px; min-height: 20px; }
+.toast { position: fixed; left: 50%; bottom: calc(env(safe-area-inset-bottom) + 20px); transform: translate(-50%, 20px); opacity: 0; pointer-events: none; z-index: 30; background: #1b2029; color: #eef1f6; padding: 10px 16px; border-radius: 12px; box-shadow: var(--shadow); font-size: 14px; transition: .18s; max-width: calc(100vw - 32px); }
+.toast.on { opacity: 1; transform: translate(-50%, 0); }
+.toast.bad { background: var(--danger); color: #fff; }
+@media (max-width: 640px) {
+  .list.selecting .row { grid-template-columns: 22px 26px 1fr auto 34px; }
+  .selbar .lbl { display: none; }
+  .sb { padding: 9px 11px; }
+}
 .viewer { position: fixed; inset: 0; z-index: 20; background: #0a0c10; display: none; flex-direction: column; color: #eef1f6; }
 .viewer.on { display: flex; }
 .vbar { display: flex; align-items: center; gap: 10px; padding: calc(env(safe-area-inset-top) + 10px) 14px 10px; }
@@ -126,17 +166,38 @@ select, .btn { padding: 8px 10px; border-radius: 10px; border: 1px solid var(--l
         <label class="search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="q" type="search" placeholder="Search this folder" autocomplete="off" aria-label="Search this folder"></label>
         <select id="sort" aria-label="Sort by"><option value="name">Name</option><option value="size">Size</option><option value="mtime">Modified</option></select>
         <button class="btn" id="dir" aria-label="Reverse the order" title="Reverse the order"><svg viewBox="0 0 24 24"><path d="M7 4v16M3 8l4-4 4 4M17 20V4M13 16l4 4 4-4"/></svg></button>
+        <button class="btn" id="sel" aria-pressed="false" aria-label="Select files" title="Select files"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="4"/><path d="m8 12 3 3 5-6"/></svg></button>
         <div class="seg" role="group" aria-label="Layout">
           <button id="vlist" aria-label="List" title="List"><svg viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg></button>
           <button id="vgrid" aria-label="Grid" title="Grid"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg></button>
         </div>
       </div>
     </div>
+    <div class="selbar" id="selbar" role="toolbar" aria-label="Selection">
+      <span class="selc" id="selc">Select items</span>
+      <button class="sb" id="sa" aria-label="Select all" title="Select all"><svg viewBox="0 0 24 24"><path d="M4 7l3 3 5-6M4 17l3 3 5-6M15 8h6M15 18h6"/></svg><span class="lbl">All</span></button>
+      <button class="sb" id="sdl" aria-label="Download" title="Download"><svg viewBox="0 0 24 24"><path d="M12 3v12m0 0 4-4m-4 4-4-4M4 20h16"/></svg><span class="lbl">Download</span></button>
+      <button class="sb" id="sren" hidden aria-label="Rename" title="Rename"><svg viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16zM13.5 6.5l4 4"/></svg><span class="lbl">Rename</span></button>
+      <button class="sb" id="smv" hidden aria-label="Move" title="Move"><svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM9 13h7m0 0-2.5-2.5M16 13l-2.5 2.5"/></svg><span class="lbl">Move</span></button>
+      <button class="sb" id="scp" hidden aria-label="Copy" title="Copy"><svg viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg><span class="lbl">Copy</span></button>
+      <button class="sb danger" id="sdel" hidden aria-label="Delete" title="Delete"><svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3"/></svg><span class="lbl">Delete</span></button>
+      <button class="sb" id="sdone" aria-label="Done" title="Done (Esc)"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg><span class="lbl">Done</span></button>
+    </div>
   </header>
   <main id="main" aria-live="polite"></main>
   <p class="foot" id="foot"></p>
 </div>
 
+<div class="modal" id="pick" hidden role="dialog" aria-modal="true" aria-labelledby="pk-t">
+  <div class="mbox">
+    <div class="mh" id="pk-t">Move to…</div>
+    <div class="mcrumb" id="pk-p"></div>
+    <div class="mlist" id="pk-l"></div>
+    <div class="mhint" id="pk-h"></div>
+    <div class="mf"><button class="btn" id="pk-up">Up</button><span class="sp"></span><button class="btn" id="pk-c">Cancel</button><button class="btn btn-up" id="pk-ok">Move here</button></div>
+  </div>
+</div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
 <input type="file" id="file" multiple hidden>
 <div class="drop" id="drop"><div>Drop files to upload here</div></div>
 <div class="ups" id="ups" hidden><div class="ups-h"><span id="upt">Uploading</span><button id="upx" aria-label="Close">Close</button></div><div id="uplist"></div></div>
@@ -184,8 +245,8 @@ select, .btn { padding: 8px 10px; border-radius: 10px; border: 1px solid var(--l
   const kindOf = (it) => (it.dir ? "folder" : KIND[(it.name.split(".").pop() || "").toLowerCase()] || "file");
   const PREVIEW = new Set(["image", "video", "audio", "pdf", "text"]);
 
-  const st = { path: location.pathname, items: [], q: "", view: store("view", "list"), sort: store("sort", "name"), desc: store("desc", "0") === "1", loading: true, error: "" };
-  let shown = [], viewerList = [], vi = -1, viewerOn = false;
+  const st = { path: location.pathname, items: [], sel: new Set(), selecting: false, q: "", view: store("view", "list"), sort: store("sort", "name"), desc: store("desc", "0") === "1", loading: true, error: "" };
+  let shown = [], viewerList = [], vi = -1, viewerOn = false, canUpload = false, canManage = false;
 
   // An address like http://user:pass@host/ makes every relative URL carry the password, and browsers refuse such
   // fetches and subresources. So drop it from the address bar and build every URL from the bare origin.
@@ -203,30 +264,33 @@ select, .btn { padding: 8px 10px; border-radius: 10px; border: 1px solid var(--l
   const when = (t) => (t ? new Date(t).toLocaleString([], { dateStyle: "medium", timeStyle: "short" }) : "");
   const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; };
 
+  async function listDir(path) {
+    const r = await fetch(abs(path), { method: "PROPFIND", headers: { Depth: "1" }, credentials: "same-origin" });
+    if (r.status === 401) { location.reload(); return []; }
+    if (!r.ok) throw new Error(r.status === 404 ? "This folder no longer exists." : "The server answered " + r.status + ".");
+    const xml = new DOMParser().parseFromString(await r.text(), "application/xml");
+    const self = dec(path).replace(/\/+$/, "");
+    const items = [];
+    for (const rs of xml.getElementsByTagNameNS("DAV:", "response")) {
+      const g = (n) => rs.getElementsByTagNameNS("DAV:", n)[0]?.textContent ?? "";
+      const href = safeHref(g("href"));
+      const plain = dec(href).replace(/\/+$/, "");
+      if (plain === self) continue;
+      const dir = rs.getElementsByTagNameNS("DAV:", "collection").length > 0;
+      const name = plain.split("/").pop() || plain;
+      const len = g("getcontentlength");
+      const m = Date.parse(g("getlastmodified"));
+      items.push({ name, href: dir && !href.endsWith("/") ? href + "/" : href, dir, size: len === "" ? null : Number(len), mtime: Number.isNaN(m) ? 0 : m });
+    }
+    return items;
+  }
+
   async function load(path, quiet = false) {
     st.path = path; st.error = "";
-    if (!quiet) { st.loading = true; st.q = ""; $("#q").value = ""; render(); }
-    try {
-      const r = await fetch(abs(path), { method: "PROPFIND", headers: { Depth: "1" }, credentials: "same-origin" });
-      if (r.status === 401) { location.reload(); return; }
-      if (!r.ok) throw new Error(r.status === 404 ? "This folder no longer exists." : "The server answered " + r.status + ".");
-      const xml = new DOMParser().parseFromString(await r.text(), "application/xml");
-      const self = dec(path).replace(/\/+$/, "");
-      const items = [];
-      for (const rs of xml.getElementsByTagNameNS("DAV:", "response")) {
-        const g = (n) => rs.getElementsByTagNameNS("DAV:", n)[0]?.textContent ?? "";
-        const href = safeHref(g("href"));
-        const plain = dec(href).replace(/\/+$/, "");
-        if (plain === self) continue;
-        const dir = rs.getElementsByTagNameNS("DAV:", "collection").length > 0;
-        const name = plain.split("/").pop() || plain;
-        const len = g("getcontentlength");
-        const m = Date.parse(g("getlastmodified"));
-        items.push({ name, href: dir && !href.endsWith("/") ? href + "/" : href, dir, size: len === "" ? null : Number(len), mtime: Number.isNaN(m) ? 0 : m });
-      }
-      st.items = items;
-    } catch (e) { st.items = []; st.error = e && e.message ? e.message : "Couldn't load this folder."; }
-    st.loading = false; render();
+    if (!quiet) { st.loading = true; st.q = ""; st.selecting = false; st.sel.clear(); $("#q").value = ""; render(); }
+    try { st.items = await listDir(path); } catch (e) { st.items = []; st.error = e && e.message ? e.message : "Couldn't load this folder."; }
+    st.loading = false; st.sel = new Set([...st.sel].filter((h) => st.items.some((i) => i.href === h)));
+    render();
   }
 
   function sorted() {
@@ -257,7 +321,7 @@ select, .btn { padding: 8px 10px; border-radius: 10px; border: 1px solid var(--l
   }
 
   function render() {
-    crumbs();
+    crumbs(); updateSelbar();
     document.title = (dec(st.path).replace(/\/+$/, "").split("/").pop() || "Shared files");
     $("#vlist").setAttribute("aria-pressed", String(st.view === "list"));
     $("#vgrid").setAttribute("aria-pressed", String(st.view === "grid"));
@@ -267,9 +331,10 @@ select, .btn { padding: 8px 10px; border-radius: 10px; border: 1px solid var(--l
     if (st.error) { const n = el("div", "note", "<b>Couldn't open this folder</b>"); n.append(document.createTextNode(st.error + " ")); const b = el("button", "btn", "Try again"); b.onclick = () => load(st.path); n.append(b); main.append(n); return; }
     shown = sorted();
     if (!shown.length) { main.append(el("div", "note", st.q ? "<b>No matches</b>Nothing in this folder matches your search." : "<b>This folder is empty</b>")); return; }
-    const wrap = el("div", st.view === "grid" ? "grid" : "list");
+    const wrap = el("div", (st.view === "grid" ? "grid" : "list") + (st.selecting ? " selecting" : ""));
     shown.forEach((it, i) => {
       const kind = kindOf(it), a = el("a", st.view === "grid" ? "card" : "row"); a.href = abs(it.href); a.dataset.i = String(i);
+      const chk = el("span", "chk", CHECK); if (st.sel.has(it.href)) a.classList.add("sel");
       const name = document.createElement("div"); name.className = "name"; name.textContent = it.name; name.title = it.name;
       if (st.view === "grid") {
         const th = el("div", "thumb k-" + kind);
@@ -282,6 +347,7 @@ select, .btn { padding: 8px 10px; border-radius: 10px; border: 1px solid var(--l
         a.append(ic, name, sz, dt);
         if (!it.dir) { const d = el("a", "dl", '<svg viewBox="0 0 24 24"><path d="M12 3v12m0 0 4-4m-4 4-4-4M4 20h16"/></svg>'); d.href = abs(it.href); d.setAttribute("download", it.name); d.setAttribute("aria-label", "Download " + it.name); d.title = "Download"; d.onclick = (e) => e.stopPropagation(); a.append(d); } else a.append(el("span"));
       }
+      a.prepend(chk);
       wrap.append(a);
     });
     main.append(wrap);
@@ -291,11 +357,14 @@ select, .btn { padding: 8px 10px; border-radius: 10px; border: 1px solid var(--l
 
   function go(path, push = true) { if (push) setUrl("pushState", {}, abs(path)); load(path); }
 
+  let suppress = false;
   document.addEventListener("click", (e) => {
+    if (suppress) { suppress = false; e.preventDefault(); e.stopPropagation(); return; }
     const a = e.target.closest("a"); if (!a || e.defaultPrevented || e.metaKey || e.ctrlKey || e.shiftKey || e.button) return;
-    if (a.dataset.go) { e.preventDefault(); go(a.dataset.go); return; }
+    if (a.dataset.go) { e.preventDefault(); if (st.selecting) setSelecting(false); go(a.dataset.go); return; }
     if (a.dataset.i != null && a.closest("#main")) {
       e.preventDefault(); const it = shown[Number(a.dataset.i)]; if (!it) return;
+      if (st.selecting) { toggleSel(it.href); return; }
       if (it.dir) go(it.href); else if (PREVIEW.has(kindOf(it))) openViewer(it); else location.href = abs(it.href);
     }
   });
@@ -305,6 +374,128 @@ select, .btn { padding: 8px 10px; border-radius: 10px; border: 1px solid var(--l
   $("#dir").addEventListener("click", () => { st.desc = !st.desc; save("desc", st.desc ? "1" : "0"); render(); });
   $("#vlist").addEventListener("click", () => { st.view = "list"; save("view", "list"); render(); });
   $("#vgrid").addEventListener("click", () => { st.view = "grid"; save("view", "grid"); render(); });
+
+  // ── selecting, and what can be done with the selection ──
+  const CHECK = '<svg viewBox="0 0 24 24"><path d="m5 12 5 5 9-10"/></svg>';
+  const selItems = () => st.items.filter((i) => st.sel.has(i.href));
+  function updateSelbar() {
+    const on = st.selecting; $("#selbar").classList.toggle("on", on); $("#sel").setAttribute("aria-pressed", String(on));
+    if (!on) return;
+    const n = st.sel.size, files = selItems().filter((i) => !i.dir).length;
+    $("#selc").textContent = n ? n + " selected" : "Select items";
+    $("#sdl").disabled = !files; $("#sren").disabled = n !== 1; $("#smv").disabled = !n; $("#scp").disabled = !n; $("#sdel").disabled = !n;
+    for (const id of ["sren", "smv", "scp", "sdel"]) $("#" + id).hidden = !canManage;
+  }
+  function refreshSel() {
+    for (const n of document.querySelectorAll("#main [data-i]")) { const it = shown[Number(n.dataset.i)]; n.classList.toggle("sel", !!it && st.sel.has(it.href)); }
+    updateSelbar();
+  }
+  function toggleSel(href) { if (st.sel.has(href)) st.sel.delete(href); else st.sel.add(href); refreshSel(); }
+  function setSelecting(on) { st.selecting = on; if (!on) st.sel.clear(); render(); }
+  function say(msg, bad = false) {
+    const t = $("#toast"); t.textContent = msg; t.className = "toast on" + (bad ? " bad" : "");
+    clearTimeout(say.t); say.t = setTimeout(() => t.classList.remove("on"), 3800);
+  }
+  const okStatus = (c) => c === 200 || c === 201 || c === 204;
+  const encName = (n) => encodeURIComponent(n);
+  const badName = (n) => !n || /[\\/:*?"<>|]/.test(n) || n === "." || n === ".." || /[. ]$/.test(n);
+  async function dav(method, from, to) {
+    try { const h = { Overwrite: "F" }; if (to) h.Destination = abs(to); return (await fetch(abs(from), { method, headers: h, credentials: "same-origin" })).status; } catch { return 0; }
+  }
+  async function doDownload() {
+    const items = selItems();
+    for (const it of items.filter((i) => !i.dir)) {
+      const a = document.createElement("a"); a.href = abs(it.href); a.download = it.name; document.body.append(a); a.click(); a.remove();
+      await new Promise((d) => setTimeout(d, 350));
+    }
+    if (items.some((i) => i.dir)) say("Folders can't be downloaded. Open one to pick its files.");
+  }
+  async function doRename() {
+    const it = selItems()[0]; if (!it) return;
+    const answer = prompt("Rename to", it.name); if (answer == null) return;
+    const name = answer.trim(); if (!name || name === it.name) return;
+    if (badName(name)) { say("That name isn't valid.", true); return; }
+    if (st.items.some((i) => i !== it && i.name.toLowerCase() === name.toLowerCase())) { say("A file or folder with that name already exists.", true); return; }
+    const c = await dav("MOVE", it.href, st.path + encName(name) + (it.dir ? "/" : ""));
+    if (okStatus(c)) { say("Renamed."); st.sel.clear(); await load(st.path, true); } else say(c === 409 ? "Couldn't rename: that name is taken or not allowed." : "Couldn't rename (" + c + ").", true);
+  }
+  async function doDelete() {
+    const items = selItems(); if (!items.length) return;
+    const what = items.length === 1 ? '"' + items[0].name + '"' : items.length + " items";
+    if (!confirm("Delete " + what + "?" + (items.some((i) => i.dir) ? "\nFolders are deleted with everything inside." : "") + "\nThis can't be undone.")) return;
+    let ok = 0, bad = 0;
+    for (const it of items) { if (okStatus(await dav("DELETE", it.href))) ok++; else bad++; }
+    st.sel.clear(); say(bad ? ok + " deleted, " + bad + " failed." : ok === 1 ? "Deleted." : ok + " items deleted.", !!bad);
+    await load(st.path, true);
+  }
+  // Move / copy: pick the destination folder in a small dialog.
+  const pk = { mode: "move", path: "/", items: [] };
+  const closePicker = () => { $("#pick").hidden = true; };
+  async function pickLoad(path) {
+    pk.path = path; $("#pk-p").textContent = dec(path); $("#pk-l").replaceChildren(el("div", "mempty", "Loading…"));
+    try { pk.items = (await listDir(path)).filter((i) => i.dir); } catch { pk.items = []; }
+    const list = $("#pk-l"); list.replaceChildren();
+    const moving = selItems().filter((i) => i.dir).map((i) => i.href);
+    if (!pk.items.length) list.append(el("div", "mempty", "No folders here. You can still use this one."));
+    for (const f of pk.items) {
+      const b = el("button", "mitem k-folder", icon("folder") + "<span></span>"); b.lastChild.textContent = f.name; b.lastChild.style.color = "var(--text)";
+      b.disabled = pk.mode === "move" && moving.includes(f.href); b.onclick = () => pickLoad(f.href); list.append(b);
+    }
+    const inside = moving.some((h) => path.startsWith(h)), same = pk.mode === "move" && path === st.path;
+    $("#pk-ok").disabled = inside || same;
+    $("#pk-h").textContent = inside ? "A folder can't go inside itself." : same ? "These items are already in this folder." : "";
+  }
+  function openPicker(mode) {
+    if (!st.sel.size) return;
+    pk.mode = mode; $("#pk-t").textContent = mode === "move" ? "Move to…" : "Copy to…"; $("#pk-ok").textContent = mode === "move" ? "Move here" : "Copy here";
+    $("#pick").hidden = false; void pickLoad(st.path);
+  }
+  async function pickConfirm() {
+    const items = selItems(), dest = pk.path, method = pk.mode === "move" ? "MOVE" : "COPY";
+    closePicker();
+    const taken = new Set((await listDir(dest).catch(() => [])).map((i) => i.name));
+    let ok = 0, bad = 0;
+    for (const it of items) {
+      const name = uniqueName(it.name, taken); taken.add(name);
+      if (okStatus(await dav(method, it.href, dest + encName(name) + (it.dir ? "/" : "")))) ok++; else bad++;
+    }
+    st.sel.clear(); const verb = method === "MOVE" ? "moved" : "copied";
+    say(bad ? ok + " " + verb + ", " + bad + " failed." : ok === 1 ? "1 item " + verb + "." : ok + " items " + verb + ".", !!bad);
+    await load(st.path, true);
+  }
+  $("#sel").addEventListener("click", () => setSelecting(!st.selecting));
+  $("#sdone").addEventListener("click", () => setSelecting(false));
+  $("#sa").addEventListener("click", () => { if (st.sel.size === shown.length) st.sel.clear(); else for (const i of shown) st.sel.add(i.href); refreshSel(); });
+  $("#sdl").addEventListener("click", () => void doDownload());
+  $("#sren").addEventListener("click", () => void doRename());
+  $("#sdel").addEventListener("click", () => void doDelete());
+  $("#smv").addEventListener("click", () => openPicker("move"));
+  $("#scp").addEventListener("click", () => openPicker("copy"));
+  $("#pk-c").addEventListener("click", closePicker);
+  $("#pk-ok").addEventListener("click", () => void pickConfirm());
+  $("#pk-up").addEventListener("click", () => { const parts = pk.path.split("/").filter(Boolean); parts.pop(); void pickLoad("/" + parts.join("/") + (parts.length ? "/" : "")); });
+  $("#pick").addEventListener("click", (e) => { if (e.target === $("#pick")) closePicker(); });
+  // Touch: press and hold an item to start selecting.
+  let lp = 0; const main = $("#main");
+  main.addEventListener("pointerdown", (e) => {
+    suppress = false; if (e.pointerType === "mouse") return;
+    const a = e.target.closest("[data-i]"); if (!a || e.target.closest(".dl")) return;
+    clearTimeout(lp);
+    lp = setTimeout(() => {
+      const it = shown[Number(a.dataset.i)]; if (!it) return;
+      suppress = true;
+      if (st.selecting) toggleSel(it.href); else { st.selecting = true; st.sel.add(it.href); render(); }
+      if (navigator.vibrate) navigator.vibrate(15);
+    }, 480);
+  });
+  for (const t of ["pointerup", "pointercancel", "pointermove"]) main.addEventListener(t, () => clearTimeout(lp));
+  main.addEventListener("contextmenu", (e) => { if (e.target.closest("[data-i]") && matchMedia("(pointer: coarse)").matches) e.preventDefault(); });
+  window.addEventListener("keydown", (e) => {
+    if (viewerOn || !$("#pick").hidden || /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
+    if (e.key === "Escape" && st.selecting) setSelecting(false);
+    else if (st.selecting && (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "a") { e.preventDefault(); for (const i of shown) st.sel.add(i.href); refreshSel(); }
+    else if (st.selecting && canManage && e.key === "Delete") void doDelete();
+  });
 
   // ── viewer ──────────────────────────────────────────────────────────────
   const stage = $("#stage");
@@ -359,10 +550,10 @@ select, .btn { padding: 8px 10px; border-radius: 10px; border: 1px solid var(--l
   }, { passive: true });
 
   // ── uploads: shown only when the server allows them (its OPTIONS answer lists PUT) ──
-  let canUpload = false, uploading = false;
+  let uploading = false;
   async function detect() {
-    try { const r = await fetch(abs("/"), { method: "OPTIONS", credentials: "same-origin" }); canUpload = /\bPUT\b/.test(r.headers.get("allow") || ""); } catch { canUpload = false; }
-    $("#up").hidden = !canUpload; $("#mk").hidden = !canUpload;
+    try { const r = await fetch(abs("/"), { method: "OPTIONS", credentials: "same-origin" }); const allow = r.headers.get("allow") || ""; canUpload = /\bPUT\b/.test(allow); canManage = /\bDELETE\b/.test(allow); } catch { canUpload = false; }
+    $("#up").hidden = !canUpload; $("#mk").hidden = !canUpload; updateSelbar();
   }
   function uniqueName(name, taken) {
     if (!taken.has(name)) return name;

@@ -40,7 +40,7 @@ export function WebdavShareSettings() {
   const [folder, setFolder] = useState(getShareFolder);
   const [qrLogin, setQrLogin] = useState(getQrWithLogin);
   const [editing, setEditing] = useState(false);
-  const { info, busy, user, pass, upload, refresh, setLogin, setUpload, start, stop, restart } = useShareStore();
+  const { info, busy, user, pass, upload, manage, refresh, setLogin, setUpload, setManage, start, stop, restart } = useShareStore();
 
   useEffect(() => { void refresh(); }, [refresh]);
 
@@ -68,12 +68,19 @@ export function WebdavShareSettings() {
     try { await restart(folder); toast.success(on ? "Uploads are on. Phones must sign in again." : "Uploads are off. Phones must sign in again."); } catch (e) { toast.error(shareErrorMessage(e)); }
   };
 
+  /** Allows or forbids renaming, moving and deleting; a running share restarts so the change applies. */
+  const changeManage = async (on: boolean) => {
+    setManage(on);
+    if (!info) return;
+    try { await restart(folder); toast.success(on ? "File management is on. Phones must sign in again." : "File management is off. Phones must sign in again."); } catch (e) { toast.error(shareErrorMessage(e)); }
+  };
+
   const shownUser = info?.username ?? (user || DEFAULT_SHARE_USER);
   const shownPass = info ? "•".repeat(Math.min(info.password.length, 12)) : pass ? "•".repeat(Math.min(pass.length, 12)) : "random";
 
   return (
     <SettingsGroup title="Share files to phone"
-                   description="Lets a phone on the same Wi-Fi browse and download one folder of this computer, using any WebDAV app. Read-only unless you allow uploads.">
+                   description="Lets a phone on the same Wi-Fi browse and download one folder of this computer, using any WebDAV app. Phones can upload new files; renaming, moving and deleting are off unless you allow them.">
       <SettingRow id="vault.share.enabled" label="Share this folder" keywords={[...KW, "server", "turn on"]}
                   description={info ? undefined : "Turns on while Notiq is open. The connection isn't encrypted, so use a network you trust."}>
         <div className="flex items-center gap-3">
@@ -95,8 +102,13 @@ export function WebdavShareSettings() {
       </SettingRow>
 
       <SettingRow id="vault.share.upload" label="Allow uploads from the phone" keywords={[...KW, "upload", "send", "write", "add files", "camera", "photos"]}
-                  description="The phone can add new files and folders. Nothing is ever overwritten, deleted or moved. Changing this restarts sharing.">
-        <Toggle aria-label="Allow uploads from the phone" value={upload} disabled={busy} onChange={(v) => void changeUpload(v)} />
+                  description="The phone can add new files and folders. Nothing is ever replaced. Changing this restarts sharing.">
+        <Toggle aria-label="Allow uploads from the phone" value={upload || manage} disabled={busy || manage} onChange={(v) => void changeUpload(v)} />
+      </SettingRow>
+
+      <SettingRow id="vault.share.manage" label="Allow renaming, moving and deleting" keywords={[...KW, "manage", "rename", "move", "copy", "delete", "remove", "file manager"]}
+                  description="The phone can rename, move, copy and delete files and folders of the shared folder. A delete can't be undone. Existing files are never replaced. Changing this restarts sharing.">
+        <Toggle aria-label="Allow renaming, moving and deleting" value={manage} disabled={busy} onChange={(v) => void changeManage(v)} />
       </SettingRow>
 
       <SettingRow id="vault.share.qr-login" label="Put the password in the QR code"
