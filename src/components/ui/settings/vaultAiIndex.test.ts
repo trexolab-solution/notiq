@@ -25,6 +25,7 @@ const VAULT_FILES = [
   "components/ui/settings/QuickSearchRow.tsx",
   "components/ui/settings/HelloRow.tsx",
   "components/ui/settings/FileManagerSettings.tsx",
+  "components/ui/settings/WebdavShareSettings.tsx",
   "components/ui/settings/RecoveryKeyRow.tsx",
   "components/ui/settings/AutofillSection.tsx",
   "components/ui/settings/AutofillIncognitoRow.tsx",

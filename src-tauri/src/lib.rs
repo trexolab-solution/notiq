@@ -16,6 +16,8 @@ mod ssh_client; // 0.9.9 built-in terminal: the SSH client itself (no system ssh
 mod ssh_keygen; // 0.9.9 generate an SSH key in the entry form
 #[cfg(desktop)]
 mod sftp_client; // 0.10.0 remote file manager over SFTP (built in)
+#[cfg(desktop)]
+mod webdav_share; // 0.13.0 read-only WebDAV server for one folder, on the local network
 mod vault_backup;
 mod vault_core;
 mod vault_db;
@@ -750,6 +752,7 @@ pub fn run() {
         builder
             .manage(term::AppTerminal::new())
             .manage(sftp_client::SftpState::default())
+            .manage(webdav_share::WebdavState::default())
             .plugin(
                 tauri_plugin_window_state::Builder::default()
                     .with_state_flags(
@@ -788,6 +791,9 @@ pub fn run() {
         term::terminal_create,
         ssh_keygen::ssh_generate_key,
         sftp_client::sftp_open,
+        webdav_share::webdav_start,
+        webdav_share::webdav_stop,
+        webdav_share::webdav_status,
         sftp_client::sftp_close,
         sftp_client::sftp_list,
         sftp_client::sftp_mkdir,

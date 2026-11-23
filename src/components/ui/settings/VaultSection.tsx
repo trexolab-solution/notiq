@@ -31,6 +31,7 @@ import {
 } from "../../../lib/vaultPrefs";
 import type { SettingMeta } from "../../../lib/settingsIndex";
 import { FileManagerSettings, FILES_INDEX } from "./FileManagerSettings";
+import { WebdavShareSettings } from "./WebdavShareSettings";
 
 
 const STATE_TEXT = {
@@ -156,6 +157,8 @@ export const VaultSection = React.memo(function VaultSection() {
 
       <FileManagerSettings />
 
+      <WebdavShareSettings />
+
       <SettingsGroup title="Storage" description="Where the encrypted vault file lives on this computer.">
         <StorageFolderRow />
       </SettingsGroup>
@@ -275,6 +278,12 @@ export const SETTINGS_INDEX: SettingMeta[] = [
     description: "A tab of this window, or a window of its own. The server's menu in the sidebar also offers the other one.",
     keywords: ["sftp", "remote files", "ssh", "file manager", "new window", "tab", "server"] },
   ...FILES_INDEX,
+  { id: "vault.share.folder", section: "vault", group: "Share files to phone", label: "Folder to share",
+    description: "The folder of this computer a phone on the same Wi-Fi can browse and download (read-only).",
+    keywords: ["webdav", "phone", "mobile", "share", "local network", "wifi", "lan", "files", "folder", "directory", "choose"] },
+  { id: "vault.share.enabled", section: "vault", group: "Share files to phone", label: "Share this folder",
+    description: "Turns on a read-only WebDAV server for the folder, on the local network, with a random password.",
+    keywords: ["webdav", "phone", "mobile", "share", "local network", "wifi", "lan", "files", "server", "turn on"] },
   { id: "vault.storage.folder", section: "vault", group: "Storage", label: "Vault storage folder",
     description: "Where your encrypted vault file (vault.nqdb) is kept. Warns if the folder is synced by a cloud service.",
     keywords: ["folder", "directory", "location", "path", "vault.nqdb", "cloud", "onedrive", "dropbox", "sync", "move"] },
