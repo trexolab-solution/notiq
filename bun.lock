@@ -28,6 +28,7 @@
         "mermaid": "^11.17.2",
         "monaco-editor": "~0.55.1",
         "prettier": "^3.9.10",
+        "qrcode-generator": "^2.0.4",
         "react": "^18.3.1",
         "react-dom": "^18.3.1",
         "react-force-graph": "^1.48.3",
@@ -1136,6 +1137,8 @@
     "property-information": ["property-information@7.2.0", "", {}, "sha512-IAtzIB6sUiWaJYrX9smp3V46pBGbBeLFRGdh25kg1334VcBlD8HzhPeNIWQH9zhGmo2itIe25EHt9dQP7G5hmg=="],
 
     "pwacompat": ["pwacompat@2.0.17", "", {}, "sha512-6Du7IZdIy7cHiv7AhtDy4X2QRM8IAD5DII69mt5qWibC2d15ZU8DmBG1WdZKekG11cChSu4zkSUGPF9sweOl6w=="],
+
+    "qrcode-generator": ["qrcode-generator@2.0.4", "", {}, "sha512-mZSiP6RnbHl4xL2Ap5HfkjLnmxfKcPWpWe/c+5XxCuetEenqmNFf1FH/ftXPCtFG5/TDobjsjz6sSNL0Sr8Z9g=="],
 
     "quad-indices": ["quad-indices@2.0.1", "", { "dependencies": { "an-array": "^1.0.0", "dtype": "^2.0.0", "is-buffer": "^1.0.2" } }, "sha512-6jtmCsEbGAh5npThXrBaubbTjPcF0rMbn57XCJVI7LkW8PUT56V+uIrRCCWCn85PSgJC9v8Pm5tnJDwmOBewvA=="],
 
