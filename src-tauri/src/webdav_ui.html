@@ -1,0 +1,335 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<title>Shared files</title>
+<style>
+:root {
+  color-scheme: light dark;
+  --bg: #f6f7f9; --panel: #ffffff; --panel-2: #eef0f3; --text: #14171c; --muted: #657080; --line: #e1e4e9;
+  --accent: #9a6b00; --accent-bg: #fbf1d8; --danger: #c0352b; --shadow: 0 1px 2px rgba(15,20,30,.06), 0 4px 14px rgba(15,20,30,.06);
+  --c-folder: #d49a1a; --c-image: #2f9e6e; --c-video: #7c5cd6; --c-audio: #d1568e; --c-pdf: #d6453d; --c-text: #3b82c4; --c-archive: #8a6d3b; --c-file: #7a8696;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0f1218; --panel: #171b23; --panel-2: #1f2430; --text: #e8ebf0; --muted: #8b95a5; --line: #272d3a;
+    --accent: #e0b04a; --accent-bg: #2b2412; --danger: #ff7a70; --shadow: 0 1px 2px rgba(0,0,0,.4), 0 6px 18px rgba(0,0,0,.35);
+    --c-folder: #e0b04a; --c-image: #4cc790; --c-video: #a58bff; --c-audio: #f06aa4; --c-pdf: #ff6e66; --c-text: #5fa8ef; --c-archive: #c4a15f; --c-file: #8f9bb0;
+  }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; -webkit-tap-highlight-color: transparent; }
+button, input, select { font: inherit; color: inherit; }
+svg { width: 1em; height: 1em; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+a { color: inherit; text-decoration: none; }
+.wrap { max-width: 1040px; margin: 0 auto; padding: 0 16px 40px; }
+header { position: sticky; top: 0; z-index: 5; background: color-mix(in srgb, var(--bg) 92%, transparent); backdrop-filter: blur(10px); padding: calc(env(safe-area-inset-top) + 12px) 0 10px; border-bottom: 1px solid var(--line); margin: 0 -16px 14px; padding-left: 16px; padding-right: 16px; }
+.bar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; max-width: 1040px; margin: 0 auto; }
+.crumbs { display: flex; align-items: center; flex-wrap: wrap; gap: 2px; flex: 1 1 260px; min-width: 0; font-size: 15px; }
+.crumbs a, .crumbs span.cur { padding: 6px 8px; border-radius: 8px; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.crumbs a:hover { background: var(--panel-2); }
+.crumbs .cur { font-weight: 600; }
+.crumbs .sep { color: var(--muted); }
+.crumbs .home { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; }
+.tools { display: flex; gap: 8px; align-items: center; flex: 1 1 280px; justify-content: flex-end; }
+.search { position: relative; flex: 1 1 140px; max-width: 280px; }
+.search svg { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--muted); }
+.search input { width: 100%; padding: 8px 10px 8px 32px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel); outline: none; }
+.search input:focus, select:focus-visible, button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+select, .btn { padding: 8px 10px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel); cursor: pointer; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--panel); }
+.seg button { border: 0; background: transparent; padding: 8px 10px; cursor: pointer; display: grid; place-items: center; color: var(--muted); }
+.seg button[aria-pressed="true"] { background: var(--accent-bg); color: var(--accent); }
+.btn { display: inline-grid; place-items: center; }
+.list { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); overflow: hidden; }
+.row { display: grid; grid-template-columns: 28px 1fr auto auto 36px; gap: 12px; align-items: center; padding: 10px 14px; border-top: 1px solid var(--line); cursor: pointer; }
+.row:first-child { border-top: 0; }
+.row:hover { background: var(--panel-2); }
+.row .ico { font-size: 22px; display: grid; place-items: center; }
+.row .name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row .meta { color: var(--muted); font-size: 13px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.row .size { min-width: 70px; text-align: right; }
+.dl { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 9px; color: var(--muted); }
+.dl:hover { background: var(--panel); color: var(--accent); }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; box-shadow: var(--shadow); cursor: pointer; display: flex; flex-direction: column; }
+.card:hover { border-color: var(--accent); }
+.thumb { aspect-ratio: 4 / 3; display: grid; place-items: center; background: var(--panel-2); font-size: 44px; overflow: hidden; }
+.thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.card .cap { padding: 9px 11px 10px; min-width: 0; }
+.card .cap .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
+.card .cap .meta { color: var(--muted); font-size: 12px; }
+.k-folder { color: var(--c-folder); } .k-image { color: var(--c-image); } .k-video { color: var(--c-video); } .k-audio { color: var(--c-audio); }
+.k-pdf { color: var(--c-pdf); } .k-text { color: var(--c-text); } .k-archive { color: var(--c-archive); } .k-file { color: var(--c-file); }
+.note { color: var(--muted); text-align: center; padding: 44px 12px; }
+.note b { display: block; color: var(--text); font-size: 16px; margin-bottom: 4px; }
+.foot { color: var(--muted); font-size: 13px; text-align: center; margin-top: 14px; }
+.skeleton { height: 46px; border-top: 1px solid var(--line); background: linear-gradient(90deg, transparent, var(--panel-2), transparent); background-size: 200% 100%; animation: sk 1.3s infinite; }
+@keyframes sk { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+.viewer { position: fixed; inset: 0; z-index: 20; background: #0a0c10; display: none; flex-direction: column; color: #eef1f6; }
+.viewer.on { display: flex; }
+.vbar { display: flex; align-items: center; gap: 10px; padding: calc(env(safe-area-inset-top) + 10px) 14px 10px; }
+.vbar .vt { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.vbar .vc { color: #9aa4b5; font-size: 13px; }
+.vbtn { border: 0; background: rgba(255,255,255,.1); color: #fff; width: 38px; height: 38px; border-radius: 10px; display: grid; place-items: center; cursor: pointer; font-size: 18px; }
+.vbtn:hover { background: rgba(255,255,255,.2); }
+.stage { flex: 1; min-height: 0; display: grid; place-items: center; position: relative; padding: 0 12px calc(env(safe-area-inset-bottom) + 12px); }
+.stage img, .stage video { max-width: 100%; max-height: 100%; border-radius: 6px; background: #000; }
+.stage audio { width: min(520px, 92%); }
+.stage iframe { width: 100%; height: 100%; border: 0; border-radius: 6px; background: #fff; }
+.stage pre { margin: 0; width: min(960px, 100%); height: 100%; overflow: auto; background: #12161d; color: #dfe5ee; padding: 14px; border-radius: 10px; font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; white-space: pre-wrap; word-break: break-word; }
+.stage .other { text-align: center; color: #c5ccd8; }
+.stage .other .big { font-size: 64px; }
+.nav { position: absolute; top: 50%; transform: translateY(-50%); }
+.nav.prev { left: 10px; } .nav.next { right: 10px; }
+.stage .hint { position: absolute; bottom: 14px; left: 0; right: 0; text-align: center; color: #9aa4b5; font-size: 12px; pointer-events: none; }
+@media (max-width: 640px) {
+  .row { grid-template-columns: 26px 1fr auto 34px; gap: 10px; padding: 11px 12px; }
+  .row .date { display: none; }
+  .grid { grid-template-columns: repeat(auto-fill, minmax(128px, 1fr)); gap: 10px; }
+  .tools { flex-wrap: wrap; justify-content: stretch; }
+  .search { flex: 1 1 100%; max-width: none; }
+  .nav { display: none; }
+}
+@media (prefers-reduced-motion: reduce) { .skeleton { animation: none; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="bar">
+      <nav class="crumbs" id="crumbs" aria-label="Folder path"></nav>
+      <div class="tools">
+        <label class="search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="q" type="search" placeholder="Search this folder" autocomplete="off" aria-label="Search this folder"></label>
+        <select id="sort" aria-label="Sort by"><option value="name">Name</option><option value="size">Size</option><option value="mtime">Modified</option></select>
+        <button class="btn" id="dir" aria-label="Reverse the order" title="Reverse the order"><svg viewBox="0 0 24 24"><path d="M7 4v16M3 8l4-4 4 4M17 20V4M13 16l4 4 4-4"/></svg></button>
+        <div class="seg" role="group" aria-label="Layout">
+          <button id="vlist" aria-label="List" title="List"><svg viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg></button>
+          <button id="vgrid" aria-label="Grid" title="Grid"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg></button>
+        </div>
+      </div>
+    </div>
+  </header>
+  <main id="main" aria-live="polite"></main>
+  <p class="foot" id="foot"></p>
+</div>
+
+<div class="viewer" id="viewer" role="dialog" aria-modal="true" aria-label="Preview">
+  <div class="vbar">
+    <div class="vt" id="vt"></div><span class="vc" id="vc"></span>
+    <a class="vbtn" id="vdl" aria-label="Download" title="Download" download><svg viewBox="0 0 24 24"><path d="M12 3v12m0 0 4-4m-4 4-4-4M4 20h16"/></svg></a>
+    <button class="vbtn" id="vx" aria-label="Close" title="Close (Esc)"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+  </div>
+  <div class="stage" id="stage">
+    <button class="vbtn nav prev" id="vp" aria-label="Previous" title="Previous"><svg viewBox="0 0 24 24"><path d="m15 5-7 7 7 7"/></svg></button>
+    <button class="vbtn nav next" id="vn" aria-label="Next" title="Next"><svg viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></svg></button>
+  </div>
+</div>
+
+<script>
+(() => {
+  "use strict";
+  const $ = (s) => document.querySelector(s);
+  const store = (k, d) => { try { return localStorage.getItem("notiq.share." + k) ?? d; } catch { return d; } };
+  const save = (k, v) => { try { localStorage.setItem("notiq.share." + k, v); } catch { /* private mode */ } };
+
+  const EXT = {
+    image: "jpg jpeg png gif webp bmp svg avif ico heic",
+    video: "mp4 m4v webm mov mkv ogv 3gp",
+    audio: "mp3 m4a wav ogg oga flac aac opus",
+    pdf: "pdf",
+    text: "txt md log json csv tsv xml yml yaml toml ini conf js mjs ts tsx jsx css html htm sh bat ps1 py rs go java c h cpp cs rb php sql srt vtt env",
+    archive: "zip rar 7z tar gz tgz bz2 xz iso apk",
+  };
+  const KIND = {};
+  for (const [k, list] of Object.entries(EXT)) for (const e of list.split(" ")) KIND[e] = k;
+  const PATHS = {
+    folder: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+    file: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/>',
+    text: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h6"/>',
+    pdf: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M8.5 16.5c1.5-.5 3-2.5 3.5-5 .5 2.5 2 4 3.5 4.5"/>',
+    image: '<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="1.7"/><path d="m21 16-5-5-8 8"/>',
+    video: '<rect x="3" y="5" width="13" height="14" rx="2"/><path d="m16 10 5-3v10l-5-3z"/>',
+    audio: '<path d="M9 18V5l11-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="17" cy="16" r="3"/>',
+    archive: '<rect x="3" y="4" width="18" height="5" rx="1"/><path d="M5 9v10h14V9M10 13h4"/>',
+  };
+  const icon = (kind) => '<svg viewBox="0 0 24 24" aria-hidden="true">' + (PATHS[kind] || PATHS.file) + "</svg>";
+  const kindOf = (it) => (it.dir ? "folder" : KIND[(it.name.split(".").pop() || "").toLowerCase()] || "file");
+  const PREVIEW = new Set(["image", "video", "audio", "pdf", "text"]);
+
+  const st = { path: location.pathname, items: [], q: "", view: store("view", "list"), sort: store("sort", "name"), desc: store("desc", "0") === "1", loading: true, error: "" };
+  let shown = [], viewerList = [], vi = -1, viewerOn = false;
+
+  // An address like http://user:pass@host/ makes every relative URL carry the password, and browsers refuse such
+  // fetches and subresources. So drop it from the address bar and build every URL from the bare origin.
+  const O = location.origin;
+  const abs = (h) => O + h;
+  if (location.username || location.password) history.replaceState(null, "", O + location.pathname + location.search);
+
+  const safeHref = (h) => (typeof h === "string" && h.startsWith("/") && !h.startsWith("//") ? h : "/");
+  const dec = (s) => { try { return decodeURIComponent(s); } catch { return s; } };
+  const size = (n) => { if (n == null) return ""; const u = ["B", "KB", "MB", "GB", "TB"]; let i = 0, v = n; while (v >= 1024 && i < 4) { v /= 1024; i++; } return (i ? v.toFixed(v < 10 ? 1 : 0) : v) + " " + u[i]; };
+  const when = (t) => (t ? new Date(t).toLocaleString([], { dateStyle: "medium", timeStyle: "short" }) : "");
+  const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; };
+
+  async function load(path) {
+    st.path = path; st.loading = true; st.error = ""; st.q = ""; $("#q").value = ""; render();
+    try {
+      const r = await fetch(abs(path), { method: "PROPFIND", headers: { Depth: "1" }, credentials: "same-origin" });
+      if (r.status === 401) { location.reload(); return; }
+      if (!r.ok) throw new Error(r.status === 404 ? "This folder no longer exists." : "The server answered " + r.status + ".");
+      const xml = new DOMParser().parseFromString(await r.text(), "application/xml");
+      const self = dec(path).replace(/\/+$/, "");
+      const items = [];
+      for (const rs of xml.getElementsByTagNameNS("DAV:", "response")) {
+        const g = (n) => rs.getElementsByTagNameNS("DAV:", n)[0]?.textContent ?? "";
+        const href = safeHref(g("href"));
+        const plain = dec(href).replace(/\/+$/, "");
+        if (plain === self) continue;
+        const dir = rs.getElementsByTagNameNS("DAV:", "collection").length > 0;
+        const name = plain.split("/").pop() || plain;
+        const len = g("getcontentlength");
+        const m = Date.parse(g("getlastmodified"));
+        items.push({ name, href: dir && !href.endsWith("/") ? href + "/" : href, dir, size: len === "" ? null : Number(len), mtime: Number.isNaN(m) ? 0 : m });
+      }
+      st.items = items;
+    } catch (e) { st.items = []; st.error = e && e.message ? e.message : "Couldn't load this folder."; }
+    st.loading = false; render();
+  }
+
+  function sorted() {
+    const q = st.q.trim().toLowerCase();
+    const k = st.sort, f = st.desc ? -1 : 1;
+    return st.items.filter((i) => !q || i.name.toLowerCase().includes(q)).sort((a, b) => {
+      if (a.dir !== b.dir) return a.dir ? -1 : 1;
+      let c = 0;
+      if (k === "size") c = (a.size ?? 0) - (b.size ?? 0);
+      else if (k === "mtime") c = a.mtime - b.mtime;
+      if (!c) c = a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" });
+      return c * f;
+    });
+  }
+
+  function crumbs() {
+    const nav = $("#crumbs"); nav.replaceChildren();
+    const home = el("a", "home", icon("folder") + "<span>Shared</span>"); home.href = abs("/"); home.dataset.go = "/";
+    nav.append(home);
+    const parts = st.path.split("/").filter(Boolean);
+    let acc = "/";
+    parts.forEach((p, i) => {
+      acc += p + "/";
+      nav.append(el("span", "sep", "/"));
+      if (i === parts.length - 1) { const c = el("span", "cur"); c.textContent = dec(p); nav.append(c); }
+      else { const a = el("a"); a.textContent = dec(p); a.href = abs(acc); a.dataset.go = acc; nav.append(a); }
+    });
+  }
+
+  function render() {
+    crumbs();
+    document.title = (dec(st.path).replace(/\/+$/, "").split("/").pop() || "Shared files");
+    $("#vlist").setAttribute("aria-pressed", String(st.view === "list"));
+    $("#vgrid").setAttribute("aria-pressed", String(st.view === "grid"));
+    $("#sort").value = st.sort;
+    const main = $("#main"), foot = $("#foot"); main.replaceChildren(); foot.textContent = "";
+    if (st.loading) { const box = el("div", "list"); for (let i = 0; i < 6; i++) box.append(el("div", "skeleton")); main.append(box); return; }
+    if (st.error) { const n = el("div", "note", "<b>Couldn't open this folder</b>"); n.append(document.createTextNode(st.error + " ")); const b = el("button", "btn", "Try again"); b.onclick = () => load(st.path); n.append(b); main.append(n); return; }
+    shown = sorted();
+    if (!shown.length) { main.append(el("div", "note", st.q ? "<b>No matches</b>Nothing in this folder matches your search." : "<b>This folder is empty</b>")); return; }
+    const wrap = el("div", st.view === "grid" ? "grid" : "list");
+    shown.forEach((it, i) => {
+      const kind = kindOf(it), a = el("a", st.view === "grid" ? "card" : "row"); a.href = abs(it.href); a.dataset.i = String(i);
+      const name = document.createElement("div"); name.className = "name"; name.textContent = it.name; name.title = it.name;
+      if (st.view === "grid") {
+        const th = el("div", "thumb k-" + kind);
+        if (kind === "image") { const im = document.createElement("img"); im.loading = "lazy"; im.decoding = "async"; im.alt = ""; im.src = abs(it.href); im.onerror = () => { th.innerHTML = icon(kind); }; th.append(im); } else th.innerHTML = icon(kind);
+        const cap = el("div", "cap"); const meta = el("div", "meta"); meta.textContent = it.dir ? "Folder" : size(it.size);
+        cap.append(name, meta); a.append(th, cap);
+      } else {
+        const ic = el("div", "ico k-" + kind, icon(kind)), sz = el("div", "meta size"), dt = el("div", "meta date");
+        sz.textContent = it.dir ? "" : size(it.size); dt.textContent = when(it.mtime);
+        a.append(ic, name, sz, dt);
+        if (!it.dir) { const d = el("a", "dl", '<svg viewBox="0 0 24 24"><path d="M12 3v12m0 0 4-4m-4 4-4-4M4 20h16"/></svg>'); d.href = abs(it.href); d.setAttribute("download", it.name); d.setAttribute("aria-label", "Download " + it.name); d.title = "Download"; d.onclick = (e) => e.stopPropagation(); a.append(d); } else a.append(el("span"));
+      }
+      wrap.append(a);
+    });
+    main.append(wrap);
+    const dirs = shown.filter((i) => i.dir).length, files = shown.length - dirs, total = shown.reduce((s, i) => s + (i.size || 0), 0);
+    foot.textContent = [dirs && dirs + (dirs === 1 ? " folder" : " folders"), files && files + (files === 1 ? " file" : " files"), files && size(total)].filter(Boolean).join(" · ");
+  }
+
+  function go(path, push = true) { if (push) history.pushState({}, "", path); load(path); }
+
+  document.addEventListener("click", (e) => {
+    const a = e.target.closest("a"); if (!a || e.defaultPrevented || e.metaKey || e.ctrlKey || e.shiftKey || e.button) return;
+    if (a.dataset.go) { e.preventDefault(); go(a.dataset.go); return; }
+    if (a.dataset.i != null && a.closest("#main")) {
+      e.preventDefault(); const it = shown[Number(a.dataset.i)]; if (!it) return;
+      if (it.dir) go(it.href); else if (PREVIEW.has(kindOf(it))) openViewer(it); else location.href = abs(it.href);
+    }
+  });
+  window.addEventListener("popstate", () => { if (viewerOn) { closeViewer(true); return; } load(location.pathname); });
+  $("#q").addEventListener("input", (e) => { st.q = e.target.value; render(); });
+  $("#sort").addEventListener("change", (e) => { st.sort = e.target.value; save("sort", st.sort); render(); });
+  $("#dir").addEventListener("click", () => { st.desc = !st.desc; save("desc", st.desc ? "1" : "0"); render(); });
+  $("#vlist").addEventListener("click", () => { st.view = "list"; save("view", "list"); render(); });
+  $("#vgrid").addEventListener("click", () => { st.view = "grid"; save("view", "grid"); render(); });
+
+  // ── viewer ──────────────────────────────────────────────────────────────
+  const stage = $("#stage");
+  function clearStage() { for (const c of [...stage.children]) if (!c.classList.contains("nav")) { if (c.pause) c.pause(); c.remove(); } }
+  async function showItem() {
+    const it = viewerList[vi]; if (!it) return;
+    clearStage();
+    $("#vt").textContent = it.name; $("#vt").title = it.name; $("#vc").textContent = (vi + 1) + " / " + viewerList.length;
+    const dl = $("#vdl"); dl.href = abs(it.href); dl.setAttribute("download", it.name);
+    $("#vp").style.visibility = vi > 0 ? "visible" : "hidden"; $("#vn").style.visibility = vi < viewerList.length - 1 ? "visible" : "hidden";
+    const kind = kindOf(it); let node;
+    if (kind === "image") { node = document.createElement("img"); node.alt = it.name; node.src = abs(it.href); }
+    else if (kind === "video") { node = document.createElement("video"); node.controls = true; node.autoplay = true; node.playsInline = true; node.preload = "metadata"; node.src = abs(it.href); }
+    else if (kind === "audio") { node = document.createElement("audio"); node.controls = true; node.autoplay = true; node.src = abs(it.href); }
+    else if (kind === "pdf") { node = document.createElement("iframe"); node.title = it.name; node.src = abs(it.href); }
+    else if (kind === "text") {
+      node = document.createElement("pre"); node.textContent = "Loading…";
+      const mine = it; stage.append(node);
+      try {
+        const r = await fetch(abs(it.href), { headers: { Range: "bytes=0-262143" }, credentials: "same-origin" });
+        const t = await r.text(); if (viewerList[vi] !== mine) return;
+        node.textContent = t + (t.length >= 262144 ? "\n\n… Showing the first 256 KB. Download the file to read all of it." : "");
+      } catch { node.textContent = "Couldn't read this file."; }
+      return;
+    }
+    stage.append(node);
+    if (kind === "pdf") { const h = el("div", "hint"); h.textContent = "If the PDF stays blank on this device, use the download button."; stage.append(h); }
+  }
+  function openViewer(it) {
+    viewerList = shown.filter((i) => !i.dir && PREVIEW.has(kindOf(i))); vi = viewerList.indexOf(it); if (vi < 0) return;
+    viewerOn = true; $("#viewer").classList.add("on"); document.body.style.overflow = "hidden";
+    history.pushState({ viewer: true }, "", location.href); showItem(); $("#vx").focus();
+  }
+  function closeViewer(fromPop) {
+    if (!viewerOn) return; viewerOn = false; clearStage(); $("#viewer").classList.remove("on"); document.body.style.overflow = "";
+    if (!fromPop && history.state && history.state.viewer) history.back();
+  }
+  const step = (d) => { const n = vi + d; if (n >= 0 && n < viewerList.length) { vi = n; showItem(); } };
+  $("#vx").addEventListener("click", () => closeViewer(false));
+  $("#vp").addEventListener("click", () => step(-1));
+  $("#vn").addEventListener("click", () => step(1));
+  window.addEventListener("keydown", (e) => {
+    if (!viewerOn) return;
+    if (e.key === "Escape") closeViewer(false); else if (e.key === "ArrowLeft") step(-1); else if (e.key === "ArrowRight") step(1);
+  });
+  let sx = 0, sy = 0;
+  stage.addEventListener("touchstart", (e) => { sx = e.touches[0].clientX; sy = e.touches[0].clientY; }, { passive: true });
+  stage.addEventListener("touchend", (e) => {
+    if (e.target.closest("video, audio, iframe, pre")) return;
+    const dx = e.changedTouches[0].clientX - sx, dy = e.changedTouches[0].clientY - sy;
+    if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) step(dx < 0 ? 1 : -1);
+  }, { passive: true });
+
+  load(location.pathname);
+})();
+</script>
+</body>
+</html>

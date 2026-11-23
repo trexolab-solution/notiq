@@ -106,6 +106,39 @@ fn reply(status: StatusCode, extra: &[(&str, &str)], text: &str) -> Response<Bod
     r.body(Body::from(text)).unwrap_or_else(|_| Response::new(Body::from("")))
 }
 
+/// The file-manager page a browser gets for a folder (it lists the folder itself with PROPFIND).
+const PAGE: &str = include_str!("webdav_ui.html");
+/// What that page may do: run its own script and styles, load files from this server only, nothing else.
+const PAGE_CSP: &str = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' data:; media-src 'self'; connect-src 'self'; frame-src 'self'; base-uri 'none'; form-action 'none'";
+
+/// A browser opening a folder (an address ending in "/" that accepts HTML) gets the page; other clients get WebDAV.
+fn wants_page(req: &Request<Incoming>) -> bool {
+    req.method() == Method::GET
+        && req.uri().path().ends_with('/')
+        && req.headers().get(hyper::header::ACCEPT).and_then(|v| v.to_str().ok()).is_some_and(|a| a.contains("text/html"))
+}
+
+fn page() -> Response<Body> {
+    reply(StatusCode::OK, &[
+        ("Content-Type", "text/html; charset=utf-8"), ("Content-Security-Policy", PAGE_CSP), ("Cache-Control", "no-store"),
+        ("X-Content-Type-Options", "nosniff"), ("Referrer-Policy", "no-referrer"),
+    ], PAGE)
+}
+
+/// Headers for the shared files themselves: no content sniffing, and a page-like file (HTML, SVG) opened on its own
+/// runs in a sandbox, so a file inside the share can't act with the signed-in session. Images, video and PDFs are unaffected.
+fn harden(mut res: Response<Body>) -> Response<Body> {
+    use hyper::header::{HeaderName, HeaderValue, CONTENT_TYPE};
+    let h = res.headers_mut();
+    h.insert(HeaderName::from_static("x-content-type-options"), HeaderValue::from_static("nosniff"));
+    let pagelike = h.get(CONTENT_TYPE).and_then(|v| v.to_str().ok()).is_some_and(|t| {
+        let t = t.to_ascii_lowercase();
+        t.starts_with("text/html") || t.starts_with("image/svg") || t.contains("xhtml") || t.contains("xml") && !t.contains("dav")
+    });
+    if pagelike { h.insert(HeaderName::from_static("content-security-policy"), HeaderValue::from_static("sandbox")); }
+    res
+}
+
 /// One request: password check, then only the reading methods go on to the WebDAV handler.
 async fn serve(req: Request<Incoming>, dav: DavHandler, login: std::sync::Arc<String>) -> Result<Response<Body>, Infallible> {
     let header = req.headers().get(AUTHORIZATION).and_then(|v| v.to_str().ok());
@@ -116,7 +149,8 @@ async fn serve(req: Request<Incoming>, dav: DavHandler, login: std::sync::Arc<St
     }
     match *req.method() {
         Method::OPTIONS => Ok(reply(StatusCode::OK, &[("DAV", "1"), (ALLOW.as_str(), ALLOWED), ("MS-Author-Via", "DAV")], "")),
-        Method::GET | Method::HEAD => Ok(dav.handle(req).await),
+        Method::GET if wants_page(&req) => Ok(page()),
+        Method::GET | Method::HEAD => Ok(harden(dav.handle(req).await)),
         ref m if m.as_str() == "PROPFIND" => Ok(dav.handle(req).await),
         _ => Ok(reply(StatusCode::METHOD_NOT_ALLOWED, &[(ALLOW.as_str(), ALLOWED)], "This share is read-only")),
     }
@@ -245,9 +279,24 @@ mod tests {
         let got = go("GET", "/a.txt", true).await.unwrap();
         assert_eq!(got.status(), 200);
         assert_eq!(got.text().await.unwrap(), "hello");
+        // A browser (Accept: text/html) gets the file-manager page, with its own security headers.
+        let browser = c.get(format!("{base}/")).basic_auth("notiq", Some("pw")).header("Accept", "text/html,application/xhtml+xml").send().await.unwrap();
+        assert_eq!(browser.status(), 200);
+        assert!(browser.headers()["content-security-policy"].to_str().unwrap().contains("default-src 'none'"));
+        assert!(browser.text().await.unwrap().contains("Search this folder"));
+        // Another client (no HTML in Accept) still gets the plain folder listing.
         let page = go("GET", "/", true).await.unwrap();
         assert_eq!(page.status(), 200);
         assert!(page.text().await.unwrap().contains("a.txt"));
+        // A page-like file is sandboxed, and nothing is sniffed.
+        std::fs::write(dir.join("x.html"), "<script>1</script>").unwrap();
+        let h = go("GET", "/x.html", true).await.unwrap();
+        assert_eq!(h.headers()["content-security-policy"], "sandbox");
+        assert_eq!(h.headers()["x-content-type-options"], "nosniff");
+        // A range request (video seeking) still works.
+        let part = c.get(format!("{base}/a.txt")).basic_auth("notiq", Some("pw")).header("Range", "bytes=1-3").send().await.unwrap();
+        assert_eq!(part.status(), 206);
+        assert_eq!(part.text().await.unwrap(), "ell");
         let list = go("PROPFIND", "/", true).await.unwrap();
         assert_eq!(list.status(), 207);
         assert!(list.text().await.unwrap().contains("a.txt"));

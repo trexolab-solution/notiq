@@ -6,6 +6,7 @@ import { isVaultPath } from "../../lib/vault";
 import { Tooltip } from "../ui/Tooltip";
 import { NotificationBell } from "../ui/NotificationBell";
 import { SyncIndicator } from "./SyncIndicator";
+import { ShareIndicator } from "./ShareIndicator";
 import { SyncPopoverHost, useSyncPopoverStore } from "./SyncPopover";
 import { useSyncStatus } from "../../lib/vaultSync";
 import { useVaultStore } from "../../store/vaultStore";
@@ -102,6 +103,7 @@ export const StatusBar = React.memo(function StatusBar({
             Thinking…
           </span>
         )}
+        <ShareIndicator />
         <SyncIndicator status={syncStatus} vaultExists={vaultExists} expanded={syncPopoverAtIndicator} onOpen={toggleSyncPopover} />
         <SyncPopoverHost />
         {activeTab?.kind === "settings" && <span className="status-tag">Settings</span>}
