@@ -657,9 +657,10 @@ fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let show_i = MenuItem::with_id(app, "show", "Show Notiq", true, None::<&str>)?;
     let new_note_i = MenuItem::with_id(app, "new_note", "New Sticky Note", true, None::<&str>)?;
     let notes_list_i = MenuItem::with_id(app, "sticky_notes_list", "Sticky Notes", true, None::<&str>)?;
+    let share_i = MenuItem::with_id(app, "share_phone", "Share Files to Phone", true, None::<&str>)?;
     let sep = PredefinedMenuItem::separator(app)?;
     let quit_i = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&show_i, &new_note_i, &notes_list_i, &sep, &quit_i])?;
+    let menu = Menu::with_items(app, &[&show_i, &new_note_i, &notes_list_i, &share_i, &sep, &quit_i])?;
 
     let icon = Image::from_bytes(include_bytes!("../icons/32x32.png"))?;
 
@@ -678,6 +679,14 @@ fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
             }
             "new_note" => {
                 let _ = app.emit("open-sticky-note", ());
+            }
+            "share_phone" => {
+                if let Some(w) = app.get_webview_window("main") {
+                    let _ = w.unminimize();
+                    let _ = w.show();
+                    let _ = w.set_focus();
+                }
+                let _ = app.emit("toggle-webdav-share", ());
             }
             "sticky_notes_list" => {
                 let _ = app.emit("open-sticky-notes-list", ());

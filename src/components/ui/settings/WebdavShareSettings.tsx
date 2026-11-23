@@ -5,15 +5,12 @@ import { SettingRow } from "../SettingRow";
 import { SettingsGroup } from "../SettingsGroup";
 import { Toggle } from "../Toggle";
 import { Button } from "../Button";
+import { QrCode } from "../QrCode";
 import { toast } from "../../../lib/toast";
 import { useCopyToClipboard } from "../../../hooks/useCopyToClipboard";
-import {
-  getShareFolder, setShareFolder, webdavStart, webdavStatus, webdavStop, type ShareInfo,
-} from "../../../lib/webdavShare";
+import { getShareFolder, setShareFolder, shareErrorMessage, shareLink, useShareStore } from "../../../lib/webdavShare";
 
-const KW = ["webdav", "phone", "mobile", "share", "local network", "wifi", "lan", "files"];
-
-const message = (e: unknown) => (typeof e === "string" ? e : e instanceof Error ? e.message : "Couldn't change sharing.");
+const KW = ["webdav", "phone", "mobile", "share", "local network", "wifi", "lan", "files", "qr"];
 
 /** One value the phone needs, with a Copy button. */
 function Field({ label, value }: { label: string; value: string }) {
@@ -31,10 +28,9 @@ function Field({ label, value }: { label: string; value: string }) {
 /** Share one folder of this computer, read-only, with a phone on the same Wi-Fi (Settings → Vault). */
 export function WebdavShareSettings() {
   const [folder, setFolder] = useState(getShareFolder);
-  const [info, setInfo] = useState<ShareInfo | null>(null);
-  const [busy, setBusy] = useState(false);
+  const { info, busy, refresh, start, stop } = useShareStore();
 
-  useEffect(() => { void webdavStatus().then(setInfo).catch(() => {}); }, []);
+  useEffect(() => { void refresh(); }, [refresh]);
 
   const choose = async () => {
     const picked = await open({ directory: true, multiple: false, defaultPath: folder || undefined });
@@ -42,10 +38,7 @@ export function WebdavShareSettings() {
   };
 
   const toggle = async (on: boolean) => {
-    setBusy(true);
-    try {
-      if (on) setInfo(await webdavStart(folder)); else { await webdavStop(); setInfo(null); }
-    } catch (e) { toast.error(message(e)); } finally { setBusy(false); }
+    try { if (on) await start(folder); else await stop(); } catch (e) { toast.error(shareErrorMessage(e)); }
   };
 
   return (
@@ -57,18 +50,24 @@ export function WebdavShareSettings() {
 
       <SettingRow id="vault.share.enabled" label="Share this folder"
                   description="Turns on while Notiq is open. A new password is made each time. The connection isn't encrypted, so use a network you trust."
-                  keywords={[...KW, "server", "webdav", "turn on"]}>
+                  keywords={[...KW, "server", "turn on"]}>
         <Toggle aria-label="Share this folder to phone" value={!!info} disabled={busy || (!info && !folder)} onChange={(v) => void toggle(v)} />
       </SettingRow>
 
       {info && (
-        <div className="flex flex-col gap-2 px-4 py-3" data-testid="webdav-share-info">
-          <p className="text-[12px] text-[var(--color-text-muted)]">
-            In a WebDAV app on your phone (Solid Explorer, Documents, Files, FolderSync…), add a server with these details. Windows may ask to allow Notiq through its firewall: allow it on private networks.
-          </p>
-          <Field label="Address" value={info.url} />
-          <Field label="User name" value={info.username} />
-          <Field label="Password" value={info.password} />
+        <div className="flex flex-col gap-3 px-4 py-3 sm:flex-row" data-testid="webdav-share-info">
+          <div className="flex flex-col items-center gap-1 shrink-0">
+            <QrCode value={shareLink(info)} label="QR code with the address and password" />
+            <span className="text-[11px] text-[var(--color-text-muted)]">Scan with the phone's camera</span>
+          </div>
+          <div className="flex flex-1 min-w-0 flex-col gap-2">
+            <p className="text-[12px] text-[var(--color-text-muted)]">
+              The QR code opens the folder in the phone's browser. For a WebDAV app (Solid Explorer, Documents, Files, FolderSync…), add a server with these details. Windows may ask to allow Notiq through its firewall: allow it on private networks.
+            </p>
+            <Field label="Address" value={info.url} />
+            <Field label="User name" value={info.username} />
+            <Field label="Password" value={info.password} />
+          </div>
         </div>
       )}
     </SettingsGroup>

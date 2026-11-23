@@ -183,6 +183,13 @@ export function SettingsPage({ tabId }: { tabId: string }) {
     );
   }, [shown, stickyOffset]);
 
+  // ── Opening Settings puts the cursor in the search box (a deep link focuses its own setting instead) ──
+  useEffect(() => {
+    const t = useAppStore.getState().settingsTarget;
+    if (t && t.nonce > consumedNonce) return;
+    searchRef.current?.focus({ preventScroll: true });
+  }, []);
+
   // ── Keyboard: Ctrl+F or "/" focuses the search box ───────────────────────
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
