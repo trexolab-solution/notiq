@@ -49,8 +49,12 @@ pub struct ShareInfo {
     folder: String,
 }
 
+/// The "user:password" every request must carry. Shared with the server, so it can be changed while sharing runs.
+type Login = std::sync::Arc<Mutex<String>>;
+
 struct Running {
     info: ShareInfo,
+    login: Login,
     stop: watch::Sender<bool>,
 }
 
@@ -107,9 +111,10 @@ fn reply(status: StatusCode, extra: &[(&str, &str)], text: &str) -> Response<Bod
 }
 
 /// One request: password check, then only the reading methods go on to the WebDAV handler.
-async fn serve(req: Request<Incoming>, dav: DavHandler, login: std::sync::Arc<String>) -> Result<Response<Body>, Infallible> {
+async fn serve(req: Request<Incoming>, dav: DavHandler, login: Login) -> Result<Response<Body>, Infallible> {
     let header = req.headers().get(AUTHORIZATION).and_then(|v| v.to_str().ok());
-    if !authorized(header, &login) {
+    let expected = login.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    if !authorized(header, &expected) {
         // A short pause makes guessing passwords slow.
         tokio::time::sleep(Duration::from_millis(400)).await;
         return Ok(reply(StatusCode::UNAUTHORIZED, &[(WWW_AUTHENTICATE.as_str(), "Basic realm=\"Notiq\", charset=\"UTF-8\"")], "Sign in"));
@@ -123,14 +128,13 @@ async fn serve(req: Request<Incoming>, dav: DavHandler, login: std::sync::Arc<St
 }
 
 /// Answers requests on `listener` until `stopped` changes.
-async fn run(listener: TcpListener, dir: std::path::PathBuf, login: String, mut stopped: watch::Receiver<bool>) {
+async fn run(listener: TcpListener, dir: std::path::PathBuf, login: Login, mut stopped: watch::Receiver<bool>) {
     let dav = DavHandler::builder()
         .filesystem(LocalFs::new(&dir, false, false, false))
         .locksystem(FakeLs::new())
         .hide_symlinks(true)
         .autoindex(true) // a browser opening the address gets a page listing the folder
         .build_handler();
-    let login = std::sync::Arc::new(login);
     loop {
         tokio::select! {
             _ = stopped.changed() => break,
@@ -171,15 +175,29 @@ pub async fn webdav_start(folder: String, username: Option<String>, password: Op
     };
 
     let (stop, stopped) = watch::channel(false);
-    tokio::spawn(run(listener, dir, format!("{username}:{password}"), stopped));
+    let login: Login = std::sync::Arc::new(Mutex::new(format!("{username}:{password}")));
+    tokio::spawn(run(listener, dir, login.clone(), stopped));
 
-    *state.0.lock().unwrap_or_else(|e| e.into_inner()) = Some(Running { info: info.clone(), stop });
+    *state.0.lock().unwrap_or_else(|e| e.into_inner()) = Some(Running { info: info.clone(), login, stop });
     Ok(info)
 }
 
 #[tauri::command]
 pub fn webdav_stop(state: State<'_, WebdavState>) {
     if let Some(r) = state.0.lock().unwrap_or_else(|e| e.into_inner()).take() { let _ = r.stop.send(true); }
+}
+
+/// Changes the user name and password of the running share. Takes effect at once (the phone is asked to sign in
+/// again on its next request); the folder, address and port stay as they are. Empty = the default / a new random one.
+#[tauri::command]
+pub fn webdav_set_login(username: Option<String>, password: Option<String>, state: State<'_, WebdavState>) -> Result<ShareInfo, String> {
+    let (user, pass) = credentials(username, password)?;
+    let mut guard = state.0.lock().unwrap_or_else(|e| e.into_inner());
+    let running = guard.as_mut().ok_or("Sharing is off.")?;
+    *running.login.lock().unwrap_or_else(|e| e.into_inner()) = format!("{user}:{pass}");
+    running.info.username = user;
+    running.info.password = pass;
+    Ok(running.info.clone())
 }
 
 /// The running share, if any (the settings page asks when it opens).
@@ -231,7 +249,8 @@ mod tests {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let base = format!("http://{}", listener.local_addr().unwrap());
         let (stop, stopped) = watch::channel(false);
-        tokio::spawn(run(listener, dir.clone(), "notiq:pw".into(), stopped));
+        let login: Login = std::sync::Arc::new(Mutex::new("notiq:pw".to_string()));
+        tokio::spawn(run(listener, dir.clone(), login.clone(), stopped));
 
         let c = reqwest::Client::new();
         let m = |s: &str| Method::from_bytes(s.as_bytes()).unwrap();
@@ -251,6 +270,11 @@ mod tests {
         let list = go("PROPFIND", "/", true).await.unwrap();
         assert_eq!(list.status(), 207);
         assert!(list.text().await.unwrap().contains("a.txt"));
+        // Changing the login while it runs: the old one stops working at once, the new one works.
+        *login.lock().unwrap() = "pintu:new-secret-1".to_string();
+        assert_eq!(go("GET", "/a.txt", true).await.unwrap().status(), 401);
+        assert_eq!(c.get(format!("{base}/a.txt")).basic_auth("pintu", Some("new-secret-1")).send().await.unwrap().status(), 200);
+        *login.lock().unwrap() = "notiq:pw".to_string();
         for bad in ["PUT", "DELETE", "MKCOL", "MOVE", "COPY", "PROPPATCH", "LOCK", "POST"] {
             assert_eq!(go(bad, "/a.txt", true).await.unwrap().status(), 405, "{bad}");
         }

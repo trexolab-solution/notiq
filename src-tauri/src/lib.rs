@@ -802,6 +802,7 @@ pub fn run() {
         sftp_client::sftp_open,
         webdav_share::webdav_start,
         webdav_share::webdav_stop,
+        webdav_share::webdav_set_login,
         webdav_share::webdav_status,
         sftp_client::sftp_close,
         sftp_client::sftp_list,
