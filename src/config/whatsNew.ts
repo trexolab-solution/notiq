@@ -13,21 +13,11 @@ import { APP_VERSION } from "./app";
  */
 export const WHATS_NEW = `# What's New in Notiq ${APP_VERSION}
 
-Easier to read, easier to use with the keyboard, and fewer surprises.
+A small fix for saving logins from your browser.
 
-## ♿ Readability and keyboard use
+## 🔐 Autofill
 
-- **Clearer secondary text:** muted text now has enough contrast in every theme.
-- **Keyboard focus is visible** in more places: search boxes, the vault list, menus and the autofill window.
-- **Screen-reader labels** on the terminal, sticky-note and whiteboard buttons, and chat history, context files and file pickers now work with Tab, Enter and Space.
-- **Bigger click targets** for tab close buttons and small icon buttons.
-
-## 🖥️ App
-
-- **No more blank pop-up window** after locking and unlocking the vault: a stray empty autofill window now hides itself, and shows a message instead of a blank screen if it ever fails.
-- **A heads-up when Notiq goes to the tray:** the first time you close the window, a short note tells you it is still running (right-click the tray icon to quit).
-- **Errors are no longer silent:** failed refreshes after an import, restore or sync, the SFTP trash check and terminal copy/paste now tell you.
-- **Smaller window limit:** the window can't be shrunk below a usable size, and the terminal loads only when you open it.
+- **Type the username when the site doesn't give one:** if Notiq can't detect the username or email on a page, the save window now has a Username box you can fill in, so the new login is saved complete.
 
 ---
 
