@@ -1,10 +1,12 @@
-//! 0.13.0 "Share files to phone": a read-only WebDAV server for one folder of this computer, reachable on the local
+//! 0.13.0 "Share files to phone": a WebDAV server (read-only unless uploads are turned on) for one folder of this computer, reachable on the local
 //! network only. A phone's WebDAV client (Solid Explorer, Documents, Files, FolderSync, …) can browse and download.
 //!
 //! Safety, in order of importance:
 //!  * it listens on the computer's LAN address only (never on every interface, never on the internet);
 //!  * every request needs the user name and password (HTTP Basic): the ones the user typed, or `notiq` + a random password;
-//!  * only OPTIONS / GET / HEAD / PROPFIND are answered, so nothing can be written, moved or deleted;
+//!  * only OPTIONS / GET / HEAD / PROPFIND are answered, so nothing can be written, moved or deleted. When the user
+//!    turns uploads on, PUT and MKCOL are answered too, but only for a NEW file or folder inside the shared folder:
+//!    nothing is overwritten, deleted or moved;
 //!  * symbolic links are hidden, so a link inside the folder can't lead out of it;
 //!  * sharing lasts until it is stopped or the app closes. Nothing is stored on disk.
 //!
@@ -39,6 +41,8 @@ const MIN_PASSWORD: usize = 8;
 const PREFERRED_PORT: u16 = 8765;
 /// The only requests answered: reading and listing. PROPFIND is how a client lists a folder.
 const ALLOWED: &str = "OPTIONS, GET, HEAD, PROPFIND";
+/// The same, with uploads on.
+const ALLOWED_UPLOAD: &str = "OPTIONS, GET, HEAD, PROPFIND, PUT, MKCOL";
 
 /// What the settings page shows while a folder is shared.
 #[derive(Clone, Serialize)]
@@ -47,6 +51,8 @@ pub struct ShareInfo {
     username: String,
     password: String,
     folder: String,
+    /// Whether a phone may add new files and folders.
+    upload: bool,
 }
 
 struct Running {
@@ -118,11 +124,20 @@ fn wants_page(req: &Request<Incoming>) -> bool {
         && req.headers().get(hyper::header::ACCEPT).and_then(|v| v.to_str().ok()).is_some_and(|a| a.contains("text/html"))
 }
 
+/// The page with the app icon filled in as its favicon (a data URI, so it needs no extra request), built once.
+fn page_html() -> &'static str {
+    static HTML: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    HTML.get_or_init(|| {
+        let uri = |bytes: &[u8]| format!("data:image/png;base64,{}", base64::engine::general_purpose::STANDARD.encode(bytes));
+        PAGE.replace("__FAVICON__", &uri(include_bytes!("../icons/32x32.png"))).replace("__TOUCH_ICON__", &uri(include_bytes!("../icons/128x128.png")))
+    })
+}
+
 fn page() -> Response<Body> {
     reply(StatusCode::OK, &[
         ("Content-Type", "text/html; charset=utf-8"), ("Content-Security-Policy", PAGE_CSP), ("Cache-Control", "no-store"),
         ("X-Content-Type-Options", "nosniff"), ("Referrer-Policy", "no-referrer"),
-    ], PAGE)
+    ], page_html())
 }
 
 /// Headers for the shared files themselves: no content sniffing, and a page-like file (HTML, SVG) opened on its own
@@ -139,42 +154,98 @@ fn harden(mut res: Response<Body>) -> Response<Body> {
     res
 }
 
-/// One request: password check, then only the reading methods go on to the WebDAV handler.
-async fn serve(req: Request<Incoming>, dav: DavHandler, login: std::sync::Arc<String>) -> Result<Response<Body>, Infallible> {
+/// What a request is checked against.
+struct Guard {
+    /// "user:password".
+    login: String,
+    upload: bool,
+    /// The shared folder, canonical.
+    root: std::path::PathBuf,
+}
+
+fn allowed(g: &Guard) -> &'static str { if g.upload { ALLOWED_UPLOAD } else { ALLOWED } }
+
+/// Names Windows refuses (or treats as a device) in any folder.
+fn windows_reserved(name: &str) -> bool {
+    let stem = name.split('.').next().unwrap_or("").to_ascii_uppercase();
+    matches!(stem.as_str(), "CON" | "PRN" | "AUX" | "NUL")
+        || (stem.len() == 4 && (stem.starts_with("COM") || stem.starts_with("LPT")) && stem.as_bytes()[3].is_ascii_digit())
+}
+
+fn percent_decode(s: &str) -> Option<String> {
+    let b = s.as_bytes();
+    let mut out = Vec::with_capacity(b.len());
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] == b'%' {
+            let h = std::str::from_utf8(b.get(i + 1..i + 3)?).ok()?;
+            out.push(u8::from_str_radix(h, 16).ok()?);
+            i += 3;
+        } else { out.push(b[i]); i += 1; }
+    }
+    String::from_utf8(out).ok()
+}
+
+/// Where a new file or folder named by a request path would go, if that is allowed: a name that does not exist yet,
+/// directly inside a real folder of the share. Refuses `..`, drive letters / streams (`:`), backslashes, device names,
+/// a parent that is missing or a link leading out of the shared folder, and anything that already exists.
+fn new_target(root: &Path, uri_path: &str) -> Result<std::path::PathBuf, &'static str> {
+    let decoded = percent_decode(uri_path).ok_or("That name isn't valid.")?;
+    let parts: Vec<&str> = decoded.trim_end_matches('/').split('/').skip(1).collect();
+    if parts.is_empty() { return Err("That name isn't valid."); }
+    for p in &parts {
+        let bad = p.is_empty() || *p == "." || *p == ".." || p.contains(['\\', ':', '<', '>', '"', '|', '?', '*']) || p.chars().any(char::is_control)
+            || p.ends_with('.') || p.ends_with(' ') || windows_reserved(p);
+        if bad { return Err("That name isn't valid."); }
+    }
+    let target = parts.iter().fold(root.to_path_buf(), |acc, p| acc.join(p));
+    let parent = target.parent().ok_or("That name isn't valid.")?;
+    let parent = std::fs::canonicalize(parent).map_err(|_| "The folder doesn't exist.")?;
+    if !parent.starts_with(root) || !parent.is_dir() { return Err("That name isn't valid."); }
+    if std::fs::symlink_metadata(&target).is_ok() { return Err("A file or folder with that name already exists."); }
+    Ok(target)
+}
+
+/// One request: password check, then only the reading methods (and, if turned on, adding new things) go on to the WebDAV handler.
+async fn serve(req: Request<Incoming>, dav: DavHandler, guard: std::sync::Arc<Guard>) -> Result<Response<Body>, Infallible> {
     let header = req.headers().get(AUTHORIZATION).and_then(|v| v.to_str().ok());
-    if !authorized(header, &login) {
+    if !authorized(header, &guard.login) {
         // A short pause makes guessing passwords slow.
         tokio::time::sleep(Duration::from_millis(400)).await;
         return Ok(reply(StatusCode::UNAUTHORIZED, &[(WWW_AUTHENTICATE.as_str(), "Basic realm=\"Notiq\", charset=\"UTF-8\"")], "Sign in"));
     }
     match *req.method() {
-        Method::OPTIONS => Ok(reply(StatusCode::OK, &[("DAV", "1"), (ALLOW.as_str(), ALLOWED), ("MS-Author-Via", "DAV")], "")),
+        Method::OPTIONS => Ok(reply(StatusCode::OK, &[("DAV", "1"), (ALLOW.as_str(), allowed(&guard)), ("MS-Author-Via", "DAV")], "")),
         Method::GET if wants_page(&req) => Ok(page()),
         Method::GET | Method::HEAD => Ok(harden(dav.handle(req).await)),
         ref m if m.as_str() == "PROPFIND" => Ok(dav.handle(req).await),
-        _ => Ok(reply(StatusCode::METHOD_NOT_ALLOWED, &[(ALLOW.as_str(), ALLOWED)], "This share is read-only")),
+        ref m if guard.upload && (m == Method::PUT || m.as_str() == "MKCOL") => match new_target(&guard.root, req.uri().path()) {
+            Ok(_) => Ok(dav.handle(req).await),
+            Err(why) => Ok(reply(StatusCode::CONFLICT, &[], why)),
+        },
+        _ => Ok(reply(StatusCode::METHOD_NOT_ALLOWED, &[(ALLOW.as_str(), allowed(&guard))], if guard.upload { "Only new files and folders can be added" } else { "This share is read-only" })),
     }
 }
 
 /// Answers requests on `listener` until `stopped` changes.
-async fn run(listener: TcpListener, dir: std::path::PathBuf, login: String, mut stopped: watch::Receiver<bool>) {
+async fn run(listener: TcpListener, dir: std::path::PathBuf, login: String, upload: bool, mut stopped: watch::Receiver<bool>) {
     let dav = DavHandler::builder()
         .filesystem(LocalFs::new(&dir, false, false, false))
         .locksystem(FakeLs::new())
         .hide_symlinks(true)
         .autoindex(true) // a browser opening the address gets a page listing the folder
         .build_handler();
-    let login = std::sync::Arc::new(login);
+    let guard = std::sync::Arc::new(Guard { login, upload, root: dir.clone() });
     loop {
         tokio::select! {
             _ = stopped.changed() => break,
             accepted = listener.accept() => {
                 let Ok((stream, _)) = accepted else { continue };
-                let (dav, login, mut stopped) = (dav.clone(), login.clone(), stopped.clone());
+                let (dav, guard, mut stopped) = (dav.clone(), guard.clone(), stopped.clone());
                 tokio::spawn(async move {
                     let conn = http1::Builder::new().serve_connection(
                         TokioIo::new(stream),
-                        service_fn(move |req| serve(req, dav.clone(), login.clone())),
+                        service_fn(move |req| serve(req, dav.clone(), guard.clone())),
                     );
                     tokio::select! { _ = conn => {}, _ = stopped.changed() => {} }
                 });
@@ -184,7 +255,7 @@ async fn run(listener: TcpListener, dir: std::path::PathBuf, login: String, mut 
 }
 
 #[tauri::command]
-pub async fn webdav_start(folder: String, username: Option<String>, password: Option<String>, state: State<'_, WebdavState>) -> Result<ShareInfo, String> {
+pub async fn webdav_start(folder: String, username: Option<String>, password: Option<String>, upload: Option<bool>, state: State<'_, WebdavState>) -> Result<ShareInfo, String> {
     if state.0.lock().unwrap_or_else(|e| e.into_inner()).is_some() { return Err("Sharing is already on.".into()); }
     let dir = std::fs::canonicalize(Path::new(&folder)).map_err(|_| "That folder doesn't exist.".to_string())?;
     if !dir.is_dir() { return Err("Pick a folder to share.".into()); }
@@ -202,10 +273,11 @@ pub async fn webdav_start(folder: String, username: Option<String>, password: Op
         username: username.clone(),
         password: password.clone(),
         folder: dir.to_string_lossy().trim_start_matches(r"\\?\").to_string(),
+        upload: upload.unwrap_or(false),
     };
 
     let (stop, stopped) = watch::channel(false);
-    tokio::spawn(run(listener, dir, format!("{username}:{password}"), stopped));
+    tokio::spawn(run(listener, dir, format!("{username}:{password}"), info.upload, stopped));
 
     *state.0.lock().unwrap_or_else(|e| e.into_inner()) = Some(Running { info: info.clone(), stop });
     Ok(info)
@@ -248,6 +320,52 @@ mod tests {
     }
 
     #[test]
+    fn new_target_allows_only_new_names_inside_the_share() {
+        let root = std::fs::canonicalize(std::env::temp_dir()).unwrap().join(format!("notiq-up-{}", make_password()));
+        std::fs::create_dir_all(root.join("sub")).unwrap();
+        std::fs::write(root.join("old.txt"), "x").unwrap();
+        assert!(new_target(&root, "/new.txt").is_ok());
+        assert!(new_target(&root, "/sub/new%20file.txt").is_ok());
+        for bad in ["/old.txt", "/", "/../evil.txt", "/sub/../../evil.txt", "/%2e%2e/evil.txt", "/a\\b.txt", "/c:evil.txt", "/x:stream", "/nul", "/COM1.txt", "/dir./f", "/missing/new.txt", "/sub//x", "/bad%zz"] {
+            assert!(new_target(&root, bad).is_err(), "{bad}");
+        }
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[tokio::test]
+    async fn uploads_add_new_files_and_folders_only_when_turned_on() {
+        let dir = std::env::temp_dir().join(format!("notiq-dav-up-{}", make_password()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("keep.txt"), "original").unwrap();
+        let dir = std::fs::canonicalize(&dir).unwrap();
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let (stop, stopped) = watch::channel(false);
+        tokio::spawn(run(listener, dir.clone(), "notiq:pw".into(), true, stopped));
+
+        let c = reqwest::Client::new();
+        let call = |m: &str, path: &str, body: Option<&'static str>| {
+            let r = c.request(Method::from_bytes(m.as_bytes()).unwrap(), format!("{base}{path}")).basic_auth("notiq", Some("pw"));
+            if let Some(b) = body { r.body(b) } else { r }.send()
+        };
+        assert_eq!(call("PUT", "/photo.jpg", Some("bytes")).await.unwrap().status(), 201);
+        assert_eq!(std::fs::read_to_string(dir.join("photo.jpg")).unwrap(), "bytes");
+        assert_eq!(call("MKCOL", "/Trip/", None).await.unwrap().status(), 201);
+        assert_eq!(call("PUT", "/Trip/a.txt", Some("in folder")).await.unwrap().status(), 201);
+        // Nothing existing is replaced, and nothing is deleted or moved.
+        assert_eq!(call("PUT", "/keep.txt", Some("overwritten")).await.unwrap().status(), 409);
+        assert_eq!(std::fs::read_to_string(dir.join("keep.txt")).unwrap(), "original");
+        for bad in ["DELETE", "MOVE", "COPY", "PROPPATCH", "LOCK"] {
+            assert_eq!(call(bad, "/keep.txt", None).await.unwrap().status(), 405, "{bad}");
+        }
+        // The page learns about uploads from OPTIONS.
+        let o = call("OPTIONS", "/", None).await.unwrap();
+        assert!(o.headers()["allow"].to_str().unwrap().contains("PUT"));
+        stop.send(true).unwrap();
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
     fn only_the_right_user_and_password_pass() {
         assert!(authorized(Some(&basic("notiq:secret")), "notiq:secret"));
         assert!(!authorized(Some(&basic("notiq:wrong")), "notiq:secret"));
@@ -265,7 +383,7 @@ mod tests {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let base = format!("http://{}", listener.local_addr().unwrap());
         let (stop, stopped) = watch::channel(false);
-        tokio::spawn(run(listener, dir.clone(), "notiq:pw".into(), stopped));
+        tokio::spawn(run(listener, dir.clone(), "notiq:pw".into(), false, stopped));
 
         let c = reqwest::Client::new();
         let m = |s: &str| Method::from_bytes(s.as_bytes()).unwrap();
@@ -283,7 +401,10 @@ mod tests {
         let browser = c.get(format!("{base}/")).basic_auth("notiq", Some("pw")).header("Accept", "text/html,application/xhtml+xml").send().await.unwrap();
         assert_eq!(browser.status(), 200);
         assert!(browser.headers()["content-security-policy"].to_str().unwrap().contains("default-src 'none'"));
-        assert!(browser.text().await.unwrap().contains("Search this folder"));
+        let html = browser.text().await.unwrap();
+        assert!(html.contains("Search this folder"));
+        // The app icon is the favicon (no placeholder left over).
+        assert!(html.contains("rel=\"icon\" type=\"image/png\" href=\"data:image/png;base64,") && !html.contains("__FAVICON__") && !html.contains("__TOUCH_ICON__"));
         // Another client (no HTML in Accept) still gets the plain folder listing.
         let page = go("GET", "/", true).await.unwrap();
         assert_eq!(page.status(), 200);

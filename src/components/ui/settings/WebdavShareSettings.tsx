@@ -40,7 +40,7 @@ export function WebdavShareSettings() {
   const [folder, setFolder] = useState(getShareFolder);
   const [qrLogin, setQrLogin] = useState(getQrWithLogin);
   const [editing, setEditing] = useState(false);
-  const { info, busy, user, pass, refresh, setLogin, start, stop, restart } = useShareStore();
+  const { info, busy, user, pass, upload, refresh, setLogin, setUpload, start, stop, restart } = useShareStore();
 
   useEffect(() => { void refresh(); }, [refresh]);
 
@@ -61,12 +61,19 @@ export function WebdavShareSettings() {
     try { await restart(folder); toast.success("Sharing restarted. Phones must sign in again."); } catch (e) { toast.error(shareErrorMessage(e)); }
   };
 
+  /** Allows or forbids uploads; a running share restarts so the change applies. */
+  const changeUpload = async (on: boolean) => {
+    setUpload(on);
+    if (!info) return;
+    try { await restart(folder); toast.success(on ? "Uploads are on. Phones must sign in again." : "Uploads are off. Phones must sign in again."); } catch (e) { toast.error(shareErrorMessage(e)); }
+  };
+
   const shownUser = info?.username ?? (user || DEFAULT_SHARE_USER);
   const shownPass = info ? "•".repeat(Math.min(info.password.length, 12)) : pass ? "•".repeat(Math.min(pass.length, 12)) : "random";
 
   return (
     <SettingsGroup title="Share files to phone"
-                   description="Lets a phone on the same Wi-Fi browse and download one folder of this computer, using any WebDAV app. Read-only: nothing can be changed from the phone.">
+                   description="Lets a phone on the same Wi-Fi browse and download one folder of this computer, using any WebDAV app. Read-only unless you allow uploads.">
       <SettingRow id="vault.share.enabled" label="Share this folder" keywords={[...KW, "server", "turn on"]}
                   description={info ? undefined : "Turns on while Notiq is open. The connection isn't encrypted, so use a network you trust."}>
         <div className="flex items-center gap-3">
@@ -85,6 +92,11 @@ export function WebdavShareSettings() {
       <SettingRow id="vault.share.login" label="Sign-in" keywords={[...KW, "user name", "username", "password", "login", "custom", "change", "update"]}
                   description={`User name ${shownUser} · password ${shownPass}`}>
         <Button size="sm" variant="ghost" disabled={busy} onClick={() => setEditing(true)}>Edit…</Button>
+      </SettingRow>
+
+      <SettingRow id="vault.share.upload" label="Allow uploads from the phone" keywords={[...KW, "upload", "send", "write", "add files", "camera", "photos"]}
+                  description="The phone can add new files and folders. Nothing is ever overwritten, deleted or moved. Changing this restarts sharing.">
+        <Toggle aria-label="Allow uploads from the phone" value={upload} disabled={busy} onChange={(v) => void changeUpload(v)} />
       </SettingRow>
 
       <SettingRow id="vault.share.qr-login" label="Put the password in the QR code"

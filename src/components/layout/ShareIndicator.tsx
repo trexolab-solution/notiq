@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { Check, Copy, ExternalLink, QrCode, Smartphone } from "lucide-react";
+import { Check, Copy, ExternalLink, Folder, QrCode, Smartphone, X } from "lucide-react";
 import { Tooltip } from "../ui/Tooltip";
-import { Button } from "../ui/Button";
+import { Spinner } from "../ui/Loading";
 import { toast } from "../../lib/toast";
 import { isTauri } from "../../lib/tauriWindow";
 import { useAppStore } from "../../store";
@@ -12,11 +12,12 @@ import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
 import { getShareFolder, shareErrorMessage, shareLink, useShareStore } from "../../lib/webdavShare";
 
 /**
- * Status-bar quick access for "Share files to phone": a button that shows whether sharing is on, and a small panel to
- * start / stop it, open the share in this computer's browser, copy its address or jump to the QR code.
+ * Status-bar quick access for "Share files to phone": a button that shows whether sharing is on, and a small panel in
+ * the same style as the Vault Sync panel to start / stop it, open the share in this computer's browser, copy its
+ * address or jump to the QR code.
  */
 export function ShareIndicator() {
-  const { info, busy, refresh, start, stop } = useShareStore();
+  const { info, busy, upload, refresh, start, stop } = useShareStore();
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLDivElement>(null);
   const { copied, copy } = useCopyToClipboard();
@@ -30,51 +31,77 @@ export function ShareIndicator() {
   const toggle = async () => {
     try { if (info) await stop(); else await start(folder); } catch (e) { toast.error(shareErrorMessage(e)); }
   };
-  const label = info ? "Sharing" : "Share";
+  const on = !!info;
+  const mode = (info ? info.upload : upload) ? "Uploads allowed" : "Read-only";
 
   return (
     <div ref={box} className="relative flex items-center">
-      <Tooltip content={info ? "Sharing files to phone" : "Share files to phone"} disabled={open}>
-        <button type="button" className={`status-sync ${info ? "status-sync--synced" : "status-sync--off"}`} aria-haspopup="dialog" aria-expanded={open}
-                aria-label={info ? "Sharing files to phone: open the share panel" : "Share files to phone"} onClick={() => { setOpen((o) => !o); void refresh(); }}>
+      <Tooltip content={on ? "Sharing files to phone" : "Share files to phone"} disabled={open}>
+        <button type="button" className={`status-sync ${on ? "status-sync--synced" : "status-sync--off"}`} aria-haspopup="dialog" aria-expanded={open}
+                aria-label={on ? "Sharing files to phone: open the share panel" : "Share files to phone"} onClick={() => { setOpen((o) => !o); void refresh(); }}>
           <Smartphone size={11} />
-          <span>{label}</span>
+          <span>{on ? "Sharing" : "Share"}</span>
         </button>
       </Tooltip>
 
       {open && (
-        <div role="dialog" aria-label="Share files to phone"
-             className="absolute bottom-full right-0 z-50 mb-1.5 w-[300px] rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-secondary)] p-3 text-[12px] text-[var(--color-text)] shadow-xl">
-          <div className="flex items-center gap-2">
-            <span aria-hidden className={`h-2 w-2 rounded-full ${info ? "bg-[var(--color-success)]" : "bg-[var(--color-border)]"}`} />
-            <span className="font-semibold">{info ? "Sharing to phone" : "Share files to phone"}</span>
+        <div role="dialog" aria-label="Share files to phone" className="sync-pop" style={{ position: "absolute", bottom: "calc(100% + 6px)", right: 0, width: 292 }}>
+          <div className="flex items-center gap-2 px-3 pt-2.5 pb-2">
+            <Smartphone size={14} className="shrink-0 text-[var(--color-text-muted)]" aria-hidden />
+            <h2 className="flex-1 m-0 text-[12.5px] font-semibold">Share to phone</h2>
+            <span className={`sync-pop__badge ${on ? "sync-pop__badge--ok" : "sync-pop__badge--muted"}`}>{on ? "On" : "Off"}</span>
+            <button type="button" className="vt-icon-btn" aria-label="Close" onClick={() => setOpen(false)}><X size={13} /></button>
           </div>
 
-          {info ? (
-            <>
-              <p className="mt-2 text-[var(--color-text-muted)]">Read-only, on this Wi-Fi network.</p>
-              <code className="mt-1.5 block truncate rounded-md bg-[var(--color-bg-tertiary)] px-2 py-1.5 select-all">{info.url}</code>
-              <p className="mt-1 truncate text-[11px] text-[var(--color-text-muted)]" title={info.folder}>{info.folder}</p>
-              <div className="mt-2.5 grid grid-cols-2 gap-1.5">
-                <Button size="sm" variant="primary" icon={<ExternalLink size={12} />} onClick={() => { void openUrl(shareLink(info)).catch(console.error); setOpen(false); }}>Open in browser</Button>
-                <Button size="sm" variant="ghost" icon={copied ? <Check size={12} /> : <Copy size={12} />} onClick={() => void copy(info.url)}>{copied ? "Copied" : "Copy address"}</Button>
-                <Button size="sm" variant="ghost" icon={<QrCode size={12} />} onClick={() => settings("vault.share.enabled")}>QR code</Button>
-                <Button size="sm" variant="danger" loading={busy} loadingText="Stopping…" onClick={() => void toggle()}>Stop sharing</Button>
-              </div>
-            </>
-          ) : (
-            <>
-              <p className="mt-2 text-[var(--color-text-muted)]">
-                {folder ? <>Share <span className="text-[var(--color-text)]">{folder}</span> with a phone on this Wi-Fi, read-only.</> : "Pick a folder in Settings first, then start sharing from here."}
-              </p>
-              <div className="mt-2.5 grid grid-cols-2 gap-1.5">
-                {folder
-                  ? <Button size="sm" variant="primary" loading={busy} loadingText="Starting…" onClick={() => void toggle()}>Start sharing</Button>
-                  : <Button size="sm" variant="primary" onClick={() => settings("vault.share.folder")}>Choose folder</Button>}
-                <Button size="sm" variant="ghost" onClick={() => settings("vault.share.login")}>Settings</Button>
-              </div>
-            </>
-          )}
+          <div className="flex flex-col gap-2.5 px-3 pb-3">
+            {info ? (
+              <>
+                <div className="flex items-center gap-1 rounded-md border border-[var(--color-border)] bg-[var(--color-bg-tertiary)] pl-2.5 pr-1">
+                  <code className="min-w-0 flex-1 truncate py-1.5 text-[12px] select-all" title={info.url}>{info.url}</code>
+                  <button type="button" className="vt-icon-btn" aria-label={copied ? "Address copied" : "Copy address"} title="Copy address" onClick={() => void copy(info.url)}>
+                    {copied ? <Check size={13} className="text-[var(--color-success)]" /> : <Copy size={13} />}
+                  </button>
+                </div>
+                <div className="flex items-center gap-1.5 text-[11.5px] text-[var(--color-text-muted)]" title={info.folder}>
+                  <Folder size={12} className="shrink-0" aria-hidden />
+                  <span className="min-w-0 truncate">{info.folder}</span>
+                  <span className="shrink-0" aria-hidden>·</span>
+                  <span className="shrink-0">{mode}</span>
+                </div>
+                <div className="flex gap-1.5">
+                  <button type="button" className="sync-pop__btn sync-pop__btn--primary flex-1 justify-center" onClick={() => { void openUrl(shareLink(info)).catch(console.error); setOpen(false); }}>
+                    <ExternalLink size={12} aria-hidden />Open in browser
+                  </button>
+                  <button type="button" className="sync-pop__btn justify-center" onClick={() => settings("vault.share.enabled")}>
+                    <QrCode size={12} aria-hidden />QR code
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <p className="m-0 text-[11.5px] leading-relaxed text-[var(--color-text-muted)]">
+                  Share a folder of this computer with a phone on the same Wi-Fi. {mode === "Read-only" ? "The phone can look and download." : "The phone can look, download and upload."}
+                </p>
+                <div className="flex items-center gap-1.5 rounded-md border border-[var(--color-border)] bg-[var(--color-bg-tertiary)] px-2.5 py-1.5 text-[12px]" title={folder}>
+                  <Folder size={13} className="shrink-0 text-[var(--color-text-muted)]" aria-hidden />
+                  <span className={`min-w-0 flex-1 truncate ${folder ? "" : "text-[var(--color-text-muted)]"}`}>{folder || "No folder picked yet"}</span>
+                  <button type="button" className="sync-pop__link shrink-0" onClick={() => settings("vault.share.folder")}>{folder ? "Change" : "Choose"}</button>
+                </div>
+                <button type="button" className="sync-pop__btn sync-pop__btn--primary w-full justify-center" disabled={!folder || busy} onClick={() => void toggle()}>
+                  {busy ? <Spinner size={12} /> : null}{busy ? "Starting…" : "Start sharing"}
+                </button>
+              </>
+            )}
+
+            <div className="flex items-center border-t border-[var(--color-border)] pt-1.5">
+              <button type="button" className="sync-pop__link" style={{ marginLeft: 0 }} onClick={() => settings("vault.share.login")}>Settings</button>
+              {info && (
+                <button type="button" className="sync-pop__link text-[var(--color-danger)]" disabled={busy} onClick={() => void toggle()}>
+                  {busy ? "Stopping…" : "Stop sharing"}
+                </button>
+              )}
+            </div>
+          </div>
         </div>
       )}
     </div>

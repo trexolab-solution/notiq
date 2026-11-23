@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="light dark">
 <title>Shared files</title>
+<link rel="icon" type="image/png" href="__FAVICON__">
+<link rel="apple-touch-icon" href="__TOUCH_ICON__">
 <style>
 :root {
   color-scheme: light dark;
@@ -68,6 +70,23 @@ select, .btn { padding: 8px 10px; border-radius: 10px; border: 1px solid var(--l
 .foot { color: var(--muted); font-size: 13px; text-align: center; margin-top: 14px; }
 .skeleton { height: 46px; border-top: 1px solid var(--line); background: linear-gradient(90deg, transparent, var(--panel-2), transparent); background-size: 200% 100%; animation: sk 1.3s infinite; }
 @keyframes sk { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+[hidden] { display: none !important; }
+.btn-up { display: inline-flex; align-items: center; gap: 6px; background: var(--accent-bg); color: var(--accent); border-color: transparent; font-weight: 600; }
+.btn-up:hover { filter: brightness(1.05); }
+.drop { position: fixed; inset: 0; z-index: 15; display: none; place-items: center; background: color-mix(in srgb, var(--bg) 78%, transparent); backdrop-filter: blur(3px); }
+.drop.on { display: grid; }
+.drop div { border: 2px dashed var(--accent); border-radius: 18px; padding: 34px 44px; color: var(--accent); font-weight: 600; font-size: 17px; background: var(--panel); }
+.ups { position: fixed; right: 16px; bottom: calc(env(safe-area-inset-bottom) + 16px); z-index: 12; width: min(360px, calc(100vw - 32px)); max-height: 50vh; overflow: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); padding: 6px 0; }
+.ups-h { display: flex; align-items: center; justify-content: space-between; padding: 8px 14px 6px; font-weight: 600; font-size: 13px; }
+.ups-h button { border: 0; background: transparent; color: var(--muted); cursor: pointer; padding: 2px 6px; border-radius: 6px; }
+.up { padding: 7px 14px; }
+.up .upn { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13.5px; }
+.up .upb { height: 4px; border-radius: 4px; background: var(--panel-2); margin: 5px 0 3px; overflow: hidden; }
+.up .upb i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .15s; }
+.up .upm { color: var(--muted); font-size: 12px; }
+.up.ok .upb i { background: var(--c-image); width: 100%; }
+.up.bad .upb i { background: var(--danger); width: 100%; }
+.up.bad .upm { color: var(--danger); }
 .viewer { position: fixed; inset: 0; z-index: 20; background: #0a0c10; display: none; flex-direction: column; color: #eef1f6; }
 .viewer.on { display: flex; }
 .vbar { display: flex; align-items: center; gap: 10px; padding: calc(env(safe-area-inset-top) + 10px) 14px 10px; }
@@ -102,6 +121,8 @@ select, .btn { padding: 8px 10px; border-radius: 10px; border: 1px solid var(--l
     <div class="bar">
       <nav class="crumbs" id="crumbs" aria-label="Folder path"></nav>
       <div class="tools">
+        <button class="btn btn-up" id="up" hidden aria-label="Upload files" title="Upload files"><svg viewBox="0 0 24 24"><path d="M12 16V4m0 0-4 4m4-4 4 4M4 20h16"/></svg><span>Upload</span></button>
+        <button class="btn" id="mk" hidden aria-label="New folder" title="New folder"><svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM12 11v5M9.5 13.5h5"/></svg></button>
         <label class="search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="q" type="search" placeholder="Search this folder" autocomplete="off" aria-label="Search this folder"></label>
         <select id="sort" aria-label="Sort by"><option value="name">Name</option><option value="size">Size</option><option value="mtime">Modified</option></select>
         <button class="btn" id="dir" aria-label="Reverse the order" title="Reverse the order"><svg viewBox="0 0 24 24"><path d="M7 4v16M3 8l4-4 4 4M17 20V4M13 16l4 4 4-4"/></svg></button>
@@ -115,6 +136,10 @@ select, .btn { padding: 8px 10px; border-radius: 10px; border: 1px solid var(--l
   <main id="main" aria-live="polite"></main>
   <p class="foot" id="foot"></p>
 </div>
+
+<input type="file" id="file" multiple hidden>
+<div class="drop" id="drop"><div>Drop files to upload here</div></div>
+<div class="ups" id="ups" hidden><div class="ups-h"><span id="upt">Uploading</span><button id="upx" aria-label="Close">Close</button></div><div id="uplist"></div></div>
 
 <div class="viewer" id="viewer" role="dialog" aria-modal="true" aria-label="Preview">
   <div class="vbar">
@@ -166,7 +191,11 @@ select, .btn { padding: 8px 10px; border-radius: 10px; border: 1px solid var(--l
   // fetches and subresources. So drop it from the address bar and build every URL from the bare origin.
   const O = location.origin;
   const abs = (h) => O + h;
-  if (location.username || location.password) history.replaceState(null, "", O + location.pathname + location.search);
+  // pushState / replaceState throw when the address still carries a user name and password, and that must never stop a
+  // feature (the viewer used to open empty): always use the bare origin, and carry on if the browser refuses anyway.
+  const here = () => O + location.pathname + location.search;
+  const setUrl = (kind, state, url) => { try { history[kind](state, "", url); } catch { /* the page works without a history entry */ } };
+  if (location.username || location.password) setUrl("replaceState", null, here());
 
   const safeHref = (h) => (typeof h === "string" && h.startsWith("/") && !h.startsWith("//") ? h : "/");
   const dec = (s) => { try { return decodeURIComponent(s); } catch { return s; } };
@@ -174,8 +203,9 @@ select, .btn { padding: 8px 10px; border-radius: 10px; border: 1px solid var(--l
   const when = (t) => (t ? new Date(t).toLocaleString([], { dateStyle: "medium", timeStyle: "short" }) : "");
   const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; };
 
-  async function load(path) {
-    st.path = path; st.loading = true; st.error = ""; st.q = ""; $("#q").value = ""; render();
+  async function load(path, quiet = false) {
+    st.path = path; st.error = "";
+    if (!quiet) { st.loading = true; st.q = ""; $("#q").value = ""; render(); }
     try {
       const r = await fetch(abs(path), { method: "PROPFIND", headers: { Depth: "1" }, credentials: "same-origin" });
       if (r.status === 401) { location.reload(); return; }
@@ -259,7 +289,7 @@ select, .btn { padding: 8px 10px; border-radius: 10px; border: 1px solid var(--l
     foot.textContent = [dirs && dirs + (dirs === 1 ? " folder" : " folders"), files && files + (files === 1 ? " file" : " files"), files && size(total)].filter(Boolean).join(" · ");
   }
 
-  function go(path, push = true) { if (push) history.pushState({}, "", path); load(path); }
+  function go(path, push = true) { if (push) setUrl("pushState", {}, abs(path)); load(path); }
 
   document.addEventListener("click", (e) => {
     const a = e.target.closest("a"); if (!a || e.defaultPrevented || e.metaKey || e.ctrlKey || e.shiftKey || e.button) return;
@@ -306,7 +336,7 @@ select, .btn { padding: 8px 10px; border-radius: 10px; border: 1px solid var(--l
   function openViewer(it) {
     viewerList = shown.filter((i) => !i.dir && PREVIEW.has(kindOf(i))); vi = viewerList.indexOf(it); if (vi < 0) return;
     viewerOn = true; $("#viewer").classList.add("on"); document.body.style.overflow = "hidden";
-    history.pushState({ viewer: true }, "", location.href); showItem(); $("#vx").focus();
+    setUrl("pushState", { viewer: true }, here()); showItem(); $("#vx").focus();
   }
   function closeViewer(fromPop) {
     if (!viewerOn) return; viewerOn = false; clearStage(); $("#viewer").classList.remove("on"); document.body.style.overflow = "";
@@ -328,6 +358,76 @@ select, .btn { padding: 8px 10px; border-radius: 10px; border: 1px solid var(--l
     if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) step(dx < 0 ? 1 : -1);
   }, { passive: true });
 
+  // ── uploads: shown only when the server allows them (its OPTIONS answer lists PUT) ──
+  let canUpload = false, uploading = false;
+  async function detect() {
+    try { const r = await fetch(abs("/"), { method: "OPTIONS", credentials: "same-origin" }); canUpload = /\bPUT\b/.test(r.headers.get("allow") || ""); } catch { canUpload = false; }
+    $("#up").hidden = !canUpload; $("#mk").hidden = !canUpload;
+  }
+  function uniqueName(name, taken) {
+    if (!taken.has(name)) return name;
+    const dot = name.lastIndexOf("."), base = dot > 0 ? name.slice(0, dot) : name, ext = dot > 0 ? name.slice(dot) : "";
+    for (let i = 1; i < 1000; i++) { const n = base + " (" + i + ")" + ext; if (!taken.has(n)) return n; }
+    return name;
+  }
+  const put = (url, file, onProgress) => new Promise((done) => {
+    const x = new XMLHttpRequest(); x.open("PUT", url);
+    x.upload.onprogress = (e) => { if (e.lengthComputable) onProgress(e.loaded / e.total); };
+    x.onload = () => done(x.status); x.onerror = () => done(0); x.send(file);
+  });
+  function upRow(name) {
+    const row = el("div", "up"), n = el("div", "upn"), bar = el("div", "upb", "<i></i>"), m = el("div", "upm");
+    n.textContent = name; n.title = name; m.textContent = "Waiting…"; row.append(n, bar, m); $("#uplist").append(row);
+    return {
+      set: (p) => { bar.firstChild.style.width = Math.round(p * 100) + "%"; m.textContent = Math.round(p * 100) + "%"; },
+      done: (msg) => { row.classList.add("ok"); m.textContent = msg; },
+      fail: (msg) => { row.classList.add("bad"); m.textContent = msg; },
+    };
+  }
+  async function uploadFiles(list) {
+    const files = [...list].filter((f) => f && f.name);
+    if (!canUpload || !files.length || uploading) return;
+    uploading = true; $("#uplist").replaceChildren(); $("#ups").hidden = false; $("#upt").textContent = "Uploading " + files.length + (files.length === 1 ? " file" : " files");
+    const dir = st.path, taken = new Set(st.items.map((i) => i.name));
+    let ok = 0, failed = 0;
+    for (const f of files) {
+      const row = upRow(f.name); let name = uniqueName(f.name, taken), status = 0;
+      for (let tries = 0; tries < 5; tries++) {
+        status = await put(abs(dir + encodeURIComponent(name)), f, row.set);
+        if (status !== 409) break;
+        taken.add(name); name = uniqueName(f.name, taken);
+      }
+      taken.add(name);
+      if (status === 200 || status === 201 || status === 204) { ok++; row.done(name !== f.name ? "Saved as " + name : "Uploaded"); }
+      else { failed++; row.fail(status === 0 ? "Connection lost" : status === 409 ? "Couldn't save this file" : "Failed (" + status + ")"); }
+    }
+    uploading = false; $("#upt").textContent = failed ? ok + " uploaded, " + failed + " failed" : "Uploaded " + ok + (ok === 1 ? " file" : " files");
+    if (st.path === dir) await load(dir, true);
+    if (!failed) setTimeout(() => { if (!uploading) $("#ups").hidden = true; }, 3500);
+  }
+  $("#up").addEventListener("click", () => $("#file").click());
+  $("#file").addEventListener("change", (e) => { void uploadFiles(e.target.files); e.target.value = ""; });
+  $("#upx").addEventListener("click", () => { $("#ups").hidden = true; });
+  $("#mk").addEventListener("click", async () => {
+    const name = (prompt("New folder name") || "").trim();
+    if (!name) return;
+    if (/[\\/:*?"<>|]/.test(name) || name === "." || name === "..") { alert("That name isn't valid."); return; }
+    const r = await fetch(abs(st.path + encodeURIComponent(name) + "/"), { method: "MKCOL", credentials: "same-origin" });
+    if (r.status === 201) await load(st.path, true); else alert(r.status === 409 ? "A file or folder with that name already exists." : "Couldn't create the folder.");
+  });
+  let dragDepth = 0;
+  const hasFiles = (e) => canUpload && !viewerOn && e.dataTransfer && [...e.dataTransfer.types].includes("Files");
+  window.addEventListener("dragenter", (e) => { if (hasFiles(e)) { dragDepth++; $("#drop").classList.add("on"); } });
+  window.addEventListener("dragleave", (e) => { if (hasFiles(e) && --dragDepth <= 0) { dragDepth = 0; $("#drop").classList.remove("on"); } });
+  window.addEventListener("dragover", (e) => { if (hasFiles(e)) e.preventDefault(); });
+  window.addEventListener("drop", (e) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault(); dragDepth = 0; $("#drop").classList.remove("on");
+    const files = [...e.dataTransfer.items].filter((i) => i.kind === "file" && !(i.webkitGetAsEntry && i.webkitGetAsEntry() && i.webkitGetAsEntry().isDirectory)).map((i) => i.getAsFile());
+    void uploadFiles(files);
+  });
+
+  void detect();
   load(location.pathname);
 })();
 </script>
