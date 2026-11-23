@@ -8,7 +8,11 @@ import { Button } from "../Button";
 import { QrCode } from "../QrCode";
 import { toast } from "../../../lib/toast";
 import { useCopyToClipboard } from "../../../hooks/useCopyToClipboard";
-import { getShareFolder, setShareFolder, shareErrorMessage, shareLink, useShareStore } from "../../../lib/webdavShare";
+import { PasswordInput } from "../PasswordInput";
+import { Input } from "../Input";
+import {
+  getShareFolder, getShareUser, setShareFolder, setShareUser, shareErrorMessage, shareLink, useShareStore,
+} from "../../../lib/webdavShare";
 
 const KW = ["webdav", "phone", "mobile", "share", "local network", "wifi", "lan", "files", "qr"];
 
@@ -28,6 +32,8 @@ function Field({ label, value }: { label: string; value: string }) {
 /** Share one folder of this computer, read-only, with a phone on the same Wi-Fi (Settings → Vault). */
 export function WebdavShareSettings() {
   const [folder, setFolder] = useState(getShareFolder);
+  const [user, setUser] = useState(getShareUser);
+  const [pass, setPass] = useState("");
   const { info, busy, refresh, start, stop } = useShareStore();
 
   useEffect(() => { void refresh(); }, [refresh]);
@@ -38,7 +44,7 @@ export function WebdavShareSettings() {
   };
 
   const toggle = async (on: boolean) => {
-    try { if (on) await start(folder); else await stop(); } catch (e) { toast.error(shareErrorMessage(e)); }
+    try { if (on) { setShareUser(user.trim()); await start(folder, user, pass); } else await stop(); } catch (e) { toast.error(shareErrorMessage(e)); }
   };
 
   return (
@@ -46,6 +52,17 @@ export function WebdavShareSettings() {
                    description="Lets a phone on the same Wi-Fi browse and download one folder of this computer, using any WebDAV app. Read-only: nothing can be changed from the phone.">
       <SettingRow id="vault.share.folder" label="Folder to share" description={folder || "No folder picked yet."} keywords={[...KW, "folder", "directory", "choose"]}>
         <Button size="sm" variant="ghost" disabled={!!info || busy} onClick={() => void choose()}>{folder ? "Change…" : "Choose…"}</Button>
+      </SettingRow>
+
+      <SettingRow id="vault.share.login" label="User name and password" keywords={[...KW, "user name", "username", "password", "login", "custom"]}
+                  description="Leave them empty to use the user name “notiq” and a new random password each time. A password needs at least 8 characters. The password isn't saved: type it again next time."
+                  layout="stacked">
+        <div className="flex gap-2 max-w-[460px]">
+          <Input aria-label="Share user name" placeholder="User name (notiq)" value={user} disabled={!!info || busy} maxLength={32} autoComplete="off"
+                 onChange={(e) => setUser(e.target.value)} />
+          <PasswordInput aria-label="Share password" placeholder="Password (random)" value={pass} disabled={!!info || busy} maxLength={64} autoComplete="new-password"
+                         onChange={(e) => setPass(e.target.value)} />
+        </div>
       </SettingRow>
 
       <SettingRow id="vault.share.enabled" label="Share this folder"

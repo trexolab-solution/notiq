@@ -3,7 +3,7 @@
 //!
 //! Safety, in order of importance:
 //!  * it listens on the computer's LAN address only (never on every interface, never on the internet);
-//!  * every request needs the username + the random password made when sharing starts (HTTP Basic);
+//!  * every request needs the user name and password (HTTP Basic): the ones the user typed, or `notiq` + a random password;
 //!  * only OPTIONS / GET / HEAD / PROPFIND are answered, so nothing can be written, moved or deleted;
 //!  * symbolic links are hidden, so a link inside the folder can't lead out of it;
 //!  * sharing lasts until it is stopped or the app closes. Nothing is stored on disk.
@@ -33,7 +33,8 @@ use tauri::State;
 use tokio::net::TcpListener;
 use tokio::sync::watch;
 
-const USERNAME: &str = "notiq";
+const DEFAULT_USERNAME: &str = "notiq";
+const MIN_PASSWORD: usize = 8;
 /// Tried first so a phone's saved connection keeps working; any free port is used when it is taken.
 const PREFERRED_PORT: u16 = 8765;
 /// The only requests answered: reading and listing. PROPFIND is how a client lists a folder.
@@ -77,11 +78,26 @@ fn same(a: &[u8], b: &[u8]) -> bool {
     a.len() == b.len() && a.iter().zip(b).fold(0u8, |d, (x, y)| d | (x ^ y)) == 0
 }
 
-/// Whether an `Authorization` header carries the right user name and password.
-fn authorized(header: Option<&str>, password: &str) -> bool {
+/// Checks what the user typed (empty = the default) and returns the user name and password to use.
+fn credentials(username: Option<String>, password: Option<String>) -> Result<(String, String), String> {
+    let user = username.map(|u| u.trim().to_string()).filter(|u| !u.is_empty()).unwrap_or_else(|| DEFAULT_USERNAME.into());
+    if user.chars().count() > 32 || user.contains(':') || user.chars().any(char::is_control) {
+        return Err("The user name can have up to 32 characters and no colon (:).".into());
+    }
+    let pass = match password.filter(|p| !p.is_empty()) {
+        None => make_password(),
+        Some(p) if p.chars().count() < MIN_PASSWORD => return Err(format!("Use a password of at least {MIN_PASSWORD} characters.")),
+        Some(p) if p.chars().count() > 64 || p.chars().any(char::is_control) => return Err("The password can have up to 64 characters.".into()),
+        Some(p) => p,
+    };
+    Ok((user, pass))
+}
+
+/// Whether an `Authorization` header carries the right user name and password (`login` is "user:password").
+fn authorized(header: Option<&str>, login: &str) -> bool {
     let Some(rest) = header.and_then(|h| h.strip_prefix("Basic ")) else { return false };
     let Ok(raw) = base64::engine::general_purpose::STANDARD.decode(rest.trim()) else { return false };
-    same(&raw, format!("{USERNAME}:{password}").as_bytes())
+    same(&raw, login.as_bytes())
 }
 
 fn reply(status: StatusCode, extra: &[(&str, &str)], text: &str) -> Response<Body> {
@@ -91,9 +107,9 @@ fn reply(status: StatusCode, extra: &[(&str, &str)], text: &str) -> Response<Bod
 }
 
 /// One request: password check, then only the reading methods go on to the WebDAV handler.
-async fn serve(req: Request<Incoming>, dav: DavHandler, password: std::sync::Arc<String>) -> Result<Response<Body>, Infallible> {
+async fn serve(req: Request<Incoming>, dav: DavHandler, login: std::sync::Arc<String>) -> Result<Response<Body>, Infallible> {
     let header = req.headers().get(AUTHORIZATION).and_then(|v| v.to_str().ok());
-    if !authorized(header, &password) {
+    if !authorized(header, &login) {
         // A short pause makes guessing passwords slow.
         tokio::time::sleep(Duration::from_millis(400)).await;
         return Ok(reply(StatusCode::UNAUTHORIZED, &[(WWW_AUTHENTICATE.as_str(), "Basic realm=\"Notiq\", charset=\"UTF-8\"")], "Sign in"));
@@ -107,23 +123,24 @@ async fn serve(req: Request<Incoming>, dav: DavHandler, password: std::sync::Arc
 }
 
 /// Answers requests on `listener` until `stopped` changes.
-async fn run(listener: TcpListener, dir: std::path::PathBuf, password: String, mut stopped: watch::Receiver<bool>) {
+async fn run(listener: TcpListener, dir: std::path::PathBuf, login: String, mut stopped: watch::Receiver<bool>) {
     let dav = DavHandler::builder()
         .filesystem(LocalFs::new(&dir, false, false, false))
         .locksystem(FakeLs::new())
         .hide_symlinks(true)
+        .autoindex(true) // a browser opening the address gets a page listing the folder
         .build_handler();
-    let password = std::sync::Arc::new(password);
+    let login = std::sync::Arc::new(login);
     loop {
         tokio::select! {
             _ = stopped.changed() => break,
             accepted = listener.accept() => {
                 let Ok((stream, _)) = accepted else { continue };
-                let (dav, password, mut stopped) = (dav.clone(), password.clone(), stopped.clone());
+                let (dav, login, mut stopped) = (dav.clone(), login.clone(), stopped.clone());
                 tokio::spawn(async move {
                     let conn = http1::Builder::new().serve_connection(
                         TokioIo::new(stream),
-                        service_fn(move |req| serve(req, dav.clone(), password.clone())),
+                        service_fn(move |req| serve(req, dav.clone(), login.clone())),
                     );
                     tokio::select! { _ = conn => {}, _ = stopped.changed() => {} }
                 });
@@ -133,7 +150,7 @@ async fn run(listener: TcpListener, dir: std::path::PathBuf, password: String, m
 }
 
 #[tauri::command]
-pub async fn webdav_start(folder: String, state: State<'_, WebdavState>) -> Result<ShareInfo, String> {
+pub async fn webdav_start(folder: String, username: Option<String>, password: Option<String>, state: State<'_, WebdavState>) -> Result<ShareInfo, String> {
     if state.0.lock().unwrap_or_else(|e| e.into_inner()).is_some() { return Err("Sharing is already on.".into()); }
     let dir = std::fs::canonicalize(Path::new(&folder)).map_err(|_| "That folder doesn't exist.".to_string())?;
     if !dir.is_dir() { return Err("Pick a folder to share.".into()); }
@@ -145,16 +162,16 @@ pub async fn webdav_start(folder: String, state: State<'_, WebdavState>) -> Resu
     };
     let port = listener.local_addr().map_err(|e| e.to_string())?.port();
 
-    let password = make_password();
+    let (username, password) = credentials(username, password)?;
     let info = ShareInfo {
         url: format!("http://{ip}:{port}/"),
-        username: USERNAME.into(),
+        username: username.clone(),
         password: password.clone(),
         folder: dir.to_string_lossy().trim_start_matches(r"\\?\").to_string(),
     };
 
     let (stop, stopped) = watch::channel(false);
-    tokio::spawn(run(listener, dir, password, stopped));
+    tokio::spawn(run(listener, dir, format!("{username}:{password}"), stopped));
 
     *state.0.lock().unwrap_or_else(|e| e.into_inner()) = Some(Running { info: info.clone(), stop });
     Ok(info)
@@ -186,13 +203,24 @@ mod tests {
     }
 
     #[test]
+    fn custom_login_is_checked() {
+        assert_eq!(credentials(Some(" Pintu ".into()), Some("hunter2hunter2".into())).unwrap(), ("Pintu".into(), "hunter2hunter2".into()));
+        let (u, p) = credentials(None, Some(String::new())).unwrap();
+        assert_eq!((u.as_str(), p.len()), ("notiq", 16));
+        assert!(credentials(Some("a:b".into()), None).is_err());
+        assert!(credentials(Some("x".repeat(33)), None).is_err());
+        assert!(credentials(None, Some("short".into())).is_err());
+        assert!(credentials(None, Some("tab	here-long".into())).is_err());
+    }
+
+    #[test]
     fn only_the_right_user_and_password_pass() {
-        assert!(authorized(Some(&basic("notiq:secret")), "secret"));
-        assert!(!authorized(Some(&basic("notiq:wrong")), "secret"));
-        assert!(!authorized(Some(&basic("admin:secret")), "secret"));
-        assert!(!authorized(Some("Bearer secret"), "secret"));
-        assert!(!authorized(Some("Basic !!!"), "secret"));
-        assert!(!authorized(None, "secret"));
+        assert!(authorized(Some(&basic("notiq:secret")), "notiq:secret"));
+        assert!(!authorized(Some(&basic("notiq:wrong")), "notiq:secret"));
+        assert!(!authorized(Some(&basic("admin:secret")), "notiq:secret"));
+        assert!(!authorized(Some("Bearer secret"), "notiq:secret"));
+        assert!(!authorized(Some("Basic !!!"), "notiq:secret"));
+        assert!(!authorized(None, "notiq:secret"));
     }
 
     #[tokio::test]
@@ -203,20 +231,23 @@ mod tests {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let base = format!("http://{}", listener.local_addr().unwrap());
         let (stop, stopped) = watch::channel(false);
-        tokio::spawn(run(listener, dir.clone(), "pw".into(), stopped));
+        tokio::spawn(run(listener, dir.clone(), "notiq:pw".into(), stopped));
 
         let c = reqwest::Client::new();
         let m = |s: &str| Method::from_bytes(s.as_bytes()).unwrap();
         let go = |method: &str, path: &str, auth: bool| {
             let r = c.request(m(method), format!("{base}{path}"));
             let r = if method == "GET" || method == "PROPFIND" { r } else { r.body("x") };
-            if auth { r.basic_auth(USERNAME, Some("pw")) } else { r }.send()
+            if auth { r.basic_auth("notiq", Some("pw")) } else { r }.send()
         };
         assert_eq!(go("GET", "/a.txt", false).await.unwrap().status(), 401);
-        assert_eq!(c.get(format!("{base}/a.txt")).basic_auth(USERNAME, Some("nope")).send().await.unwrap().status(), 401);
+        assert_eq!(c.get(format!("{base}/a.txt")).basic_auth("notiq", Some("nope")).send().await.unwrap().status(), 401);
         let got = go("GET", "/a.txt", true).await.unwrap();
         assert_eq!(got.status(), 200);
         assert_eq!(got.text().await.unwrap(), "hello");
+        let page = go("GET", "/", true).await.unwrap();
+        assert_eq!(page.status(), 200);
+        assert!(page.text().await.unwrap().contains("a.txt"));
         let list = go("PROPFIND", "/", true).await.unwrap();
         assert_eq!(list.status(), 207);
         assert!(list.text().await.unwrap().contains("a.txt"));

@@ -5,7 +5,8 @@ import { toast } from "./toast";
 /** A running "Share files to phone" server: where to point the phone's WebDAV app, and how to sign in. */
 export interface ShareInfo { url: string; username: string; password: string; folder: string }
 
-export const webdavStart = (folder: string) => invoke<ShareInfo>("webdav_start", { folder });
+/** Empty user name / password = the defaults (`notiq`, and a random password). */
+export const webdavStart = (folder: string, username = "", password = "") => invoke<ShareInfo>("webdav_start", { folder, username, password });
 export const webdavStop = () => invoke<void>("webdav_stop");
 export const webdavStatus = () => invoke<ShareInfo | null>("webdav_status");
 
@@ -13,6 +14,11 @@ export const webdavStatus = () => invoke<ShareInfo | null>("webdav_status");
 const FOLDER_KEY = "notiq.webdavFolder";
 export const getShareFolder = (): string => { try { return localStorage.getItem(FOLDER_KEY) ?? ""; } catch { return ""; } };
 export const setShareFolder = (p: string) => { try { localStorage.setItem(FOLDER_KEY, p); } catch { /* private mode: not remembered */ } };
+
+/** The user name typed last time. The password is not kept: it lives only while sharing runs. */
+const USER_KEY = "notiq.webdavUser";
+export const getShareUser = (): string => { try { return localStorage.getItem(USER_KEY) ?? ""; } catch { return ""; } };
+export const setShareUser = (u: string) => { try { localStorage.setItem(USER_KEY, u); } catch { /* not remembered */ } };
 
 /** The address with the sign-in inside it: what the QR code holds, so a scan needs no typing. */
 export const shareLink = (i: ShareInfo) => i.url.replace("://", `://${encodeURIComponent(i.username)}:${encodeURIComponent(i.password)}@`);
@@ -24,7 +30,7 @@ interface ShareStore {
   busy: boolean;
   /** Asks the app what is being shared (the server lives in the backend, not in this page). */
   refresh: () => Promise<void>;
-  start: (folder: string) => Promise<void>;
+  start: (folder: string, username?: string, password?: string) => Promise<void>;
   stop: () => Promise<void>;
 }
 
@@ -33,9 +39,9 @@ export const useShareStore = create<ShareStore>((set) => ({
   info: null,
   busy: false,
   async refresh() { try { set({ info: await webdavStatus() }); } catch { /* not the desktop app */ } },
-  async start(folder) {
+  async start(folder, username, password) {
     set({ busy: true });
-    try { set({ info: await webdavStart(folder) }); } finally { set({ busy: false }); }
+    try { set({ info: await webdavStart(folder, username, password) }); } finally { set({ busy: false }); }
   },
   async stop() {
     set({ busy: true });
@@ -54,7 +60,7 @@ export async function quickToggleShare(openSettings: (section: "vault", settingI
     if (useShareStore.getState().info) { await s.stop(); toast.success("Sharing to phone is off."); return; }
     const folder = getShareFolder();
     if (!folder) { toast.info("Pick a folder to share first."); openSettings("vault", "vault.share.folder"); return; }
-    await s.start(folder);
+    await s.start(folder, getShareUser());
     toast.success("Sharing to phone is on. Scan the QR code.");
     openSettings("vault", "vault.share.enabled");
   } catch (e) { toast.error(shareErrorMessage(e)); }
