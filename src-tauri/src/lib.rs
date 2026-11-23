@@ -16,6 +16,8 @@ mod ssh_client; // 0.9.9 built-in terminal: the SSH client itself (no system ssh
 mod ssh_keygen; // 0.9.9 generate an SSH key in the entry form
 #[cfg(desktop)]
 mod sftp_client; // 0.10.0 remote file manager over SFTP (built in)
+#[cfg(desktop)]
+mod webdav_share; // 0.13.0 read-only WebDAV server for one folder, on the local network
 mod vault_backup;
 mod vault_core;
 mod vault_db;
@@ -655,9 +657,10 @@ fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let show_i = MenuItem::with_id(app, "show", "Show Notiq", true, None::<&str>)?;
     let new_note_i = MenuItem::with_id(app, "new_note", "New Sticky Note", true, None::<&str>)?;
     let notes_list_i = MenuItem::with_id(app, "sticky_notes_list", "Sticky Notes", true, None::<&str>)?;
+    let share_i = MenuItem::with_id(app, "share_phone", "Phone Share", true, None::<&str>)?;
     let sep = PredefinedMenuItem::separator(app)?;
     let quit_i = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&show_i, &new_note_i, &notes_list_i, &sep, &quit_i])?;
+    let menu = Menu::with_items(app, &[&show_i, &new_note_i, &notes_list_i, &share_i, &sep, &quit_i])?;
 
     let icon = Image::from_bytes(include_bytes!("../icons/32x32.png"))?;
 
@@ -676,6 +679,14 @@ fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
             }
             "new_note" => {
                 let _ = app.emit("open-sticky-note", ());
+            }
+            "share_phone" => {
+                if let Some(w) = app.get_webview_window("main") {
+                    let _ = w.unminimize();
+                    let _ = w.show();
+                    let _ = w.set_focus();
+                }
+                let _ = app.emit("toggle-webdav-share", ());
             }
             "sticky_notes_list" => {
                 let _ = app.emit("open-sticky-notes-list", ());
@@ -750,6 +761,7 @@ pub fn run() {
         builder
             .manage(term::AppTerminal::new())
             .manage(sftp_client::SftpState::default())
+            .manage(webdav_share::WebdavState::default())
             .plugin(
                 tauri_plugin_window_state::Builder::default()
                     .with_state_flags(
@@ -788,6 +800,9 @@ pub fn run() {
         term::terminal_create,
         ssh_keygen::ssh_generate_key,
         sftp_client::sftp_open,
+        webdav_share::webdav_start,
+        webdav_share::webdav_stop,
+        webdav_share::webdav_status,
         sftp_client::sftp_close,
         sftp_client::sftp_list,
         sftp_client::sftp_mkdir,

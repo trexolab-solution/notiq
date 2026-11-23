@@ -1,6 +1,6 @@
 [package]
 name = "notiq"
-version = "0.12.2"
+version = "0.13.0"
 description = "Notiq — a smart note-taking application"
 authors = ["TrexoLab <trexolab@outlook.com>"]
 edition = "2021"
@@ -45,6 +45,11 @@ ring = "0.17"
 ssh-key = { version = "0.6", default-features = false, features = ["std", "alloc", "ed25519", "rsa", "encryption", "rand_core"] }
 # 0.9.9: built-in SSH client for the terminal (no system ssh needed). `ring` instead of the default aws-lc-rs: no C toolchain on Windows.
 russh = { version = "0.65", default-features = false, features = ["flate2", "ring", "rsa"] }
+dav-server = { version = "0.12", default-features = false, features = ["localfs"] }
+hyper = { version = "1", features = ["server", "http1"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
+http-body-util = "0.1"
+bytes = "1"
 
 
 [target.'cfg(any(target_os = "macos", windows, target_os = "linux"))'.dependencies]

@@ -17,6 +17,7 @@ import { buildSyncCommands } from "../lib/syncCommands";
 import { requestSyncSetup, syncSettingsRow } from "../lib/syncSurfaces";
 import { useSyncStore } from "../lib/vaultSync";
 import { runSyncNow } from "../components/layout/SyncPopover";
+import { quickToggleShare, useShareStore } from "../lib/webdavShare";
 
 interface UseCommandsDeps {
   tabs: Tab[];
@@ -89,6 +90,10 @@ export function useCommands(deps: UseCommandsDeps): () => Command[] {
         // The set-up decision flow (sign-in, then create / open / upload) takes over.
         connect: requestSyncSetup,
       }),
+      { id: "share:toggle", label: useShareStore.getState().info ? "Phone Share: Stop" : "Phone Share: Start", group: "Actions", icon: <FolderOpen size={14} />,
+        run: () => { void quickToggleShare(openSettings); } },
+      ...(useShareStore.getState().info ? [{ id: "share:qr", label: "Phone Share: Show QR code", group: "Actions", icon: <FolderOpen size={14} />,
+        run: () => openSettings("vault", "vault.share.enabled") }] : []),
       { id: "act:settings", label: "Open Settings", group: "Actions", icon: <SettingsIcon size={14} />, trailing: "Ctrl+,", run: onOpenSettings },
     );
 

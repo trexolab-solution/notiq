@@ -9,6 +9,7 @@ import { openStickyNote, openStickyNotesList } from "./lib/stickyNote";
 import { listen } from "@tauri-apps/api/event";
 import { readFileEntry } from "./lib/fileOps";
 import { routeOpenedPath } from "./lib/restoreRequest";
+import { quickToggleShare } from "./lib/webdavShare";
 
 export function initMainApp() {
   // Listen for "New Sticky Note" from tray menu — registered early so no
@@ -19,6 +20,10 @@ export function initMainApp() {
   // Listen for "Sticky Notes" list from tray menu
   listen("open-sticky-notes-list", () => { openStickyNotesList(); })
     .catch((e) => console.warn("Failed to listen for open-sticky-notes-list:", e));
+
+  // "Phone Share" from the tray menu: start (and show the QR code) or stop.
+  listen("toggle-webdav-share", () => { void quickToggleShare((section, id) => useAppStore.getState().openSettings(section, id)); })
+    .catch((e) => console.warn("Failed to listen for toggle-webdav-share:", e));
 
   // Listen for file opened from a second instance (file association while running)
   listen<string>("open-file", async (event) => {
