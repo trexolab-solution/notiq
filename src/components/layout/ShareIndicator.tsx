@@ -12,7 +12,7 @@ import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
 import { getShareFolder, shareErrorMessage, shareLink, shareMode, useShareStore } from "../../lib/webdavShare";
 
 /**
- * Status-bar quick access for "Share files to phone": a button that shows whether sharing is on, and a small panel in
+ * Status-bar quick access for "Phone Share" (Settings: "Share files to phone"): a button that shows whether sharing is on, and a small panel in
  * the same style as the Vault Sync panel to start / stop it, open the share in this computer's browser, copy its
  * address or jump to the QR code.
  */
@@ -36,19 +36,22 @@ export function ShareIndicator() {
 
   return (
     <div ref={box} className="relative flex items-center">
-      <Tooltip content={on ? "Sharing files to phone" : "Share files to phone"} disabled={open}>
+      <Tooltip content={on ? "Phone Share is on. Click for the address and QR code." : "Phone Share: open files on your phone"} disabled={open}>
         <button type="button" className={`status-sync ${on ? "status-sync--synced" : "status-sync--off"}`} aria-haspopup="dialog" aria-expanded={open}
-                aria-label={on ? "Sharing files to phone: open the share panel" : "Share files to phone"} onClick={() => { setOpen((o) => !o); void refresh(); }}>
-          <Smartphone size={11} />
-          <span>{on ? "Sharing" : "Share"}</span>
+                aria-label={on ? "Phone Share, on: open the panel" : "Phone Share, off: open the panel"} onClick={() => { setOpen((o) => !o); void refresh(); }}>
+          <span className="relative inline-flex" aria-hidden>
+            <Smartphone size={11} />
+            {on && <span className="absolute -right-[3px] -top-[2px] h-[5px] w-[5px] rounded-full bg-[var(--color-success)] ring-1 ring-[var(--color-bg-secondary)]" />}
+          </span>
+          <span>Phone Share</span>
         </button>
       </Tooltip>
 
       {open && (
-        <div role="dialog" aria-label="Share files to phone" className="sync-pop" style={{ position: "absolute", bottom: "calc(100% + 6px)", right: 0, width: 292 }}>
+        <div role="dialog" aria-label="Phone Share" className="sync-pop" style={{ position: "absolute", bottom: "calc(100% + 6px)", right: 0, width: 292 }}>
           <div className="flex items-center gap-2 px-3 pt-2.5 pb-2">
             <Smartphone size={14} className="shrink-0 text-[var(--color-text-muted)]" aria-hidden />
-            <h2 className="flex-1 m-0 text-[12.5px] font-semibold">Share to phone</h2>
+            <h2 className="flex-1 m-0 text-[12.5px] font-semibold">Phone Share</h2>
             <span className={`sync-pop__badge ${on ? "sync-pop__badge--ok" : "sync-pop__badge--muted"}`}>{on ? "On" : "Off"}</span>
             <button type="button" className="vt-icon-btn" aria-label="Close" onClick={() => setOpen(false)}><X size={13} /></button>
           </div>
