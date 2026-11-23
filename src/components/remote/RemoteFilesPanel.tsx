@@ -51,9 +51,10 @@ export function RemoteFilesPanel({ target, active = true, onPopOut }: {
 }) {
   const {
     phase, failure, title, path, entries, loading, selected, setSelected, link, nav, setNav, trashCount, setTrashCount,
-    sid, anchor, pathRef, reconnectRef, load, connect, reconnect,
+    sid, busy, anchor, pathRef, reconnectRef, load, connect, reconnect,
   } = useSftpSession(target, active);
   const { transfers, runTransfer, clearFinished, replace, setReplace } = useTransfers(reconnectRef);
+  busy.current = transfers.some((t) => t.state === "running");
   const [sort, setSort] = useState<SortState>(() => { const p = getFilesPrefs(); return { key: p.sortKey, desc: p.sortDesc }; });
   const [filter, setFilter] = useState("");
   const [showHidden, setShowHidden] = useState(() => getFilesPrefs().showHidden);
