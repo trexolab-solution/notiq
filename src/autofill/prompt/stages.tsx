@@ -52,6 +52,7 @@ export function SaveStage({ refs, state, dispatch, onDeny }: StageProps<"save">)
            </>}>
       <p className="af-detail">Only save it if you just signed in on this site.</p>
       <SaveFields req={job.req} plan={plan} name={name} nameError={nameErr} reveal={reveal} disabled={busy}
+                  username={state.username} onUsername={(value) => dispatch({ type: "username", value })}
                   onName={(value) => dispatch({ type: "name", value })} onReveal={() => dispatch({ type: "reveal" })}
                   onTarget={(index) => dispatch({ type: "saveTarget", index })}
                   onSaveAsNew={(on) => dispatch({ type: "saveAsNew", on })}

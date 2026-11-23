@@ -27,6 +27,9 @@ export interface SaveFieldsProps {
   /** Enter in the name field. */
   onEnter: () => void;
   autoFocusName?: boolean;
+  /** When set, a new login's username is an input (the page may not have given one). */
+  username?: string;
+  onUsername?: (username: string) => void;
   /** Several logins share this username on the site: the user picked candidate `index` to update. */
   onTarget?: (index: number) => void;
   /** "Update an existing login instead" (back from Save as new). */
@@ -41,6 +44,7 @@ export interface SaveFieldsProps {
  */
 export function SaveFields({
   req, plan, name, onName, nameError, reveal, onReveal, onEnter, autoFocusName = true, onTarget, onSaveAsNew, disabled,
+  username, onUsername,
 }: SaveFieldsProps) {
   const update = plan.kind === "update";
   const choice = hasSaveChoice(plan) ? plan.candidates ?? [] : [];
@@ -50,8 +54,22 @@ export function SaveFields({
       <dl className="af-fields">
         <dt>Website</dt>
         <dd className="truncate">{req.host}</dd>
-        <dt>Username</dt>
-        <dd className="truncate">{req.username || <span className="af-muted">(none)</span>}</dd>
+        {!update && onUsername ? (
+          <>
+            <dt><label htmlFor="af-save-username">Username</label></dt>
+            <dd>
+              <Input id="af-save-username" value={username ?? ""} maxLength={200} disabled={disabled}
+                     placeholder="Username or email (optional)" autoComplete="off" spellCheck={false}
+                     onChange={(e) => onUsername(e.target.value)}
+                     onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); onEnter(); } }} />
+            </dd>
+          </>
+        ) : (
+          <>
+            <dt>Username</dt>
+            <dd className="truncate">{req.username || <span className="af-muted">(none)</span>}</dd>
+          </>
+        )}
         {update && choice.length > 0 && (
           <>
             <dt id="af-save-target-label">Update</dt>

@@ -59,7 +59,8 @@ export type PromptState =
   | { stage: "checking"; job: Job; silent: boolean; consent?: boolean }
   | { stage: "locked"; job: Job; error: string | null; busy: boolean }
   | { stage: "request"; job: FillJob; matches: LoginMatch[]; pick: number; trust: boolean; busy: boolean }
-  | { stage: "save"; job: SaveJob; plan: SavePlan; name: string; reveal: boolean; busy: boolean }
+  /** `username`: starts as the detected one; the user can type it when the page gave none (new logins only). */
+  | { stage: "save"; job: SaveJob; plan: SavePlan; name: string; username: string; reveal: boolean; busy: boolean }
   /** Pick one of the vault's cards for a checkout page. */
   | { stage: "card"; job: CardJob; cards: CardMatch[]; pick: number; busy: boolean }
   /** Pick one of the vault's identities for an address / contact form. */
@@ -86,6 +87,7 @@ export type PromptEvent =
   | { type: "pick"; index: number }
   | { type: "trust"; on: boolean }
   | { type: "name"; value: string }
+  | { type: "username"; value: string }
   /** Save prompt with several logins for this username: update candidate `index` … */
   | { type: "saveTarget"; index: number }
   /** … or save as a new login instead (`on: false` goes back to updating). */
@@ -220,7 +222,7 @@ export function step(state: PromptState, ev: PromptEvent): Step {
         const plan = planSave(ev.matches, job.req);
         if (plan.kind === "unchanged") return end(reply(id, { ok: true, status: "unchanged" }));
         return {
-          state: { stage: "save", job, plan, name: defaultLoginName(job.req.title, job.req.host), reveal: false, busy: false },
+          state: { stage: "save", job, plan, name: defaultLoginName(job.req.title, job.req.host), username: job.req.username, reveal: false, busy: false },
           effects: [{ kind: "show" }],
         };
       }
@@ -275,6 +277,8 @@ export function step(state: PromptState, ev: PromptEvent): Step {
       return state.stage === "request" ? same({ ...state, trust: ev.on }) : same(state);
     case "name":
       return state.stage === "save" ? same({ ...state, name: ev.value }) : same(state);
+    case "username":
+      return state.stage === "save" && !state.busy ? same({ ...state, username: ev.value }) : same(state);
     case "saveTarget":
       return state.stage === "save" && !state.busy ? same({ ...state, plan: pickSaveTarget(state.plan, ev.index) }) : same(state);
     case "saveAsNew":
@@ -316,7 +320,7 @@ export function step(state: PromptState, ev: PromptEvent): Step {
       if (state.stage !== "save" || state.busy || (state.plan.kind === "create" && !ev.nameOk)) return same(state);
       return {
         state: { ...state, busy: true },
-        effects: [{ kind: "save", id: state.job.req.id, plan: state.plan, req: state.job.req, name: state.name }],
+        effects: [{ kind: "save", id: state.job.req.id, plan: state.plan, req: { ...state.job.req, username: state.plan.kind === "create" ? state.username.trim() : state.job.req.username }, name: state.name }],
       };
     case "answered":
       return state.stage === "idle" ? same(state) : end();

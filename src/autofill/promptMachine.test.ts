@@ -187,6 +187,13 @@ describe("prompt state machine: save", () => {
     expect(kinds(run(r.state, { type: "answered" }).effects)).toEqual(["finish"]);
   });
 
+  it("a username the page did not give can be typed, and is what gets saved", () => {
+    let r = run(IDLE, start(save("s1", "", "pw")), { type: "scanned", matches: [], lookalike: null });
+    expect(r.state).toMatchObject({ stage: "save", username: "" });
+    r = run(r.state, { type: "username", value: "  me@x.com " }, { type: "confirmSave", nameOk: true });
+    expect(r.effects).toMatchObject([{ kind: "save", req: { username: "me@x.com", password: "pw" } }]);
+  });
+
   it("a changed password asks to update; Not now answers denied", () => {
     const r = run(IDLE, start(save("s1", "me", "new")), { type: "scanned", matches: [m("Logins/a.nqv", "me", "old")], lookalike: null });
     expect(r.state).toMatchObject({ stage: "save", plan: { kind: "update" } });
