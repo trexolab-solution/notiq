@@ -7,7 +7,7 @@ import type { KeyboardEvent } from "react";
  * turns the field red (`aria-invalid`) so the caller can say why. `value` is `NaN` while the field is empty.
  * `bare` takes off the border, for a field that sits inside a larger bordered group.
  */
-export function NumberField({ value, onChange, label, min = 1, max, step = 1, disabled, bare, invalid, width = 112, className = "" }: {
+export function NumberField({ value, onChange, label, min = 1, max, step = 1, disabled, bare, invalid, width = 112, pad = 0, className = "" }: {
   value: number;
   onChange: (v: number) => void;
   /** The accessible name (also names the buttons: "Increase …" / "Decrease …"). */
@@ -20,6 +20,8 @@ export function NumberField({ value, onChange, label, min = 1, max, step = 1, di
   /** Overrides the built-in check (empty, not whole, outside min..max). */
   invalid?: boolean;
   width?: number;
+  /** Shows the number with leading zeros up to this many digits (minutes: 2). */
+  pad?: number;
   className?: string;
 }) {
   const known = Number.isFinite(value);
@@ -45,7 +47,7 @@ export function NumberField({ value, onChange, label, min = 1, max, step = 1, di
       </button>
       <input
         type="text" inputMode="numeric" autoComplete="off" spellCheck={false} aria-label={label} aria-invalid={bad || undefined} disabled={disabled}
-        value={known ? String(value) : ""}
+        value={known ? String(value).padStart(pad, "0") : ""}
         onKeyDown={onKeyDown}
         onChange={(e) => {
           const d = e.target.value.replace(/\D/g, "").slice(0, digits);

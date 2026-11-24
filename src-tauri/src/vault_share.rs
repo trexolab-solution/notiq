@@ -34,30 +34,53 @@ pub struct SharePolicy {
     /// The file can't be imported after this time (Unix ms); `None` = no end.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub valid_until: Option<u64>,
-    /// Imported items destroy themselves this long after the import (ms); `None` = they stay.
+    /// Imported items destroy themselves this long after the import (ms); `None` = they stay (or `item_until` applies).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub item_life_ms: Option<u64>,
+    /// Imported items destroy themselves at this moment (Unix ms), whenever they were imported, instead of a length of
+    /// time after the import. Never together with `item_life_ms`. A moment is the same everywhere: it is shown in the
+    /// receiver's own time zone.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub item_until: Option<u64>,
     /// The file is deleted after its last import.
     #[serde(default)]
     pub delete_file: bool,
 }
 
 impl SharePolicy {
-    /// Checks a policy made for `now` (Unix ms) before a file is written.
-    pub fn validate(&self, now: u64) -> Result<(), String> {
+    /// Checks the shape of a policy, whatever the time: what a file that was made carries must always pass it.
+    pub fn validate_shape(&self) -> Result<(), String> {
         if self.share_id.len() != 32 || !self.share_id.bytes().all(|b| b.is_ascii_hexdigit()) {
             return Err("The share id isn't valid.".into());
         }
         if self.max_imports == 0 || self.max_imports > MAX_IMPORTS_LIMIT {
             return Err(format!("It can be imported between 1 and {MAX_IMPORTS_LIMIT} times."));
         }
-        if self.valid_until.is_some_and(|t| t <= now) {
-            return Err("The end date has to be in the future.".into());
-        }
         if let Some(ms) = self.item_life_ms {
             let hours = ms / HOUR_MS;
             if ms % HOUR_MS != 0 || hours < MIN_ITEM_LIFE_HOURS as u64 || hours > MAX_ITEM_LIFE_HOURS as u64 {
                 return Err("Imported items can last from 1 hour to 1 year.".into());
+            }
+        }
+        if self.item_life_ms.is_some() && self.item_until.is_some() {
+            return Err("Items are removed either after a set time or at a date and time, not both.".into());
+        }
+        Ok(())
+    }
+
+    /// Checks a policy made for `now` (Unix ms) before a file is written: its shape, and that the times are ahead
+    /// (the end of the file, and the moment the items go: at most a year away).
+    pub fn validate(&self, now: u64) -> Result<(), String> {
+        self.validate_shape()?;
+        if self.valid_until.is_some_and(|t| t <= now) {
+            return Err("The end date has to be in the future.".into());
+        }
+        if let Some(t) = self.item_until {
+            if t <= now {
+                return Err("The time the items are removed has to be in the future.".into());
+            }
+            if t > now.saturating_add(MAX_ITEM_LIFE_HOURS as u64 * HOUR_MS) {
+                return Err("The time the items are removed can be at most 1 year ahead.".into());
             }
         }
         Ok(())
@@ -194,6 +217,8 @@ pub enum ShareProblem {
     NoImportsLeft,
     /// This PC's clock is behind what the vault has already seen.
     ClockBehind,
+    /// The moment these items are to be removed has already passed: importing them would add nothing but gone items.
+    ItemsEnded,
 }
 
 impl ShareProblem {
@@ -202,6 +227,7 @@ impl ShareProblem {
             ShareProblem::Expired => "expired",
             ShareProblem::NoImportsLeft => "noImportsLeft",
             ShareProblem::ClockBehind => "clockBehind",
+            ShareProblem::ItemsEnded => "itemsEnded",
         }
     }
 
@@ -210,6 +236,7 @@ impl ShareProblem {
             ShareProblem::Expired => "This share file has expired.",
             ShareProblem::NoImportsLeft => "This share file can't be imported again.",
             ShareProblem::ClockBehind => "The date and time on this PC are behind. Fix them, then try again.",
+            ShareProblem::ItemsEnded => "The time these items were to be removed has already passed.",
         }
     }
 }
@@ -225,10 +252,18 @@ pub fn check_policy(policy: &SharePolicy, uses: u32, sys_now: u64, seen_ms: u64)
     if policy.valid_until.is_some_and(|t| t <= now) {
         return Err(ShareProblem::Expired);
     }
+    if policy.item_until.is_some_and(|t| t <= now) {
+        return Err(ShareProblem::ItemsEnded);
+    }
     if uses >= policy.max_imports {
         return Err(ShareProblem::NoImportsLeft);
     }
     Ok(())
+}
+
+/// When items imported at `now` go: the fixed moment if the rules set one, else the length of time after the import.
+pub fn item_expiry(policy: &SharePolicy, now: u64) -> Option<u64> {
+    policy.item_until.or_else(|| policy.item_life_ms.map(|l| now.saturating_add(l)))
 }
 
 /// What one import did to a vault database.
@@ -248,7 +283,7 @@ pub struct ImportDone {
 pub fn import_into(db: &mut Db, share: &Db, policy: &SharePolicy, sys_now: u64) -> Result<ImportDone, String> {
     check_policy(policy, db.share_uses_of(&policy.share_id), sys_now, db.seen_ms).map_err(|p| p.message().to_string())?;
     let now = db.effective_now(sys_now);
-    let expires_at = policy.item_life_ms.map(|l| now.saturating_add(l));
+    let expires_at = item_expiry(policy, now);
     let mut next = db.clone();
     let merged = next.merge_share(share, expires_at);
     if merged.added == 0 && merged.folders == 0 {
@@ -303,6 +338,8 @@ pub struct ShareInfo {
     pub attachments: u32,
     pub valid_until: Option<u64>,
     pub item_life_ms: Option<u64>,
+    /// The moment the items go, when the sender set one (Unix ms).
+    pub item_until: Option<u64>,
     pub delete_file: bool,
     /// "none" (no vault here yet), "locked" or "ready": a share only goes into a vault that exists and is open.
     pub vault: &'static str,
@@ -341,7 +378,7 @@ fn counts(share: &Db) -> (u32, u32, u32) {
 /// Whether the database of a share file can be imported: it must hold its rules, in range.
 fn policy_of(share: &Db) -> Result<SharePolicy, String> {
     let policy = share.share.clone().ok_or("This is a backup, not a share file. Open it with Restore backup.")?;
-    policy.validate(0)?; // the shape only: an end date is judged at import time
+    policy.validate_shape()?; // the shape only: the times are judged at import time
     Ok(policy)
 }
 
@@ -374,7 +411,7 @@ pub async fn vault_share_inspect(app: AppHandle, state: State<'_, VaultState>, p
         let left = policy.max_imports.saturating_sub(uses);
         ("ready", Some(left), check_policy(&policy, uses, vdb::now_ms(), seen).err().map(ShareProblem::code))
     };
-    Ok(ShareInfo { items: list_items(&share), notes, folders, attachments, valid_until: policy.valid_until, item_life_ms: policy.item_life_ms, delete_file: policy.delete_file, vault, imports_left, problem })
+    Ok(ShareInfo { items: list_items(&share), notes, folders, attachments, valid_until: policy.valid_until, item_life_ms: policy.item_life_ms, item_until: policy.item_until, delete_file: policy.delete_file, vault, imports_left, problem })
 }
 
 /// Imports a share file into the unlocked vault (see `Db::merge_share`), counts the import, and deletes the file
@@ -420,6 +457,8 @@ pub struct ShareExportArgs {
     pub max_imports: u32,
     pub valid_until_ms: Option<u64>,
     pub item_life_hours: Option<u32>,
+    /// A fixed moment the items are removed (Unix ms), instead of `item_life_hours`.
+    pub item_until_ms: Option<u64>,
     pub delete_file: bool,
     pub dest_path: String,
 }
@@ -448,6 +487,7 @@ pub async fn vault_share_export(app: AppHandle, state: State<'_, VaultState>, ar
         max_imports: args.max_imports,
         valid_until: args.valid_until_ms,
         item_life_ms: args.item_life_hours.map(|h| h as u64 * HOUR_MS),
+        item_until: args.item_until_ms,
         delete_file: args.delete_file,
     };
     policy.validate(now)?;
@@ -485,7 +525,7 @@ mod tests {
     const NOW: u64 = 1_800_000_000_000;
 
     fn policy() -> SharePolicy {
-        SharePolicy { share_id: "0123456789abcdef0123456789abcdef".into(), created_at: NOW, max_imports: 2, valid_until: Some(NOW + 1000), item_life_ms: Some(7 * 24 * HOUR_MS), delete_file: true }
+        SharePolicy { share_id: "0123456789abcdef0123456789abcdef".into(), created_at: NOW, max_imports: 2, valid_until: Some(NOW + 1000), item_life_ms: Some(7 * 24 * HOUR_MS), item_until: None, delete_file: true }
     }
 
     fn vault() -> Db {
@@ -531,6 +571,25 @@ mod tests {
         p.item_life_ms = None;
         p.max_imports = MAX_IMPORTS_LIMIT;
         assert!(p.validate(NOW).is_ok(), "no end and items that stay are allowed");
+    }
+
+    #[test]
+    fn a_fixed_removal_time_is_checked() {
+        let mut p = policy();
+        p.item_life_ms = None;
+        p.item_until = Some(NOW + 4 * HOUR_MS);
+        assert!(p.validate(NOW).is_ok());
+        assert!(p.validate_shape().is_ok());
+        let bad = |f: &dyn Fn(&mut SharePolicy)| { let mut q = p.clone(); f(&mut q); q.validate(NOW).is_err() };
+        assert!(bad(&|q| q.item_until = Some(NOW)), "now is not ahead");
+        assert!(bad(&|q| q.item_until = Some(NOW - 1)), "the past");
+        assert!(bad(&|q| q.item_until = Some(NOW + MAX_ITEM_LIFE_HOURS as u64 * HOUR_MS + 1)), "more than a year away");
+        assert!(p.clone().validate(NOW + 10 * HOUR_MS).is_err(), "and it passes with the time");
+        assert!(bad(&|q| q.item_life_ms = Some(HOUR_MS)), "a length of time and a moment together");
+        // The shape never looks at the time: a file made long ago still has a valid shape.
+        let mut old = p.clone();
+        old.item_until = Some(1);
+        assert!(old.validate_shape().is_ok());
     }
 
     #[test]
@@ -904,5 +963,59 @@ mod tests {
         let json = serde_json::to_string(&list).unwrap();
         assert!(!json.contains("bank secret") && !json.contains("mail secret"));
         assert!(json.contains("\"attachments\":1"));
+    }
+
+    #[test]
+    fn a_fixed_removal_time_is_where_the_items_go_whenever_they_are_imported() {
+        let mut p = policy();
+        p.max_imports = 3;
+        p.valid_until = Some(NOW + 10 * WEEK);
+        p.item_life_ms = None;
+        p.item_until = Some(NOW + 4 * HOUR_MS);
+        let share = build_share_db(&vault(), &paths(&["Work"]), false, p.clone()).unwrap();
+        // Imported at once, or an hour later: the same moment.
+        let mut a = receiver();
+        let done = import_into(&mut a, &share, &p, NOW).unwrap();
+        assert_eq!(done.expires_at, Some(NOW + 4 * HOUR_MS));
+        let mut b = receiver();
+        assert_eq!(import_into(&mut b, &share, &p, NOW + HOUR_MS).unwrap().expires_at, Some(NOW + 4 * HOUR_MS));
+        for path in ["Work", "Work/bank.nqv", "Work/mail.nqv"] { assert_eq!(by_path(&a, path).expires_at, Some(NOW + 4 * HOUR_MS), "{path}"); }
+        // Before the moment they are there, after it they are destroyed.
+        assert!(a.sweep_expired(NOW + 4 * HOUR_MS - 1).is_empty());
+        assert_eq!(a.sweep_expired(NOW + 4 * HOUR_MS).len(), 3);
+    }
+
+    #[test]
+    fn a_share_whose_removal_time_has_passed_can_not_be_imported() {
+        let mut p = policy();
+        p.valid_until = None;
+        p.item_life_ms = None;
+        p.item_until = Some(NOW + HOUR_MS);
+        let share = build_share_db(&vault(), &paths(&["Work"]), false, p.clone()).unwrap();
+        let mut db = receiver();
+        assert_eq!(import_into(&mut db, &share, &p, NOW + HOUR_MS).unwrap_err(), ShareProblem::ItemsEnded.message());
+        assert_eq!(check_policy(&p, 0, NOW + 2 * HOUR_MS, 0), Err(ShareProblem::ItemsEnded));
+        assert_eq!(db.entries.len(), 1, "nothing was imported, and nothing counted");
+        assert_eq!(db.share_uses_of(&p.share_id), 0);
+        // Turning the clock back a little doesn't reopen it (what the vault has seen counts), and a lot is refused as such.
+        db.observe_time(NOW + 2 * HOUR_MS);
+        assert_eq!(check_policy(&p, 0, NOW + 2 * HOUR_MS - 5 * 60_000, db.seen_ms), Err(ShareProblem::ItemsEnded));
+        assert_eq!(check_policy(&p, 0, NOW, db.seen_ms), Err(ShareProblem::ClockBehind));
+        // The end of the file comes first when both have passed.
+        let mut both = p.clone();
+        both.valid_until = Some(NOW + HOUR_MS);
+        assert_eq!(check_policy(&both, 0, NOW + 2 * HOUR_MS, 0), Err(ShareProblem::Expired));
+    }
+
+    #[test]
+    fn the_moment_the_items_go_is_part_of_what_the_prompt_shows() {
+        let mut p = policy();
+        p.item_life_ms = None;
+        p.item_until = Some(NOW + HOUR_MS);
+        assert_eq!(item_expiry(&p, NOW + 99), Some(NOW + HOUR_MS));
+        p.item_until = None;
+        assert_eq!(item_expiry(&p, NOW), None);
+        p.item_life_ms = Some(2 * HOUR_MS);
+        assert_eq!(item_expiry(&p, NOW), Some(NOW + 2 * HOUR_MS));
     }
 }

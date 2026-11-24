@@ -173,9 +173,9 @@ export function ShareItemsDialog({ onClose, initialPaths = [] }: { onClose: () =
       </div>
 
       <TimeLimitField label={FILE_EXPIRY} what={FILE_EXPIRY} value={form.validFor} onChange={(v) => set("validFor", v)}
-                      onLabel="After a set time" offLabel="Never" hint="After this, the file can't be imported." />
+                      hint="After this, the file can't be imported." />
       <TimeLimitField label={ITEM_REMOVAL} what={ITEM_REMOVAL} value={form.itemLife} onChange={(v) => set("itemLife", v)}
-                      onLabel="After a set time" offLabel="Never" hint="Counted from the import. Then the items are removed from the receiver's vault." />
+                      hint={form.itemLife.mode === "at" ? "At this time the items are removed from the receiver's vault, whenever they import." : "Counted from the import. Then the items are removed from the receiver's vault."} />
 
       <label className="flex cursor-pointer items-start gap-2 text-[13px]">
         <input type="checkbox" className="mt-0.5" checked={form.deleteFile} onChange={(e) => set("deleteFile", e.target.checked)} />
@@ -187,7 +187,7 @@ export function ShareItemsDialog({ onClose, initialPaths = [] }: { onClose: () =
   const confirmStep = (
     <div className="flex flex-col gap-3.5">
       <ul className="list-disc space-y-1 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-tertiary)] py-2.5 pl-7 pr-3 text-[13px]" data-testid="share-summary">
-        {shareSummary(form, preview, Date.now()).map((l) => <li key={l}>{l}</li>)}
+        {shareSummary(form, preview).map((l) => <li key={l}>{l}</li>)}
       </ul>
       <label className="flex flex-col gap-1.5 text-[13px]">
         <span className="font-medium">Your master password</span>

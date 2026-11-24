@@ -1,17 +1,24 @@
 import { save } from "@tauri-apps/plugin-dialog";
 import { BACKUP_EXT, vaultShareExport, type ShareExportArgs } from "./vaultBackup";
 import type { VaultItem } from "./vault";
+import { defaultAt, formatPicked } from "./dateTime";
 
 /** The "Share items…" prompt: what the form holds, how it is checked, and how it becomes a `vault_share_export` call. */
 
 export type TimeUnit = "hours" | "days";
 
-/** A length of time the sender sets (or turns off): "7 days", "36 hours", or none. */
+/** How a time is set: a length of time ("after"), a date and time ("at"), or not at all ("never"). */
+export type LimitMode = "after" | "at" | "never";
+
+/** A time the sender sets: "7 days", "36 hours", "1 Dec, 4:00 PM", or none. */
 export interface TimeLimit {
-  /** Off = no end (the file) or the items stay (the items). */
-  on: boolean;
+  mode: LimitMode;
+  /** For "after": how many. */
   amount: number;
+  /** For "after": hours or days. */
   unit: TimeUnit;
+  /** For "at": the moment (Unix ms); null until one is picked. */
+  at: number | null;
 }
 
 export interface ShareForm {
@@ -41,20 +48,34 @@ const HOUR = 3_600_000;
 export const FILE_EXPIRY = "File expiry";
 export const ITEM_REMOVAL = "Item removal";
 
+export const MODE_OPTIONS: { value: LimitMode; label: string }[] = [
+  { value: "after", label: "After a set time" }, { value: "at", label: "On a date and time" }, { value: "never", label: "Never" },
+];
+
 export const UNIT_OPTIONS: { value: TimeUnit; label: string }[] = [{ value: "hours", label: "hours" }, { value: "days", label: "days" }];
 
 /** What the form starts with: one import, a week for the file, a week for the items, the file deleted afterwards. */
 export function initialShareForm(paths: string[] = [], password = generateSharePassword()): ShareForm {
   return {
     paths, attachments: true, sharePassword: password, maxImports: 1,
-    validFor: { on: true, amount: 7, unit: "days" }, itemLife: { on: true, amount: 7, unit: "days" },
+    validFor: { mode: "after", amount: 7, unit: "days", at: null }, itemLife: { mode: "after", amount: 7, unit: "days", at: null },
     deleteFile: true, masterPassword: "",
   };
 }
 
-/** The length of a limit in hours (0 when it is off). */
+/** The length of a limit in hours (0 unless it is "after"). */
 export function limitHours(l: TimeLimit): number {
-  return l.on ? l.amount * (l.unit === "days" ? 24 : 1) : 0;
+  return l.mode === "after" ? l.amount * (l.unit === "days" ? 24 : 1) : 0;
+}
+
+/** The limit changed to `mode`; a first "at" starts at a time worth suggesting (the next full hour). */
+export function withMode(l: TimeLimit, mode: LimitMode, now: number): TimeLimit {
+  return { ...l, mode, at: mode === "at" && l.at == null ? defaultAt(now) : l.at };
+}
+
+/** The soonest and the latest moment a date and time limit may be: now, and a year from now. */
+export function atRange(now: number): { min: number; max: number } {
+  return { min: now, max: now + MAX_LIMIT_HOURS * HOUR };
 }
 
 /** The most a limit can be in `unit`: a year. */
@@ -62,25 +83,37 @@ export function limitMax(unit: TimeUnit): number {
   return unit === "days" ? MAX_LIMIT_HOURS / 24 : MAX_LIMIT_HOURS;
 }
 
-/** What is wrong with a limit, in words (`what` names it: "File expiry"); null when it is fine or off. */
-export function limitProblem(l: TimeLimit, what: string): string | null {
-  if (!l.on) return null;
-  if (!Number.isInteger(l.amount) || l.amount < 1 || l.amount > limitMax(l.unit)) return `${what}: enter 1 to ${limitMax(l.unit)} ${l.unit}.`;
+/** What is wrong with a limit, in words (`what` names it: "File expiry"); null when it is fine or "never". */
+export function limitProblem(l: TimeLimit, what: string, now: number = Date.now()): string | null {
+  if (l.mode === "after") {
+    return !Number.isInteger(l.amount) || l.amount < 1 || l.amount > limitMax(l.unit) ? `${what}: enter 1 to ${limitMax(l.unit)} ${l.unit}.` : null;
+  }
+  if (l.mode === "at") {
+    if (l.at == null) return `${what}: pick a date and time.`;
+    if (l.at <= now) return `${what}: choose a time that is still ahead.`;
+    if (l.at > atRange(now).max) return `${what}: choose a time within the next year.`;
+  }
   return null;
 }
 
 /** Unix ms when the file stops being importable, or null for no end. */
 export function validUntilMs(l: TimeLimit, now: number): number | null {
-  return l.on ? now + limitHours(l) * HOUR : null;
+  return l.mode === "after" ? now + limitHours(l) * HOUR : l.mode === "at" ? l.at : null;
 }
 
-/** Hours imported items stay, or null for ever. */
+/** Hours imported items stay after the import ("after" only), or null. */
 export function itemLifeHours(l: TimeLimit): number | null {
-  return l.on ? limitHours(l) : null;
+  return l.mode === "after" ? limitHours(l) : null;
 }
 
-/** "7 days", "1 day", "36 hours", "1 hour". */
+/** The moment imported items are removed ("at" only), or null. */
+export function itemUntilMs(l: TimeLimit): number | null {
+  return l.mode === "at" ? l.at : null;
+}
+
+/** "7 days", "1 day", "36 hours", "1 hour"; a date and time reads as "Tue, 1 Dec 2026 · 4:00 PM". */
 export function describeLimit(l: TimeLimit): string {
+  if (l.mode === "at") return l.at == null ? "" : formatPicked(l.at);
   const n = l.amount;
   return `${n} ${l.unit === "days" ? (n === 1 ? "day" : "days") : (n === 1 ? "hour" : "hours")}`;
 }
@@ -159,8 +192,8 @@ export function passwordProblem(p: string): string | null {
 }
 
 /** Step "Rules": the password, how often, and the two time limits. */
-export function rulesProblem(f: ShareForm): string | null {
-  return passwordProblem(f.sharePassword) ?? importsProblem(f.maxImports) ?? limitProblem(f.validFor, FILE_EXPIRY) ?? limitProblem(f.itemLife, ITEM_REMOVAL);
+export function rulesProblem(f: ShareForm, now: number = Date.now()): string | null {
+  return passwordProblem(f.sharePassword) ?? importsProblem(f.maxImports) ?? limitProblem(f.validFor, FILE_EXPIRY, now) ?? limitProblem(f.itemLife, ITEM_REMOVAL, now);
 }
 
 /** Step "Confirm": the master password, and not the same as the receiver's. */
@@ -176,16 +209,17 @@ export function shareFormProblem(f: ShareForm): string | null {
 }
 
 /** The short summary the last step shows: what is shared and the rules, in plain words. */
-export function shareSummary(f: ShareForm, preview: { notes: number; folders: number; attachments: number } | null, now: number): string[] {
+export function shareSummary(f: ShareForm, preview: { notes: number; folders: number; attachments: number } | null): string[] {
   const out: string[] = [];
   if (preview) {
     const n = (c: number, one: string, many = `${one}s`) => `${c} ${c === 1 ? one : many}`;
     out.push(`${n(preview.notes, "note")}${preview.folders > 0 ? `, ${n(preview.folders, "folder")}` : ""}${f.attachments && preview.attachments > 0 ? `, ${n(preview.attachments, "attachment")}` : ""}`);
   }
   out.push(`Can be imported ${f.maxImports} ${f.maxImports === 1 ? "time" : "times"}`);
-  const until = validUntilMs(f.validFor, now);
-  out.push(until == null ? "The file never expires" : `The file expires after ${describeLimit(f.validFor)}`);
-  out.push(f.itemLife.on ? `Items are removed ${describeLimit(f.itemLife)} after the import` : "Items are never removed");
+  out.push(f.validFor.mode === "never" ? "The file never expires"
+    : f.validFor.mode === "at" ? `The file expires on ${describeLimit(f.validFor)}` : `The file expires after ${describeLimit(f.validFor)}`);
+  out.push(f.itemLife.mode === "never" ? "Items are never removed"
+    : f.itemLife.mode === "at" ? `Items are removed on ${describeLimit(f.itemLife)}` : `Items are removed ${describeLimit(f.itemLife)} after the import`);
   out.push(f.deleteFile ? "The file is deleted after its last import" : "The file is kept after its last import");
   return out;
 }
@@ -200,6 +234,7 @@ export function toExportArgs(f: ShareForm, destPath: string, now: number): Share
     maxImports: f.maxImports,
     validUntilMs: validUntilMs(f.validFor, now),
     itemLifeHours: itemLifeHours(f.itemLife),
+    itemUntilMs: itemUntilMs(f.itemLife),
     deleteFile: f.deleteFile,
     destPath,
   };

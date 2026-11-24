@@ -25,6 +25,8 @@ export interface ShareInfo {
   validUntil: number | null;
   /** Imported items destroy themselves this long after the import (ms). */
   itemLifeMs: number | null;
+  /** Or at this moment (Unix ms), whenever they were imported. */
+  itemUntil: number | null;
   /** The file is deleted after its last import. */
   deleteFile: boolean;
   /** A share only goes into a vault that exists and is open. */
@@ -35,7 +37,7 @@ export interface ShareInfo {
   problem: ShareProblemCode | null;
 }
 
-export type ShareProblemCode = "expired" | "noImportsLeft" | "clockBehind";
+export type ShareProblemCode = "expired" | "noImportsLeft" | "clockBehind" | "itemsEnded";
 
 export interface ShareImportResult {
   added: number;
@@ -97,6 +99,7 @@ export function problemText(code: ShareProblemCode): string {
     case "expired": return "This share file has expired.";
     case "noImportsLeft": return "This share file can't be imported again.";
     case "clockBehind": return "The date and time on this PC are behind. Fix them, then try again.";
+    case "itemsEnded": return "The time these items were to be removed has already passed.";
   }
 }
 
@@ -106,7 +109,9 @@ export function problemText(code: ShareProblemCode): string {
  */
 export function shareNoteLines(info: ShareInfo, now: number): string[] {
   const lines: string[] = [];
-  if (info.itemLifeMs != null) {
+  if (info.itemUntil != null) {
+    lines.push(`These items will be removed from your vault on ${formatWhen(info.itemUntil)}.`);
+  } else if (info.itemLifeMs != null) {
     lines.push(`These items will be removed from your vault on ${formatWhen(now + info.itemLifeMs)} (in ${formatLife(info.itemLifeMs)}).`);
   }
   if (info.importsLeft != null) {

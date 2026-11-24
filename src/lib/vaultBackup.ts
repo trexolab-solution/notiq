@@ -54,8 +54,10 @@ export interface ShareExportArgs {
   maxImports: number;
   /** Unix ms after which the file can't be imported; null = no end. */
   validUntilMs: number | null;
-  /** Imported items destroy themselves this many hours after the import (1 to 8760); null = they stay. */
+  /** Imported items destroy themselves this many hours after the import (1 to 8760); null = see `itemUntilMs`. */
   itemLifeHours: number | null;
+  /** Or at this moment (Unix ms, within a year), whenever they were imported; null = see `itemLifeHours`. Not both. */
+  itemUntilMs: number | null;
   /** Delete the file after its last import. */
   deleteFile: boolean;
   destPath: string;

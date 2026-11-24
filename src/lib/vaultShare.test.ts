@@ -10,7 +10,7 @@ import {
 
 const HOUR = 3_600_000;
 const info = (o: Partial<ShareInfo> = {}): ShareInfo => ({
-  items: [], notes: 3, folders: 1, attachments: 0, validUntil: null, itemLifeMs: 7 * 24 * HOUR, deleteFile: true,
+  items: [], notes: 3, folders: 1, attachments: 0, validUntil: null, itemLifeMs: 7 * 24 * HOUR, itemUntil: null, deleteFile: true,
   vault: "ready", importsLeft: 1, problem: null, ...o,
 });
 const result = (o: Partial<ShareImportResult> = {}): ShareImportResult => ({
@@ -49,10 +49,18 @@ describe("share wording", () => {
     expect(shareNoteLines(info({ deleteFile: false }), now)).toHaveLength(2);
   });
 
+  it("names the moment the items go when the sender set one, not a length of time", () => {
+    const lines = shareNoteLines(info({ itemLifeMs: null, itemUntil: new Date(2026, 11, 1, 16, 0).getTime() }), Date.UTC(2026, 11, 1, 6, 0));
+    expect(lines[0]).toMatch(/^These items will be removed from your vault on .+(4:00|16:00).*\.$/);
+    expect(lines[0]).not.toMatch(/\(in /);
+    expect(shareNoteLines(info({ itemLifeMs: 5 * HOUR, itemUntil: null }), Date.UTC(2026, 11, 1, 6, 0))[0]).toMatch(/\(in 5 hours\)/);
+  });
+
   it("says why a file can't be imported", () => {
     expect(problemText("expired")).toMatch(/expired/);
     expect(problemText("noImportsLeft")).toMatch(/can't be imported again/);
     expect(problemText("clockBehind")).toMatch(/date and time/);
+    expect(problemText("itemsEnded")).toMatch(/already passed/);
   });
 
   it("summarises an import", () => {

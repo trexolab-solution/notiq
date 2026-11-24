@@ -47,6 +47,7 @@ afterEach(async () => {
 
 const render = async (paths: string[] = ["Work/bank.nqv"]) => { await act(async () => { root.render(<ShareItemsDialog onClose={onClose} initialPaths={paths} />); }); };
 const button = (label: string) => Array.from(document.querySelectorAll("button")).find((b) => b.textContent?.trim().startsWith(label)) as HTMLButtonElement | undefined;
+const field_ = (label: string) => document.querySelector(`input[aria-label="${label}"]`) as HTMLInputElement;
 const field = (label: string) => document.querySelector(`input[aria-label="${label}"]`) as HTMLInputElement;
 const step = () => document.querySelector("[data-share-step]")!.getAttribute("data-share-step");
 const calls = (name: string) => invoke.mock.calls.filter((c) => c[0] === name);
@@ -162,6 +163,48 @@ describe("share items stepper", () => {
   });
 
   async function toConfirmFromRules() { await next(); expect(step()).toBe("confirm"); }
+
+  it("Rules: the items can be removed at a date and time instead of after a length of time", async () => {
+    await render();
+    await next();
+    await pick("Item removal: when", "On a date and time");
+    expect(document.querySelector('input[aria-label="Item removal: amount"]')).toBeNull();
+    const field = document.querySelector('button[aria-label="Item removal: date and time"]') as HTMLButtonElement;
+    expect(field).toBeTruthy();
+    expect(button("Next")!.disabled).toBe(false); // the suggested time is ahead
+    // Pick another day from the calendar.
+    await act(async () => { field.click(); });
+    const free = Array.from(document.querySelectorAll("button[data-day]")).filter((d) => !(d as HTMLButtonElement).disabled && d.getAttribute("aria-pressed") === "false").at(-1) as HTMLButtonElement; // the furthest day: always ahead
+    await act(async () => { free.click(); });
+    await act(async () => { (Array.from(document.querySelectorAll("button")).find((b) => b.textContent === "Done") as HTMLElement).click(); });
+    await next();
+    expect(step()).toBe("confirm");
+    expect(Array.from(document.querySelectorAll("[data-testid=share-summary] li")).map((l) => l.textContent)).toContainEqual(expect.stringMatching(/^Items are removed on /));
+    await type(field_("Master password"), "the master password");
+    await act(async () => { button("Save share file")!.click(); });
+    const args = (calls("vault_share_export")[0][1] as { args: Record<string, unknown> }).args;
+    expect(args.itemLifeHours).toBeNull();
+    expect(typeof args.itemUntilMs).toBe("number");
+    expect(args.itemUntilMs as number).toBeGreaterThan(Date.now());
+  });
+
+  it("Rules: a date and time that is not ahead stops the step", async () => {
+    await render();
+    await next();
+    await pick("File expiry: when", "On a date and time");
+    // Today at the earliest hour is before now (or the same instant) for most of the day: set it through the time fields.
+    const open = document.querySelector('button[aria-label="File expiry: date and time"]') as HTMLButtonElement;
+    await act(async () => { open.click(); });
+    const today = Array.from(document.querySelectorAll("button[data-day]")).find((d) => d.getAttribute("aria-current") === "date") as HTMLButtonElement;
+    await act(async () => { today.click(); });
+    await type(field_("File expiry: date and time: hour"), "12");
+    await type(field_("File expiry: date and time: minutes"), "0");
+    await act(async () => { (Array.from(document.querySelectorAll("[role=radio]")).find((r) => r.textContent === "AM") as HTMLElement).click(); });
+    // 12:00 AM today has passed.
+    expect(document.querySelector("[data-time-group][data-invalid]")).toBeTruthy();
+    expect(document.querySelector("[role=alert]")!.textContent).toBe("File expiry: choose a time that is still ahead.");
+    expect(button("Next")!.disabled).toBe(true);
+  });
 
   it("Rules: a wrong number stops the step and says which", async () => {
     await render();

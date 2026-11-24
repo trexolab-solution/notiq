@@ -3,17 +3,19 @@ vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn(), save: vi.fn() }));
 vi.mock("@tauri-apps/plugin-fs", () => ({ stat: vi.fn() }));
 import {
-  chooseAll, chosenCount, confirmProblem, coveredBy, defaultShareName, describeLimit, generateSharePassword, importsProblem, initialShareForm, itemLifeHours, itemsProblem,
-  limitHours, limitMax, limitProblem, listForShare, passwordProblem, rulesProblem, shareFormProblem, shareSummary, toExportArgs, toggleChosen, validUntilMs,
+  atRange, chooseAll, chosenCount, confirmProblem, coveredBy, defaultShareName, describeLimit, generateSharePassword, importsProblem, initialShareForm,
+  itemLifeHours, itemUntilMs, itemsProblem, limitHours, limitMax, limitProblem, listForShare, passwordProblem, withMode, rulesProblem, shareFormProblem, shareSummary, toExportArgs, toggleChosen, validUntilMs,
   type ShareForm, type TimeLimit,
 } from "./shareExport";
 import type { VaultItem } from "./vault";
 
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
-const days = (n: number): TimeLimit => ({ on: true, amount: n, unit: "days" });
-const hours = (n: number): TimeLimit => ({ on: true, amount: n, unit: "hours" });
-const off: TimeLimit = { on: false, amount: 7, unit: "days" };
+const days = (n: number): TimeLimit => ({ mode: "after", amount: n, unit: "days", at: null });
+const hours = (n: number): TimeLimit => ({ mode: "after", amount: n, unit: "hours", at: null });
+const off: TimeLimit = { mode: "never", amount: 7, unit: "days", at: null };
+const at = (ms: number | null): TimeLimit => ({ mode: "at", amount: 7, unit: "days", at: ms });
+const NOW = new Date(2026, 10, 24, 12, 0).getTime();
 const form = (o: Partial<ShareForm> = {}): ShareForm => ({ ...initialShareForm(["Work/bank.nqv"], "a password for sharing"), masterPassword: "the master password", ...o });
 const item = (rel: string, o: Partial<VaultItem> = {}): VaultItem => ({
   rel, ext: rel.endsWith(".nqv") ? "md" : "", updated: 0, dir: !rel.endsWith(".nqv"), tags: [], starred: false, trashed_at: null, attachments: 0, history: 0, ...o,
@@ -62,7 +64,36 @@ describe("time limits", () => {
     expect(passwordProblem("12345678")).toBeNull();
     expect(passwordProblem("1234567")).toMatch(/at least 8/);
   });
+  it("a date and time is a moment, not a length", () => {
+    const t = NOW + 4 * HOUR;
+    expect(limitHours(at(t))).toBe(0);
+    expect(validUntilMs(at(t), NOW)).toBe(t);
+    expect(itemUntilMs(at(t))).toBe(t);
+    expect(itemLifeHours(at(t))).toBeNull();
+    expect(itemUntilMs(hours(5))).toBeNull();
+    expect(itemUntilMs(off)).toBeNull();
+    expect(validUntilMs(at(null), NOW)).toBeNull();
+  });
+  it("a date and time has to be picked, still ahead, and within a year", () => {
+    expect(limitProblem(at(null), "File expiry", NOW)).toBe("File expiry: pick a date and time.");
+    expect(limitProblem(at(NOW), "File expiry", NOW)).toBe("File expiry: choose a time that is still ahead.");
+    expect(limitProblem(at(NOW - 1), "Item removal", NOW)).toBe("Item removal: choose a time that is still ahead.");
+    expect(limitProblem(at(NOW + 4 * HOUR), "Item removal", NOW)).toBeNull();
+    expect(limitProblem(at(atRange(NOW).max), "Item removal", NOW)).toBeNull();
+    expect(limitProblem(at(atRange(NOW).max + 1), "Item removal", NOW)).toBe("Item removal: choose a time within the next year.");
+    expect(atRange(NOW)).toEqual({ min: NOW, max: NOW + 365 * DAY });
+  });
+  it("switching to a date and time starts at a time worth suggesting, and keeps what was picked", () => {
+    const l = withMode(days(7), "at", NOW);
+    expect(l.mode).toBe("at");
+    expect(l.at).toBe(new Date(2026, 10, 24, 13, 0).getTime());
+    expect(withMode(at(NOW + 5 * HOUR), "never", NOW).at).toBe(NOW + 5 * HOUR);
+    expect(withMode(at(NOW + 5 * HOUR), "at", NOW).at).toBe(NOW + 5 * HOUR);
+    expect(withMode(l, "after", NOW).mode).toBe("after");
+  });
   it("read as words", () => {
+    expect(describeLimit(at(null))).toBe("");
+    expect(describeLimit(at(NOW + 4 * HOUR))).toMatch(/4:00/);
     expect(describeLimit(days(7))).toBe("7 days");
     expect(describeLimit(days(1))).toBe("1 day");
     expect(describeLimit(hours(36))).toBe("36 hours");
@@ -157,16 +188,21 @@ describe("step checks", () => {
 describe("summary", () => {
   const preview = { notes: 3, folders: 1, attachments: 2 };
   it("says what is shared and the rules in plain words", () => {
-    const lines = shareSummary(form({ attachments: true, maxImports: 2, validFor: hours(36), itemLife: days(7) }), preview, 0);
+    const lines = shareSummary(form({ attachments: true, maxImports: 2, validFor: hours(36), itemLife: days(7) }), preview);
     expect(lines).toEqual([
       "3 notes, 1 folder, 2 attachments", "Can be imported 2 times", "The file expires after 36 hours",
       "Items are removed 7 days after the import", "The file is deleted after its last import",
     ]);
   });
+  it("names a date and time", () => {
+    const lines = shareSummary(form({ validFor: at(NOW + 4 * HOUR), itemLife: at(NOW + 28 * HOUR) }), preview);
+    expect(lines[2]).toMatch(/^The file expires on .+4:00/);
+    expect(lines[3]).toMatch(/^Items are removed on /);
+  });
   it("names what is turned off", () => {
-    const lines = shareSummary(form({ attachments: false, validFor: off, itemLife: off, deleteFile: false }), { notes: 1, folders: 0, attachments: 4 }, 0);
+    const lines = shareSummary(form({ attachments: false, validFor: off, itemLife: off, deleteFile: false }), { notes: 1, folders: 0, attachments: 4 });
     expect(lines).toEqual(["1 note", "Can be imported 1 time", "The file never expires", "Items are never removed", "The file is kept after its last import"]);
-    expect(shareSummary(form(), null, 0)[0]).toBe("Can be imported 1 time");
+    expect(shareSummary(form(), null)[0]).toBe("Can be imported 1 time");
   });
 });
 
@@ -176,9 +212,12 @@ describe("the export call", () => {
     const args = toExportArgs(form({ attachments: true, maxImports: 3, validFor: hours(36), itemLife: days(1), deleteFile: false }), "C:/x.nqb", now);
     expect(args).toEqual({
       paths: ["Work/bank.nqv"], attachments: true, masterPassword: "the master password", sharePassword: "a password for sharing",
-      maxImports: 3, validUntilMs: now + 36 * HOUR, itemLifeHours: 24, deleteFile: false, destPath: "C:/x.nqb",
+      maxImports: 3, validUntilMs: now + 36 * HOUR, itemLifeHours: 24, itemUntilMs: null, deleteFile: false, destPath: "C:/x.nqb",
     });
-    expect(toExportArgs(form({ validFor: off, itemLife: off }), "C:/x.nqb", now)).toMatchObject({ validUntilMs: null, itemLifeHours: null });
+    expect(toExportArgs(form({ validFor: off, itemLife: off }), "C:/x.nqb", now)).toMatchObject({ validUntilMs: null, itemLifeHours: null, itemUntilMs: null });
+    // A date and time goes as the moment itself; the items' moment replaces their length of time.
+    expect(toExportArgs(form({ validFor: at(now + 5 * HOUR), itemLife: at(now + 9 * HOUR) }), "C:/x.nqb", now))
+      .toMatchObject({ validUntilMs: now + 5 * HOUR, itemLifeHours: null, itemUntilMs: now + 9 * HOUR });
   });
   it("names the file by local date", () => {
     expect(defaultShareName(new Date(2026, 10, 5))).toBe("notiq-share-2026-11-05.nqb");
