@@ -1097,6 +1097,7 @@ pub fn run() {
             #[cfg(desktop)]
             if let Ok(dir) = app.path().app_data_dir() { window_log::init(dir); }
             autofill::start(app.handle());
+            vault::start_expiry_watch(app.handle()); // imported items that expire are destroyed while the vault is open
 
             // 0.7.0 session lock
             #[cfg(desktop)]

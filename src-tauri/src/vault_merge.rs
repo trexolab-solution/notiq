@@ -189,7 +189,11 @@ fn meta_key_of(e: &Entry) -> (&Hlc, &str, &[String], bool) {
 
 fn max_removal(a: &Option<Removal>, b: &Option<Removal>) -> Option<Removal> {
     match (a, b) {
-        (Some(x), Some(y)) => Some(if (&x.over, &x.at) >= (&y.over, &y.at) { x } else { y }.clone()),
+        (Some(x), Some(y)) => {
+            let mut r = if (&x.over, &x.at) >= (&y.over, &y.at) { x } else { y }.clone();
+            r.fin = x.fin || y.fin; // final if either side is: an OR, so the join stays commutative and associative
+            Some(r)
+        }
         (Some(x), None) | (None, Some(x)) => Some(x.clone()),
         (None, None) => None,
     }
@@ -230,6 +234,11 @@ fn join_entry(a: &Entry, b: &Entry) -> Entry {
         meta_stamp: meta.meta_stamp.clone(),
         trash,
         tomb,
+        // Set once and never changed, so the earlier of two copies (one may predate knowing it) is the same everywhere.
+        expires_at: match (a.expires_at, b.expires_at) {
+            (Some(x), Some(y)) => Some(x.min(y)),
+            (x, None) | (None, x) => x,
+        },
     };
     out.fix_flags();
     if out.deleted {
@@ -526,6 +535,80 @@ vs
 
     fn kept(e: &Entry, stamp: &Hlc) -> Option<String> {
         e.history.iter().find(|r| r.stamp.as_ref() == Some(stamp)).map(|r| r.content.clone())
+    }
+
+    /// A note that expires at `ms` (an imported share item).
+    fn expiring(content: &str, ms: u64) -> Db {
+        let mut db = base_note(content);
+        for e in db.entries.values_mut() { e.expires_at = Some(ms); }
+        db
+    }
+
+    const PERMS: [[usize; 3]; 6] = [[0, 1, 2], [0, 2, 1], [1, 0, 2], [1, 2, 0], [2, 0, 1], [2, 1, 0]];
+
+    #[test]
+    fn a_final_tombstone_beats_any_edit_whatever_the_order_of_the_merges() {
+        let base = expiring("secret", BASE + 1_000);
+        let (mut a, mut b, c) = (fork(&base, "A"), fork(&base, "B"), fork(&base, "C"));
+        at(&mut b, BASE + 500);
+        b.put("n.nqv", "md", "edited before the time").unwrap();
+        assert_eq!(a.sweep_expired(BASE + 2_000).len(), 1);
+        // An edit made after the destroy on a device that doesn't know yet is no different.
+        let mut late = fork(&base, "D");
+        at(&mut late, BASE + 9_000);
+        late.put("n.nqv", "md", "edited after the time").unwrap();
+        let reps = [&a, &b, &c, &late];
+        for perm in [[0usize, 1, 2, 3], [3, 2, 1, 0], [1, 3, 0, 2], [2, 0, 3, 1], [3, 0, 1, 2], [1, 2, 3, 0]] {
+            let m = perm.iter().skip(1).fold(reps[perm[0]].clone(), |acc, &i| merge(&acc, reps[i]));
+            let e = entry(&m, "n.nqv");
+            assert!(e.deleted && e.content.is_empty() && e.history.is_empty() && e.attachments.is_empty(), "{perm:?}");
+            assert!(e.tomb.as_ref().is_some_and(|t| t.fin), "{perm:?}");
+        }
+    }
+
+    #[test]
+    fn the_merge_laws_hold_with_final_tombstones() {
+        let base = expiring("secret", BASE + 1_000);
+        let (mut a, mut b, c) = (fork(&base, "A"), fork(&base, "B"), fork(&base, "C"));
+        at(&mut b, BASE + 500);
+        b.put("n.nqv", "md", "edited").unwrap();
+        a.sweep_expired(BASE + 2_000);
+        for (x, y) in [(&a, &b), (&a, &c), (&b, &c), (&a, &a)] { assert_laws_pair(x, y); }
+        // Associative: every grouping and order ends in the same database.
+        let reps = [&a, &b, &c];
+        let first = reps.iter().skip(1).fold(a.clone(), |acc, r| merge(&acc, r));
+        for perm in PERMS {
+            let left = merge(&merge(reps[perm[0]], reps[perm[1]]), reps[perm[2]]);
+            let right = merge(reps[perm[0]], &merge(reps[perm[1]], reps[perm[2]]));
+            assert!(same(&left, &right), "associative {perm:?}: {}", diff(&left, &right));
+            assert!(same(&left, &first), "{perm:?}: {}", diff(&left, &first));
+        }
+    }
+
+    #[test]
+    fn a_final_tombstone_stays_after_it_has_merged_with_a_live_copy() {
+        let base = expiring("secret", BASE + 1_000);
+        let (mut a, b) = (fork(&base, "A"), fork(&base, "B"));
+        a.sweep_expired(BASE + 2_000);
+        let m = merge(&b, &a);
+        assert!(entry(&m, "n.nqv").tomb.as_ref().is_some_and(|t| t.fin));
+        // Merged again with the live copy: nothing changes (it is absorbed).
+        assert!(same(&merge(&m, &b), &m));
+    }
+
+    #[test]
+    fn the_earlier_expiry_time_is_kept_and_a_missing_one_does_not_win() {
+        let base = base_note("x");
+        let mut a = fork(&base, "A");
+        let mut b = fork(&base, "B");
+        let c = fork(&base, "C");
+        a.entries.values_mut().for_each(|e| e.expires_at = Some(500));
+        b.entries.values_mut().for_each(|e| e.expires_at = Some(300));
+        for (x, y) in [(&a, &b), (&b, &a), (&a, &c), (&c, &a)] {
+            let want = if std::ptr::eq(x, &b) || std::ptr::eq(y, &b) { Some(300) } else { Some(500) };
+            assert_eq!(entry(&merge(x, y), "n.nqv").expires_at, want);
+        }
+        assert_eq!(entry(&merge(&c, &c), "n.nqv").expires_at, None);
     }
 
     #[test]

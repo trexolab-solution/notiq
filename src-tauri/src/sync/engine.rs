@@ -609,11 +609,14 @@ fn outbound_removals(st: &SyncState, listing: &Listing, own: &Db, mode: Mode, me
         remote = vault_merge::merge(&remote, s);
     }
     let after = vault_merge::merge(&remote, &skeleton(own));
-    let remote_live = remote.entries.values().filter(|e| e.is_live()).count();
+    // An imported item that expired is destroyed by its own rule, not removed by a person: it is not a "removal" for
+    // the guard to stop (the upload that carries it must go through), and it does not count among the live entries.
+    let destroyed = |id: &str| after.entries.get(id).and_then(|x| x.tomb.as_ref()).is_some_and(|t| t.fin);
+    let remote_live = remote.entries.values().filter(|e| e.is_live() && !destroyed(&e.id)).count();
     let mut gone: Vec<&Entry> = remote
         .entries
         .values()
-        .filter(|e| e.is_live() && after.entries.get(&e.id).is_none_or(|x| !x.is_live()))
+        .filter(|e| e.is_live() && !destroyed(&e.id) && after.entries.get(&e.id).is_none_or(|x| !x.is_live()))
         .collect();
     gone.sort_by(|a, b| (a.dir, &a.path).cmp(&(b.dir, &b.path)));
     let titles = gone.iter().take(GUARD_TITLES).map(|e| entry_title(e)).collect();
@@ -630,6 +633,8 @@ pub fn restore_from_remote(db: &mut Db, remote: &Db) -> Vec<String> {
         .entries
         .values()
         .filter(|r| r.is_live() && db.entries.get(&r.id).is_some_and(|l| !l.is_live()))
+        // A final tombstone here (an imported item that expired) stays: it is never brought back.
+        .filter(|r| !db.entries.get(&r.id).and_then(|l| l.tomb.as_ref()).is_some_and(|t| t.fin))
         .map(|r| r.id.clone())
         .collect();
     for id in &ids {
@@ -691,7 +696,7 @@ pub fn resolve_collisions(db: &mut Db) -> usize {
             let stamp = db.tick();
             if c.dir {
                 if let Some(e) = db.entries.get_mut(id) {
-                    e.tomb = Some(Removal { over: e.stamp.clone(), at: stamp });
+                    e.tomb = Some(Removal { over: e.stamp.clone(), at: stamp, fin: false });
                     e.fix_flags();
                 }
             } else {
@@ -823,10 +828,15 @@ pub async fn sync_once_with<L: LocalVault>(ctx: &Ctx<'_>, local: &L, st: &mut Sy
         };
         let prior = combined.as_ref().map(|r| markers::prior(db, r));
         let mut report = combined.as_ref().map(|r| vault_merge::merge_into(db, r)).unwrap_or_default();
-        let restored = match (&combined, drive_first) {
+        let mut restored = match (&combined, drive_first) {
             (Some(r), true) => restore_from_remote(db, r),
             _ => vec![],
         };
+        // Imported items that expired are destroyed here, wherever they came from (the store, a restore, an older
+        // copy), before anything is shown or uploaded. They are not "changes" for the user to review.
+        let expired = db.sweep_expired(ctx.now_ms);
+        report.changes.retain(|c| !expired.contains(&c.id));
+        restored.retain(|id| !expired.contains(id));
         // Entries the Drive-first join brought back are "Restored from Drive" (replacing any
         // change the plain merge reported for them, e.g. "removed").
         if !restored.is_empty() {
@@ -848,7 +858,7 @@ pub async fn sync_once_with<L: LocalVault>(ctx: &Ctx<'_>, local: &L, st: &mut Sy
             kept_local,
         });
         let renamed = resolve_collisions(db);
-        let changed = report.changed || renamed > 0 || !restored.is_empty();
+        let changed = report.changed || renamed > 0 || !restored.is_empty() || !expired.is_empty();
         let seq = local.change_seq();
         let upload = must_upload || changed;
         let mut uploads = vec![];

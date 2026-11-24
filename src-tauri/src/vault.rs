@@ -167,11 +167,12 @@ impl VaultState {
         let restore = loaded && marker.exists();
         let restamped = restore && db.restamp_restored() > 0;
         let purged = db.purge_expired(vdb::now_ms()) > 0; // recycle-bin items older than 30 days
+        let destroyed = !db.sweep_expired(vdb::now_ms()).is_empty(); // imported items past their time
         let (out, dirty) = match f(db, &root, &u.key, &u.vault_id) {
             Ok(r) => r,
             Err(e) => { st.db = None; return Err(e); } // never keep a half-applied change in memory
         };
-        let dirty = dirty || purged || restamped;
+        let dirty = dirty || purged || destroyed || restamped;
         if dirty {
             // save_db keeps a one-time vault.nqdb.v{N}.bak when this save upgrades an older format.
             let saved = match st.db.as_mut() {
@@ -334,6 +335,28 @@ fn stamped_change(state: &VaultState, mut meta: VaultMeta) -> VaultMeta {
 /// Forgets `vault.prev.json` (the password was changed here, or another vault was installed).
 pub(crate) fn clear_prev_meta(app: &AppHandle) {
     if let Ok(p) = prev_meta_path(app) { let _ = fs::remove_file(p); }
+}
+
+// ─── 0.14.1: imported items that expire ───────────────────────────────────────
+
+/// How often an unlocked vault is looked at for imported items that have expired (every database access also checks,
+/// so this only matters while the vault is open and nobody touches it).
+const EXPIRY_WATCH_EVERY: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// Starts the watcher: while the vault is unlocked, destroys imported items whose time has come (see
+/// `Db::sweep_expired`), schedules their upload like any local change, and tells the main window to reload.
+pub(crate) fn start_expiry_watch(app: &AppHandle) {
+    let app = app.clone();
+    std::thread::spawn(move || loop {
+        std::thread::sleep(EXPIRY_WATCH_EVERY);
+        let state = app.state::<VaultState>();
+        if !state.is_unlocked() { continue; }
+        let before = state.change_seq();
+        // A database access sweeps first; nothing else is done here.
+        if state.with_db(|_, _, _, _| Ok(((), false))).is_ok() && state.change_seq() != before {
+            let _ = app.emit("vault:entries-changed", serde_json::json!({}));
+        }
+    });
 }
 
 // ─── 0.14.1: removing this PC's copy of the vault ─────────────────────────────

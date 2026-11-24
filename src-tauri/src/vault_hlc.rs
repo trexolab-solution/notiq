@@ -61,11 +61,20 @@ impl Hlc {
 pub struct Removal {
     pub over: Hlc,
     pub at: Hlc,
+    /// Final (an imported item that expired): applies to every version, so no edit, however new, can bring the
+    /// entry back. Merged as an OR, so once any device has it, every device ends with it. `over` still holds the
+    /// version that was seen, so a device that doesn't know this field treats it as an ordinary delete.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub fin: bool,
+}
+
+fn is_false(b: &bool) -> bool {
+    !*b
 }
 
 impl Removal {
     pub fn applies_to(&self, stamp: &Hlc) -> bool {
-        self.over >= *stamp
+        self.fin || self.over >= *stamp
     }
 }
 
@@ -146,9 +155,24 @@ mod tests {
 
     #[test]
     fn removal_applies_only_to_versions_it_had_seen() {
-        let r = Removal { over: h(10, 0, "a"), at: h(20, 0, "a") };
+        let r = Removal { over: h(10, 0, "a"), at: h(20, 0, "a"), fin: false };
         assert!(r.applies_to(&h(10, 0, "a")) && r.applies_to(&h(9, 5, "b")));
         assert!(!r.applies_to(&h(10, 1, "a")) && !r.applies_to(&h(11, 0, "")));
+    }
+
+    #[test]
+    fn a_final_removal_applies_to_every_version() {
+        let mut r = Removal { over: h(10, 0, "a"), at: h(20, 0, "a"), fin: false };
+        assert!(!r.applies_to(&h(11, 0, "b")));
+        r.fin = true;
+        assert!(r.applies_to(&h(11, 0, "b")) && r.applies_to(&h(u64::MAX, 9, "z")), "no version is newer than a final removal");
+    }
+
+    #[test]
+    fn a_removal_without_the_flag_reads_as_not_final() {
+        let r: Removal = serde_json::from_str(r#"{"over":{"wall":1,"counter":0,"device":"a"},"at":{"wall":2,"counter":0,"device":"a"}}"#).unwrap();
+        assert!(!r.fin);
+        assert!(!serde_json::to_string(&r).unwrap().contains("fin"), "not written when false");
     }
 
     #[test]

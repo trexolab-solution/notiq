@@ -182,6 +182,10 @@ pub struct Entry {
     /// tombstone's text is wiped, so a rename the deleter didn't see can't bring it back).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tomb: Option<Removal>,
+    /// Unix ms after which this entry destroys itself (an imported share item). Set once, when it is imported, and
+    /// never changed: a merge keeps the earlier time. See [`Db::sweep_expired`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expires_at: Option<u64>,
 }
 
 /// Dropping an entry (purge, empty trash, lock) wipes its content; revisions and
@@ -197,7 +201,7 @@ impl Entry {
         Entry {
             id, path: path.into(), ext: String::new(), content: String::new(), updated, deleted: false, dir,
             tags: vec![], starred: false, trashed_at: None, history: vec![], attachments: vec![],
-            stamp: Hlc::default(), meta_stamp: Hlc::default(), trash: None, tomb: None,
+            stamp: Hlc::default(), meta_stamp: Hlc::default(), trash: None, tomb: None, expires_at: None,
         }
     }
 
@@ -247,7 +251,15 @@ impl Entry {
     /// Turns this entry into a tombstone over its current version: content, history and
     /// attachments are wiped (they zeroise themselves); the record stays.
     fn entomb(&mut self, at: &Hlc) {
-        self.tomb = Some(Removal { over: self.stamp.clone(), at: at.clone() });
+        self.tomb = Some(Removal { over: self.stamp.clone(), at: at.clone(), fin: false });
+        self.fix_flags();
+        self.wipe();
+    }
+
+    /// Turns this entry into a final tombstone (see [`Removal::fin`]): content, history and attachments are wiped, and
+    /// no later edit or older copy can bring it back.
+    fn entomb_final(&mut self, at: &Hlc) {
+        self.tomb = Some(Removal { over: self.version().clone(), at: at.clone(), fin: true });
         self.fix_flags();
         self.wipe();
     }
@@ -596,7 +608,7 @@ impl Db {
         for id in ids {
             if let Some(e) = self.entries.get_mut(&id) {
                 e.trashed_at = Some(now);
-                e.trash = Some(Removal { over: e.version().clone(), at: at.clone() });
+                e.trash = Some(Removal { over: e.version().clone(), at: at.clone(), fin: false });
             }
         }
         Ok(())
@@ -691,7 +703,7 @@ impl Db {
             e.stamp = stamp.clone();
             e.meta_stamp = stamp.clone();
             if trashed {
-                e.trash = Some(Removal { over: stamp.clone(), at: trash_at.clone().expect("set when any is trashed") });
+                e.trash = Some(Removal { over: stamp.clone(), at: trash_at.clone().expect("set when any is trashed"), fin: false });
             }
             e.fix_flags();
         }
@@ -725,6 +737,8 @@ impl Db {
         src.sort_by(|a, b| (!a.dir, &a.path, &a.id).cmp(&(!b.dir, &b.path, &b.id)));
         for be in src {
             let count = |n: &mut u32| if !be.dir { *n += 1 };
+            // An imported item that has expired, or that was destroyed here, never comes back from a backup.
+            if be.expires_at.is_some_and(|t| t <= now) || self.entries.get(&be.id).and_then(|e| e.tomb.as_ref()).is_some_and(|t| t.fin) { continue; }
             let cur = self.entries.get(&be.id).filter(|e| !e.deleted);
             let Some(ce) = cur else {
                 // Added (also over a tombstone here: merge brings the backup's copy back).
@@ -784,6 +798,26 @@ impl Db {
         for e in self.entries.values() { self.clock.observe(e.version()); }
         out.changed = self.restamp(&touched) > 0;
         out
+    }
+
+    /// Destroys every entry whose `expires_at` has passed (`now`, Unix ms): a final tombstone with no content,
+    /// history or attachments, which also stops any copy of the entry from coming back (see [`Removal::fin`]).
+    /// Entries that are already final are left alone. Returns the ids destroyed now.
+    ///
+    /// This reads the clock it is given and nothing else, so it stays out of the merge (which reads none): callers
+    /// run it after anything that can bring an entry in (a load, a sync merge, a restore) and before the database
+    /// is shown or uploaded.
+    pub fn sweep_expired(&mut self, now: u64) -> Vec<String> {
+        let ids: Vec<String> = self.entries.values()
+            .filter(|e| e.expires_at.is_some_and(|t| t <= now) && !e.tomb.as_ref().is_some_and(|t| t.fin))
+            .map(|e| e.id.clone()).collect();
+        if ids.is_empty() { return ids; }
+        self.clock = self.clock.next(now, &self.device);
+        let at = self.clock.clone();
+        for id in &ids {
+            self.entries.get_mut(id).expect("id from the same map").entomb_final(&at);
+        }
+        ids
     }
 
     /// Forgets tombstones and removed attachments whose removal is older than
@@ -1061,8 +1095,8 @@ impl Db {
             if e.stamp.is_zero() { e.stamp = Hlc::legacy(e.updated); }
             if e.meta_stamp.is_zero() { e.meta_stamp = e.stamp.clone(); }
             let v = e.version().clone();
-            if e.deleted && e.tomb.is_none() { e.tomb = Some(Removal { over: e.stamp.clone(), at: e.stamp.clone() }); }
-            if e.trashed_at.is_some() && e.trash.is_none() { e.trash = Some(Removal { over: v.clone(), at: v }); }
+            if e.deleted && e.tomb.is_none() { e.tomb = Some(Removal { over: e.stamp.clone(), at: e.stamp.clone(), fin: false }); }
+            if e.trashed_at.is_some() && e.trash.is_none() { e.trash = Some(Removal { over: v.clone(), at: v, fin: false }); }
             e.fix_flags();
             if e.deleted { e.wipe(); } // a tombstone never carries data
             for a in e.attachments.iter_mut() {
@@ -1996,9 +2030,92 @@ mod tests {
         e.trash.as_mut().unwrap().over = e.stamp.clone();
         e.fix_flags();
         assert!(e.is_trashed() && e.trashed_at.is_some());
-        e.tomb = Some(Removal { over: e.stamp.clone(), at: e.stamp.clone() });
+        e.tomb = Some(Removal { over: e.stamp.clone(), at: e.stamp.clone(), fin: false });
         e.fix_flags();
         assert!(e.deleted && !e.is_trashed() && !e.is_live());
+    }
+
+    fn imported(db: &mut Db, path: &str, expires_at: u64) {
+        db.entries.values_mut().find(|e| e.path == path).unwrap().expires_at = Some(expires_at);
+    }
+
+    #[test]
+    fn sweep_destroys_only_what_has_expired_and_only_once() {
+        let mut db = Db::new();
+        db.device = "dev".into();
+        db.put("mine.nqv", "md", "mine").unwrap();
+        db.put("a.nqv", "md", "secret a").unwrap();
+        db.put("b.nqv", "md", "secret b").unwrap();
+        db.put("a.nqv", "md", "secret a, edited").unwrap(); // history
+        db.mkdir("dir").unwrap();
+        imported(&mut db, "a.nqv", 1_000);
+        imported(&mut db, "b.nqv", 5_000);
+        assert!(db.sweep_expired(999).is_empty(), "nothing before the time");
+        let gone = db.sweep_expired(1_000);
+        assert_eq!(gone.len(), 1, "exactly at the time counts");
+        let a = db.entries.get(&gone[0]).unwrap();
+        assert!(a.path == "a.nqv" && a.deleted && a.content.is_empty() && a.history.is_empty());
+        assert!(a.tomb.as_ref().is_some_and(|t| t.fin && t.applies_to(&Hlc { wall: u64::MAX, counter: 0, device: "z".into() })));
+        assert!(db.get("b.nqv").is_some() && db.get("mine.nqv").is_some(), "the others stay");
+        assert!(db.sweep_expired(1_000).is_empty(), "already final: not destroyed twice");
+        assert_eq!(db.sweep_expired(9_000).len(), 1);
+        assert_eq!(db.get("mine.nqv").map(|e| e.content.as_str()), Some("mine"), "an item with no expiry never goes");
+        assert!(db.list().iter().any(|i| i.rel == "dir"), "folders are not affected");
+    }
+
+    #[test]
+    fn a_trashed_item_expires_too_and_the_clock_stays_ahead_of_every_stamp() {
+        let mut db = Db::new();
+        db.device = "dev".into();
+        db.put("a.nqv", "md", "secret").unwrap();
+        imported(&mut db, "a.nqv", 100);
+        db.trash("a.nqv").unwrap();
+        let before = db.clock.clone();
+        assert_eq!(db.sweep_expired(200).len(), 1);
+        let e = db.entries.values().next().unwrap();
+        assert!(e.deleted && !e.is_trashed() || e.trashed_at.is_some(), "a tombstone, whatever the bin says");
+        assert!(db.clock > before, "the destroy is stamped after everything before it");
+        assert!(e.tomb.as_ref().unwrap().at <= db.clock);
+    }
+
+    #[test]
+    fn a_backup_never_brings_back_an_expired_or_destroyed_item() {
+        let mut live = Db::new();
+        live.device = "dev".into();
+        live.put("gone.nqv", "md", "secret").unwrap();
+        live.put("old.nqv", "md", "also secret").unwrap();
+        live.put("kept.nqv", "md", "fine").unwrap();
+        imported(&mut live, "gone.nqv", 1_000);
+        let backup = live.clone();
+        live.sweep_expired(2_000); // gone.nqv is destroyed here
+        // old.nqv expired by the time the backup is merged, though this vault never swept it.
+        let mut backup = backup;
+        imported(&mut backup, "old.nqv", 1);
+        let r = live.merge_backup(&backup);
+        assert!(live.get("gone.nqv").is_none(), "destroyed here: stays gone");
+        assert!(live.get("old.nqv").is_some() && r.unchanged >= 1, "present here already, expiry is the sweep's job");
+        let mut fresh = Db::new();
+        fresh.device = "dev2".into();
+        fresh.merge_backup(&backup);
+        assert!(fresh.get("old.nqv").is_none(), "an expired item in a backup is not imported");
+        assert!(fresh.get("kept.nqv").is_some());
+    }
+
+    #[test]
+    fn expires_at_and_the_final_flag_survive_saving_and_loading() {
+        let (meta, key, _) = create_vault("correct horse battery", KdfParams { m_kib: 64, t: 1, p: 1 }).unwrap();
+        let id = meta.vault_id_bytes().unwrap();
+        let mut db = Db::new();
+        db.device = "dev".into();
+        db.put("a.nqv", "md", "secret").unwrap();
+        db.put("b.nqv", "md", "keep").unwrap();
+        imported(&mut db, "a.nqv", 100);
+        imported(&mut db, "b.nqv", u64::MAX / 2);
+        db.sweep_expired(200);
+        let back = Db::open(&key, &id, &db.seal(&key, &id).unwrap()).unwrap().unwrap();
+        let a = back.entries.values().find(|e| e.path == "a.nqv").unwrap();
+        assert!(a.deleted && a.tomb.as_ref().is_some_and(|t| t.fin));
+        assert_eq!(back.entries.values().find(|e| e.path == "b.nqv").unwrap().expires_at, Some(u64::MAX / 2));
     }
 
     #[test]
@@ -2106,12 +2223,12 @@ mod tests {
         assert_eq!(a.attachments[0].stamp, Hlc::legacy(1750000000000));
         assert!(a.history[0].stamp.is_none() && a.trash.is_none() && a.tomb.is_none());
         let b = entry(&db, "bin.nqv");
-        assert_eq!(b.trash, Some(Removal { over: Hlc::legacy(1700000000000), at: Hlc::legacy(1700000000000) }));
+        assert_eq!(b.trash, Some(Removal { over: Hlc::legacy(1700000000000), at: Hlc::legacy(1700000000000), fin: false }));
         assert_eq!(b.trashed_at, Some(4102444800000));
         assert_eq!(rels(db.list_trash()), vec!["bin.nqv"]);
         let c = entry(&db, "gone.nqv"); // a legacy tombstone (recent enough to keep)
         let t = Hlc::legacy(4102444800000);
-        assert_eq!(c.tomb, Some(Removal { over: t.clone(), at: t.clone() }));
+        assert_eq!(c.tomb, Some(Removal { over: t.clone(), at: t.clone(), fin: false }));
         assert!(c.deleted && c.content.is_empty(), "a tombstone carries no content");
         assert_eq!(db.clock, t, "the clock starts above every stamp held");
         assert_eq!(rels(db.list()), vec!["a.nqv"]);

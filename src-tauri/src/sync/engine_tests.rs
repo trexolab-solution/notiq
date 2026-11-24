@@ -16,6 +16,7 @@ use crate::vault_db::{b64_encode, Db};
 use crate::vault_hlc::Hlc;
 
 mod history_tests; // Drive version history (sync::history)
+mod expiry_tests; // imported items that expire: final tombstones across devices
 
 const FAST: KdfParams = KdfParams { m_kib: 64, t: 1, p: 1 };
 const PW: &str = "correct horse battery";
