@@ -2,8 +2,9 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn(), save: vi.fn() }));
 vi.mock("@tauri-apps/plugin-fs", () => ({ stat: vi.fn() }));
+import { invoke } from "@tauri-apps/api/core";
 import {
-  checkDroppedBackup, defaultBackupName, formatBytes, initialRestoreWizard, mergeSummary, restoreStep, restoreWizardReducer,
+  checkDroppedBackup, defaultBackupName, formatBytes, vaultSharePreview, vaultShareExport, initialRestoreWizard, mergeSummary, restoreStep, restoreWizardReducer,
   REPLACE_CONFIRM_WORD, type RestoreForm, type RestoreWizardAction,
 } from "./vaultBackup";
 
@@ -15,6 +16,20 @@ describe("vault backup helpers", () => {
     expect(formatBytes(512)).toBe("512 B");
     expect(formatBytes(2048)).toBe("2.0 KB");
     expect(formatBytes(3 * 1024 * 1024)).toBe("3.0 MB");
+  });
+});
+
+describe("share files", () => {
+  it("calls the share commands with the camelCase names Rust expects", async () => {
+    vi.mocked(invoke).mockResolvedValue({ bytes: 1, notes: 1 });
+    await vaultSharePreview(["a.nqv"], true);
+    expect(invoke).toHaveBeenCalledWith("vault_share_preview", { paths: ["a.nqv"], attachments: true });
+    const args = {
+      paths: ["a.nqv"], attachments: false, masterPassword: "m", sharePassword: "s", maxImports: 1,
+      validUntilMs: null, itemLifeHours: 168, deleteFile: true, destPath: "C:/x.nqb",
+    };
+    await vaultShareExport(args);
+    expect(invoke).toHaveBeenCalledWith("vault_share_export", { args });
   });
 });
 

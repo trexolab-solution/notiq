@@ -33,6 +33,7 @@ mod hello; // 0.7.0 hello
 mod capture_shield; // 0.9.1 hide from screen capture
 // 0.7.0 quick search
 mod quick_search;
+mod vault_share; // 0.14.1 share files
 mod window_log; // 0.14.1 window events kept in window.log
 // 0.9.0 vault sync: storage providers (P2) + orchestrator (P3)
 mod sync;
@@ -871,6 +872,8 @@ pub fn run() {
         vault_backup::vault_verify_password,
         vault_backup::vault_backup_export,
         vault_backup::vault_backup_inspect,
+        vault_share::vault_share_preview,
+        vault_share::vault_share_export,
         vault_backup::vault_backup_import,
         vault_backup::vault_backup_merge,
         // 0.7.0 db v2
@@ -986,6 +989,8 @@ pub fn run() {
         vault_backup::vault_verify_password,
         vault_backup::vault_backup_export,
         vault_backup::vault_backup_inspect,
+        vault_share::vault_share_preview,
+        vault_share::vault_share_export,
         vault_backup::vault_backup_import,
         vault_backup::vault_backup_merge,
         // 0.7.0 db v2

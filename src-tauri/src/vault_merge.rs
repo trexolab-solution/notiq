@@ -143,6 +143,7 @@ pub fn merge(a: &Db, b: &Db) -> Db {
         entries,
         legacy_imported: a.legacy_imported || b.legacy_imported,
         clock: a.clock.clone().max(b.clock.clone()),
+        share: a.share.clone().or_else(|| b.share.clone()),
         device: a.device.clone(),
         loaded_v: a.loaded_v,
     };

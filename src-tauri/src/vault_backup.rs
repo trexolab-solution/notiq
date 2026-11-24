@@ -24,6 +24,18 @@ use crate::vault_core::{self as vc, VaultKey, VaultMeta, VAULT_ID_LEN};
 use crate::vault_db as vdb;
 
 const MAGIC: &[u8; 4] = b"NQB1";
+/// A share file (see `vault_share`): the same layout, but it carries rules and is only ever imported as a share.
+/// An older Notiq doesn't know this magic, so it can't open one (and so can't restore it over a vault).
+const MAGIC_SHARE: &[u8; 4] = b"NQB2";
+const SHARE_FILE: &str = "This is a share file, not a backup. Open it with \"Import shared items\".";
+
+/// What a container file is: a backup of a vault, or a share file.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Kind {
+    Backup,
+    Share,
+}
 /// `.nqb` is what is written now; `.nqbackup` (earlier versions, and the sync safety copies) is still accepted.
 const EXTS: [&str; 2] = ["nqb", "nqbackup"];
 const MAX_META: usize = 64 * 1024;
@@ -39,6 +51,8 @@ pub struct ExportResult {
 #[derive(Serialize)]
 pub struct InspectResult {
     ok: bool,
+    /// What the magic says it is. Only a hint: a share is told by the rules inside once it is opened.
+    kind: Kind,
     vault_id_hex: String,
     db_bytes: u64,
     /// File modification time (unix seconds).
@@ -76,8 +90,12 @@ fn crc32(data: &[u8]) -> u32 {
 }
 
 pub(crate) fn build_container(meta: &[u8], db: &[u8]) -> Vec<u8> {
+    build_container_of(Kind::Backup, meta, db)
+}
+
+pub(crate) fn build_container_of(kind: Kind, meta: &[u8], db: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(MIN_LEN + meta.len() + db.len());
-    out.extend_from_slice(MAGIC);
+    out.extend_from_slice(if kind == Kind::Share { MAGIC_SHARE } else { MAGIC });
     out.extend_from_slice(&(meta.len() as u32).to_be_bytes());
     out.extend_from_slice(meta);
     out.extend_from_slice(db);
@@ -87,16 +105,18 @@ pub(crate) fn build_container(meta: &[u8], db: &[u8]) -> Vec<u8> {
 }
 
 pub(crate) struct Parsed<'a> {
-    meta_bytes: &'a [u8],
-    db_bytes: &'a [u8],
-    meta: VaultMeta,
+    pub(crate) meta_bytes: &'a [u8],
+    pub(crate) db_bytes: &'a [u8],
+    pub(crate) meta: VaultMeta,
+    pub(crate) kind: Kind,
 }
 
 pub(crate) fn parse_container(data: &[u8]) -> Result<Parsed<'_>, String> {
     const BAD: &str = "This isn't a valid Notiq backup file";
-    if data.len() < MIN_LEN || &data[..4] != MAGIC {
+    if data.len() < MIN_LEN || (&data[..4] != MAGIC && &data[..4] != MAGIC_SHARE) {
         return Err(BAD.into());
     }
+    let kind = if &data[..4] == MAGIC_SHARE { Kind::Share } else { Kind::Backup };
     let (body, tail) = data.split_at(data.len() - 4);
     let tail: [u8; 4] = tail.try_into().map_err(|_| BAD.to_string())?;
     if crc32(body) != u32::from_be_bytes(tail) {
@@ -123,10 +143,10 @@ pub(crate) fn parse_container(data: &[u8]) -> Result<Parsed<'_>, String> {
     if db_bytes[5..5 + VAULT_ID_LEN] != id {
         return Err("The backup is inconsistent: its database belongs to a different vault".into());
     }
-    Ok(Parsed { meta_bytes, db_bytes, meta })
+    Ok(Parsed { meta_bytes, db_bytes, meta, kind })
 }
 
-fn check_dest(path: &str) -> Result<PathBuf, String> {
+pub(crate) fn check_dest(path: &str) -> Result<PathBuf, String> {
     let p = PathBuf::from(path);
     let ok = p.is_absolute()
         && p.extension().and_then(|e| e.to_str()).map(|e| EXTS.iter().any(|x| e.eq_ignore_ascii_case(x))).unwrap_or(false);
@@ -164,6 +184,16 @@ fn open_backup(p: &Parsed<'_>, key: &VaultKey) -> Result<vdb::Db, String> {
         .ok_or_else(|| "The backup's vault database is invalid".to_string())
 }
 
+/// Opens a share file's database with `key` (made from the share password). The rules must be inside: a share
+/// file without them isn't one.
+pub(crate) fn open_share(p: &Parsed<'_>, key: &VaultKey) -> Result<vdb::Db, String> {
+    let db = open_backup(p, key)?;
+    if db.share.is_none() {
+        return Err("This file has no sharing rules inside it.".into());
+    }
+    Ok(db)
+}
+
 /// The backup's key from its master password (Argon2: run it off the main thread).
 pub(crate) fn backup_key(data: &[u8], password: &str) -> Result<VaultKey, vc::VaultError> {
     let p = parse_container(data).map_err(|_| vc::VaultError::BadMeta("backup"))?;
@@ -177,6 +207,7 @@ pub(crate) fn backup_key(data: &[u8], password: &str) -> Result<VaultKey, vc::Va
 /// change, so the next sync uploads it.
 pub(crate) fn merge_into_vault(state: &VaultState, data_dir: &Path, meta_file: &Path, data: &[u8], backup_key: &VaultKey, ts: u64) -> Result<MergeResult, String> {
     let p = parse_container(data)?;
+    if p.kind == Kind::Share { return Err(SHARE_FILE.into()); }
     let backup = open_backup(&p, backup_key)?;
     state.with_db(|db, root, _, _| {
         let mut next = db.clone();
@@ -192,6 +223,7 @@ pub(crate) fn merge_into_vault(state: &VaultState, data_dir: &Path, meta_file: &
 /// `replace`; then its files are first copied into `<data_dir>/before-restore-<ts>/`.
 pub(crate) fn install(data_dir: &Path, meta_file: &Path, db_file: &Path, data: &[u8], replace: bool, ts: u64) -> Result<ImportResult, String> {
     let p = parse_container(data)?;
+    if p.kind == Kind::Share { return Err(SHARE_FILE.into()); }
     let exists = meta_file.exists();
     if exists && !replace {
         return Err("A vault already exists on this device. Restoring would replace it.".into());
@@ -244,7 +276,7 @@ pub fn vault_backup_inspect(path: String) -> Result<InspectResult, String> {
     let p = parse_container(&data)?;
     let created = fs::metadata(&path).and_then(|m| m.modified()).ok()
         .and_then(|t| t.duration_since(UNIX_EPOCH).ok()).map(|d| d.as_secs());
-    Ok(InspectResult { ok: true, vault_id_hex: p.meta.vault_id.clone(), db_bytes: p.db_bytes.len() as u64, created })
+    Ok(InspectResult { ok: true, kind: p.kind, vault_id_hex: p.meta.vault_id.clone(), db_bytes: p.db_bytes.len() as u64, created })
 }
 
 /// Merges a backup into the unlocked vault on this device, opening it with `password` (the
@@ -253,7 +285,7 @@ pub fn vault_backup_inspect(path: String) -> Result<InspectResult, String> {
 #[tauri::command]
 pub async fn vault_backup_merge(app: AppHandle, state: State<'_, VaultState>, path: String, password: String) -> Result<MergeResult, String> {
     let data = fs::read(&path).map_err(|e| format!("Couldn't read the file: {e}"))?;
-    parse_container(&data)?;
+    if parse_container(&data)?.kind == Kind::Share { return Err(SHARE_FILE.into()); }
     if !state.is_unlocked() { return Err(ERR_LOCKED.into()); }
     let data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
     let meta_file = meta_path(&app)?;
@@ -272,7 +304,7 @@ pub fn vault_backup_import(app: AppHandle, state: State<'_, VaultState>, path: S
     if exists && !replace {
         return Err("A vault already exists on this device. Restoring would replace it.".into());
     }
-    parse_container(&data)?; // validate before touching anything in memory
+    if parse_container(&data)?.kind == Kind::Share { return Err(SHARE_FILE.into()); } // validate before touching anything in memory
     let root = state.root().unwrap_or_else(|| data_dir.clone());
     fs::create_dir_all(&root).map_err(|e| e.to_string())?;
     state.lock_all();
@@ -467,6 +499,28 @@ mod tests {
         let key = backup_key(&backup, "the-backups-password-2").unwrap();
         vs.lock_all();
         assert_eq!(merge_into_vault(&vs, &dir, &dir.join("vault.json"), &backup, &key, 1).err().as_deref(), Some(ERR_LOCKED));
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_share_file_is_never_restored_or_merged_as_a_backup() {
+        let (dir, vs, _) = current_vault("share-refused", "this-vaults-password-1", &[]);
+        let (m, d, _) = make_vault("secret");
+        let share = build_container_of(Kind::Share, &m, &d);
+        assert_eq!(parse_container(&share).unwrap().kind, Kind::Share);
+        // Replacing a vault with it, restoring it onto a fresh device, or merging it: all refused, nothing written.
+        let (mf, df) = (dir.join("vault.json"), dir.join("fresh").join("vault.nqdb"));
+        let r = install(&dir, &mf, &df, &share, true, 1);
+        assert!(r.err().is_some_and(|e| e.contains("share file")));
+        assert!(!df.exists());
+        let key = backup_key(&backup_of(&vdb::Db::new(), "x-long-password-1"), "x-long-password-1").unwrap();
+        assert!(merge_into_vault(&vs, &dir, &mf, &share, &key, 1).err().is_some_and(|e| e.contains("share file")));
+        // A share file without rules inside isn't one.
+        let (meta, k, _) = create_vault("a-long-test-password-1", FAST).unwrap();
+        let id = meta.vault_id_bytes().unwrap();
+        let sealed = vdb::Db::new().seal(&k, &id).unwrap();
+        let bare = build_container_of(Kind::Share, meta.to_json().as_bytes(), &sealed);
+        assert!(open_share(&parse_container(&bare).unwrap(), &k).is_err());
         let _ = fs::remove_dir_all(dir);
     }
 

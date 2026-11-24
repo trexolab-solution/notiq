@@ -210,6 +210,23 @@ impl Entry {
         !self.deleted && self.trashed_at.is_none()
     }
 
+    /// A copy of this entry for a share file: a new id, the path, type and content, and (when asked for) its live
+    /// attachments under new ids. No history, tags, star, trash or sync registers: the copy starts fresh.
+    pub(crate) fn for_share(&self, attachments: bool) -> Entry {
+        let mut e = Entry::blank(new_id(), &self.path, self.dir, self.updated);
+        e.ext = self.ext.clone();
+        e.content = self.content.clone();
+        if attachments && !self.dir {
+            e.attachments = self.live_attachments().map(|a| {
+                let mut c = a.clone();
+                c.id = new_id();
+                c.stamp = Hlc::default();
+                c
+            }).collect();
+        }
+        e
+    }
+
     /// In the recycle bin (and not a tombstone).
     pub fn is_trashed(&self) -> bool {
         !self.deleted && self.trashed_at.is_some()
@@ -343,6 +360,9 @@ pub struct Db {
     /// The last stamp this database's clock issued or observed.
     #[serde(default)]
     pub clock: Hlc,
+    /// Only in a share file (see `vault_share`): the rules for using it. Never in a vault.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub share: Option<crate::vault_share::SharePolicy>,
     /// This installation's device id (not stored; set after load, see `vault_hlc`).
     #[serde(skip)]
     pub device: String,
@@ -405,7 +425,7 @@ pub fn now_ms() -> u64 {
         .unwrap_or(0)
 }
 
-fn new_id() -> String {
+pub(crate) fn new_id() -> String {
     let mut b = [0u8; 16];
     rand::thread_rng().fill_bytes(&mut b);
     b.iter().map(|x| format!("{x:02x}")).collect()

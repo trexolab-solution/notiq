@@ -14,7 +14,12 @@ export const BACKUP_EXTS = [BACKUP_EXT, "nqbackup"] as const;
 export const isBackupPath = (path: string): boolean => (BACKUP_EXTS as readonly string[]).includes(getFileExtension(path));
 
 export interface BackupExportResult { bytes: number; entries_hint: number | null }
-export interface BackupInspect { ok: boolean; vault_id_hex: string; db_bytes: number; created: number | null }
+export interface BackupInspect {
+  ok: boolean;
+  /** What the file's magic says: only a hint (a share file is told by the rules inside once it is opened). */
+  kind: "backup" | "share";
+  vault_id_hex: string; db_bytes: number; created: number | null;
+}
 export interface BackupImportResult {
   vault_id_hex: string; db_bytes: number; replaced: boolean; previous_saved_to: string | null;
 }
@@ -32,6 +37,33 @@ export interface BackupMergeResult {
 /** Merges a backup into the unlocked vault; `password` is the backup's master password. */
 export const vaultBackupMerge = (path: string, password: string) =>
   invoke<BackupMergeResult>("vault_backup_merge", { path, password });
+
+// ── Share files (vault_share.rs): chosen items in a file of their own, with rules ──
+
+/** What a selection holds (the export prompt shows it). */
+export interface SharePreview { notes: number; folders: number; attachments: number; attachmentBytes: number; contentBytes: number }
+export interface ShareExportArgs {
+  /** Paths of the notes or folders to share. */
+  paths: string[];
+  attachments: boolean;
+  /** Asked again before anything is released, like a backup. */
+  masterPassword: string;
+  /** The password the receiver types: never the master password. */
+  sharePassword: string;
+  /** 1 to 100. */
+  maxImports: number;
+  /** Unix ms after which the file can't be imported; null = no end. */
+  validUntilMs: number | null;
+  /** Imported items destroy themselves this many hours after the import (1 to 8760); null = they stay. */
+  itemLifeHours: number | null;
+  /** Delete the file after its last import. */
+  deleteFile: boolean;
+  destPath: string;
+}
+export const vaultSharePreview = (paths: string[], attachments: boolean) =>
+  invoke<SharePreview>("vault_share_preview", { paths, attachments });
+export const vaultShareExport = (args: ShareExportArgs) =>
+  invoke<{ bytes: number; notes: number }>("vault_share_export", { args });
 
 /** With a vault already here: merge the backup into it, or replace it with the backup. */
 export type RestoreMode = "merge" | "replace";
