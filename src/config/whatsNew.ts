@@ -13,15 +13,29 @@ import { APP_VERSION } from "./app";
  */
 export const WHATS_NEW = `# What's New in Notiq ${APP_VERSION}
 
-Open the files of this computer on your phone, with the new **Phone Share**.
+Share a folder with your phone over **WebDAV**, now with its own file manager, HTTPS and a better SFTP file manager.
 
-## 📱 Phone Share
+## 🌐 WebDAV
 
-- **One folder, on your Wi-Fi:** turn it on from the **Phone Share** button in the status bar (or the tray menu, or the command palette), scan the **QR code** with your phone and browse the folder in its browser. Any WebDAV app (Solid Explorer, Documents, Files…) works too.
-- **A file manager in the browser:** search, sort, list or grid, thumbnails, and a viewer for pictures, **video**, audio, PDF and text. It follows your phone's light or dark theme.
-- **Upload from the phone:** add photos and files to the folder (new files only, nothing is replaced). Turn it off in Settings if you prefer.
-- **Rename, move, copy and delete (optional):** off by default. Turn it on in Settings, then select items to manage them from the phone.
-- **Your own sign-in:** pick a user name and password, or use a random one. Anyone on the network needs it, and the password is never saved to disk.
+- **Renamed and rebuilt:** "Phone Share" is now **WebDAV**, with its own Settings section, status-bar button and QR code.
+- **A real file manager in the browser:** Notiq-branded page with a folder tree, command bar, type-aware clicks, drag-select, clipboard, Properties and drag to move several items at once.
+- **Google Drive-style uploads:** drag files in, see progress, cancel or retry.
+- **HTTPS (optional):** encrypt the connection with a self-signed certificate. The fingerprint is shown to compare on your phone.
+- **Your own dialogs:** new file, rename and delete use the page's dialogs instead of the browser's.
+
+## 📁 SFTP file manager
+
+- **Zip and unzip** on the server, **Properties** with folder sizes, and **drag-select** with a band.
+- A cleaner right-click menu: grouped, no duplicates. Dragging several items moves them all.
+
+## 🔐 Vault and browser extension
+
+- Saving a login while the vault is locked now offers **Unlock & save**.
+- Long names in the Vault sidebar no longer clip, and rename errors show inline.
+
+## ⚙️ Settings
+
+- Settings are grouped (Workspace, Tools, Security, App), with new **File Manager** and **WebDAV** sections.
 
 ## 🔧 Fixes
 
