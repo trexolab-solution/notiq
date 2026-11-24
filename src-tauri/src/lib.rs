@@ -874,6 +874,8 @@ pub fn run() {
         vault_backup::vault_backup_inspect,
         vault_share::vault_share_preview,
         vault_share::vault_share_export,
+        vault_share::vault_share_inspect,
+        vault_share::vault_share_import,
         vault_backup::vault_backup_import,
         vault_backup::vault_backup_merge,
         // 0.7.0 db v2
@@ -991,6 +993,8 @@ pub fn run() {
         vault_backup::vault_backup_inspect,
         vault_share::vault_share_preview,
         vault_share::vault_share_export,
+        vault_share::vault_share_inspect,
+        vault_share::vault_share_import,
         vault_backup::vault_backup_import,
         vault_backup::vault_backup_merge,
         // 0.7.0 db v2

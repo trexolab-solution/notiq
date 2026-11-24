@@ -144,11 +144,26 @@ pub fn merge(a: &Db, b: &Db) -> Db {
         legacy_imported: a.legacy_imported || b.legacy_imported,
         clock: a.clock.clone().max(b.clock.clone()),
         share: a.share.clone().or_else(|| b.share.clone()),
+        share_uses: join_share_uses(&a.share_uses, &b.share_uses),
+        seen_ms: a.seen_ms.max(b.seen_ms),
+        seen_saved: a.seen_saved,
         device: a.device.clone(),
         loaded_v: a.loaded_v,
     };
     out.clock = out.clock.clone().max(max_stamp(&out));
     out.normalise();
+    out
+}
+
+/// The import counts of two databases: per share file the larger count (and the later time), so a count never goes
+/// down however the devices sync.
+fn join_share_uses(a: &BTreeMap<String, crate::vault_db::ShareUse>, b: &BTreeMap<String, crate::vault_db::ShareUse>) -> BTreeMap<String, crate::vault_db::ShareUse> {
+    let mut out = a.clone();
+    for (id, u) in b {
+        let e = out.entry(id.clone()).or_default();
+        e.count = e.count.max(u.count);
+        e.last_at = e.last_at.max(u.last_at);
+    }
     out
 }
 

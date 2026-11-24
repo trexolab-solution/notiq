@@ -348,6 +348,34 @@ pub fn cap_history(h: &mut Vec<Revision>) {
     }
 }
 
+fn is_zero_u64(n: &u64) -> bool {
+    *n == 0
+}
+
+/// How often one share file was imported here (see `Db::share_uses`).
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq)]
+pub struct ShareUse {
+    pub count: u32,
+    /// Unix ms of the latest import.
+    pub last_at: u64,
+}
+
+/// How far `seen_ms` has to move past what is on disk before the watcher saves it again.
+pub const SEEN_SAVE_EVERY_MS: u64 = 30 * 60 * 1000;
+
+/// What [`Db::merge_share`] did, counted in notes (folders are merged but only counted apart).
+#[derive(Serialize, Debug, Default, Clone, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ShareMerge {
+    /// Notes that were not here and are now.
+    pub added: u32,
+    pub folders: u32,
+    /// Notes from this share that are already here (imported before, still there or in the bin).
+    pub already: u32,
+    /// Notes from this share that were destroyed here once their time ran out: never brought back.
+    pub expired: u32,
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct Db {
     #[serde(default)]
@@ -363,6 +391,17 @@ pub struct Db {
     /// Only in a share file (see `vault_share`): the rules for using it. Never in a vault.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub share: Option<crate::vault_share::SharePolicy>,
+    /// How often each share file (by its id) was imported into this vault. Merged by the larger count, so it
+    /// follows the vault to its other devices; it stops "import, delete the items, import again".
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub share_uses: BTreeMap<String, ShareUse>,
+    /// The latest time this vault has seen (Unix ms). It only ever grows, and merges as the larger one, so setting
+    /// the clock back neither makes an expiry wait nor reopens a share file that has ended (see `effective_now`).
+    #[serde(default, skip_serializing_if = "is_zero_u64")]
+    pub seen_ms: u64,
+    /// `seen_ms` as last written to disk (not stored): the watcher saves it again once it has moved far enough.
+    #[serde(skip)]
+    pub seen_saved: u64,
     /// This installation's device id (not stored; set after load, see `vault_hlc`).
     #[serde(skip)]
     pub device: String,
@@ -820,6 +859,83 @@ impl Db {
         out
     }
 
+    /// `now`, or the latest time this vault has seen if that is later: the time every expiry and every share file's
+    /// end date is judged by, so turning the clock back gains nothing.
+    pub fn effective_now(&self, now: u64) -> u64 {
+        now.max(self.seen_ms)
+    }
+
+    /// Records that `now` has been seen (the time only moves forward).
+    pub fn observe_time(&mut self, now: u64) {
+        if now > self.seen_ms {
+            self.seen_ms = now;
+        }
+    }
+
+    /// `seen_ms` has moved far enough past what is on disk to be worth saving.
+    pub fn seen_needs_save(&self) -> bool {
+        self.seen_ms > self.seen_saved.saturating_add(SEEN_SAVE_EVERY_MS)
+    }
+
+    /// How many times the share file `share_id` was imported here.
+    pub fn share_uses_of(&self, share_id: &str) -> u32 {
+        self.share_uses.get(share_id).map_or(0, |u| u.count)
+    }
+
+    /// Counts one more import of the share file `share_id`.
+    pub fn note_share_use(&mut self, share_id: &str, now: u64) {
+        let u = self.share_uses.entry(share_id.to_string()).or_default();
+        u.count = u.count.saturating_add(1);
+        u.last_at = u.last_at.max(now);
+    }
+
+    /// Adds the items of a share file (`share`, opened with its own password) to this vault. Nothing here is
+    /// changed or removed. Each note is matched by its id (a share file's ids are fixed): one that is here (or in
+    /// the bin) is left as it is, one destroyed here is never brought back, one deleted by hand comes back. Every
+    /// note and folder that is added gets `expires_at`. A path that is taken gets "(from share)" in its name; a
+    /// folder that is already here is the same folder. The additions are re-stamped as one local change.
+    pub fn merge_share(&mut self, share: &Db, expires_at: Option<u64>) -> ShareMerge {
+        let mut out = ShareMerge::default();
+        let mut touched: Vec<String> = vec![];
+        let mut src: Vec<&Entry> = share.entries.values().filter(|e| !e.deleted).collect();
+        src.sort_by(|a, b| (!a.dir, &a.path, &a.id).cmp(&(!b.dir, &b.path, &b.id)));
+        for se in src {
+            match self.entries.get(&se.id) {
+                Some(c) if c.tomb.as_ref().is_some_and(|t| t.fin) => {
+                    if !se.dir { out.expired += 1; }
+                    continue;
+                }
+                Some(c) if !c.deleted => {
+                    if !se.dir { out.already += 1; }
+                    continue;
+                }
+                _ => {}
+            }
+            let mut e = se.clone();
+            e.expires_at = expires_at;
+            e.tomb = self.entries.get(&se.id).and_then(|c| c.tomb.clone()); // re-stamped above it below
+            e.trash = None;
+            e.trashed_at = None;
+            let taken = |db: &Db, p: &str| db.entries.values().any(|x| x.is_live() && x.path == p);
+            if e.dir {
+                if taken(self, &e.path) { continue; } // the same folder is here, or a note has its name
+                out.folders += 1;
+            } else {
+                if taken(self, &e.path) {
+                    e.path = (1u64..).map(|n| variant_path(&se.path, "from share", n, true))
+                        .find(|c| !taken(self, c) && !self.occupied(c)).expect("unbounded");
+                }
+                out.added += 1;
+            }
+            touched.push(e.id.clone());
+            self.entries.insert(e.id.clone(), e);
+        }
+        self.clock.observe(&share.clock);
+        for e in self.entries.values() { self.clock.observe(e.version()); }
+        self.restamp(&touched);
+        out
+    }
+
     /// Destroys every entry whose `expires_at` has passed (`now`, Unix ms): a final tombstone with no content,
     /// history or attachments, which also stops any copy of the entry from coming back (see [`Removal::fin`]).
     /// Entries that are already final are left alone. Returns the ids destroyed now.
@@ -828,6 +944,8 @@ impl Db {
     /// run it after anything that can bring an entry in (a load, a sync merge, a restore) and before the database
     /// is shown or uploaded.
     pub fn sweep_expired(&mut self, now: u64) -> Vec<String> {
+        let now = self.effective_now(now);
+        self.observe_time(now);
         let ids: Vec<String> = self.entries.values()
             .filter(|e| e.expires_at.is_some_and(|t| t <= now) && !e.tomb.as_ref().is_some_and(|t| t.fin))
             .map(|e| e.id.clone()).collect();
@@ -1101,6 +1219,7 @@ impl Db {
         // Older formats load through serde defaults; the next save writes the current one.
         db.loaded_v = db.v;
         db.v = DB_VERSION;
+        db.seen_saved = db.seen_ms;
         db.normalise();
         Ok(Some(db))
     }
@@ -1223,6 +1342,7 @@ pub fn save_db(root: &Path, db: &mut Db, key: &VaultKey, vault_id: &[u8; VAULT_I
     }
     save(root, &bytes)?;
     db.loaded_v = DB_VERSION;
+    db.seen_saved = db.seen_ms;
     Ok(())
 }
 

@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
-import { Download, FileUp, ShieldCheck } from "lucide-react";
+import { Download, FileUp, PackageOpen, ShieldCheck } from "lucide-react";
 import { Modal } from "../ui/Modal";
 import { PasswordInput } from "../ui/PasswordInput";
 import { Button } from "../ui/Button";
 import { SettingRow } from "../ui/SettingRow";
 import { RestoreBackupDialog } from "./RestoreBackupDialog";
+import { ImportSharedDialog } from "./ImportSharedDialog";
 import { toast } from "../../lib/toast";
 import { useVaultStore } from "../../store/vaultStore";
 import { vaultErrorMessage } from "../../lib/vault";
@@ -22,6 +23,7 @@ export function BackupSection() {
   const [remind, setRemind] = useState(() => !getBackupReminderDisabled());
   const [askPw, setAskPw] = useState(false);
   const [restoring, setRestoring] = useState(false);
+  const [importingShare, setImportingShare] = useState(false);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -79,6 +81,15 @@ export function BackupSection() {
       </SettingRow>
 
       <SettingRow
+        id="vault.backup.shared"
+        label="Import shared items"
+        description="Add items someone shared with you from a .nqb share file. You need the password they gave you, and your own vault open."
+        keywords={["share", "shared", "import", ".nqb", "password", "receive", "expire"]}
+      >
+        <Button className="settings-btn" size="sm" icon={<PackageOpen size={12} />} disabled={!exists} onClick={() => setImportingShare(true)}>Import shared…</Button>
+      </SettingRow>
+
+      <SettingRow
         id="vault.backup.remind"
         label="Remind me to back up"
         description="A reminder appears if you never backed up (after 3 days) or the last backup is over 30 days old."
@@ -96,6 +107,7 @@ export function BackupSection() {
         />
       )}
       {restoring && <RestoreBackupDialog onClose={() => setRestoring(false)} />}
+      {importingShare && <ImportSharedDialog onClose={() => setImportingShare(false)} />}
     </>
   );
 }

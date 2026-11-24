@@ -65,6 +65,7 @@ export function RestoreBackupDialog({ onClose, initialPath }: { onClose: () => v
     try {
       const info = await vaultBackupInspect(path);
       if (!info.ok) throw new Error("This file isn't a valid Notiq backup");
+      if (info.kind === "share") throw new Error("This is a share file, not a backup. Use \"Import shared items\" in Settings → Vault → Backup.");
       dispatch({ type: "checked", path, info });
     } catch (e) {
       dispatch({ type: "checkFailed", path, error: e instanceof Error ? e.message : vaultErrorMessage(e) });

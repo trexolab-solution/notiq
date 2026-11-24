@@ -166,6 +166,7 @@ impl VaultState {
         let marker = vdb::restored_marker_path(&root);
         let restore = loaded && marker.exists();
         let restamped = restore && db.restamp_restored() > 0;
+        db.observe_time(vdb::now_ms()); // the latest time this vault has seen (only grows: see `Db::effective_now`)
         let purged = db.purge_expired(vdb::now_ms()) > 0; // recycle-bin items older than 30 days
         let destroyed = !db.sweep_expired(vdb::now_ms()).is_empty(); // imported items past their time
         let (out, dirty) = match f(db, &root, &u.key, &u.vault_id) {
@@ -356,6 +357,8 @@ pub(crate) fn start_expiry_watch(app: &AppHandle) {
         if state.with_db(|_, _, _, _| Ok(((), false))).is_ok() && state.change_seq() != before {
             let _ = app.emit("vault:entries-changed", serde_json::json!({}));
         }
+        // The latest time seen is written every half hour or so, quietly: it is not a change to upload.
+        let _ = state.with_db_quiet(|db, _, _, _| Ok(((), db.seen_needs_save())));
     });
 }
 

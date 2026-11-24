@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use zeroize::Zeroizing;
 
 use crate::vault_core::{self as vc, KdfParams, VaultKey, VaultMeta};
-use crate::vault_db::{self as vdb, Db, Entry};
+use crate::vault_db::{self as vdb, Db, Entry, ShareMerge};
 
 /// The most imports one share file can allow.
 pub const MAX_IMPORTS_LIMIT: u32 = 100;
@@ -100,6 +100,11 @@ fn selected<'a>(db: &'a Db, paths: &[String]) -> Result<Vec<&'a Entry>, String> 
         }
     }
     let mut out: Vec<&Entry> = ids.iter().filter_map(|id| db.entries.get(*id)).collect();
+    // What came from a share carries its own end of life: passing it on would leave that behind.
+    let imported = out.iter().filter(|e| !e.dir && e.expires_at.is_some()).count();
+    if imported > 0 {
+        return Err(format!("{imported} of the chosen {} came from a share and can't be shared again.", if imported == 1 { "note" } else { "notes" }));
+    }
     // Folders above the chosen notes.
     let mut above: Vec<String> = vec![];
     for e in &out {
@@ -175,11 +180,209 @@ pub fn make_share_key(own: &VaultMeta, share_password: &str, kdf: KdfParams) -> 
     Ok((meta, key))
 }
 
+// ─── importing ───────────────────────────────────────────────────────────────
+
+/// How far behind the latest time this vault has seen the clock may be before an import is refused (clocks drift).
+pub const CLOCK_SLACK_MS: u64 = 10 * 60 * 1000;
+
+/// Why a share file can't be imported (here, now).
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum ShareProblem {
+    /// The file's end date has passed.
+    Expired,
+    /// It was imported as often as it allows.
+    NoImportsLeft,
+    /// This PC's clock is behind what the vault has already seen.
+    ClockBehind,
+}
+
+impl ShareProblem {
+    pub fn code(self) -> &'static str {
+        match self {
+            ShareProblem::Expired => "expired",
+            ShareProblem::NoImportsLeft => "noImportsLeft",
+            ShareProblem::ClockBehind => "clockBehind",
+        }
+    }
+
+    pub fn message(self) -> &'static str {
+        match self {
+            ShareProblem::Expired => "This share file has expired.",
+            ShareProblem::NoImportsLeft => "This share file can't be imported again.",
+            ShareProblem::ClockBehind => "The date and time on this PC are behind. Fix them, then try again.",
+        }
+    }
+}
+
+/// Whether a share file may be imported into a vault where it was imported `uses` times and that has seen time up
+/// to `seen_ms`, with the clock at `sys_now`. The end date is judged by the later of the clock and what was seen,
+/// so setting the clock back doesn't reopen a file.
+pub fn check_policy(policy: &SharePolicy, uses: u32, sys_now: u64, seen_ms: u64) -> Result<(), ShareProblem> {
+    if sys_now.saturating_add(CLOCK_SLACK_MS) < seen_ms {
+        return Err(ShareProblem::ClockBehind);
+    }
+    let now = sys_now.max(seen_ms);
+    if policy.valid_until.is_some_and(|t| t <= now) {
+        return Err(ShareProblem::Expired);
+    }
+    if uses >= policy.max_imports {
+        return Err(ShareProblem::NoImportsLeft);
+    }
+    Ok(())
+}
+
+/// What one import did to a vault database.
+#[derive(Debug, PartialEq, Eq)]
+pub struct ImportDone {
+    pub merged: ShareMerge,
+    pub imports_left: u32,
+    /// When the added items destroy themselves.
+    pub expires_at: Option<u64>,
+    /// The database changed (to be saved).
+    pub changed: bool,
+}
+
+/// Imports the share database `share` (with its `policy`) into `db`, the vault. The rules are checked first (end
+/// date, number of imports, clock). It is counted as an import only when a note was added: a file that is already
+/// here, or whose items were destroyed here, changes nothing and costs nothing. `db` changes only when it succeeds.
+pub fn import_into(db: &mut Db, share: &Db, policy: &SharePolicy, sys_now: u64) -> Result<ImportDone, String> {
+    check_policy(policy, db.share_uses_of(&policy.share_id), sys_now, db.seen_ms).map_err(|p| p.message().to_string())?;
+    let now = db.effective_now(sys_now);
+    let expires_at = policy.item_life_ms.map(|l| now.saturating_add(l));
+    let mut next = db.clone();
+    let merged = next.merge_share(share, expires_at);
+    if merged.added == 0 && merged.folders == 0 {
+        let imports_left = policy.max_imports.saturating_sub(db.share_uses_of(&policy.share_id));
+        return Ok(ImportDone { merged, imports_left, expires_at: None, changed: false });
+    }
+    if merged.added > 0 {
+        next.note_share_use(&policy.share_id, now);
+    }
+    next.observe_time(now);
+    let imports_left = policy.max_imports.saturating_sub(next.share_uses_of(&policy.share_id));
+    *db = next;
+    Ok(ImportDone { merged, imports_left, expires_at, changed: true })
+}
+
+/// Whether the file is deleted after this import: its rules ask for it, this import added something, and it was the
+/// last one the file allows.
+pub fn file_goes(merged: &ShareMerge, imports_left: u32, policy: &SharePolicy) -> bool {
+    policy.delete_file && merged.added > 0 && imports_left == 0
+}
+
+/// What the import prompt shows once the file is open.
+#[derive(Serialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct ShareInfo {
+    pub notes: u32,
+    pub folders: u32,
+    pub attachments: u32,
+    pub valid_until: Option<u64>,
+    pub item_life_ms: Option<u64>,
+    pub delete_file: bool,
+    /// "none" (no vault here yet), "locked" or "ready": a share only goes into a vault that exists and is open.
+    pub vault: &'static str,
+    /// Imports left (only known while the vault is open).
+    pub imports_left: Option<u32>,
+    /// Why it can't be imported now (`ShareProblem::code`); only checked while the vault is open.
+    pub problem: Option<&'static str>,
+}
+
+/// What an import did.
+#[derive(Serialize, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ShareImportResult {
+    pub added: u32,
+    pub already: u32,
+    pub expired: u32,
+    pub imports_left: u32,
+    /// When the added items destroy themselves (Unix ms).
+    pub expires_at: Option<u64>,
+    /// The file was deleted, as its rules ask after the last import.
+    pub file_deleted: bool,
+    /// It should have been deleted but couldn't be.
+    pub delete_failed: bool,
+}
+
+/// The counts of a share database (notes, folders, attachments).
+fn counts(share: &Db) -> (u32, u32, u32) {
+    let live = share.entries.values().filter(|e| !e.deleted);
+    let (mut notes, mut folders, mut attachments) = (0, 0, 0);
+    for e in live {
+        if e.dir { folders += 1; } else { notes += 1; attachments += e.live_attachments().count() as u32; }
+    }
+    (notes, folders, attachments)
+}
+
+/// Whether the database of a share file can be imported: it must hold its rules, in range.
+fn policy_of(share: &Db) -> Result<SharePolicy, String> {
+    let policy = share.share.clone().ok_or("This is a backup, not a share file. Open it with Restore backup.")?;
+    policy.validate(0)?; // the shape only: an end date is judged at import time
+    Ok(policy)
+}
+
+/// Opens a share file with the password for it. A wrong password counts toward the unlock throttle.
+async fn open_share_file(state: &VaultState, path: &str, password: String) -> Result<(Db, SharePolicy), String> {
+    let data = std::fs::read(path).map_err(|e| format!("Couldn't read the file: {e}"))?;
+    crate::vault_backup::parse_container(&data)?; // a clear message for a file that isn't one
+    let password = Zeroizing::new(password);
+    let share = guarded(state, move || {
+        let p = crate::vault_backup::parse_container(&data).map_err(|_| vc::VaultError::BadMeta("share file"))?;
+        let key = vc::unlock_with_password(&p.meta, &password)?;
+        let id = p.meta.vault_id_bytes()?;
+        vdb::Db::open(&key, &id, p.db_bytes).map_err(|_| vc::VaultError::Tampered)?.ok_or(vc::VaultError::BadMeta("database"))
+    }).await?;
+    let policy = policy_of(&share)?;
+    Ok((share, policy))
+}
+
+/// Opens a share file and says what is in it and whether it can be imported now. Nothing is changed.
+#[tauri::command]
+pub async fn vault_share_inspect(app: AppHandle, state: State<'_, VaultState>, path: String, password: String) -> Result<ShareInfo, String> {
+    let (share, policy) = open_share_file(&state, &path, password).await?;
+    let (notes, folders, attachments) = counts(&share);
+    let (vault, imports_left, problem) = if load_meta(&app)?.is_none() {
+        ("none", None, None)
+    } else if !state.is_unlocked() {
+        ("locked", None, None)
+    } else {
+        let (uses, seen) = state.with_db(|db, _, _, _| Ok(((db.share_uses_of(&policy.share_id), db.seen_ms), false)))?;
+        let left = policy.max_imports.saturating_sub(uses);
+        ("ready", Some(left), check_policy(&policy, uses, vdb::now_ms(), seen).err().map(ShareProblem::code))
+    };
+    Ok(ShareInfo { notes, folders, attachments, valid_until: policy.valid_until, item_life_ms: policy.item_life_ms, delete_file: policy.delete_file, vault, imports_left, problem })
+}
+
+/// Imports a share file into the unlocked vault (see `Db::merge_share`), counts the import, and deletes the file
+/// when its rules say so after the last import (only once the import is saved).
+#[tauri::command]
+pub async fn vault_share_import(state: State<'_, VaultState>, path: String, password: String) -> Result<ShareImportResult, String> {
+    if !state.is_unlocked() {
+        return Err(ERR_LOCKED.into());
+    }
+    let (share, policy) = open_share_file(&state, &path, password).await?;
+    let done = state.with_db(|db, _, _, _| {
+        let done = import_into(db, &share, &policy, vdb::now_ms())?;
+        let changed = done.changed;
+        Ok((done, changed))
+    })?;
+    let (merged, imports_left, expires_at) = (done.merged, done.imports_left, done.expires_at);
+    // Saved. Now the file, if it is to go: after the last import, and only a share file we just opened.
+    let (mut file_deleted, mut delete_failed) = (false, false);
+    if file_goes(&merged, imports_left, &policy) {
+        match crate::vault_backup::check_dest(&path).and_then(|p| std::fs::remove_file(p).map_err(|e| e.to_string())) {
+            Ok(()) => file_deleted = true,
+            Err(_) => delete_failed = true,
+        }
+    }
+    Ok(ShareImportResult { added: merged.added, already: merged.already, expired: merged.expired, imports_left, expires_at, file_deleted, delete_failed })
+}
+
 // ─── commands ────────────────────────────────────────────────────────────────
 
 use tauri::{AppHandle, State};
 
-use crate::vault::{guarded, require_meta, VaultState};
+use crate::vault::{guarded, load_meta, require_meta, VaultState, ERR_LOCKED};
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -430,5 +633,231 @@ mod tests {
         let sealed = db.seal(&key, &id).unwrap();
         assert_eq!(parse_container(&build_container(meta.to_json().as_bytes(), &sealed)).unwrap().kind, Kind::Backup);
         assert_eq!(&file[..4], b"NQB2", "an older Notiq doesn't recognise it at all");
+    }
+
+    // ─── importing ───────────────────────────────────────────────────────────
+
+    const WEEK: u64 = 7 * 24 * HOUR_MS;
+
+    fn receiver() -> Db {
+        let mut db = Db::new();
+        db.device = "recv".into();
+        db.put("mine.nqv", "md", "my own note").unwrap();
+        db
+    }
+
+    /// The database of a share of `Work` (two notes and their folder) with `max` imports allowed.
+    fn share_of_work(max: u32) -> (Db, SharePolicy) {
+        let mut p = policy();
+        p.max_imports = max;
+        p.valid_until = Some(NOW + 10 * WEEK);
+        let db = build_share_db(&vault(), &paths(&["Work"]), false, p.clone()).unwrap();
+        (db, p)
+    }
+
+    fn by_path<'a>(db: &'a Db, path: &str) -> &'a Entry {
+        db.entries.values().find(|e| e.path == path).unwrap_or_else(|| panic!("no entry at {path}"))
+    }
+
+    #[test]
+    fn an_import_adds_the_items_with_their_end_of_life_and_counts_once() {
+        let (share, p) = share_of_work(2);
+        let mut db = receiver();
+        let done = import_into(&mut db, &share, &p, NOW).unwrap();
+        assert_eq!((done.merged.added, done.merged.folders, done.merged.already), (2, 1, 0));
+        assert_eq!((done.imports_left, done.changed, done.expires_at), (1, true, Some(NOW + WEEK)));
+        for path in ["Work", "Work/bank.nqv", "Work/mail.nqv"] {
+            assert_eq!(by_path(&db, path).expires_at, Some(NOW + WEEK), "{path} gets its end of life from the import time");
+        }
+        assert_eq!(by_path(&db, "Work/bank.nqv").content, "bank secret v2");
+        assert_eq!(by_path(&db, "mine.nqv").expires_at, None, "what was here is not touched");
+        assert_eq!(db.share_uses_of(&p.share_id), 1);
+        assert!(db.seen_ms >= NOW);
+        assert!(db.share.is_none(), "the rules never become part of the vault");
+    }
+
+    #[test]
+    fn the_same_file_again_adds_nothing_and_costs_nothing() {
+        let (share, p) = share_of_work(2);
+        let mut db = receiver();
+        import_into(&mut db, &share, &p, NOW).unwrap();
+        let again = import_into(&mut db, &share, &p, NOW + 1000).unwrap();
+        assert_eq!((again.merged.added, again.merged.already, again.changed), (0, 2, false));
+        assert_eq!((again.imports_left, again.expires_at), (1, None));
+        assert_eq!(db.share_uses_of(&p.share_id), 1, "not counted");
+        assert_eq!(by_path(&db, "Work/bank.nqv").expires_at, Some(NOW + WEEK), "the clock is not restarted");
+    }
+
+    #[test]
+    fn import_delete_import_is_stopped_by_the_count_and_allowed_while_it_lasts() {
+        let (share, p) = share_of_work(1);
+        let mut db = receiver();
+        import_into(&mut db, &share, &p, NOW).unwrap();
+        for path in ["Work/bank.nqv", "Work/mail.nqv"] { db.trash(path).unwrap(); db.purge(path).unwrap(); }
+        let err = import_into(&mut db, &share, &p, NOW + 1).unwrap_err();
+        assert_eq!(err, ShareProblem::NoImportsLeft.message());
+        assert!(by_path(&db, "Work/bank.nqv").deleted, "nothing came back");
+
+        // With two imports allowed the second one brings the deleted notes back, and then it is used up.
+        let (share, p) = share_of_work(2);
+        let mut db = receiver();
+        import_into(&mut db, &share, &p, NOW).unwrap();
+        for path in ["Work/bank.nqv", "Work/mail.nqv"] { db.trash(path).unwrap(); db.purge(path).unwrap(); }
+        let second = import_into(&mut db, &share, &p, NOW + 1).unwrap();
+        assert_eq!((second.merged.added, second.imports_left), (2, 0));
+        assert_eq!(by_path(&db, "Work/bank.nqv").content, "bank secret v2");
+        assert!(import_into(&mut db, &share, &p, NOW + 2).is_err(), "a third time is over the limit");
+    }
+
+    #[test]
+    fn an_expired_item_never_returns_by_importing_again() {
+        let (share, p) = share_of_work(3);
+        let mut db = receiver();
+        import_into(&mut db, &share, &p, NOW).unwrap();
+        assert_eq!(db.sweep_expired(NOW + WEEK + 1).len(), 3, "the notes and their folder are destroyed");
+        let again = import_into(&mut db, &share, &p, NOW + WEEK + 2).unwrap();
+        assert_eq!((again.merged.added, again.merged.expired, again.changed), (0, 2, false));
+        assert_eq!(db.share_uses_of(&p.share_id), 1);
+        assert!(by_path(&db, "Work/bank.nqv").deleted);
+    }
+
+    #[test]
+    fn the_rules_are_enforced_at_import() {
+        let (share, mut p) = share_of_work(2);
+        let mut db = receiver();
+        // The file ended.
+        p.valid_until = Some(NOW);
+        assert_eq!(import_into(&mut db, &share, &p, NOW).unwrap_err(), ShareProblem::Expired.message());
+        assert_eq!(import_into(&mut db, &share, &p, NOW + 5).unwrap_err(), ShareProblem::Expired.message());
+        assert!(db.entries.len() == 1, "a refused import changes nothing");
+        // The clock is behind what this vault has seen.
+        let (share, p) = share_of_work(2);
+        let mut seen = receiver();
+        seen.observe_time(NOW + 3 * HOUR_MS);
+        assert_eq!(import_into(&mut seen, &share, &p, NOW).unwrap_err(), ShareProblem::ClockBehind.message());
+        // A clock set back by a little is a drift, not an attack: the vault's time is used.
+        let mut drift = receiver();
+        drift.observe_time(NOW + 5 * 60_000);
+        let done = import_into(&mut drift, &share, &p, NOW).unwrap();
+        assert_eq!(done.expires_at, Some(NOW + 5 * 60_000 + WEEK), "judged by the latest time seen, not the clock");
+    }
+
+    #[test]
+    fn setting_the_clock_back_gains_nothing() {
+        let (share, mut p) = share_of_work(2);
+        p.valid_until = Some(NOW + 1_000_000);
+        let mut db = receiver();
+        db.observe_time(NOW + 1_000_000 + 60_000); // seen after the end, a minute ahead of the clock now
+        assert_eq!(check_policy(&p, 0, NOW + 1_000_000 - 1, db.seen_ms), Err(ShareProblem::Expired), "judged by what was seen");
+        assert!(import_into(&mut db, &share, &p, NOW + 1_000_000 - 1).is_err());
+        // Items too: destroyed by the time the vault has seen, whatever the clock says.
+        let (share, p) = share_of_work(2);
+        let mut db = receiver();
+        import_into(&mut db, &share, &p, NOW).unwrap();
+        db.observe_time(NOW + WEEK + 5);
+        assert_eq!(db.sweep_expired(NOW + 10).len(), 3, "the clock says it is early; the vault has seen it is late");
+    }
+
+    #[test]
+    fn names_that_clash_and_folders_that_exist() {
+        let (share, p) = share_of_work(2);
+        let mut db = receiver();
+        db.mkdir("Work").unwrap(); // the receiver's own folder
+        db.put("Work/bank.nqv", "md", "the receiver's own bank note").unwrap();
+        let done = import_into(&mut db, &share, &p, NOW).unwrap();
+        assert_eq!((done.merged.added, done.merged.folders), (2, 0), "the folder is the same one");
+        assert_eq!(by_path(&db, "Work/bank.nqv").content, "the receiver's own bank note");
+        assert_eq!(by_path(&db, "Work/bank (from share).nqv").content, "bank secret v2");
+        assert_eq!(by_path(&db, "Work/bank (from share).nqv").expires_at, Some(NOW + WEEK));
+        assert_eq!(by_path(&db, "Work/bank.nqv").expires_at, None);
+        // Destroying the imported items leaves the receiver's folder and note alone.
+        db.sweep_expired(NOW + WEEK + 1);
+        assert_eq!(by_path(&db, "Work/bank.nqv").content, "the receiver's own bank note");
+        assert!(!by_path(&db, "Work").deleted);
+    }
+
+    #[test]
+    fn items_that_came_from_a_share_can_not_be_shared_again() {
+        let (share, p) = share_of_work(2);
+        let mut db = receiver();
+        import_into(&mut db, &share, &p, NOW).unwrap();
+        let err = build_share_db(&db, &paths(&["Work/bank.nqv"]), false, policy()).unwrap_err();
+        assert!(err.contains("came from a share") && err.starts_with("1 of the chosen note"), "{err}");
+        assert!(build_share_db(&db, &paths(&["Work"]), false, policy()).unwrap_err().starts_with("2 of the chosen notes"), "a folder takes what is in it");
+        assert!(preview(&db, &paths(&["Work"]), false).is_err());
+        assert!(build_share_db(&db, &paths(&["mine.nqv"]), false, policy()).is_ok(), "the receiver's own notes can be shared");
+    }
+
+    #[test]
+    fn the_file_goes_only_after_the_last_import_that_added_something() {
+        let (_, mut p) = share_of_work(2);
+        let added = ShareMerge { added: 1, ..Default::default() };
+        let nothing = ShareMerge::default();
+        assert!(file_goes(&added, 0, &p));
+        assert!(!file_goes(&added, 1, &p), "more imports are allowed");
+        assert!(!file_goes(&nothing, 0, &p), "an import that added nothing deletes nothing");
+        p.delete_file = false;
+        assert!(!file_goes(&added, 0, &p), "the sender didn't ask for it");
+    }
+
+    #[test]
+    fn the_counts_and_the_latest_time_merge_as_the_larger_one() {
+        let (share, p) = share_of_work(5);
+        let (mut a, mut b) = (receiver(), receiver());
+        import_into(&mut a, &share, &p, NOW).unwrap();
+        import_into(&mut b, &share, &p, NOW + 5).unwrap();
+        import_into(&mut b, &share, &p, NOW + 6).ok();
+        b.note_share_use(&p.share_id, NOW + 9); // b counted a second import
+        for (x, y) in [(&a, &b), (&b, &a)] {
+            let m = crate::vault_merge::merge(x, y);
+            assert_eq!(m.share_uses_of(&p.share_id), 2, "the larger count, never the sum");
+            assert_eq!(m.share_uses[&p.share_id].last_at, NOW + 9);
+            assert_eq!(m.seen_ms, a.seen_ms.max(b.seen_ms));
+        }
+        let m = crate::vault_merge::merge(&a, &a);
+        assert_eq!(m.share_uses, a.share_uses);
+    }
+
+    #[test]
+    fn the_count_and_the_time_survive_saving_and_opening() {
+        let (share, p) = share_of_work(2);
+        let (meta, key, _) = create_vault("a-long-test-password-1", FAST).unwrap();
+        let id = meta.vault_id_bytes().unwrap();
+        let mut db = receiver();
+        import_into(&mut db, &share, &p, NOW).unwrap();
+        let back = vdb::Db::open(&key, &id, &db.seal(&key, &id).unwrap()).unwrap().unwrap();
+        assert_eq!(back.share_uses_of(&p.share_id), 1);
+        assert_eq!(back.seen_ms, db.seen_ms);
+        assert_eq!(back.seen_saved, back.seen_ms, "what was just opened is what is on disk");
+        assert!(!back.seen_needs_save());
+        let mut later = back.clone();
+        later.observe_time(back.seen_ms + vdb::SEEN_SAVE_EVERY_MS + 1);
+        assert!(later.seen_needs_save() && !back.seen_needs_save());
+    }
+
+    #[test]
+    fn a_whole_file_goes_through_the_same_steps_as_the_command() {
+        let sender = vault();
+        let (own, _, _) = create_vault("the master password", FAST).unwrap();
+        let (meta, key) = make_share_key(&own, "a password for sharing", FAST).unwrap();
+        let mut p = policy();
+        p.valid_until = Some(NOW + 10 * WEEK);
+        let file = make_share_container(&sender, &paths(&["Work/bank.nqv"]), false, p.clone(), &meta, &key).unwrap();
+        // What `open_share_file` does.
+        let parsed = parse_container(&file).unwrap();
+        let k = vc::unlock_with_password(&parsed.meta, "a password for sharing").unwrap();
+        let share = vdb::Db::open(&k, &parsed.meta.vault_id_bytes().unwrap(), parsed.db_bytes).unwrap().unwrap();
+        let policy = policy_of(&share).unwrap();
+        assert_eq!(counts(&share), (1, 1, 0));
+        let mut db = receiver();
+        let done = import_into(&mut db, &share, &policy, NOW).unwrap();
+        assert_eq!((done.merged.added, done.imports_left), (1, 1));
+        assert_eq!(by_path(&db, "Work/bank.nqv").content, "bank secret v2");
+        // A backup with no rules inside is not a share.
+        assert!(policy_of(&vdb::Db::new()).unwrap_err().contains("backup"));
+        // Rules out of range are refused even though the file opened.
+        let mut bad = share.clone();
+        bad.share.as_mut().unwrap().max_imports = 0;
+        assert!(policy_of(&bad).is_err());
     }
 }
