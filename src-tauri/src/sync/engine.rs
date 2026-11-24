@@ -875,6 +875,15 @@ pub async fn sync_once_with<L: LocalVault>(ctx: &Ctx<'_>, local: &L, st: &mut Sy
                 }
             }
         }
+        // Attachment data of items that were destroyed (they expired): removed from the store, unless some live
+        // attachment still has that id. The data of ordinary deletions stays for the history copies.
+        let live_att: HashSet<&str> = db.entries.values().filter(|e| !e.deleted).flat_map(|e| e.attachments.iter()).filter(|a| a.is_live()).map(|a| a.id.as_str()).collect();
+        for id in db.destroyed_blobs.keys().filter(|id| !live_att.contains(id.as_str())) {
+            let name = ctx.keys.blob_name(id);
+            if listing.blobs.contains(&name) && !gc.contains(&name) {
+                gc.push(name);
+            }
+        }
         let own = upload.then(|| seal::strip_attachment_data(db));
         (Applied { report, renamed, own, uploads, gc, seq, join, marks }, changed)
     })?;

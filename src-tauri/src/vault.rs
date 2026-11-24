@@ -13,7 +13,7 @@ use std::{
     io::Write,
     path::{Path, PathBuf},
     sync::{
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         Arc, Mutex, MutexGuard, OnceLock,
     },
     time::{Instant, SystemTime},
@@ -67,6 +67,9 @@ pub struct VaultState {
     change_hook: OnceLock<ChangeHook>,
     /// 0.9.1: failed attempts found at the last successful unlock, until the UI takes them.
     attempts_notice: Mutex<Option<FailedAttempts>>,
+    /// An imported item was destroyed (or the vault was loaded holding destroyed ones): the older copies of the vault on
+    /// this PC are cleaned of it by the next pass of the watcher (see `vault_scrub`).
+    scrub_needed: AtomicBool,
 }
 
 impl VaultState {
@@ -161,6 +164,8 @@ impl VaultState {
         let device = st.device.get_or_insert_with(crate::vault_hlc::new_device_id).clone();
         let db = st.db.as_mut().ok_or("The vault isn't loaded")?;
         if db.device.is_empty() { db.device = device; }
+        let finals_before = db.final_count();
+        if loaded && finals_before > 0 { self.scrub_needed.store(true, Ordering::SeqCst); } // copies made before may hold them
         // Just restored from a backup: the restore is a new change, so the synced copy's later
         // deletions can't remove the restored entries again (Db::restamp_restored).
         let marker = vdb::restored_marker_path(&root);
@@ -173,6 +178,7 @@ impl VaultState {
             Ok(r) => r,
             Err(e) => { st.db = None; return Err(e); } // never keep a half-applied change in memory
         };
+        if st.db.as_ref().is_some_and(|d| d.final_count() > finals_before) { self.scrub_needed.store(true, Ordering::SeqCst); }
         let dirty = dirty || purged || destroyed || restamped;
         if dirty {
             // save_db keeps a one-time vault.nqdb.v{N}.bak when this save upgrades an older format.
@@ -343,15 +349,41 @@ pub(crate) fn clear_prev_meta(app: &AppHandle) {
 /// How often an unlocked vault is looked at for imported items that have expired (every database access also checks,
 /// so this only matters while the vault is open and nobody touches it).
 const EXPIRY_WATCH_EVERY: std::time::Duration = std::time::Duration::from_secs(60);
+/// How often the watcher looks for a cleaning pass that is due.
+const SCRUB_WATCH_EVERY: std::time::Duration = std::time::Duration::from_secs(10);
+
+impl VaultState {
+    /// Whether a cleaning pass is due (and no longer is).
+    pub(crate) fn take_scrub_needed(&self) -> bool {
+        self.scrub_needed.swap(false, Ordering::SeqCst)
+    }
+
+    /// Cleans the older copies of the vault on this PC of the items destroyed in the live one (see `vault_scrub`).
+    /// The locks are held only to take a copy of what is needed; the files are read and written afterwards.
+    pub(crate) fn scrub_local_copies(&self, app_data: &Path) -> Result<crate::vault_scrub::ScrubReport, String> {
+        let (root, key, id, main) = self.with_db_quiet(|db, root, key, id| Ok(((root.to_path_buf(), key.clone(), *id, db.clone()), false)))?;
+        Ok(crate::vault_scrub::scrub_local_copies(&root, app_data, &key, &id, &main, vdb::now_ms()))
+    }
+}
 
 /// Starts the watcher: while the vault is unlocked, destroys imported items whose time has come (see
 /// `Db::sweep_expired`), schedules their upload like any local change, and tells the main window to reload.
 pub(crate) fn start_expiry_watch(app: &AppHandle) {
     let app = app.clone();
-    std::thread::spawn(move || loop {
-        std::thread::sleep(EXPIRY_WATCH_EVERY);
+    std::thread::spawn(move || {
+        let mut ticks = 0u64;
+        loop {
+        std::thread::sleep(SCRUB_WATCH_EVERY);
         let state = app.state::<VaultState>();
         if !state.is_unlocked() { continue; }
+        // Older copies of the vault are cleaned soon after an item is destroyed.
+        if state.take_scrub_needed() {
+            if let Ok(dir) = app.path().app_data_dir() {
+                if let Err(e) = state.scrub_local_copies(&dir) { eprintln!("[vault] cleaning old copies failed: {e}"); }
+            }
+        }
+        ticks += 1;
+        if ticks % (EXPIRY_WATCH_EVERY.as_secs() / SCRUB_WATCH_EVERY.as_secs()) != 0 { continue; }
         let before = state.change_seq();
         // A database access sweeps first; nothing else is done here.
         if state.with_db(|_, _, _, _| Ok(((), false))).is_ok() && state.change_seq() != before {
@@ -359,6 +391,7 @@ pub(crate) fn start_expiry_watch(app: &AppHandle) {
         }
         // The latest time seen is written every half hour or so, quietly: it is not a change to upload.
         let _ = state.with_db_quiet(|db, _, _, _| Ok(((), db.seen_needs_save())));
+        }
     });
 }
 

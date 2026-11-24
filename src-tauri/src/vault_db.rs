@@ -399,6 +399,10 @@ pub struct Db {
     /// the clock back neither makes an expiry wait nor reopens a share file that has ended (see `effective_now`).
     #[serde(default, skip_serializing_if = "is_zero_u64")]
     pub seen_ms: u64,
+    /// Attachments of items that were destroyed for good (id -> when, Unix ms): their data is removed from the sync
+    /// store, whoever of the devices syncs first. Merged as a union; forgotten with the tombstones.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub destroyed_blobs: BTreeMap<String, u64>,
     /// `seen_ms` as last written to disk (not stored): the watcher saves it again once it has moved far enough.
     #[serde(skip)]
     pub seen_saved: u64,
@@ -859,6 +863,30 @@ impl Db {
         out
     }
 
+    /// The ids of the entries destroyed for good (final tombstones).
+    pub fn final_ids(&self) -> Vec<String> {
+        self.entries.values().filter(|e| e.tomb.as_ref().is_some_and(|t| t.fin)).map(|e| e.id.clone()).collect()
+    }
+
+    /// How many entries are destroyed for good (final tombstones).
+    pub fn final_count(&self) -> usize {
+        self.entries.values().filter(|e| e.tomb.as_ref().is_some_and(|t| t.fin)).count()
+    }
+
+    /// Destroys the entries `ids` that are still here with content (a copy of the vault catching up with what the live
+    /// one destroyed). Ids this database doesn't hold, and entries that are already deleted, are left. Returns how many.
+    pub(crate) fn destroy_ids(&mut self, ids: &[String], now: u64) -> usize {
+        let todo: Vec<&String> = ids.iter().filter(|id| self.entries.get(*id).is_some_and(|e| !e.deleted)).collect();
+        if todo.is_empty() { return 0; }
+        self.clock = self.clock.next(self.effective_now(now), &self.device);
+        let at = self.clock.clone();
+        let todo: Vec<String> = todo.into_iter().cloned().collect();
+        for id in &todo {
+            self.destroy_entry(id, &at);
+        }
+        todo.len()
+    }
+
     /// `now`, or the latest time this vault has seen if that is later: the time every expiry and every share file's
     /// end date is judged by, so turning the clock back gains nothing.
     pub fn effective_now(&self, now: u64) -> u64 {
@@ -953,15 +981,27 @@ impl Db {
         self.clock = self.clock.next(now, &self.device);
         let at = self.clock.clone();
         for id in &ids {
-            self.entries.get_mut(id).expect("id from the same map").entomb_final(&at);
+            self.destroy_entry(id, &at);
         }
         ids
+    }
+
+    /// Destroys one entry for good (see [`Entry::entomb_final`]) and remembers its attachments, so their data is
+    /// removed from the sync store.
+    fn destroy_entry(&mut self, id: &str, at: &Hlc) {
+        let Some(e) = self.entries.get_mut(id) else { return };
+        let atts: Vec<String> = e.live_attachments().map(|a| a.id.clone()).collect();
+        e.entomb_final(at);
+        for a in atts {
+            self.destroyed_blobs.entry(a).or_insert(at.wall);
+        }
     }
 
     /// Forgets tombstones and removed attachments whose removal is older than
     /// [`TOMBSTONE_KEEP_MS`]. Returns how many records were dropped.
     pub fn drop_expired_tombstones(&mut self, now: u64) -> usize {
         let old = |at: &Hlc| now.saturating_sub(at.wall) > TOMBSTONE_KEEP_MS;
+        self.destroyed_blobs.retain(|_, at| now.saturating_sub(*at) <= TOMBSTONE_KEEP_MS);
         let ids: Vec<String> = self.entries.values()
             .filter(|e| e.deleted && e.tomb.as_ref().is_none_or(|t| old(&t.at)))
             .map(|e| e.id.clone()).collect();
@@ -2239,6 +2279,45 @@ mod tests {
         fresh.merge_backup(&backup);
         assert!(fresh.get("old.nqv").is_none(), "an expired item in a backup is not imported");
         assert!(fresh.get("kept.nqv").is_some());
+    }
+
+    #[test]
+    fn destroying_remembers_the_attachments_so_their_data_can_leave_the_store() {
+        let mut db = Db::new();
+        db.device = "dev".into();
+        db.put("a.nqv", "md", "secret").unwrap();
+        db.put("keep.nqv", "md", "keep").unwrap();
+        db.attach_add("a.nqv", "one.txt", &b64_encode(b"1")).unwrap();
+        db.attach_add("a.nqv", "two.txt", &b64_encode(b"2")).unwrap();
+        db.attach_add("keep.nqv", "k.txt", &b64_encode(b"k")).unwrap();
+        let mine: Vec<String> = db.attach_list("a.nqv").unwrap().into_iter().map(|a| a.id).collect();
+        let kept = db.attach_list("keep.nqv").unwrap()[0].id.clone();
+        let removed = mine[0].clone();
+        db.attach_remove("a.nqv", &removed).unwrap(); // already removed: it has no data to take out
+        imported(&mut db, "a.nqv", 100);
+        db.sweep_expired(200);
+        assert!(db.entries.values().find(|e| e.path == "a.nqv").unwrap().attachments.is_empty());
+        assert_eq!(db.destroyed_blobs.keys().cloned().collect::<Vec<_>>(), vec![mine[1].clone()], "only the live attachment, and not the other note's");
+        assert!(!db.destroyed_blobs.contains_key(&kept));
+        // Forgotten together with the tombstones, 180 days on.
+        let at = db.destroyed_blobs[&mine[1]];
+        assert_eq!(db.drop_expired_tombstones(at + TOMBSTONE_KEEP_MS), 0);
+        assert!(!db.destroyed_blobs.is_empty());
+        db.drop_expired_tombstones(at + TOMBSTONE_KEEP_MS + 1);
+        assert!(db.destroyed_blobs.is_empty());
+    }
+
+    #[test]
+    fn the_destroyed_attachments_of_two_databases_merge_as_a_union() {
+        let (mut a, mut b) = (Db::new(), Db::new());
+        a.destroyed_blobs.insert("x".into(), 50);
+        a.destroyed_blobs.insert("both".into(), 90);
+        b.destroyed_blobs.insert("y".into(), 70);
+        b.destroyed_blobs.insert("both".into(), 60);
+        for (l, r) in [(&a, &b), (&b, &a)] {
+            let m = crate::vault_merge::merge(l, r);
+            assert_eq!(m.destroyed_blobs.into_iter().collect::<Vec<_>>(), vec![("both".to_string(), 60), ("x".to_string(), 50), ("y".to_string(), 70)]);
+        }
     }
 
     #[test]

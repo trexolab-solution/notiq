@@ -33,6 +33,7 @@ mod hello; // 0.7.0 hello
 mod capture_shield; // 0.9.1 hide from screen capture
 // 0.7.0 quick search
 mod quick_search;
+mod vault_scrub; // 0.14.1 clean old copies of destroyed items
 mod vault_share; // 0.14.1 share files
 mod window_log; // 0.14.1 window events kept in window.log
 // 0.9.0 vault sync: storage providers (P2) + orchestrator (P3)

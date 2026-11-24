@@ -3,6 +3,8 @@
 //! back, and the outbound guard doesn't mistake them for a mass deletion.
 
 use super::*;
+use std::collections::{HashMap, HashSet};
+
 use crate::vault_db::now_ms;
 use crate::vault_merge::merge_into;
 
@@ -203,4 +205,91 @@ fn an_item_that_has_not_expired_yet_is_left_alone_everywhere() {
     sync_at(&mut b, &p, exp - 1);
     assert_eq!(live_text(&a, "shared.nqv").as_deref(), Some("from a friend"));
     assert_eq!(live_text(&b, "shared.nqv").as_deref(), Some("from a friend"));
+}
+
+// ─── attachment data in the store ─────────────────────────────────────────────
+
+fn blob_names(p: &dyn StorageProvider) -> Vec<String> {
+    block_on(p.list("")).unwrap().into_iter().filter(|o| o.name.starts_with(crate::sync::seal::BLOBS_PREFIX)).map(|o| o.name).collect()
+}
+
+fn attach(d: &mut Device, path: &str, text: &str) {
+    d.edit(|db| { db.attach_add(path, "a.txt", &crate::vault_db::b64_encode(text.as_bytes())).unwrap(); });
+}
+
+#[test]
+fn the_attachment_data_of_a_destroyed_item_is_removed_from_the_store() {
+    let p = InMemoryProvider::new();
+    let exp = now_ms() + DAY;
+    let mut a = Device::create(A, "A");
+    a.put("shared.nqv", "from a friend");
+    a.put("mine.nqv", "personal");
+    attach(&mut a, "shared.nqv", "shared file");
+    attach(&mut a, "mine.nqv", "my own file");
+    expire(&mut a, "shared.nqv", exp);
+    ok(a.sync(&p));
+    let mut b = join(&p, B, "B", PW).unwrap();
+    assert_eq!(blob_names(&p).len(), 2);
+    let shared_att = a.v.db.lock().unwrap().entries.values().find(|e| e.path == "shared.nqv").unwrap().attachments[0].id.clone();
+
+    // A destroys the item: its attachment data leaves the store in the same cycle, whatever B's older snapshot says.
+    sync_at(&mut a, &p, exp + 1);
+    assert_destroyed(&a, "shared.nqv");
+    assert!(a.v.db.lock().unwrap().destroyed_blobs.contains_key(&shared_att), "remembered, for every device");
+    assert_eq!(blob_names(&p).len(), 1, "only the receiver's own attachment is left");
+    // B follows without trouble, and its own copy of the data is gone too.
+    sync_at(&mut b, &p, exp + 2);
+    assert_destroyed(&b, "shared.nqv");
+    assert_eq!(blob_names(&p).len(), 1);
+    // A fresh device gets the note and its attachment, not the destroyed item.
+    let c = join(&p, C, "C", PW).unwrap();
+    assert_eq!(live_text(&c, "mine.nqv").as_deref(), Some("personal"));
+    let db = c.v.db.lock().unwrap();
+    let att = db.entries.values().find(|e| e.path == "mine.nqv").unwrap().attachments.first().cloned().expect("it came along");
+    assert_eq!(&crate::vault_db::b64_decode(&att.data).unwrap()[..], b"my own file");
+}
+
+#[test]
+fn a_device_that_never_destroyed_the_item_still_removes_the_data_when_it_syncs_first() {
+    // The device that destroyed it was offline when it uploaded nothing; the other one learns of the destroyed
+    // attachment from the merged snapshot and clears the store.
+    let p = InMemoryProvider::new();
+    let exp = now_ms() + DAY;
+    let mut a = Device::create(A, "A");
+    a.put("shared.nqv", "from a friend");
+    attach(&mut a, "shared.nqv", "shared file");
+    expire(&mut a, "shared.nqv", exp);
+    ok(a.sync(&p));
+    let mut b = join(&p, B, "B", PW).unwrap();
+    // B destroys it (its own sweep) but never uploads before A does.
+    b.edit(|db| { db.sweep_expired(exp + 1); });
+    assert!(!b.v.db.lock().unwrap().destroyed_blobs.is_empty());
+    sync_at(&mut a, &p, exp + 2); // A merges nothing from B yet, destroys on its own, uploads
+    assert_eq!(blob_names(&p).len(), 0);
+}
+
+#[test]
+fn the_attachment_data_of_an_ordinary_deletion_stays_for_the_history_copies() {
+    let p = InMemoryProvider::new();
+    let mut a = Device::create(A, "A");
+    a.put("gone.nqv", "deleted by hand");
+    attach(&mut a, "gone.nqv", "attached");
+    ok(a.sync(&p));
+    a.edit(|db| { db.trash("gone.nqv").unwrap(); db.purge("gone.nqv").unwrap(); });
+    ok(a.sync(&p));
+    assert_eq!(blob_names(&p).len(), 1, "restoring an earlier day must still find its attachment");
+    assert!(a.v.db.lock().unwrap().destroyed_blobs.is_empty());
+}
+
+#[test]
+fn a_blob_a_live_attachment_still_has_is_never_removed() {
+    let p = InMemoryProvider::new();
+    let mut a = Device::create(A, "A");
+    a.put("mine.nqv", "personal");
+    attach(&mut a, "mine.nqv", "my own file");
+    ok(a.sync(&p));
+    let id = a.v.db.lock().unwrap().entries.values().next().unwrap().attachments[0].id.clone();
+    a.edit(|db| { db.destroyed_blobs.insert(id.clone(), 1); }); // however it got listed
+    ok(a.sync(&p));
+    assert_eq!(blob_names(&p).len(), 1);
 }

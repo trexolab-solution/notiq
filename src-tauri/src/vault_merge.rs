@@ -146,6 +146,7 @@ pub fn merge(a: &Db, b: &Db) -> Db {
         share: a.share.clone().or_else(|| b.share.clone()),
         share_uses: join_share_uses(&a.share_uses, &b.share_uses),
         seen_ms: a.seen_ms.max(b.seen_ms),
+        destroyed_blobs: join_destroyed_blobs(&a.destroyed_blobs, &b.destroyed_blobs),
         seen_saved: a.seen_saved,
         device: a.device.clone(),
         loaded_v: a.loaded_v,
@@ -163,6 +164,16 @@ fn join_share_uses(a: &BTreeMap<String, crate::vault_db::ShareUse>, b: &BTreeMap
         let e = out.entry(id.clone()).or_default();
         e.count = e.count.max(u.count);
         e.last_at = e.last_at.max(u.last_at);
+    }
+    out
+}
+
+/// The destroyed attachments of two databases: the union, with the earlier time for one both know.
+fn join_destroyed_blobs(a: &BTreeMap<String, u64>, b: &BTreeMap<String, u64>) -> BTreeMap<String, u64> {
+    let mut out = a.clone();
+    for (id, at) in b {
+        let e = out.entry(id.clone()).or_insert(*at);
+        *e = (*e).min(*at);
     }
     out
 }
