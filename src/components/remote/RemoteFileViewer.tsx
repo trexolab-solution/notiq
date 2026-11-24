@@ -3,6 +3,10 @@ import { ArrowLeft, Download, FileQuestion, RefreshCw, Save } from "lucide-react
 import { DialogButton } from "../ui/Dialog";
 import { RowIconButton } from "../vault/ListEditor";
 import { ConfirmDialog } from "../ui/ConfirmDialog";
+import { SegmentedControl } from "../ui/SegmentedControl";
+import { MarkdownView } from "./MarkdownView";
+import { CsvTable } from "./CsvTable";
+import { previewKind } from "../../lib/remotePreview";
 import { toast } from "../../lib/toast";
 import { getFilesPrefs } from "../../lib/filesPrefs";
 import { formatBytes } from "../../lib/vaultBackup";
@@ -35,7 +39,8 @@ interface Props {
 
 /**
  * Opens a remote file inside the file manager: pictures are shown, text is edited in the editor and saved straight
- * back to the server. Anything else (binary, too big) says so and offers the download.
+ * back to the server. A Markdown file also opens as a page (Edit / Preview) and a CSV or TSV file as a table (Text /
+ * Table); the preview follows what is typed, saved or not. Anything else (binary, too big) says so and offers the download.
  */
 export function RemoteFileViewer({ session, path, name, onClose, onDownload, onSaved }: Props) {
   const [loaded, setLoaded] = useState<Loaded>({ kind: "loading" });
@@ -50,6 +55,10 @@ export function RemoteFileViewer({ session, path, name, onClose, onDownload, onS
 
   const dirty = loaded.kind === "text" && draft !== saved;
   const mime = useMemo(() => imageMime(name), [name]);
+  /** How the text can also be shown (a page, a table), and which of the two views is open: a preview first. */
+  const kind = useMemo(() => previewKind(name), [name]);
+  const [view, setView] = useState<"edit" | "preview">("preview");
+  const previewing = kind != null && view === "preview";
   const prefs = useMemo(() => getFilesPrefs(), []);
 
   const load = useCallback(async () => {
@@ -112,6 +121,10 @@ export function RemoteFileViewer({ session, path, name, onClose, onDownload, onS
         <span className="flex-1 min-w-0 truncate text-sm font-medium">
           {name}
         </span>
+        {loaded.kind === "text" && kind && (
+          <SegmentedControl<"edit" | "preview"> aria-label={kind === "markdown" ? "Markdown view" : "CSV view"} value={view} onChange={setView}
+            options={kind === "markdown" ? [{ value: "edit", label: "Edit" }, { value: "preview", label: "Preview" }] : [{ value: "edit", label: "Text" }, { value: "preview", label: "Table" }]} />
+        )}
         {loaded.kind === "text" && (
           <span className={`shrink-0 text-xs ${dirty ? "text-[var(--color-warning,#d97706)]" : "text-[var(--color-text-muted)]"}`} role="status">
             {saving ? "Saving…" : dirty ? "Unsaved changes" : justSaved ? "All changes saved" : ""}
@@ -132,7 +145,9 @@ export function RemoteFileViewer({ session, path, name, onClose, onDownload, onS
             <img src={loaded.url} alt={name} className="max-w-full max-h-full object-contain" draggable={false} />
           </div>
         )}
-        {loaded.kind === "text" && (
+        {loaded.kind === "text" && previewing && kind === "markdown" && <MarkdownView text={draft} />}
+        {loaded.kind === "text" && previewing && kind === "table" && <CsvTable text={draft} name={name} />}
+        {loaded.kind === "text" && !previewing && (
           <Suspense fallback={<p className="absolute inset-0 grid place-items-center text-sm text-[var(--color-text-muted)]">Loading the editor…</p>}>
             <Editor value={draft} language={getLanguageFromPath(name)} theme={light ? "vs" : "vs-dark"}
                     onChange={(v) => { setDraft(v ?? ""); setJustSaved(false); }}
