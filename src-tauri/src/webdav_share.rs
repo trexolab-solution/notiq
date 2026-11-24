@@ -1,4 +1,4 @@
-//! 0.13.0 "Share files to phone": a WebDAV server (read-only unless uploads / file management are turned on) for one folder of this computer, reachable on the local
+//! 0.13.0 WebDAV sharing ("Share files to phone"): a WebDAV server (read-only unless uploads / file management are turned on) for one folder of this computer, reachable on the local
 //! network only. A phone's WebDAV client (Solid Explorer, Documents, Files, FolderSync, …) can browse and download.
 //!
 //! Safety, in order of importance:

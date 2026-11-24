@@ -1,12 +1,12 @@
 import React from "react";
 import {
-  Settings as SettingsIcon, Type, Sparkles, Lock, Terminal, Monitor, Keyboard, Download, Info, FolderTree, Smartphone, type LucideIcon,
+  Settings as SettingsIcon, Type, Sparkles, Lock, Terminal, Monitor, Keyboard, Download, Info, FolderTree, Network, type LucideIcon,
 } from "lucide-react";
 import { SECTION_GROUPS, SECTION_LABELS, type SectionId } from "../../lib/settingsIndex";
 
 export const SECTION_ICONS: Record<SectionId, LucideIcon> = {
   general: SettingsIcon, editor: Type, appearance: Monitor, shortcuts: Keyboard,
-  ai: Sparkles, terminal: Terminal, files: FolderTree, share: Smartphone,
+  ai: Sparkles, terminal: Terminal, files: FolderTree, share: Network,
   vault: Lock, updates: Download, about: Info,
 };
 

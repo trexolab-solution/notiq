@@ -16,7 +16,7 @@ export const SECTION_ORDER: SectionId[] = SECTION_GROUPS.flatMap((g) => g.ids);
 
 export const SECTION_LABELS: Record<SectionId, string> = {
   general: "General", editor: "Editor", appearance: "Appearance", shortcuts: "Shortcuts",
-  ai: "AI", terminal: "Terminal", files: "File Manager", share: "Phone Share",
+  ai: "AI", terminal: "Terminal", files: "File Manager", share: "WebDAV",
   vault: "Vault", updates: "Updates", about: "About",
 };
 

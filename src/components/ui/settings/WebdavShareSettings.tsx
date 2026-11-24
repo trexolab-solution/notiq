@@ -36,7 +36,7 @@ function Field({ label, value, secret = false }: { label: string; value: string;
   );
 }
 
-/** The Phone Share section (Settings → Phone Share): share one folder of this computer with a phone on the same Wi-Fi. */
+/** The WebDAV section (Settings → WebDAV): share one folder of this computer with a phone on the same Wi-Fi. */
 export function WebdavShareSettings() {
   const [folder, setFolder] = useState(getShareFolder);
   const [qrLogin, setQrLogin] = useState(getQrWithLogin);

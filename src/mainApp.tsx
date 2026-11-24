@@ -21,7 +21,7 @@ export function initMainApp() {
   listen("open-sticky-notes-list", () => { openStickyNotesList(); })
     .catch((e) => console.warn("Failed to listen for open-sticky-notes-list:", e));
 
-  // "Phone Share" from the tray menu: start (and show the QR code) or stop.
+  // "WebDAV" from the tray menu: start (and show the QR code) or stop.
   listen("toggle-webdav-share", () => { void quickToggleShare((section, id) => useAppStore.getState().openSettings(section, id)); })
     .catch((e) => console.warn("Failed to listen for toggle-webdav-share:", e));
 

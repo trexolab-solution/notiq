@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { create } from "zustand";
 import { toast } from "./toast";
 
-/** A running "Share files to phone" server: where to point the phone's WebDAV app, and how to sign in. */
+/** A running WebDAV share: where to point the phone's WebDAV app, and how to sign in. */
 export interface ShareInfo { url: string; username: string; password: string; folder: string; /** A phone may add new files and folders. */ upload: boolean; /** A phone may also rename, move, copy and delete. */ manage: boolean }
 
 /** Empty user name / password = the defaults (`notiq`, and a random password). */
@@ -123,11 +123,11 @@ export async function quickToggleShare(openSettings: (section: "share", settingI
   const s = useShareStore.getState();
   await s.refresh();
   try {
-    if (useShareStore.getState().info) { await s.stop(); toast.success("Sharing to phone is off."); return; }
+    if (useShareStore.getState().info) { await s.stop(); toast.success("WebDAV sharing is off."); return; }
     const folder = getShareFolder();
     if (!folder) { toast.info("Pick a folder to share first."); openSettings("share", "share.folder"); return; }
     await s.start(folder);
-    toast.success("Sharing to phone is on. Scan the QR code.");
+    toast.success("WebDAV sharing is on. Scan the QR code.");
     openSettings("share", "share.enabled");
   } catch (e) { toast.error(shareErrorMessage(e)); }
 }
