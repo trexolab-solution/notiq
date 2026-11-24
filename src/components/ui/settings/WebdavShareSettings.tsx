@@ -109,7 +109,7 @@ export function WebdavShareSettings() {
         </SettingRow>
 
         <SettingRow id="share.https" label="Use HTTPS (encrypted)" keywords={[...KW, "https", "ssl", "tls", "certificate", "encrypt", "secure", "self-signed"]}
-                    description="Encrypts the connection with a self-signed certificate that Notiq makes for this computer. A phone's browser warns once: compare the fingerprint shown here, then continue. Some WebDAV apps refuse self-signed certificates; use plain HTTP for those. Changing this restarts sharing."
+                    description="Encrypts the connection with a self-signed certificate. Browsers warn once; some WebDAV apps refuse it. Changing this restarts sharing."
                     modified={https} onReset={() => void changeHttps(false)}>
           <Toggle aria-label="Use HTTPS" value={https} disabled={busy} onChange={(v) => void changeHttps(v)} />
         </SettingRow>
