@@ -12,6 +12,7 @@ import { RemoteFileGrid } from "./RemoteFileGrid";
 import { stepSize } from "./ViewSwitcher";
 import { RemoteFileViewer } from "./RemoteFileViewer";
 import { PermissionsDialog } from "./PermissionsDialog";
+import { PropertiesDialog } from "./PropertiesDialog";
 import { RemoteTrashSheet } from "./RemoteTrashSheet";
 import type { EntryDrag, EntryDrop } from "./useEntryDnd";
 import { RemoteTransfers } from "./RemoteTransfers";
@@ -324,6 +325,7 @@ export function RemoteFilesPanel({ target, active = true, onPopOut }: {
   const onKey = (e: React.KeyboardEvent) => {
     if ((e.target as HTMLElement).closest("input, textarea")) return;
     if (e.key === "Delete" && picked.length) { e.preventDefault(); if (e.shiftKey) askDeleteForever(picked); else askDelete(picked); }
+    else if (e.altKey && e.key === "Enter" && picked.length) { e.preventDefault(); setPrompt({ kind: "props", items: picked.map((x) => ({ path: joinRemote(pathRef.current, x.name), entry: x })) }); }
     else if (e.key === "F2" && picked.length === 1) { e.preventDefault(); setPrompt({ kind: "rename", entry: picked[0] }); }
     else if (e.key === "Enter" && picked.length === 1) { e.preventDefault(); openEntry(picked[0]); }
     else if (e.altKey && e.key === "ArrowLeft") { e.preventDefault(); goBack(); }
@@ -400,13 +402,17 @@ export function RemoteFilesPanel({ target, active = true, onPopOut }: {
 
       {menu && <ContextMenu x={menu.x} y={menu.y} items={remoteMenuItems(menu.entry, {
         path, selected, picked, trashOn, chooseUpload, chooseUploadFolder, setPrompt, paste, load, copy, setShowTrash, openEntry, download, cut,
-        askDelete, askDeleteForever,
+        askDelete, askDeleteForever, showProperties: (items) => setPrompt({ kind: "props", items }),
       })} onClose={() => setMenu(null)} label={menu.entry ? `Actions for ${menu.entry.name}` : "Folder actions"} />}
       {prompt?.kind === "folder" && (
         <NameDialog title="New folder" label="Folder name" initial="" confirm="Create" onSubmit={makeFolder} onClose={() => setPrompt(null)} />
       )}
       {prompt?.kind === "file" && (
         <NameDialog title="New file" label="File name" initial="" confirm="Create" onSubmit={makeFile} onClose={() => setPrompt(null)} />
+      )}
+      {prompt?.kind === "props" && (
+        <PropertiesDialog sid={sid.current} items={prompt.items} onClose={() => setPrompt(null)}
+                          onPermissions={(entry) => setPrompt({ kind: "perms", entry })} />
       )}
       {prompt?.kind === "perms" && (
         <PermissionsDialog name={prompt.entry.name} mode={prompt.entry.mode} onApply={(m) => changeMode(prompt.entry, m)} onClose={() => setPrompt(null)} />

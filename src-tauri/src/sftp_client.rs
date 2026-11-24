@@ -168,6 +168,38 @@ pub struct Entry {
     pub mode: Option<u32>,
 }
 
+/// Everything the Properties dialog shows about one item (a link shows what it points at, and where to).
+#[derive(Serialize, Debug, Clone, PartialEq)]
+pub struct Props {
+    pub path: String,
+    /// `dir`, `file` or `other`.
+    pub kind: &'static str,
+    pub link: bool,
+    /// Where a link points (as stored).
+    pub target: Option<String>,
+    pub size: u64,
+    /// Seconds since 1970.
+    pub mtime: Option<u32>,
+    pub atime: Option<u32>,
+    /// Permission bits only (`0o755`).
+    pub mode: Option<u32>,
+    pub uid: Option<u32>,
+    pub gid: Option<u32>,
+    /// Names, when the server sends them (many only send the numbers).
+    pub user: Option<String>,
+    pub group: Option<String>,
+}
+
+/// What lies under some folders and files: how many of each and how many bytes, without following links.
+#[derive(Serialize, Debug, Clone, Default, PartialEq)]
+pub struct Tally {
+    pub files: u64,
+    pub folders: u64,
+    pub bytes: u64,
+    /// Folders that could not be read (permissions), so the numbers are a lower bound.
+    pub unreadable: u64,
+}
+
 /// A whole file read for the in-app viewer.
 #[derive(Debug)]
 pub struct Content {
@@ -329,6 +361,47 @@ impl Sftp {
             (b.kind == "dir").cmp(&(a.kind == "dir")).then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase())).then_with(|| a.name.cmp(&b.name))
         });
         Ok(Listing { path: real, entries })
+    }
+
+    /// Details of one item for the Properties dialog.
+    pub async fn props(&self, path: &str) -> Result<Props, String> {
+        let m = self.sftp.symlink_metadata(path).await.map_err(nice)?;
+        let link = m.is_symlink();
+        let (target, shown) = if link {
+            let t = self.sftp.read_link(path).await.ok();
+            // A link shows what it points at; a broken link stays "other" with the link's own details.
+            (t, self.sftp.metadata(path).await.unwrap_or_else(|_| m.clone()))
+        } else { (None, m.clone()) };
+        Ok(Props {
+            path: path.to_string(), kind: kind_of(&shown), link, target, size: shown.size.unwrap_or(0),
+            mtime: m.mtime, atime: m.atime, mode: m.permissions.map(|p| p & 0o7777),
+            uid: m.uid, gid: m.gid, user: m.user.clone(), group: m.group.clone(),
+        })
+    }
+
+    /// Counts the files, folders and bytes under `paths` (links are counted, not followed). Stops when `cancel` is set;
+    /// `progress(items, bytes)` is told now and then.
+    pub async fn tally(&self, paths: &[String], cancel: &AtomicBool, progress: &(dyn Fn(u64, u64) + Send + Sync)) -> Result<Tally, String> {
+        let mut t = Tally::default();
+        let mut stack: Vec<(String, u32)> = paths.iter().map(|p| (p.clone(), 0)).collect();
+        while let Some((path, depth)) = stack.pop() {
+            if cancel.load(Ordering::Relaxed) { return Err(CANCELLED.into()); }
+            let m = match self.sftp.symlink_metadata(path.as_str()).await { Ok(m) => m, Err(_) => { t.unreadable += 1; continue; } };
+            if !m.is_dir() {
+                t.files += 1;
+                t.bytes += m.size.unwrap_or(0);
+            } else {
+                t.folders += 1;
+                if depth >= MAX_DEPTH { t.unreadable += 1; continue; }
+                match self.sftp.read_dir(path.as_str()).await {
+                    Ok(rd) => for e in rd { if e.file_name() != "." && e.file_name() != ".." { stack.push((e.path(), depth + 1)); } },
+                    Err(_) => t.unreadable += 1,
+                }
+            }
+            if (t.files + t.folders) % 50 == 0 { progress(t.files + t.folders, t.bytes); }
+        }
+        progress(t.files + t.folders, t.bytes);
+        Ok(t)
     }
 
     pub async fn mkdir(&self, path: &str) -> Result<(), String> {
@@ -769,6 +842,34 @@ mod commands {
     #[tauri::command]
     pub async fn sftp_list(id: u32, path: String, state: State<'_, SftpState>) -> Result<Listing, String> {
         state.session(id)?.list(&path).await
+    }
+
+    /// Details of the items for the Properties dialog (one entry per path, in order).
+    #[tauri::command]
+    pub async fn sftp_props(id: u32, paths: Vec<String>, state: State<'_, SftpState>) -> Result<Vec<Props>, String> {
+        let s = state.session(id)?;
+        let mut out = Vec::with_capacity(paths.len());
+        for p in &paths { out.push(s.props(p).await?); }
+        Ok(out)
+    }
+
+    /// Counts what lies under the items (the Properties dialog's size of a folder). Cancel with `sftp_cancel`; the
+    /// running count arrives as `sftp-progress` (`done` = items, `total` = bytes).
+    #[tauri::command]
+    pub async fn sftp_tally(id: u32, transfer_id: u32, paths: Vec<String>, app: AppHandle, state: State<'_, SftpState>) -> Result<Tally, String> {
+        let s = state.session(id)?;
+        let cancel = Arc::new(AtomicBool::new(false));
+        state.transfers.lock().unwrap_or_else(|e| e.into_inner()).insert(transfer_id, cancel.clone());
+        let last = Mutex::new(Instant::now() - Duration::from_secs(1));
+        let report = move |items: u64, bytes: u64| {
+            let mut t = last.lock().unwrap_or_else(|e| e.into_inner());
+            if t.elapsed() < Duration::from_millis(150) { return; }
+            *t = Instant::now();
+            let _ = app.emit("sftp-progress", ProgressEvent { transfer: transfer_id, done: items, total: bytes });
+        };
+        let result = s.tally(&paths, &cancel, &report).await;
+        state.transfers.lock().unwrap_or_else(|e| e.into_inner()).remove(&transfer_id);
+        result
     }
 
     #[tauri::command]

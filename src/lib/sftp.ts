@@ -41,6 +41,26 @@ export const sftpMkdir = (id: number, path: string) => invoke<void>("sftp_mkdir"
 export const sftpRename = (id: number, from: string, to: string) => invoke<void>("sftp_rename", { id, from, to });
 export const sftpChmod = (id: number, path: string, mode: number) => invoke<void>("sftp_chmod", { id, path, mode });
 export const sftpRemove = (id: number, path: string) => invoke<void>("sftp_remove", { id, path });
+/** Everything the Properties dialog shows about one item. */
+export interface RemoteProps {
+  path: string;
+  kind: "dir" | "file" | "other";
+  link: boolean;
+  target: string | null;
+  size: number;
+  mtime: number | null;
+  atime: number | null;
+  mode: number | null;
+  uid: number | null;
+  gid: number | null;
+  user: string | null;
+  group: string | null;
+}
+/** What lies under some folders and files (links are counted, not followed). */
+export interface RemoteTally { files: number; folders: number; bytes: number; unreadable: number }
+export const sftpProps = (id: number, paths: string[]) => invoke<RemoteProps[]>("sftp_props", { id, paths });
+/** Counts what lies under the paths; cancel with `sftpCancel(transferId)`. Progress arrives as `sftp-progress` (`done` = items, `total` = bytes). */
+export const sftpTally = (id: number, transferId: number, paths: string[]) => invoke<RemoteTally>("sftp_tally", { id, transferId, paths });
 export const sftpCancel = (transfer: number) => invoke<void>("sftp_cancel", { transfer });
 /** `merge` applies to a folder that already exists at the destination: keep (`skip`) or overwrite (`replace`) files with the same name. */
 export type MergeMode = "skip" | "replace";

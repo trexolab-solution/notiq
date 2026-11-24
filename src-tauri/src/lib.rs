@@ -805,6 +805,8 @@ pub fn run() {
         webdav_share::webdav_status,
         sftp_client::sftp_close,
         sftp_client::sftp_list,
+        sftp_client::sftp_props,
+        sftp_client::sftp_tally,
         sftp_client::sftp_mkdir,
         sftp_client::sftp_rename,
         sftp_client::sftp_chmod,
