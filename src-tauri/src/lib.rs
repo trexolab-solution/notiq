@@ -17,6 +17,8 @@ mod ssh_keygen; // 0.9.9 generate an SSH key in the entry form
 #[cfg(desktop)]
 mod sftp_client; // 0.10.0 remote file manager over SFTP (built in)
 #[cfg(desktop)]
+mod webdav_tls; // 0.14.0 self-signed certificate for HTTPS WebDAV sharing
+#[cfg(desktop)]
 mod remote_archive; // 0.14.0 compress / extract on the SFTP server (zip, unzip, tar over SSH)
 #[cfg(desktop)]
 mod webdav_share; // 0.13.0 read-only WebDAV server for one folder, on the local network

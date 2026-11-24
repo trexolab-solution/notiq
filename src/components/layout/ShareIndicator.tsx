@@ -73,7 +73,7 @@ export function ShareIndicator() {
                   <Folder size={12} className="shrink-0" aria-hidden />
                   <span className="min-w-0 truncate">{info.folder}</span>
                   <span className="shrink-0" aria-hidden>·</span>
-                  <span className="shrink-0">{mode}</span>
+                  <span className="shrink-0">{mode}{info.https ? " \u00b7 HTTPS" : ""}</span>
                 </div>
                 <div className="flex gap-1.5">
                   <button type="button" className="sync-pop__btn sync-pop__btn--primary flex-1 justify-center" onClick={() => { void openUrl(shareLink(info)).catch(console.error); setOpen(false); }}>

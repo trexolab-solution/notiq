@@ -2,6 +2,8 @@
 //! network only. A phone's WebDAV client (Solid Explorer, Documents, Files, FolderSync, …) can browse and download.
 //!
 //! Safety, in order of importance:
+//!  * with "Use HTTPS" it speaks TLS with a self-signed certificate made by Notiq (see webdav_tls.rs), so nothing
+//!    crosses the network in the clear; the page shows the certificate fingerprint to compare on the phone;
 //!  * it listens on the computer's LAN address only (never on every interface, never on the internet);
 //!  * every request needs the user name and password (HTTP Basic): the ones the user typed, or `notiq` + a random password;
 //!  * only OPTIONS / GET / HEAD / PROPFIND are answered, so nothing can be written, moved or deleted. When the user
@@ -11,7 +13,7 @@
 //!  * symbolic links are hidden, so a link inside the folder can't lead out of it;
 //!  * sharing lasts until it is stopped or the app closes. Nothing is stored on disk.
 //!
-//! The connection is plain HTTP (no certificate), so use it on a network you trust.
+//! Without HTTPS the connection is plain HTTP, so use it on a network you trust.
 
 use std::convert::Infallible;
 use std::net::{IpAddr, SocketAddr, UdpSocket};
@@ -35,11 +37,14 @@ use serde::Serialize;
 use tauri::State;
 use tokio::net::TcpListener;
 use tokio::sync::watch;
+use tokio_rustls::TlsAcceptor;
 
 const DEFAULT_USERNAME: &str = "notiq";
 const MIN_PASSWORD: usize = 8;
 /// Tried first so a phone's saved connection keeps working; any free port is used when it is taken.
 const PREFERRED_PORT: u16 = 8765;
+/// The same for HTTPS, so the two never fight over one port.
+const PREFERRED_TLS_PORT: u16 = 8766;
 /// The only requests answered: reading and listing. PROPFIND is how a client lists a folder.
 const ALLOWED: &str = "OPTIONS, GET, HEAD, PROPFIND";
 /// The same, with uploads on.
@@ -58,6 +63,10 @@ pub struct ShareInfo {
     upload: bool,
     /// Whether a phone may also rename, move, copy and delete.
     manage: bool,
+    /// The connection is encrypted (the address starts with https).
+    https: bool,
+    /// SHA-256 of the certificate (`AB:CD:…`) when `https`: what a phone's certificate details should show.
+    fingerprint: Option<String>,
 }
 
 struct Running {
@@ -278,7 +287,14 @@ async fn serve(mut req: Request<Incoming>, dav: DavHandler, guard: std::sync::Ar
 }
 
 /// Answers requests on `listener` until `stopped` changes.
-async fn run(listener: TcpListener, dir: std::path::PathBuf, login: String, upload: bool, manage: bool, mut stopped: watch::Receiver<bool>) {
+/// Serves HTTP on one accepted connection (plain or already inside TLS) until it ends or sharing stops.
+async fn serve_io<I>(io: I, dav: DavHandler, guard: std::sync::Arc<Guard>, mut stopped: watch::Receiver<bool>)
+where I: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static {
+    let conn = http1::Builder::new().serve_connection(TokioIo::new(io), service_fn(move |req| serve(req, dav.clone(), guard.clone())));
+    tokio::select! { _ = conn => {}, _ = stopped.changed() => {} }
+}
+
+async fn run(listener: TcpListener, dir: std::path::PathBuf, login: String, upload: bool, manage: bool, tls: Option<TlsAcceptor>, mut stopped: watch::Receiver<bool>) {
     let dav = DavHandler::builder()
         .filesystem(LocalFs::new(&dir, false, false, false))
         .locksystem(FakeLs::new())
@@ -291,13 +307,16 @@ async fn run(listener: TcpListener, dir: std::path::PathBuf, login: String, uplo
             _ = stopped.changed() => break,
             accepted = listener.accept() => {
                 let Ok((stream, _)) = accepted else { continue };
-                let (dav, guard, mut stopped) = (dav.clone(), guard.clone(), stopped.clone());
+                let (dav, guard, stopped, tls) = (dav.clone(), guard.clone(), stopped.clone(), tls.clone());
                 tokio::spawn(async move {
-                    let conn = http1::Builder::new().serve_connection(
-                        TokioIo::new(stream),
-                        service_fn(move |req| serve(req, dav.clone(), guard.clone())),
-                    );
-                    tokio::select! { _ = conn => {}, _ = stopped.changed() => {} }
+                    match tls {
+                        // A client that never finishes the handshake (or speaks plain HTTP to this port) is dropped.
+                        Some(acceptor) => match tokio::time::timeout(Duration::from_secs(10), acceptor.accept(stream)).await {
+                            Ok(Ok(secure)) => serve_io(secure, dav, guard, stopped).await,
+                            _ => {}
+                        },
+                        None => serve_io(stream, dav, guard, stopped).await,
+                    }
                 });
             }
         }
@@ -305,13 +324,24 @@ async fn run(listener: TcpListener, dir: std::path::PathBuf, login: String, uplo
 }
 
 #[tauri::command]
-pub async fn webdav_start(folder: String, username: Option<String>, password: Option<String>, upload: Option<bool>, manage: Option<bool>, state: State<'_, WebdavState>) -> Result<ShareInfo, String> {
+pub async fn webdav_start(folder: String, username: Option<String>, password: Option<String>, upload: Option<bool>, manage: Option<bool>, https: Option<bool>,
+                           app: tauri::AppHandle, state: State<'_, WebdavState>) -> Result<ShareInfo, String> {
     if state.0.lock().unwrap_or_else(|e| e.into_inner()).is_some() { return Err("Sharing is already on.".into()); }
     let dir = std::fs::canonicalize(Path::new(&folder)).map_err(|_| "That folder doesn't exist.".to_string())?;
     if !dir.is_dir() { return Err("Pick a folder to share.".into()); }
     let ip = lan_ip().ok_or("Couldn't find this computer on a network. Connect to Wi-Fi or a cable and try again.")?;
 
-    let listener = match TcpListener::bind(SocketAddr::new(ip, PREFERRED_PORT)).await {
+    let https = https.unwrap_or(false);
+    // The certificate comes first: if it can't be made, nothing has been started yet.
+    let tls = if https {
+        use tauri::Manager as _;
+        let dir = app.path().app_data_dir().map_err(|e| e.to_string())?.join("webdav-tls");
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0);
+        let (config, fp) = crate::webdav_tls::load_or_make(&dir, ip, now)?;
+        Some((TlsAcceptor::from(config), fp))
+    } else { None };
+
+    let listener = match TcpListener::bind(SocketAddr::new(ip, if https { PREFERRED_TLS_PORT } else { PREFERRED_PORT })).await {
         Ok(l) => l,
         Err(_) => TcpListener::bind(SocketAddr::new(ip, 0)).await.map_err(|e| format!("Couldn't start sharing: {e}"))?,
     };
@@ -319,16 +349,18 @@ pub async fn webdav_start(folder: String, username: Option<String>, password: Op
 
     let (username, password) = credentials(username, password)?;
     let info = ShareInfo {
-        url: format!("http://{ip}:{port}/"),
+        url: format!("{}://{ip}:{port}/", if https { "https" } else { "http" }),
         username: username.clone(),
         password: password.clone(),
         folder: dir.to_string_lossy().trim_start_matches(r"\\?\").to_string(),
         upload: upload.unwrap_or(false) || manage.unwrap_or(false),
         manage: manage.unwrap_or(false),
+        https,
+        fingerprint: tls.as_ref().map(|(_, fp)| fp.clone()),
     };
 
     let (stop, stopped) = watch::channel(false);
-    tokio::spawn(run(listener, dir, format!("{username}:{password}"), info.upload, info.manage, stopped));
+    tokio::spawn(run(listener, dir, format!("{username}:{password}"), info.upload, info.manage, tls.map(|(a, _)| a), stopped));
 
     *state.0.lock().unwrap_or_else(|e| e.into_inner()) = Some(Running { info: info.clone(), stop });
     Ok(info)
@@ -392,7 +424,7 @@ mod tests {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let base = format!("http://{}", listener.local_addr().unwrap());
         let (stop, stopped) = watch::channel(false);
-        tokio::spawn(run(listener, dir.clone(), "notiq:pw".into(), true, false, stopped));
+        tokio::spawn(run(listener, dir.clone(), "notiq:pw".into(), true, false, None, stopped));
 
         let c = reqwest::Client::new();
         let call = |m: &str, path: &str, body: Option<&'static str>| {
@@ -427,7 +459,7 @@ mod tests {
         let addr = listener.local_addr().unwrap();
         let base = format!("http://{addr}");
         let (stop, stopped) = watch::channel(false);
-        tokio::spawn(run(listener, dir.clone(), "notiq:pw".into(), false, true, stopped));
+        tokio::spawn(run(listener, dir.clone(), "notiq:pw".into(), false, true, None, stopped));
 
         let c = reqwest::Client::new();
         let call = |m: &str, path: &str, dest: Option<&str>| {
@@ -466,13 +498,42 @@ mod tests {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let base = format!("http://{}", listener.local_addr().unwrap());
         let (stop, stopped) = watch::channel(false);
-        tokio::spawn(run(listener, dir.clone(), "notiq:pw".into(), true, false, stopped));
+        tokio::spawn(run(listener, dir.clone(), "notiq:pw".into(), true, false, None, stopped));
         let c = reqwest::Client::new();
         for m in ["DELETE", "MOVE", "COPY"] {
             let res = c.request(Method::from_bytes(m.as_bytes()).unwrap(), format!("{base}/a.txt")).basic_auth("notiq", Some("pw")).header("Destination", format!("{base}/z.txt")).send().await.unwrap();
             assert_eq!(res.status(), 405, "{m}");
         }
         assert!(dir.join("a.txt").exists());
+        stop.send(true).unwrap();
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[tokio::test]
+    async fn https_serves_the_same_things_but_only_over_tls() {
+        let dir = std::env::temp_dir().join(format!("notiq-dav-tls-{}", make_password()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("a.txt"), "secret").unwrap();
+        let dir = std::fs::canonicalize(&dir).unwrap();
+        let (cert, key) = crate::webdav_tls::make_cert("127.0.0.1".parse().unwrap(), 1_700_000_000 + 400 * 86_400).unwrap();
+        let (config, fp) = crate::webdav_tls::server_config(&cert, &key).unwrap();
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (stop, stopped) = watch::channel(false);
+        tokio::spawn(run(listener, dir.clone(), "notiq:pw".into(), false, false, Some(TlsAcceptor::from(config)), stopped));
+
+        // A client that does not check the self-signed certificate gets the page; the login is still needed.
+        let c = reqwest::Client::builder().danger_accept_invalid_certs(true).build().unwrap();
+        let url = format!("https://{addr}/a.txt");
+        assert_eq!(c.get(&url).send().await.unwrap().status(), 401);
+        let ok = c.get(&url).basic_auth("notiq", Some("pw")).send().await.unwrap();
+        assert_eq!(ok.status(), 200);
+        assert_eq!(ok.text().await.unwrap(), "secret");
+        // A client that does check it refuses (nobody vouches for the certificate).
+        assert!(reqwest::Client::new().get(&url).basic_auth("notiq", Some("pw")).send().await.is_err());
+        // Plain HTTP to the TLS port gets nothing.
+        assert!(reqwest::Client::new().get(format!("http://{addr}/a.txt")).basic_auth("notiq", Some("pw")).send().await.is_err());
+        assert_eq!(fp.len(), 95);
         stop.send(true).unwrap();
         std::fs::remove_dir_all(&dir).ok();
     }
@@ -495,7 +556,7 @@ mod tests {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let base = format!("http://{}", listener.local_addr().unwrap());
         let (stop, stopped) = watch::channel(false);
-        tokio::spawn(run(listener, dir.clone(), "notiq:pw".into(), false, false, stopped));
+        tokio::spawn(run(listener, dir.clone(), "notiq:pw".into(), false, false, None, stopped));
 
         let c = reqwest::Client::new();
         let m = |s: &str| Method::from_bytes(s.as_bytes()).unwrap();

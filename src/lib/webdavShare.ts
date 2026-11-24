@@ -3,10 +3,11 @@ import { create } from "zustand";
 import { toast } from "./toast";
 
 /** A running WebDAV share: where to point the phone's WebDAV app, and how to sign in. */
-export interface ShareInfo { url: string; username: string; password: string; folder: string; /** A phone may add new files and folders. */ upload: boolean; /** A phone may also rename, move, copy and delete. */ manage: boolean }
+export interface ShareInfo { url: string; username: string; password: string; folder: string; /** A phone may add new files and folders. */ upload: boolean; /** A phone may also rename, move, copy and delete. */ manage: boolean; /** The connection is encrypted (HTTPS, self-signed certificate). */ https: boolean; /** SHA-256 of the certificate (AB:CD:…), to compare on the phone. */ fingerprint: string | null }
 
 /** Empty user name / password = the defaults (`notiq`, and a random password). */
-export const webdavStart = (folder: string, username = "", password = "", upload = true, manage = false) => invoke<ShareInfo>("webdav_start", { folder, username, password, upload, manage });
+export const webdavStart = (folder: string, username = "", password = "", upload = true, manage = false, https = false) =>
+  invoke<ShareInfo>("webdav_start", { folder, username, password, upload, manage, https });
 export const webdavStop = () => invoke<void>("webdav_stop");
 export const webdavStatus = () => invoke<ShareInfo | null>("webdav_status");
 
@@ -37,6 +38,11 @@ const setShareUpload = (on: boolean) => { try { localStorage.setItem(UPLOAD_KEY,
 const MANAGE_KEY = "notiq.webdavManage";
 const getShareManage = (): boolean => { try { return localStorage.getItem(MANAGE_KEY) === "1"; } catch { return false; } };
 const setShareManage = (on: boolean) => { try { localStorage.setItem(MANAGE_KEY, on ? "1" : "0"); } catch { /* not remembered */ } };
+
+/** Whether sharing uses HTTPS with a self-signed certificate. Off by default: some WebDAV apps refuse such certificates. */
+const HTTPS_KEY = "notiq.webdavHttps";
+const getShareHttps = (): boolean => { try { return localStorage.getItem(HTTPS_KEY) === "1"; } catch { return false; } };
+const setShareHttps = (on: boolean) => { try { localStorage.setItem(HTTPS_KEY, on ? "1" : "0"); } catch { /* not remembered */ } };
 
 /** What a phone may do, in words (managing includes uploading). */
 export const shareMode = (upload: boolean, manage: boolean) => (manage ? "Full access" : upload ? "Uploads allowed" : "Read-only");
@@ -73,12 +79,15 @@ interface ShareStore {
   upload: boolean;
   /** Whether the next start also allows renaming, moving, copying and deleting. */
   manage: boolean;
+  /** Whether the next start encrypts the connection (HTTPS). */
+  https: boolean;
   /** Asks the app what is being shared (the server lives in the backend, not in this page). */
   refresh: () => Promise<void>;
   /** Remembers the sign-in for the next start (it does not touch a running share: see `restart`). */
   setLogin: (user: string, pass: string) => void;
   setUpload: (on: boolean) => void;
   setManage: (on: boolean) => void;
+  setHttps: (on: boolean) => void;
   start: (folder: string) => Promise<void>;
   stop: () => Promise<void>;
   /** Stops and starts again with the stored sign-in, so every phone has to sign in anew. */
@@ -93,13 +102,15 @@ export const useShareStore = create<ShareStore>((set, get) => ({
   pass: "",
   upload: getShareUpload(),
   manage: getShareManage(),
+  https: getShareHttps(),
   async refresh() { try { set({ info: await webdavStatus() }); } catch { /* not the desktop app */ } },
   setLogin(user, pass) { setShareUser(user.trim()); set({ user: user.trim(), pass }); },
   setUpload(on) { setShareUpload(on); set({ upload: on }); },
   setManage(on) { setShareManage(on); set({ manage: on }); },
+  setHttps(on) { setShareHttps(on); set({ https: on }); },
   async start(folder) {
     set({ busy: true });
-    try { const { user, pass, upload, manage } = get(); set({ info: await webdavStart(folder, user, pass, upload, manage) }); } finally { set({ busy: false }); }
+    try { const { user, pass, upload, manage, https } = get(); set({ info: await webdavStart(folder, user, pass, upload, manage, https) }); } finally { set({ busy: false }); }
   },
   async stop() {
     set({ busy: true });
@@ -109,8 +120,8 @@ export const useShareStore = create<ShareStore>((set, get) => ({
     set({ busy: true });
     try {
       await webdavStop(); set({ info: null });
-      const { user, pass, upload, manage } = get();
-      set({ info: await webdavStart(folder, user, pass, upload, manage) });
+      const { user, pass, upload, manage, https } = get();
+      set({ info: await webdavStart(folder, user, pass, upload, manage, https) });
     } finally { set({ busy: false }); }
   },
 }));

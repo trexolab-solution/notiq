@@ -1023,7 +1023,7 @@ a { color: inherit; text-decoration: none; }
   // ── uploads: shown only when the server allows them (its OPTIONS answer lists PUT) ──
   async function detect() {
     try { const r = await fetch(abs("/"), { method: "OPTIONS", credentials: "same-origin" }); const allow = r.headers.get("allow") || ""; canUpload = /\bPUT\b/.test(allow); canManage = /\bDELETE\b/.test(allow); } catch { canUpload = false; }
-    $("#mode span").textContent = canManage ? "Full access" : canUpload ? "Read and upload" : "Read-only"; updateSelbar();
+    $("#mode span").textContent = (canManage ? "Full access" : canUpload ? "Read and upload" : "Read-only") + (location.protocol === "https:" ? " \u00b7 HTTPS" : ""); updateSelbar();
   }
   function uniqueName(name, taken) {
     if (!taken.has(name)) return name;

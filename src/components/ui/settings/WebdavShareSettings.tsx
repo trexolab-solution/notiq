@@ -41,7 +41,7 @@ export function WebdavShareSettings() {
   const [folder, setFolder] = useState(getShareFolder);
   const [qrLogin, setQrLogin] = useState(getQrWithLogin);
   const [editing, setEditing] = useState(false);
-  const { info, busy, user, pass, upload, manage, refresh, setLogin, setUpload, setManage, start, stop, restart } = useShareStore();
+  const { info, busy, user, pass, upload, manage, https, refresh, setLogin, setUpload, setManage, setHttps, start, stop, restart } = useShareStore();
 
   useEffect(() => { void refresh(); }, [refresh]);
 
@@ -76,6 +76,13 @@ export function WebdavShareSettings() {
     try { await restart(folder); toast.success(on ? "File management is on. Phones must sign in again." : "File management is off. Phones must sign in again."); } catch (e) { toast.error(shareErrorMessage(e)); }
   };
 
+  /** Turns HTTPS on or off; a running share restarts so the change applies. */
+  const changeHttps = async (on: boolean) => {
+    setHttps(on);
+    if (!info) return;
+    try { await restart(folder); toast.success(on ? "HTTPS is on. Phones must sign in again." : "HTTPS is off. Phones must sign in again."); } catch (e) { toast.error(shareErrorMessage(e)); }
+  };
+
   const shownUser = info?.username ?? (user || DEFAULT_SHARE_USER);
   const shownPass = info ? "•".repeat(Math.min(info.password.length, 12)) : pass ? "•".repeat(Math.min(pass.length, 12)) : "random";
   const mode = shareMode(info ? info.upload : upload || manage, info ? info.manage : manage);
@@ -84,7 +91,7 @@ export function WebdavShareSettings() {
     <div className="flex flex-col gap-5">
       <SettingsGroup title="Sharing" description="Open the files of this computer on your phone, on the same Wi-Fi, in the phone's browser or any WebDAV app.">
         <SettingRow id="share.enabled" label="Share this folder" keywords={[...KW, "server", "turn on"]}
-                    description={info ? `On. A phone can: ${mode.toLowerCase()}.` : "Turns on while Notiq is open. The connection isn't encrypted, so use a network you trust."}>
+                    description={info ? `On${info.https ? ", encrypted" : ""}. A phone can: ${mode.toLowerCase()}.` : https ? "Turns on while Notiq is open. The connection is encrypted with a certificate Notiq makes." : "Turns on while Notiq is open. The connection isn't encrypted, so use a network you trust."}>
           <div className="flex items-center gap-3">
             <span className="flex items-center gap-1.5 text-xs text-[var(--color-text-muted)]" aria-live="polite">
               <span aria-hidden className={`h-2 w-2 rounded-full ${info ? "bg-[var(--color-success)]" : "bg-[var(--color-border)]"}`} />
@@ -99,6 +106,12 @@ export function WebdavShareSettings() {
                     keywords={[...KW, "folder", "directory", "choose", "path"]}
                     modified={!!folder} onReset={() => { setFolder(""); setShareFolder(""); }} disabled={!!info}>
           <Button className="settings-btn" size="sm" icon={<FolderOpen size={12} />} disabled={!!info || busy} onClick={() => void choose()}>Choose…</Button>
+        </SettingRow>
+
+        <SettingRow id="share.https" label="Use HTTPS (encrypted)" keywords={[...KW, "https", "ssl", "tls", "certificate", "encrypt", "secure", "self-signed"]}
+                    description="Encrypts the connection with a self-signed certificate that Notiq makes for this computer. A phone's browser warns once: compare the fingerprint shown here, then continue. Some WebDAV apps refuse self-signed certificates; use plain HTTP for those. Changing this restarts sharing."
+                    modified={https} onReset={() => void changeHttps(false)}>
+          <Toggle aria-label="Use HTTPS" value={https} disabled={busy} onChange={(v) => void changeHttps(v)} />
         </SettingRow>
 
         {info && (
@@ -118,6 +131,12 @@ export function WebdavShareSettings() {
                 <Field label="Address" value={info.url} />
                 <Field label="User name" value={info.username} />
                 <Field label="Password" value={info.password} secret />
+                {info.https && info.fingerprint && <Field label="Fingerprint" value={info.fingerprint} />}
+                {info.https && (
+                  <p className="text-[11px] leading-relaxed text-[var(--color-text-muted)]">
+                    The phone will say the certificate isn't trusted, because Notiq made it. Open its details, check that the SHA-256 fingerprint matches the one above, then continue.
+                  </p>
+                )}
                 <p className="text-[11px] text-[var(--color-text-muted)]">Windows may ask to allow Notiq through its firewall: allow it on private networks.</p>
               </div>
             </div>
@@ -164,6 +183,7 @@ const meta = (id: string, group: string, label: string, description: string, ext
 /** The searchable settings this section renders (see lib/settingsIndex.ts). */
 export const SHARE_INDEX: SettingMeta[] = [
   meta("share.enabled", "Sharing", "Share this folder", "Turns on a WebDAV server for the folder, on the local network, with a user name and password.", ["server", "turn on"]),
+  meta("share.https", "Sharing", "Use HTTPS (encrypted)", "Encrypts the connection with a self-signed certificate that Notiq makes for this computer.", ["https", "ssl", "tls", "certificate", "encrypt", "secure", "self-signed"]),
   meta("share.folder", "Sharing", "Folder to share", "The folder of this computer a phone on the same Wi-Fi can open.", ["folder", "directory", "choose"]),
   meta("share.login", "Sign-in", "User name and password", "The user name and password a phone must enter. Change them while sharing, or reset to notiq and a random password.", ["user name", "username", "password", "login", "custom"]),
   meta("share.qr-login", "Sign-in", "Put the password in the QR code", "Off: after scanning, the phone asks for the user name and password. On: it signs in without asking.", ["password", "ask", "prompt", "scan"]),
