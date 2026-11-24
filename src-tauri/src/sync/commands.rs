@@ -692,6 +692,56 @@ pub async fn sync_disconnect(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// Why this PC's vault can't be removed yet (pure): something here is not in the store, so removing it would lose it.
+pub fn unsynced_reason(st: &SyncState, deletions_waiting: bool) -> Option<&'static str> {
+    if !st.enabled || st.provider.is_none() || st.last_synced_ms.is_none() {
+        Some("This vault isn't synced to Google Drive yet, so it can't be removed from this PC.")
+    } else if st.pending || st.meta_pending || deletions_waiting {
+        Some("Some changes aren't in Google Drive yet. Sync again, then try once more.")
+    } else {
+        None
+    }
+}
+
+/// Disconnects Google Drive and removes this PC's copy of the vault (the key file, the database, its backups and the
+/// sync state). The vault stays in Google Drive and on the other devices; this PC gets it back by connecting and
+/// entering the master password. Nothing is removed unless the newest changes are in Drive first.
+#[tauri::command]
+pub async fn sync_disconnect_and_remove_vault(app: AppHandle, window: tauri::Window) -> Result<(), String> {
+    let mgr = app.state::<SyncManager>();
+    let vault_state = app.state::<VaultState>();
+    // 1. Upload what only this PC has. A failure here removes nothing and disconnects nothing.
+    if !vault_state.is_unlocked() {
+        return Err(engine::ERR_LOCKED.into());
+    }
+    run_cycle(&app, Mode::Full, true).await?;
+    let waiting = lock(&mgr.pending_deletions).is_some();
+    if let Some(why) = unsynced_reason(&mgr.st(), waiting) {
+        return Err(why.into());
+    }
+    // 2. Sign out.
+    sync_disconnect(app.clone()).await?;
+    // 3. Close the vault and remove its files.
+    let app_data = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let root = vault_state.root();
+    vault_state.lock_all();
+    vault::notify_state(&app, false, window.label());
+    crate::hello::invalidate(&app);
+    let removed = vault::remove_local_vault(root.as_deref(), &app_data);
+    {
+        // A fresh state for a PC without a vault; the name of this PC and its snapshot counter stay.
+        let mut st = mgr.st();
+        let (name, own) = (st.device_name.take(), st.own_generation);
+        *st = SyncState::default();
+        st.device_name = name;
+        st.own_generation = own;
+    }
+    mgr.save();
+    let _ = app.emit(CHANGED_EVENT, serde_json::json!({}));
+    notify_status(&app);
+    removed.map(|_| ())
+}
+
 #[tauri::command]
 pub async fn sync_remote_info(app: AppHandle) -> Result<RemoteVaultInfo, String> {
     let drive = app.state::<SyncManager>().connected_drive(&app)?;
@@ -1004,4 +1054,24 @@ pub fn sync_set_device_name(app: AppHandle, name: String) -> Result<SyncStatus, 
     }
     notify_status(&app);
     Ok(status_of(&app))
+}
+
+#[cfg(test)]
+mod remove_tests {
+    use super::*;
+
+    fn synced() -> SyncState {
+        SyncState { enabled: true, provider: Some("gdrive".into()), last_synced_ms: Some(5), ..Default::default() }
+    }
+
+    #[test]
+    fn a_vault_is_removed_only_when_everything_is_in_the_store() {
+        assert_eq!(unsynced_reason(&synced(), false), None);
+        assert!(unsynced_reason(&SyncState { pending: true, ..synced() }, false).is_some());
+        assert!(unsynced_reason(&SyncState { meta_pending: true, ..synced() }, false).is_some());
+        assert!(unsynced_reason(&synced(), true).is_some(), "uploads waiting for the user");
+        assert!(unsynced_reason(&SyncState { enabled: false, ..synced() }, false).is_some());
+        assert!(unsynced_reason(&SyncState { provider: None, ..synced() }, false).is_some());
+        assert!(unsynced_reason(&SyncState { last_synced_ms: None, ..synced() }, false).is_some(), "never synced");
+    }
 }

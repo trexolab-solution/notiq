@@ -336,6 +336,44 @@ pub(crate) fn clear_prev_meta(app: &AppHandle) {
     if let Ok(p) = prev_meta_path(app) { let _ = fs::remove_file(p); }
 }
 
+// ─── 0.14.1: removing this PC's copy of the vault ─────────────────────────────
+
+/// Whether `name` (a file in the vault folder) belongs to the vault database: `vault.nqdb`, its rotated backups
+/// (`vault.nqdb.bak.1`, `vault.nqdb.v3.bak`) and the copies set aside by a join. Nothing else in that folder.
+pub(crate) fn is_vault_db_file(name: &str) -> bool {
+    name == vdb::DB_FILE || name.strip_prefix(vdb::DB_FILE).is_some_and(|rest| rest.starts_with('.'))
+}
+
+/// Deletes everything that makes up the vault on this PC: the database and its backups in `root`, and the key file,
+/// the sync state and the safety backups in `app_data`. The folders themselves, and any other file in them, stay.
+/// The first thing removed is the key file, so a vault that fails half way never looks usable. Returns how many
+/// items were removed; fails (after trying all of them) when one could not be.
+pub(crate) fn remove_local_vault(root: Option<&Path>, app_data: &Path) -> Result<usize, String> {
+    let mut targets: Vec<PathBuf> = [META_FILE, PREV_META_FILE, ATTEMPTS_FILE, crate::sync::state::STATE_FILE, crate::sync::state::SAFETY_DIR]
+        .iter().map(|n| app_data.join(n)).collect();
+    if let Some(root) = root {
+        if let Ok(rd) = fs::read_dir(root) {
+            let mut names: Vec<PathBuf> = rd.flatten().filter(|e| e.file_name().to_str().is_some_and(is_vault_db_file)).map(|e| e.path()).collect();
+            names.sort();
+            targets.extend(names);
+        }
+    }
+    let (mut removed, mut failed) = (0usize, 0usize);
+    for t in targets {
+        // symlink_metadata: a link is removed as a link, never followed into somewhere else.
+        let Ok(meta) = fs::symlink_metadata(&t) else { continue };
+        let r = if meta.is_dir() { fs::remove_dir_all(&t) } else { fs::remove_file(&t) };
+        match r {
+            Ok(()) => removed += 1,
+            Err(_) => failed += 1,
+        }
+    }
+    if failed > 0 {
+        return Err(format!("Couldn't remove {failed} vault file{} from this PC. Close anything that has them open and try again.", if failed == 1 { "" } else { "s" }));
+    }
+    Ok(removed)
+}
+
 // ─── 0.9.1: failed-attempt notice ─────────────────────────────────────────────
 
 fn attempts_path(app: &AppHandle) -> Result<PathBuf, String> {
@@ -975,6 +1013,40 @@ mod tests {
         bump_attempts(&p, 7).unwrap();
         assert_eq!(read_attempts(&p).count, 1);
         let _ = fs::remove_dir_all(d);
+    }
+
+    #[test]
+    fn only_the_vault_database_files_are_recognised() {
+        for yes in ["vault.nqdb", "vault.nqdb.bak.1", "vault.nqdb.v3.bak", "vault.nqdb.before-join-17"] {
+            assert!(is_vault_db_file(yes), "{yes}");
+        }
+        for no in ["vault.nqdbx", "my-vault.nqdb", "notes.txt", "vault.json", "vault.nqd", ""] {
+            assert!(!is_vault_db_file(no), "{no}");
+        }
+    }
+
+    #[test]
+    fn removing_the_local_vault_takes_its_files_and_nothing_else() {
+        let (root, data) = (tmp("rm-root"), tmp("rm-data"));
+        for f in ["vault.nqdb", "vault.nqdb.bak.1", "vault.nqdb.v2.bak", "keep-me.txt", "photo.png"] { fs::write(root.join(f), b"x").unwrap(); }
+        for f in ["vault.json", "vault.prev.json", "vault-attempts.json", "vault-sync.json", "vault-device.id", "ai-config.json"] { fs::write(data.join(f), b"x").unwrap(); }
+        fs::create_dir_all(data.join("vault-sync-backups/one")).unwrap();
+        fs::write(data.join("vault-sync-backups/one/vault.json"), b"x").unwrap();
+        fs::create_dir_all(root.join("sub")).unwrap();
+        fs::write(root.join("sub/vault.nqdb"), b"x").unwrap();
+
+        let n = remove_local_vault(Some(&root), &data).unwrap();
+        assert_eq!(n, 3 + 4 + 1, "3 database files, 4 app-data files, the backups folder");
+        for gone in ["vault.nqdb", "vault.nqdb.bak.1", "vault.nqdb.v2.bak"] { assert!(!root.join(gone).exists(), "{gone}"); }
+        for gone in ["vault.json", "vault.prev.json", "vault-attempts.json", "vault-sync.json", "vault-sync-backups"] { assert!(!data.join(gone).exists(), "{gone}"); }
+        // Other files stay: the device id (it names this PC, not the vault), other settings, the user's own files and sub-folders.
+        for kept in ["keep-me.txt", "photo.png", "sub/vault.nqdb"] { assert!(root.join(kept).exists(), "{kept}"); }
+        for kept in ["vault-device.id", "ai-config.json"] { assert!(data.join(kept).exists(), "{kept}"); }
+        // Nothing left to remove: fine, and no vault folder is fine too.
+        assert_eq!(remove_local_vault(Some(&root), &data).unwrap(), 0);
+        assert_eq!(remove_local_vault(None, &data).unwrap(), 0);
+        let _ = fs::remove_dir_all(root);
+        let _ = fs::remove_dir_all(data);
     }
 
     #[test]

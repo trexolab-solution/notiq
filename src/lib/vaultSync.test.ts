@@ -10,7 +10,7 @@ vi.mock("@tauri-apps/api/event", () => ({
 
 const S = await import("./vaultSync");
 const {
-  syncStatus, syncConnect, syncDisconnect, syncRemoteInfo, syncEnable, syncJoin, syncAdoptRemote, syncNow, syncDisable,
+  syncStatus, syncConnect, syncDisconnect, syncDisconnectAndRemoveVault, syncRemoteInfo, syncEnable, syncJoin, syncAdoptRemote, syncNow, syncDisable,
   syncDevices, syncRemoveDevice, syncSetDeviceName, syncErrorMessage, isSyncError, followSyncStatus, useSyncStore,
   syncIndicator, conflictNotice, relativeTime, deviceNameError, describeSyncResult, ATTACHMENT_LIMITS_TEXT,
   onSyncConflicts, onSyncChanged,
@@ -42,6 +42,7 @@ describe("command wrappers", () => {
     await syncAdoptRemote("remote", "backupOnly");
     await syncNow();
     await syncDisable();
+    await syncDisconnectAndRemoveVault();
     await syncDevices();
     await syncRemoveDevice("abc");
     await syncSetDeviceName("Laptop");
@@ -57,6 +58,7 @@ describe("command wrappers", () => {
       ["sync_adopt_remote", { remotePassword: "remote", mode: "backupOnly" }],
       ["sync_now"],
       ["sync_disable"],
+      ["sync_disconnect_and_remove_vault"],
       ["sync_devices"],
       ["sync_remove_device", { id: "abc" }],
       ["sync_set_device_name", { name: "Laptop" }],

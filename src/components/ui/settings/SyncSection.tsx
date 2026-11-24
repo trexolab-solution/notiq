@@ -13,11 +13,11 @@ import { toast } from "../../../lib/toast";
 import { useVaultStore } from "../../../store/vaultStore";
 import {
   ATTACHMENT_LIMITS_TEXT, GOOGLE_PERMISSIONS_URL, deviceNameError, describeSyncResult, relativeTime,
-  syncDevices, syncDisable, syncDisconnect, syncErrorMessage, syncNow, syncRemoveDevice, syncSetDeviceName,
+  syncDevices, syncDisable, syncDisconnect, syncDisconnectAndRemoveVault, syncErrorMessage, syncNow, syncRemoveDevice, syncSetDeviceName,
   useSyncStatus, useSyncStore, type SyncDevice, type SyncStatus,
 } from "../../../lib/vaultSync";
 import { useDeletionGuardUi } from "../../../lib/syncDeletionGuard";
-import { startSyncSetup, useSyncSetupStore } from "../../../lib/syncSetupFlow";
+import { refreshVaultUi, startSyncSetup, useSyncSetupStore } from "../../../lib/syncSetupFlow";
 import { reviewActions } from "../../../lib/syncMarkers";
 import { SYNC_INDEX } from "./syncIndex";
 import { deviceDisplayName } from "../../../lib/syncSurfaces";
@@ -30,9 +30,12 @@ const k = (id: string): string[] => {
 };
 
 export const DISCONNECT_MESSAGE =
-  "Disconnecting detaches this PC: it stops syncing. Your vault stays on this PC and in your Google Drive, and your other devices keep syncing.";
+  "This PC will stop syncing. Your vault stays in Google Drive and on your other devices.";
 export const DISCONNECT_DETAIL =
-  "When you reconnect, this PC restores from Google Drive: items still in Drive come back even if you deleted them here meanwhile, and changes you make here are kept and merged. To delete it from Drive, open Google Drive → Settings → Manage apps, find Notiq, then choose Options → \"Delete hidden app data\".";
+  "Reconnecting later restores this PC from Drive. To delete the Drive copy, open Google Drive → Settings → Manage apps → Notiq → Delete hidden app data.";
+/** The extra choice in the disconnect dialog. */
+export const REMOVE_LOCAL_LABEL = "Also remove the vault from this PC";
+export const REMOVE_LOCAL_HINT = "Deletes the local copy. You'll need your master password to get it back from Drive.";
 
 /** Re-renders every 30 s so "5 minutes ago" stays true. */
 function useNow(): number {
@@ -98,6 +101,8 @@ export function SyncSection() {
 
   const [busy, setBusy] = useState<null | "pause" | "resume" | "now">(null);
   const [confirmDisconnect, setConfirmDisconnect] = useState(false);
+  /** The disconnect dialog's "also remove the vault from this PC" box. */
+  const [removeLocal, setRemoveLocal] = useState(false);
 
   const connected = !!status?.provider;
   const configured = !!status?.configured;
@@ -136,13 +141,20 @@ export function SyncSection() {
     }
   };
 
-  const disconnect = async () => {
+  const disconnect = async (remove: boolean) => {
     setConfirmDisconnect(false);
+    setRemoveLocal(false);
     try {
-      await syncDisconnect();
-      toast.info("Disconnected from Google Drive. Your synced vault is still in your Drive.");
+      if (remove) {
+        await syncDisconnectAndRemoveVault();
+        toast.info("Disconnected, and the vault was removed from this PC. It's still in your Google Drive.");
+        await refreshVaultUi(); // the vault no longer exists here: every surface follows
+      } else {
+        await syncDisconnect();
+        toast.info("Disconnected from Google Drive. Your synced vault is still in your Drive.");
+      }
     } catch (e) {
-      toast.error(syncErrorMessage(e));
+      toast.error(remove ? "Nothing was removed" : "Couldn't disconnect", { detail: syncErrorMessage(e) });
     } finally {
       void useSyncStore.getState().refresh();
     }
@@ -246,10 +258,19 @@ export function SyncSection() {
           title="Disconnect Google Drive?"
           message={DISCONNECT_MESSAGE}
           detail={DISCONNECT_DETAIL}
-          confirmLabel="Disconnect"
+          confirmLabel={removeLocal ? "Disconnect and remove" : "Disconnect"}
           danger
-          onConfirm={() => void disconnect()}
-          onCancel={() => setConfirmDisconnect(false)}
+          checkbox={{
+            label: (
+              <span className="flex flex-col gap-0.5">
+                <span>{REMOVE_LOCAL_LABEL}</span>
+                <span className="text-[11px] font-normal text-[var(--color-text-muted)]">{REMOVE_LOCAL_HINT}</span>
+              </span>
+            ),
+            onChange: setRemoveLocal,
+          }}
+          onConfirm={(checked) => void disconnect(checked)}
+          onCancel={() => { setConfirmDisconnect(false); setRemoveLocal(false); }}
         />
       )}
     </>

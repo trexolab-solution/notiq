@@ -103,6 +103,11 @@ export const syncStatus = () => invoke<SyncStatus>("sync_status");
 export const syncConnect = () => invoke<SyncStatus>("sync_connect");
 /** Signs out on this device. Never deletes anything from Drive. */
 export const syncDisconnect = () => invoke<void>("sync_disconnect");
+/**
+ * Uploads the newest changes, signs out and removes this PC's copy of the vault. The vault stays in Drive; getting it
+ * back takes the master password. Fails (removing nothing) when the changes can't be uploaded first.
+ */
+export const syncDisconnectAndRemoveVault = () => invoke<void>("sync_disconnect_and_remove_vault");
 export const syncRemoteInfo = () => invoke<RemoteVaultInfo>("sync_remote_info");
 export const syncEnable = () => invoke<SyncResult>("sync_enable");
 /** New device without a local vault: download the synced vault and open it. */
