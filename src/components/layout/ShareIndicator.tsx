@@ -31,7 +31,7 @@ export function ShareIndicator() {
   if (!isTauri) return null;
 
   const folder = getShareFolder();
-  const settings = (id: string) => { setOpen(false); useAppStore.getState().openSettings("vault", id); };
+  const settings = (id: string) => { setOpen(false); useAppStore.getState().openSettings("share", id); };
   const toggle = async () => {
     try { if (info) await stop(); else await start(folder); } catch (e) { toast.error(shareErrorMessage(e)); }
   };
@@ -100,7 +100,7 @@ export function ShareIndicator() {
                 <div className="flex items-center gap-1.5 rounded-md border border-[var(--color-border)] bg-[var(--color-bg-tertiary)] px-2.5 py-1.5 text-[12px]" title={folder}>
                   <Folder size={13} className="shrink-0 text-[var(--color-text-muted)]" aria-hidden />
                   <span className={`min-w-0 flex-1 truncate ${folder ? "" : "text-[var(--color-text-muted)]"}`}>{folder || "No folder picked yet"}</span>
-                  <button type="button" className="sync-pop__link shrink-0" onClick={() => settings("vault.share.folder")}>{folder ? "Change" : "Choose"}</button>
+                  <button type="button" className="sync-pop__link shrink-0" onClick={() => settings("share.folder")}>{folder ? "Change" : "Choose"}</button>
                 </div>
                 <button type="button" className="sync-pop__btn sync-pop__btn--primary w-full justify-center" disabled={!folder || busy} onClick={() => void toggle()}>
                   {busy ? <Spinner size={12} /> : null}{busy ? "Starting…" : "Start sharing"}
@@ -109,7 +109,7 @@ export function ShareIndicator() {
             )}
 
             <div className="flex items-center border-t border-[var(--color-border)] pt-1.5">
-              <button type="button" className="sync-pop__link" style={{ marginLeft: 0 }} onClick={() => settings("vault.share.login")}>Settings</button>
+              <button type="button" className="sync-pop__link" style={{ marginLeft: 0 }} onClick={() => settings("share.login")}>Settings</button>
               {info && (
                 <button type="button" className="sync-pop__link text-[var(--color-danger)]" disabled={busy} onClick={() => void toggle()}>
                   {busy ? "Stopping…" : "Stop sharing"}

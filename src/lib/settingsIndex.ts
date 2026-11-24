@@ -1,16 +1,23 @@
 /** Shared vocabulary of the Settings tab: sections, and the searchable index every section exports. */
 
 export type SectionId =
-  | "general" | "editor" | "ai" | "vault" | "terminal" | "appearance" | "shortcuts" | "updates" | "about";
+  | "general" | "editor" | "appearance" | "shortcuts" | "ai" | "terminal" | "files" | "share" | "vault" | "updates" | "about";
 
-/** Order of the sections in the nav and in the scrolling page. */
-export const SECTION_ORDER: SectionId[] = [
-  "general", "editor", "ai", "vault", "terminal", "appearance", "shortcuts", "updates", "about",
+/** The nav's headings and the sections under each (also the order of the scrolling page). */
+export const SECTION_GROUPS: { label: string; ids: SectionId[] }[] = [
+  { label: "Workspace", ids: ["general", "editor", "appearance", "shortcuts"] },
+  { label: "Tools", ids: ["ai", "terminal", "files", "share"] },
+  { label: "Security", ids: ["vault"] },
+  { label: "App", ids: ["updates", "about"] },
 ];
 
+/** Order of the sections in the nav and in the scrolling page. */
+export const SECTION_ORDER: SectionId[] = SECTION_GROUPS.flatMap((g) => g.ids);
+
 export const SECTION_LABELS: Record<SectionId, string> = {
-  general: "General", editor: "Editor", ai: "AI", vault: "Vault", terminal: "Terminal",
-  appearance: "Appearance", shortcuts: "Shortcuts", updates: "Updates", about: "About",
+  general: "General", editor: "Editor", appearance: "Appearance", shortcuts: "Shortcuts",
+  ai: "AI", terminal: "Terminal", files: "File Manager", share: "Phone Share",
+  vault: "Vault", updates: "Updates", about: "About",
 };
 
 /**

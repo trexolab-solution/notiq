@@ -5,7 +5,7 @@ import type { SettingMeta } from "./settingsIndex";
 // search function itself can be exercised with injected data.
 for (const m of [
   "GeneralSection", "EditorSettingsSection", "AISettingsSection", "VaultSection", "TerminalSettingsSection",
-  "AppearanceSection", "ShortcutsSection", "UpdatesSection", "AboutSection",
+  "AppearanceSection", "ShortcutsSection", "UpdatesSection", "AboutSection", "FileManagerSettings", "WebdavShareSettings",
 ]) vi.doMock(`../components/ui/settings/${m}`, () => ({ SETTINGS_INDEX: [] }));
 
 const { rankSettings, sectionMatchCounts, settingMatches, visibleSections } = await import("./settingsSearch");
@@ -75,11 +75,11 @@ describe("section visibility", () => {
     expect(c.editor).toBe(3);
     expect(c.terminal).toBe(1);
     expect(c.general).toBe(0);
-    expect(Object.keys(c)).toHaveLength(9);
+    expect(Object.keys(c)).toHaveLength(11);
   });
 
   it("shows everything for an empty query", () => {
-    expect(visibleSections(S, " ").size).toBe(9);
+    expect(visibleSections(S, " ").size).toBe(11);
   });
 
   it("hides indexed sections without a match but keeps unindexed ones", () => {
