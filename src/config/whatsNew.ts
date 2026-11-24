@@ -13,34 +13,26 @@ import { APP_VERSION } from "./app";
  */
 export const WHATS_NEW = `# What's New in Notiq ${APP_VERSION}
 
-Share a folder with your phone over **WebDAV**, now with its own file manager, HTTPS and a better SFTP file manager.
+Share chosen items from your vault with someone, with rules that you set, and a better file viewer for SFTP.
 
-## 🌐 WebDAV
+## 🔗 Share items
 
-- **Renamed and rebuilt:** "Phone Share" is now **WebDAV**, with its own Settings section, status-bar button and QR code.
-- **A real file manager in the browser:** Notiq-branded page with a folder tree, command bar, type-aware clicks, drag-select, clipboard, Properties and drag to move several items at once.
-- **Google Drive-style uploads:** drag files in, see progress, cancel or retry.
-- **HTTPS (optional):** encrypt the connection with a self-signed certificate. The fingerprint is shown to compare on your phone.
-- **Your own dialogs:** new file, rename and delete use the page's dialogs instead of the browser's.
+- **Share chosen items:** open **Export** in Settings → Vault → Backup (or right-click a note or folder and choose **Share…**). Pick the notes or folders, give the receiver a password, and save a .nqb file. It never holds your master password, your history, or anything you didn't pick.
+- **Rules in the file:** how many times it can be imported, when the file expires (after a set time, or on a date and time), when the items are removed from the receiver's vault, and whether the file is deleted after its last import. The rules are sealed inside the file, so nobody can edit them.
+- **Items remove themselves:** at the time you set, on every device that syncs the vault. Old copies of them on that PC are cleaned too.
+- **Import:** open **Import** and choose **Import shared items**, or drop the file on the dialog. Before anything is added, Notiq shows what is in it and when it will be removed.
 
-## 📁 SFTP file manager
+## 📄 SFTP file viewer
 
-- **Zip and unzip** on the server, **Properties** with folder sizes, and **drag-select** with a band.
-- A cleaner right-click menu: grouped, no duplicates. Dragging several items moves them all.
+- **Markdown** opens as a page (with Edit and Preview), **CSV and TSV** as a table you can sort, and **PDF** files in the built-in viewer.
 
-## 🔐 Vault and browser extension
+## 🔐 Vault sync
 
-- Saving a login while the vault is locked now offers **Unlock & save**.
-- Long names in the Vault sidebar no longer clip, and rename errors show inline.
-
-## ⚙️ Settings
-
-- Settings are grouped (Workspace, Tools, Security, App), with new **File Manager** and **WebDAV** sections.
+- **Disconnect and remove the vault from this PC:** a new choice in the Disconnect dialog. Your latest changes are uploaded first; the vault stays in Google Drive.
 
 ## 🔧 Fixes
 
-- The remote file manager no longer reconnects (and no longer cuts an upload) when you switch tabs.
-- Opening Settings puts the cursor in the search box.
+- A blank window that could appear over the app is now repainted or rebuilt by itself, and window events are logged to window.log in the app data folder.
 
 ---
 
