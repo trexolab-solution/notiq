@@ -7,7 +7,7 @@
 <meta name="description" content="Free, open-source desktop Markdown editor with a whiteboard, knowledge graph and an encrypted vault for passwords and SSH keys. No account, no telemetry.">
 <meta name="robots" content="index,follow,max-image-preview:large">
 <meta name="author" content="TrexoLab">
-<meta name="keywords" content="markdown editor, password manager, encrypted vault, offline password manager, SSH key manager, SFTP file manager, TOTP authenticator, local-first notes, open source, Windows, Linux">
+<meta name="keywords" content="markdown editor, password manager, encrypted vault, offline password manager, SSH key manager, SFTP file manager, WebDAV file sharing, TOTP authenticator, local-first notes, open source, Windows, Linux">
 <link rel="canonical" href="https://trexolab-solution.github.io/notiq/">
 <link rel="icon" href="favicon.ico" sizes="any">
 <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
@@ -63,7 +63,8 @@
         "Markdown editor with live preview and split view",
         "Whiteboard and knowledge graph",
         "Encrypted vault for passwords, SSH keys, cards and private notes",
-        "Built-in SSH terminal and SFTP file manager for saved servers",
+        "Built-in SSH terminal and SFTP file manager for saved servers, with compress and extract",
+        "Phone Share: open a folder of your computer on your phone over Wi-Fi",
         "Two-step (TOTP) codes",
         "Browser autofill extension",
         "Optional end-to-end encrypted sync to Google Drive",
@@ -253,6 +254,7 @@
       <a href="#features">Features</a>
       <a href="#vault">Vault</a>
       <a href="#servers">Servers</a>
+      <a href="#phone">Phone Share</a>
       <a href="#sync">Sync</a>
       <a href="#autofill">Autofill</a>
       <a href="#security">Security</a>
@@ -589,6 +591,7 @@ Build a **reading tracker** that works offline.
       <p>Notiq has its own SSH client, so there is nothing to install. Pick a server from the vault and it signs in with the key or password you saved: in the terminal, or in a file manager over SFTP.</p>
       <ul class="ticks">
         <li>Browse, edit and save files on the server without leaving Notiq</li>
+        <li>Select with a click-and-drag band, see Properties (size of a folder, owner, permissions), and compress to zip or extract an archive on the server</li>
         <li>Drag files and folders in and out, or paste files you copied in Explorer</li>
         <li>Deleted items go to the server’s Trash first, so you can restore them</li>
         <li>Replace or keep both when a name is taken; it reconnects by itself if the link drops</li>
@@ -635,6 +638,41 @@ Build a **reading tracker** that works offline.
           </div>
         </div>
         <div class="statusbar" aria-hidden="true"><span>6 items</span><span class="sb-right">Connected</span></div>
+      </figure>
+    </div>
+  </div>
+</section>
+
+<!-- ═════════════ PHONE SHARE ═════════════ -->
+<section class="band" id="phone" aria-labelledby="phone-title">
+  <div class="container split-grid">
+    <div class="copy">
+      <h2 id="phone-title">Open a folder of your computer on your phone</h2>
+      <p>Phone Share puts one folder on your Wi-Fi. Scan a QR code and browse it in your phone’s browser, or add it to any WebDAV app. Nothing goes through the internet, and nothing stays on after you close Notiq.</p>
+      <ul class="ticks">
+        <li>A file manager in the browser: search, sort, list or grid, and a viewer for pictures, video, audio, PDF and text; it follows your phone’s light or dark theme</li>
+        <li>Upload photos and files from the phone (new files only, nothing is replaced), or turn that off</li>
+        <li>Optionally rename, move, copy and delete from the phone; it is off until you turn it on</li>
+        <li>Your own user name and password, or a random one; the password is never saved to disk</li>
+        <li>One click from the status bar, the tray menu or the command palette</li>
+      </ul>
+      <p>The connection is plain HTTP on your local network, so use it on a network you trust.</p>
+    </div>
+    <div>
+      <figure class="win" aria-label="The Phone Share panel showing the address and sign-in of the shared folder">
+        <div class="win-bar" aria-hidden="true">
+          <span class="win-brand"><img src="logo.png" alt="" width="14" height="14">Notiq</span>
+          <span class="win-title">Phone Share</span>
+          <span class="win-ctl"><svg class="i"><use href="#i-minus"/></svg><svg class="i"><use href="#i-square"/></svg><svg class="i"><use href="#i-x"/></svg></span>
+        </div>
+        <div class="win-body col fm" aria-hidden="true">
+          <div class="fm-head"><span>Sharing</span><span></span><span>On</span></div>
+          <div class="fm-row"><span><svg class="i k-folder" aria-hidden="true"><use href="#i-folder"/></svg>Shared</span><span></span><span>Read + upload</span></div>
+          <div class="fm-row"><span><svg class="i" aria-hidden="true"><use href="#i-monitor"/></svg>Address</span><span></span><span>192.168.1.15:8765</span></div>
+          <div class="fm-row"><span><svg class="i" aria-hidden="true"><use href="#i-login"/></svg>User name</span><span></span><span>notiq</span></div>
+          <div class="fm-row"><span><svg class="i" aria-hidden="true"><use href="#i-lock-open"/></svg>Password</span><span></span><span>••••••••••••</span></div>
+        </div>
+        <div class="statusbar" aria-hidden="true"><span>Scan the QR code with your phone</span><span class="sb-right">Sharing</span></div>
       </figure>
     </div>
   </div>
