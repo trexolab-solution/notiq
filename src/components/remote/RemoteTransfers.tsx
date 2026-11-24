@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from "react";
-import { AlertCircle, ArrowDownToLine, ArrowUpFromLine, Check, ChevronDown, ChevronUp, X } from "lucide-react";
+import { AlertCircle, ArrowDownToLine, ArrowUpFromLine, Archive, Check, ChevronDown, ChevronUp, X } from "lucide-react";
 import { formatBytes } from "../../lib/vaultBackup";
 import { percent } from "../../lib/sftp";
 
 import { Tooltip } from "../ui/Tooltip";
 export interface Transfer {
   id: number;
-  kind: "up" | "down";
+  /** Upload, download, or an archive job on the server (compress / extract; no byte progress). */
+  kind: "up" | "down" | "zip" | "unzip";
   name: string;
   done: number;
   total: number;
@@ -19,20 +20,30 @@ const AUTO_CLOSE_MS = 8000;
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
+/** Present participle, past tense and noun of each kind of job. */
+const WORDS: Record<Transfer["kind"], { ing: string; past: string; noun: string }> = {
+  up: { ing: "Uploading", past: "Uploaded", noun: "upload" },
+  down: { ing: "Downloading", past: "Downloaded", noun: "download" },
+  zip: { ing: "Compressing", past: "Compressed", noun: "compression" },
+  unzip: { ing: "Extracting", past: "Extracted", noun: "extraction" },
+};
+/** The one kind all of `items` share, or null when they are mixed. */
+const sameKind = (items: Transfer[]) => (items.length && items.every((t) => t.kind === items[0].kind) ? items[0].kind : null);
+
 /** The card's headline: what is going on now, or how it all ended. */
 export function summarize(items: Transfer[]): { text: string; busy: boolean; failed: number } {
   const running = items.filter((t) => t.state === "running");
   const failed = items.filter((t) => t.state === "error").length;
   if (running.length) {
-    const ups = running.filter((t) => t.kind === "up").length;
-    const verb = ups === running.length ? "Uploading" : ups === 0 ? "Downloading" : "Transferring";
+    const kind = sameKind(running);
+    const verb = kind ? WORDS[kind].ing : running.every((t) => t.kind === "up" || t.kind === "down") ? "Transferring" : "Working on";
     return { text: `${verb} ${plural(running.length, "item")}`, busy: true, failed };
   }
   const done = items.filter((t) => t.state === "done");
   if (failed) return { text: `${plural(failed, "transfer")} failed`, busy: false, failed };
   if (done.length) {
-    const ups = done.filter((t) => t.kind === "up").length;
-    const what = ups === done.length ? "upload" : ups === 0 ? "download" : "transfer";
+    const kind = sameKind(done);
+    const what = kind ? WORDS[kind].noun : done.every((t) => t.kind === "up" || t.kind === "down") ? "transfer" : "job";
     return { text: `${plural(done.length, what)} complete`, busy: false, failed };
   }
   return { text: "Nothing was transferred", busy: false, failed };
@@ -40,10 +51,10 @@ export function summarize(items: Transfer[]): { text: string; busy: boolean; fai
 
 /** What a row says under the name. */
 function detail(t: Transfer): string {
-  const verb = t.kind === "up" ? "Uploading" : "Downloading";
+  const verb = WORDS[t.kind].ing;
   switch (t.state) {
     case "running": return t.total > 0 ? `${verb} · ${percent(t.done, t.total)}% · ${formatBytes(t.done)} of ${formatBytes(t.total)}` : `${verb}…`;
-    case "done": return t.kind === "up" ? "Uploaded" : "Downloaded";
+    case "done": return WORDS[t.kind].past;
     case "error": return t.error || "Failed";
     case "cancelled": return "Cancelled";
     case "skipped": return "Skipped (kept the existing file)";
@@ -125,7 +136,7 @@ export function RemoteTransfers({ items, onCancel, onClear }: { items: Transfer[
           {items.map((t) => (
             <li key={t.id} className="flex items-center gap-2.5 px-3 h-12">
               <span className="text-[var(--color-text-muted)] shrink-0" aria-hidden>
-                {t.kind === "up" ? <ArrowUpFromLine size={15} /> : <ArrowDownToLine size={15} />}
+                {t.kind === "up" ? <ArrowUpFromLine size={15} /> : t.kind === "down" ? <ArrowDownToLine size={15} /> : <Archive size={15} />}
               </span>
               <div className="flex-1 min-w-0">
                 <p className="truncate text-sm">{t.name}</p>

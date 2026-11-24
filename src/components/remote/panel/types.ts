@@ -16,6 +16,7 @@ export type Phase = "connecting" | "ready" | "failed";
 export type Conflict = "replace" | "skip-matching" | "cancel";
 export type MoveChoice = { choice: "replace" | "keep_both" | "skip"; all: boolean };
 export type Prompt = { kind: "folder" } | { kind: "file" } | { kind: "rename"; entry: RemoteEntry } | { kind: "perms"; entry: RemoteEntry }
-  | { kind: "props"; items: { path: string; entry?: RemoteEntry }[] };
+  | { kind: "props"; items: { path: string; entry?: RemoteEntry }[] }
+  | { kind: "compress"; items: RemoteEntry[] };
 /** The connection to the server: fine, being re-established after it dropped, or lost for good (a button retries). */
 export type Link = "ok" | "reconnecting" | "lost";

@@ -33,7 +33,7 @@ export function useTransfers(reconnectRef: MutableRefObject<() => void>) {
    * One transfer: runs it; when the target exists asks what to do (replace; for a folder also keep the files that are
    * already there), then runs it again. A lost connection starts the reconnect.
    */
-  const runTransfer = async (kind: "up" | "down", name: string, run: Run) => {
+  const runTransfer = async (kind: Transfer["kind"], name: string, run: Run) => {
     const id = newTransferId();
     track({ id, kind, name, done: 0, total: 0, state: "running" });
     const fail = (e: unknown) => {

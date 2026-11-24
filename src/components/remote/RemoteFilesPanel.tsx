@@ -21,7 +21,7 @@ import { getFilesPrefs, setFilesPrefs, type FilesView, type GridSize } from "../
 import { getFileName, joinPath } from "../../lib/pathUtils";
 import type { SshTarget } from "../../lib/sshConnect";
 import {
-  clipboardFiles, joinRemote, parentRemote, sftpCancel, sftpDownload, sftpErrorMessage,
+  archiveStem, archiveTarget, type ArchiveTools, clipboardFiles, defaultArchiveName, joinRemote, parentRemote, sftpArchiveTools, sftpCancel, sftpCompress, sftpDownload, sftpErrorMessage, sftpExtract,
   sftpChmod, sftpMkdir, sftpMove, sftpRemove, sftpRename, sftpTrash, sftpTrashList, sftpUpload, sftpWrite, sortEntries, visibleEntries, isConnectionError, SFTP_EXISTS, SFTP_TRASH_FAILED,
   type RemoteEntry, type SortKey, type SortState,
 } from "../../lib/sftp";
@@ -196,6 +196,32 @@ export function RemoteFilesPanel({ target, active = true, onPopOut }: {
         await runTransfer("down", entry.name, (id, ow, merge) => sftpDownload(session, id, joinRemote(dir, entry.name), local, ow, merge));
       }
     } catch (e) { toast.error(sftpErrorMessage(e)); }
+  };
+
+  // What the server can compress / extract with, asked once per connection (the menu enables its items by it).
+  const [tools, setTools] = useState<ArchiveTools | null>(null);
+  useEffect(() => {
+    if (phase !== "ready" || link !== "ok") return;
+    let dead = false;
+    sftpArchiveTools(sid.current).then((t) => { if (!dead) setTools(t); }).catch(() => { if (!dead) setTools({ zip: false, unzip: false, tar: false }); });
+    return () => { dead = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase, link]);
+
+  /** Compresses items of the open folder into a new archive there (zip, or tar.gz when the name says so or zip is missing). */
+  const compress = async (items: RemoteEntry[], typed: string) => {
+    const dir = pathRef.current, session = sid.current;
+    const { name, format } = archiveTarget(typed);
+    const names = items.map((e) => e.name);
+    await runTransfer("zip", name, (id, ow) => sftpCompress(session, id, dir, names, name, format, ow).then(() => 0));
+    if (session === sid.current && pathRef.current === dir) void load(dir, session);
+  };
+  /** Extracts an archive here (files already there are kept) or into a folder named after it. */
+  const extract = async (e: RemoteEntry, into: "here" | "folder") => {
+    const dir = pathRef.current, session = sid.current, archive = joinRemote(dir, e.name);
+    const dest = into === "here" ? dir : joinRemote(dir, archiveStem(e.name));
+    await runTransfer("unzip", e.name, (id, _ow, merge) => sftpExtract(session, id, archive, dest, into === "here" ? "skip" : merge).then(() => 0));
+    if (session === sid.current && pathRef.current === dir) void load(dir, session);
   };
 
   /** A folder opens in the list; a file opens in the viewer (pictures shown, text edited); anything else is downloaded. */
@@ -403,12 +429,17 @@ export function RemoteFilesPanel({ target, active = true, onPopOut }: {
       {menu && <ContextMenu x={menu.x} y={menu.y} items={remoteMenuItems(menu.entry, {
         path, selected, picked, trashOn, chooseUpload, chooseUploadFolder, setPrompt, paste, load, copy, setShowTrash, openEntry, download, cut,
         askDelete, askDeleteForever, showProperties: (items) => setPrompt({ kind: "props", items }),
+        tools, compress: (list) => setPrompt({ kind: "compress", items: list }), extractHere: (e) => void extract(e, "here"), extractToFolder: (e) => void extract(e, "folder"),
       })} onClose={() => setMenu(null)} label={menu.entry ? `Actions for ${menu.entry.name}` : "Folder actions"} />}
       {prompt?.kind === "folder" && (
         <NameDialog title="New folder" label="Folder name" initial="" confirm="Create" onSubmit={makeFolder} onClose={() => setPrompt(null)} />
       )}
       {prompt?.kind === "file" && (
         <NameDialog title="New file" label="File name" initial="" confirm="Create" onSubmit={makeFile} onClose={() => setPrompt(null)} />
+      )}
+      {prompt?.kind === "compress" && (
+        <NameDialog title="Compress" label="Archive name" initial={defaultArchiveName(prompt.items.map((e) => e.name), tools && !tools.zip && tools.tar ? "tar.gz" : "zip")}
+                    confirm="Compress" onSubmit={(n) => { const items = prompt.items; setPrompt(null); void compress(items, n); }} onClose={() => setPrompt(null)} />
       )}
       {prompt?.kind === "props" && (
         <PropertiesDialog sid={sid.current} items={prompt.items} onClose={() => setPrompt(null)}

@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   imageMime, bytesFromBase64, decodeText, isConnectionError,
+  archiveNeeds, archiveStem, archiveTarget, defaultArchiveName, isArchiveName,
   crumbs, joinRemote, modeOctal, modeString, nameProblem, parentRemote, parseOctalMode, percent, sortEntries, visibleEntries,
   type RemoteEntry,
 } from "./sftp";
@@ -101,5 +102,29 @@ describe("lost connections", () => {
     for (const m of ["Permission denied.", "That file or folder no longer exists on the server.", "already_exists", "A name can't contain a slash."]) {
       expect(isConnectionError(m)).toBe(false);
     }
+  });
+});
+
+describe("archive names", () => {
+  it("knows which files can be extracted, and with which tool", () => {
+    for (const n of ["a.zip", "A.ZIP", "a.tar", "a.tar.gz", "a.tgz", "a.tar.bz2", "a.tbz2", "a.tar.xz", "a.txz"]) expect(isArchiveName(n), n).toBe(true);
+    for (const n of ["a.gz", "a.7z", "a.rar", "zip", "a.zip.txt", "a.tar.gz.bak"]) expect(isArchiveName(n), n).toBe(false);
+    expect(archiveNeeds("x.zip")).toBe("unzip");
+    expect(archiveNeeds("x.tar.gz")).toBe("tar");
+  });
+
+  it("names the folder an archive extracts into", () => {
+    expect(archiveStem("site.tar.gz")).toBe("site");
+    expect(archiveStem("Backup.ZIP")).toBe("Backup");
+    expect(archiveStem("notes.txt")).toBe("notes.txt");
+  });
+
+  it("suggests an archive name and reads the format from what was typed", () => {
+    expect(defaultArchiveName(["photos"], "zip")).toBe("photos.zip");
+    expect(defaultArchiveName(["a", "b"], "tar.gz")).toBe("Archive.tar.gz");
+    expect(archiveTarget("  mine ")).toEqual({ name: "mine.zip", format: "zip" });
+    expect(archiveTarget("mine.ZIP")).toEqual({ name: "mine.ZIP", format: "zip" });
+    expect(archiveTarget("mine.tar.gz")).toEqual({ name: "mine.tar.gz", format: "tar.gz" });
+    expect(archiveTarget("mine.tgz")).toEqual({ name: "mine.tgz", format: "tar.gz" });
   });
 });

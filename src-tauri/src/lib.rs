@@ -17,6 +17,8 @@ mod ssh_keygen; // 0.9.9 generate an SSH key in the entry form
 #[cfg(desktop)]
 mod sftp_client; // 0.10.0 remote file manager over SFTP (built in)
 #[cfg(desktop)]
+mod remote_archive; // 0.14.0 compress / extract on the SFTP server (zip, unzip, tar over SSH)
+#[cfg(desktop)]
 mod webdav_share; // 0.13.0 read-only WebDAV server for one folder, on the local network
 mod vault_backup;
 mod vault_core;
@@ -806,6 +808,9 @@ pub fn run() {
         sftp_client::sftp_close,
         sftp_client::sftp_list,
         sftp_client::sftp_props,
+        sftp_client::sftp_archive_tools,
+        sftp_client::sftp_compress,
+        sftp_client::sftp_extract,
         sftp_client::sftp_tally,
         sftp_client::sftp_mkdir,
         sftp_client::sftp_rename,

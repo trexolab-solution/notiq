@@ -18,4 +18,13 @@ describe("transfers headline", () => {
     expect(summarize([t(1, "up", "done"), t(2, "up", "error")])).toMatchObject({ text: "1 transfer failed", failed: 1 });
     expect(summarize([t(1, "up", "cancelled")]).text).toBe("Nothing was transferred");
   });
+
+  it("names archive jobs, and mixes them honestly", () => {
+    expect(summarize([t(1, "zip", "running")]).text).toBe("Compressing 1 item");
+    expect(summarize([t(1, "unzip", "running"), t(2, "unzip", "running")]).text).toBe("Extracting 2 items");
+    expect(summarize([t(1, "zip", "running"), t(2, "up", "running")]).text).toBe("Working on 2 items");
+    expect(summarize([t(1, "up", "running"), t(2, "down", "running")]).text).toBe("Transferring 2 items");
+    expect(summarize([t(1, "zip", "done")]).text).toBe("1 compression complete");
+    expect(summarize([t(1, "zip", "done"), t(2, "unzip", "done")]).text).toBe("2 jobs complete");
+  });
 });
