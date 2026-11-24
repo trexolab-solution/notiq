@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { Check, Copy, ExternalLink, Folder, QrCode, Smartphone, X } from "lucide-react";
+import { Check, Copy, ExternalLink, Folder, QrCode as QrIcon, Smartphone, X } from "lucide-react";
 import { Tooltip } from "../ui/Tooltip";
+import { QrCode } from "../ui/QrCode";
 import { Spinner } from "../ui/Loading";
 import { toast } from "../../lib/toast";
 import { isTauri } from "../../lib/tauriWindow";
@@ -9,7 +10,7 @@ import { useAppStore } from "../../store";
 import { useClickOutside } from "../../hooks/useClickOutside";
 import { useEscapeKey } from "../../hooks/useEscapeKey";
 import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
-import { getShareFolder, shareErrorMessage, shareLink, shareMode, useShareStore } from "../../lib/webdavShare";
+import { getQrWithLogin, getShareFolder, shareErrorMessage, shareLink, shareMode, useShareStore } from "../../lib/webdavShare";
 
 /**
  * Status-bar quick access for "Phone Share" (Settings: "Share files to phone"): a button that shows whether sharing is on, and a small panel in
@@ -19,10 +20,13 @@ import { getShareFolder, shareErrorMessage, shareLink, shareMode, useShareStore 
 export function ShareIndicator() {
   const { info, busy, upload, manage, refresh, start, stop } = useShareStore();
   const [open, setOpen] = useState(false);
+  /** The QR code is shown inside the panel (opened from the QR button). */
+  const [qr, setQr] = useState(false);
   const box = useRef<HTMLDivElement>(null);
   const { copied, copy } = useCopyToClipboard();
   useClickOutside(box, () => setOpen(false), open);
   useEscapeKey(() => setOpen(false), open);
+  useEffect(() => { if (!open || !info) setQr(false); }, [open, info]);
   useEffect(() => { void refresh(); }, [refresh]);
   if (!isTauri) return null;
 
@@ -75,10 +79,18 @@ export function ShareIndicator() {
                   <button type="button" className="sync-pop__btn sync-pop__btn--primary flex-1 justify-center" onClick={() => { void openUrl(shareLink(info)).catch(console.error); setOpen(false); }}>
                     <ExternalLink size={12} aria-hidden />Open in browser
                   </button>
-                  <button type="button" className="sync-pop__btn justify-center" onClick={() => settings("vault.share.enabled")}>
-                    <QrCode size={12} aria-hidden />QR code
+                  <button type="button" className="sync-pop__btn justify-center" aria-pressed={qr} onClick={() => setQr((v) => !v)}>
+                    <QrIcon size={12} aria-hidden />{qr ? "Hide QR" : "QR code"}
                   </button>
                 </div>
+                {qr && (
+                  <div className="flex flex-col items-center gap-1.5 rounded-md border border-[var(--color-border)] bg-[var(--color-bg-tertiary)] p-3" data-testid="share-qr">
+                    <QrCode value={getQrWithLogin() ? shareLink(info) : info.url} size={176} label="QR code to open the share on a phone" />
+                    <span className="text-center text-[11px] leading-snug text-[var(--color-text-muted)]">
+                      Scan with the phone's camera.{getQrWithLogin() ? "" : <> It asks for the user name <b className="font-medium text-[var(--color-text)]">{info.username}</b> and the password.</>}
+                    </span>
+                  </div>
+                )}
               </>
             ) : (
               <>
