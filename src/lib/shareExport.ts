@@ -37,6 +37,10 @@ export const MIN_SHARE_PASSWORD = 8;
 export const MAX_LIMIT_HOURS = 365 * 24;
 const HOUR = 3_600_000;
 
+/** How the two limits are named in their error messages. */
+export const FILE_EXPIRY = "File expiry";
+export const ITEM_REMOVAL = "Item removal";
+
 export const UNIT_OPTIONS: { value: TimeUnit; label: string }[] = [{ value: "hours", label: "hours" }, { value: "days", label: "days" }];
 
 /** What the form starts with: one import, a week for the file, a week for the items, the file deleted afterwards. */
@@ -53,11 +57,15 @@ export function limitHours(l: TimeLimit): number {
   return l.on ? l.amount * (l.unit === "days" ? 24 : 1) : 0;
 }
 
-/** What is wrong with a limit, in words (`what` names it: "The file"); null when it is fine or off. */
+/** The most a limit can be in `unit`: a year. */
+export function limitMax(unit: TimeUnit): number {
+  return unit === "days" ? MAX_LIMIT_HOURS / 24 : MAX_LIMIT_HOURS;
+}
+
+/** What is wrong with a limit, in words (`what` names it: "File expiry"); null when it is fine or off. */
 export function limitProblem(l: TimeLimit, what: string): string | null {
   if (!l.on) return null;
-  if (!Number.isInteger(l.amount) || l.amount < 1) return `${what}: enter a whole number, 1 or more.`;
-  if (limitHours(l) > MAX_LIMIT_HOURS) return `${what}: at most 1 year (365 days).`;
+  if (!Number.isInteger(l.amount) || l.amount < 1 || l.amount > limitMax(l.unit)) return `${what}: enter 1 to ${limitMax(l.unit)} ${l.unit}.`;
   return null;
 }
 
@@ -123,11 +131,19 @@ export function itemsProblem(f: ShareForm): string | null {
   return f.paths.length === 0 ? "Choose what to share." : null;
 }
 
+/** What is wrong with the number of imports; null when it is fine. */
+export function importsProblem(n: number): string | null {
+  return Number.isInteger(n) && n >= 1 && n <= MAX_IMPORTS ? null : `Number of imports: enter 1 to ${MAX_IMPORTS}.`;
+}
+
+/** The receiver's password: long enough; null when it is fine. */
+export function passwordProblem(p: string): string | null {
+  return p.length >= MIN_SHARE_PASSWORD ? null : `The password needs at least ${MIN_SHARE_PASSWORD} characters.`;
+}
+
 /** Step "Rules": the password, how often, and the two time limits. */
 export function rulesProblem(f: ShareForm): string | null {
-  if (f.sharePassword.length < MIN_SHARE_PASSWORD) return `The password needs at least ${MIN_SHARE_PASSWORD} characters.`;
-  if (!Number.isInteger(f.maxImports) || f.maxImports < 1 || f.maxImports > MAX_IMPORTS) return `It can be imported between 1 and ${MAX_IMPORTS} times.`;
-  return limitProblem(f.validFor, "The file") ?? limitProblem(f.itemLife, "The items");
+  return passwordProblem(f.sharePassword) ?? importsProblem(f.maxImports) ?? limitProblem(f.validFor, FILE_EXPIRY) ?? limitProblem(f.itemLife, ITEM_REMOVAL);
 }
 
 /** Step "Confirm": the master password, and not the same as the receiver's. */
@@ -151,9 +167,9 @@ export function shareSummary(f: ShareForm, preview: { notes: number; folders: nu
   }
   out.push(`Can be imported ${f.maxImports} ${f.maxImports === 1 ? "time" : "times"}`);
   const until = validUntilMs(f.validFor, now);
-  out.push(until == null ? "The file has no end date" : `The file works for ${describeLimit(f.validFor)}`);
-  out.push(f.itemLife.on ? `Items are removed ${describeLimit(f.itemLife)} after the import` : "Items stay in the receiver's vault");
-  out.push(f.deleteFile ? "The file is deleted after its last import" : "The file is kept after the last import");
+  out.push(until == null ? "The file never expires" : `The file expires after ${describeLimit(f.validFor)}`);
+  out.push(f.itemLife.on ? `Items are removed ${describeLimit(f.itemLife)} after the import` : "Items are never removed");
+  out.push(f.deleteFile ? "The file is deleted after its last import" : "The file is kept after its last import");
   return out;
 }
 

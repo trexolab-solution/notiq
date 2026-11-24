@@ -3,8 +3,8 @@ vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn(), save: vi.fn() }));
 vi.mock("@tauri-apps/plugin-fs", () => ({ stat: vi.fn() }));
 import {
-  confirmProblem, coveredBy, defaultShareName, describeLimit, generateSharePassword, initialShareForm, itemLifeHours, itemsProblem,
-  limitHours, limitProblem, listForShare, rulesProblem, shareFormProblem, shareSummary, toExportArgs, toggleChosen, validUntilMs,
+  confirmProblem, coveredBy, defaultShareName, describeLimit, generateSharePassword, importsProblem, initialShareForm, itemLifeHours, itemsProblem,
+  limitHours, limitMax, limitProblem, listForShare, passwordProblem, rulesProblem, shareFormProblem, shareSummary, toExportArgs, toggleChosen, validUntilMs,
   type ShareForm, type TimeLimit,
 } from "./shareExport";
 import type { VaultItem } from "./vault";
@@ -43,15 +43,24 @@ describe("time limits", () => {
     expect(itemLifeHours(off)).toBeNull();
   });
   it("are checked: a whole number, at least 1, at most a year", () => {
-    expect(limitProblem(days(7), "The file")).toBeNull();
-    expect(limitProblem(days(365), "The file")).toBeNull();
-    expect(limitProblem(hours(8760), "The file")).toBeNull();
-    expect(limitProblem(days(366), "The file")).toMatch(/at most 1 year/);
-    expect(limitProblem(hours(8761), "The items")).toMatch(/The items: at most 1 year/);
-    expect(limitProblem(days(0), "The file")).toMatch(/whole number/);
-    expect(limitProblem(hours(1.5), "The file")).toMatch(/whole number/);
-    expect(limitProblem(hours(NaN), "The file")).toMatch(/whole number/);
-    expect(limitProblem({ ...off, amount: NaN }, "The file")).toBeNull();
+    expect(limitMax("days")).toBe(365);
+    expect(limitMax("hours")).toBe(8760);
+    expect(limitProblem(days(7), "File expiry")).toBeNull();
+    expect(limitProblem(days(365), "File expiry")).toBeNull();
+    expect(limitProblem(hours(8760), "File expiry")).toBeNull();
+    expect(limitProblem(days(366), "File expiry")).toBe("File expiry: enter 1 to 365 days.");
+    expect(limitProblem(hours(8761), "Item removal")).toBe("Item removal: enter 1 to 8760 hours.");
+    expect(limitProblem(days(0), "File expiry")).toBe("File expiry: enter 1 to 365 days.");
+    expect(limitProblem(hours(1.5), "File expiry")).toMatch(/enter 1 to 8760 hours/);
+    expect(limitProblem(hours(NaN), "File expiry")).toMatch(/enter 1 to 8760 hours/);
+    expect(limitProblem({ ...off, amount: NaN }, "File expiry")).toBeNull();
+  });
+  it("the number of imports and the password have their own checks", () => {
+    expect(importsProblem(1)).toBeNull();
+    expect(importsProblem(100)).toBeNull();
+    for (const bad of [0, 101, 1.5, NaN, -1]) expect(importsProblem(bad)).toBe("Number of imports: enter 1 to 100.");
+    expect(passwordProblem("12345678")).toBeNull();
+    expect(passwordProblem("1234567")).toMatch(/at least 8/);
   });
   it("read as words", () => {
     expect(describeLimit(days(7))).toBe("7 days");
@@ -108,12 +117,12 @@ describe("step checks", () => {
   it("Rules: the password, how often, and both time limits", () => {
     expect(rulesProblem(form())).toBeNull();
     expect(rulesProblem(form({ sharePassword: "short" }))).toMatch(/at least 8/);
-    expect(rulesProblem(form({ maxImports: 0 }))).toMatch(/between 1 and 100/);
-    expect(rulesProblem(form({ maxImports: 101 }))).toMatch(/between 1 and 100/);
-    expect(rulesProblem(form({ maxImports: 1.5 }))).toMatch(/between 1 and 100/);
-    expect(rulesProblem(form({ maxImports: NaN }))).toMatch(/between 1 and 100/);
-    expect(rulesProblem(form({ validFor: days(0) }))).toMatch(/^The file:/);
-    expect(rulesProblem(form({ itemLife: hours(9000) }))).toMatch(/^The items:/);
+    expect(rulesProblem(form({ maxImports: 0 }))).toMatch(/^Number of imports/);
+    expect(rulesProblem(form({ maxImports: 101 }))).toMatch(/^Number of imports/);
+    expect(rulesProblem(form({ maxImports: 1.5 }))).toMatch(/^Number of imports/);
+    expect(rulesProblem(form({ maxImports: NaN }))).toMatch(/^Number of imports/);
+    expect(rulesProblem(form({ validFor: days(0) }))).toMatch(/^File expiry:/);
+    expect(rulesProblem(form({ itemLife: hours(9000) }))).toMatch(/^Item removal:/);
     expect(rulesProblem(form({ validFor: off, itemLife: off }))).toBeNull();
   });
   it("Confirm: the master password, and not the receiver's", () => {
@@ -134,13 +143,13 @@ describe("summary", () => {
   it("says what is shared and the rules in plain words", () => {
     const lines = shareSummary(form({ attachments: true, maxImports: 2, validFor: hours(36), itemLife: days(7) }), preview, 0);
     expect(lines).toEqual([
-      "3 notes, 1 folder, 2 attachments", "Can be imported 2 times", "The file works for 36 hours",
+      "3 notes, 1 folder, 2 attachments", "Can be imported 2 times", "The file expires after 36 hours",
       "Items are removed 7 days after the import", "The file is deleted after its last import",
     ]);
   });
   it("names what is turned off", () => {
     const lines = shareSummary(form({ validFor: off, itemLife: off, deleteFile: false }), { notes: 1, folders: 0, attachments: 4 }, 0);
-    expect(lines).toEqual(["1 note", "Can be imported 1 time", "The file has no end date", "Items stay in the receiver's vault", "The file is kept after the last import"]);
+    expect(lines).toEqual(["1 note", "Can be imported 1 time", "The file never expires", "Items are never removed", "The file is kept after its last import"]);
     expect(shareSummary(form(), null, 0)[0]).toBe("Can be imported 1 time");
   });
 });

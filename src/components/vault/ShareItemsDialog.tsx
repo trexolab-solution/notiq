@@ -3,6 +3,7 @@ import { Check, Copy, Dices, Folder, FileText, FolderOpen, Share2, TriangleAlert
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { Dialog, DialogBody, DialogButton, DialogFooter } from "../ui/Dialog";
 import { Input } from "../ui/Input";
+import { NumberField } from "../ui/NumberField";
 import { PasswordInput } from "../ui/PasswordInput";
 import { Button } from "../ui/Button";
 import { Stepper, useStepFocus } from "../ui/Stepper";
@@ -11,8 +12,8 @@ import { toast } from "../../lib/toast";
 import { vaultErrorMessage, vaultList, type VaultItem } from "../../lib/vault";
 import { formatBytes, vaultSharePreview, type SharePreview } from "../../lib/vaultBackup";
 import {
-  confirmProblem, coveredBy, exportShareWithDialog, generateSharePassword, initialShareForm, itemsProblem, listForShare, MAX_IMPORTS,
-  rulesProblem, shareSummary, toggleChosen, type ShareForm,
+  confirmProblem, coveredBy, exportShareWithDialog, FILE_EXPIRY, generateSharePassword, importsProblem, initialShareForm, ITEM_REMOVAL, itemsProblem,
+  listForShare, MAX_IMPORTS, passwordProblem, rulesProblem, shareSummary, toggleChosen, type ShareForm,
 } from "../../lib/shareExport";
 import { getFileName, middleEllipsis } from "../../lib/pathUtils";
 
@@ -132,39 +133,41 @@ export function ShareItemsDialog({ onClose, initialPaths = [] }: { onClose: () =
     </div>
   );
 
+  const passwordError = passwordProblem(form.sharePassword);
+  const importsError = importsProblem(form.maxImports);
+
   const rulesStep = (
     <div className="flex flex-col gap-4">
       <div className="flex flex-col gap-1.5">
-        <span className="text-[13px] font-medium">Password for the receiver</span>
+        <span className="text-[13px] font-medium">Receiver's password</span>
         <div className="flex items-center gap-2">
-          <Input value={form.sharePassword} spellCheck={false} autoComplete="off" aria-label="Share password" maxLength={64} data-step-focus=""
-                 onChange={(e) => set("sharePassword", e.target.value)} />
+          <Input value={form.sharePassword} spellCheck={false} autoComplete="off" aria-label="Share password" aria-invalid={!!passwordError || undefined} maxLength={64} data-step-focus=""
+                 className={passwordError ? "!border-[var(--color-danger)]" : ""} onChange={(e) => set("sharePassword", e.target.value)} />
           <Button size="sm" variant="ghost" icon={<Dices size={13} />} onClick={() => set("sharePassword", generateSharePassword())}>New</Button>
           <Button size="sm" icon={copied ? <Check size={13} /> : <Copy size={13} />} onClick={() => void copy(form.sharePassword)}>{copied ? "Copied" : "Copy"}</Button>
         </div>
-        <span className="text-xs text-[var(--color-text-muted)]">They type this to open the file. It isn't your master password.</span>
+        {passwordError
+          ? <span role="alert" className="text-xs text-[var(--color-danger)]">{passwordError}</span>
+          : <span className="text-xs text-[var(--color-text-muted)]">The receiver types this to open the file. It is not your master password.</span>}
       </div>
 
       <div className="flex flex-col gap-1.5">
-        <span className="text-[13px] font-medium">How many times it can be imported</span>
-        <div className="flex items-center gap-2">
-          <Input type="number" min={1} max={MAX_IMPORTS} step={1} inputMode="numeric" aria-label="Imports allowed" className="!w-[72px]"
-                 value={Number.isFinite(form.maxImports) ? form.maxImports : ""}
-                 onChange={(e) => set("maxImports", e.target.value === "" ? NaN : Number(e.target.value))} />
-          <span className="text-xs text-[var(--color-text-muted)]">{form.maxImports === 1 ? "time" : "times"} (1 to {MAX_IMPORTS})</span>
-        </div>
+        <span className="text-[13px] font-medium">Number of imports</span>
+        <NumberField label="Number of imports" value={form.maxImports} min={1} max={MAX_IMPORTS} width={128} onChange={(n) => set("maxImports", n)} />
+        {importsError
+          ? <span role="alert" className="text-xs text-[var(--color-danger)]">{importsError}</span>
+          : <span className="text-xs text-[var(--color-text-muted)]">How many times the file can be imported (1 to {MAX_IMPORTS}).</span>}
       </div>
 
-      <TimeLimitField label="The file works for" value={form.validFor} onChange={(v) => set("validFor", v)}
-                      onLabel="Ends after a time" offLabel="No end date" hint="After this, it can't be imported." />
-      <TimeLimitField label="Items stay for" value={form.itemLife} onChange={(v) => set("itemLife", v)}
-                      onLabel="Removed after a time" offLabel="They stay in the vault" hint="Counted from the import, then they are removed from the receiver's vault." />
+      <TimeLimitField label={FILE_EXPIRY} what={FILE_EXPIRY} value={form.validFor} onChange={(v) => set("validFor", v)}
+                      onLabel="After a set time" offLabel="Never" hint="After this, the file can't be imported." />
+      <TimeLimitField label={ITEM_REMOVAL} what={ITEM_REMOVAL} value={form.itemLife} onChange={(v) => set("itemLife", v)}
+                      onLabel="After a set time" offLabel="Never" hint="Counted from the import. Then the items are removed from the receiver's vault." />
 
       <label className="flex cursor-pointer items-start gap-2 text-[13px]">
         <input type="checkbox" className="mt-0.5" checked={form.deleteFile} onChange={(e) => set("deleteFile", e.target.checked)} />
         <span>Delete the file after its last import</span>
       </label>
-      {rulesBlock && <p role="alert" className="text-xs text-[var(--color-danger)]" data-testid="share-problem">{rulesBlock}</p>}
     </div>
   );
 

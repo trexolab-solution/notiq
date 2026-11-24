@@ -114,25 +114,25 @@ describe("share items stepper", () => {
     await next();
     expect(step()).toBe("rules");
     expect(field("Share password").value).toMatch(/^[a-z2-9]{5}(-[a-z2-9]{5}){3}$/);
-    expect(field("Imports allowed").value).toBe("1");
-    expect(field("The file works for: amount").value).toBe("7");
-    expect(document.querySelector('button[aria-label="The file works for: limit"]')!.textContent).toContain("Ends after a time");
-    expect(document.querySelector('button[aria-label="Items stay for: unit"]')!.textContent).toContain("days");
+    expect(field("Number of imports").value).toBe("1");
+    expect(field("File expiry: amount").value).toBe("7");
+    expect(document.querySelector('button[aria-label="File expiry: when"]')!.textContent).toContain("After a set time");
+    expect(document.querySelector('button[aria-label="Item removal: unit"]')!.textContent).toContain("days");
     expect(Array.from(document.querySelectorAll("label")).find((l) => l.textContent?.includes("Delete the file"))!.querySelector("input")!.checked).toBe(true);
   });
 
   it("Rules: the time is set in hours or days, or turned off", async () => {
     await render();
     await next();
-    await type(field("The file works for: amount"), "36");
-    await pick("The file works for: unit", "hours");
-    await pick("Items stay for: limit", "They stay in the vault");
-    expect(document.querySelector('input[aria-label="Items stay for: amount"]')).toBeNull();
+    await type(field("File expiry: amount"), "36");
+    await pick("File expiry: unit", "hours");
+    await pick("Item removal: when", "Never");
+    expect(document.querySelector('input[aria-label="Item removal: amount"]')).toBeNull();
     expect(button("Next")!.disabled).toBe(false);
     await toConfirmFromRules();
     const lines = Array.from(document.querySelectorAll("[data-testid=share-summary] li")).map((l) => l.textContent);
-    expect(lines).toContain("The file works for 36 hours");
-    expect(lines).toContain("Items stay in the receiver's vault");
+    expect(lines).toContain("The file expires after 36 hours");
+    expect(lines).toContain("Items are never removed");
   });
 
   async function toConfirmFromRules() { await next(); expect(step()).toBe("confirm"); }
@@ -140,24 +140,27 @@ describe("share items stepper", () => {
   it("Rules: a wrong number stops the step and says which", async () => {
     await render();
     await next();
-    await type(field("The file works for: amount"), "400");
+    await type(field("File expiry: amount"), "400");
     expect(button("Next")!.disabled).toBe(true);
-    expect(document.querySelector("[data-testid=share-problem]")!.textContent).toMatch(/The file: at most 1 year/);
-    await type(field("The file works for: amount"), "7");
-    await type(field("Imports allowed"), "0");
-    expect(document.querySelector("[data-testid=share-problem]")!.textContent).toMatch(/between 1 and 100/);
-    await type(field("Imports allowed"), "100");
+    expect(document.querySelector("[data-time-group][data-invalid]")).toBeTruthy();
+    expect(document.querySelector("[role=alert]")!.textContent).toBe("File expiry: enter 1 to 365 days.");
+    await type(field("File expiry: amount"), "7");
+    expect(document.querySelector("[role=alert]")).toBeNull();
+    await type(field("Number of imports"), "0");
+    expect(document.querySelector("[role=alert]")!.textContent).toBe("Number of imports: enter 1 to 100.");
+    expect(button("Next")!.disabled).toBe(true);
+    await type(field("Number of imports"), "100");
     expect(button("Next")!.disabled).toBe(false);
   });
 
   it("Back keeps what was typed", async () => {
     await render();
     await next();
-    await type(field("Imports allowed"), "4");
+    await type(field("Number of imports"), "4");
     await toConfirmFromRules();
     await act(async () => { button("Back")!.click(); });
     expect(step()).toBe("rules");
-    expect(field("Imports allowed").value).toBe("4");
+    expect(field("Number of imports").value).toBe("4");
     await act(async () => { button("Back")!.click(); });
     expect(step()).toBe("items");
     expect(field("Work/bank.nqv").checked).toBe(true);
@@ -168,7 +171,7 @@ describe("share items stepper", () => {
     await toConfirm();
     expect(step()).toBe("confirm");
     expect(Array.from(document.querySelectorAll("[data-testid=share-summary] li")).map((l) => l.textContent)).toEqual([
-      "1 note, 1 folder", "Can be imported 1 time", "The file works for 7 days", "Items are removed 7 days after the import", "The file is deleted after its last import",
+      "1 note, 1 folder", "Can be imported 1 time", "The file expires after 7 days", "Items are removed 7 days after the import", "The file is deleted after its last import",
     ]);
     expect(button("Save share file")!.disabled).toBe(true);
     await type(field("Master password"), "the master password");
@@ -179,9 +182,9 @@ describe("share items stepper", () => {
     await render();
     await next();
     const password = field("Share password").value;
-    await type(field("Imports allowed"), "3");
-    await type(field("The file works for: amount"), "36");
-    await pick("The file works for: unit", "hours");
+    await type(field("Number of imports"), "3");
+    await type(field("File expiry: amount"), "36");
+    await pick("File expiry: unit", "hours");
     await next();
     await type(field("Master password"), "the master password");
     await act(async () => { button("Save share file")!.click(); });
