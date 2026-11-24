@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
-import { Check, Copy, Eye, EyeOff } from "lucide-react";
+import { Check, Copy, Eye, EyeOff, FolderOpen } from "lucide-react";
 import { SettingRow } from "../SettingRow";
 import { SettingsGroup } from "../SettingsGroup";
 import { Toggle } from "../Toggle";
@@ -94,8 +94,11 @@ export function WebdavShareSettings() {
           </div>
         </SettingRow>
 
-        <SettingRow id="share.folder" label="Folder to share" description={folder ? (info ? `${folder} (stop sharing to change it)` : folder) : "Pick the folder a phone can open."} keywords={[...KW, "folder", "directory", "choose"]}>
-          <Button size="sm" variant="ghost" disabled={!!info || busy} onClick={() => void choose()}>{folder ? "Change…" : "Choose…"}</Button>
+        <SettingRow id="share.folder" label="Folder to share"
+                    description={`${folder || "No folder picked yet"} — the folder of this computer a phone can open.${info ? " Stop sharing to change it." : ""}`}
+                    keywords={[...KW, "folder", "directory", "choose", "path"]}
+                    modified={!!folder} onReset={() => { setFolder(""); setShareFolder(""); }} disabled={!!info}>
+          <Button className="settings-btn" size="sm" icon={<FolderOpen size={12} />} disabled={!!info || busy} onClick={() => void choose()}>Choose…</Button>
         </SettingRow>
 
         {info && (
@@ -126,7 +129,7 @@ export function WebdavShareSettings() {
         <SettingRow id="share.login" label="User name and password" keywords={[...KW, "user name", "username", "password", "login", "custom", "change", "update"]}
                     description={`User name ${shownUser} · password ${shownPass}`}
                     modified={!!user || !!pass} onReset={() => void save("", "")}>
-          <Button size="sm" variant="ghost" disabled={busy} onClick={() => setEditing(true)}>Edit…</Button>
+          <Button className="settings-btn" size="sm" disabled={busy} onClick={() => setEditing(true)}>Edit…</Button>
         </SettingRow>
 
         <SettingRow id="share.qr-login" label="Put the password in the QR code"
