@@ -55,11 +55,13 @@ interface Props {
   onMenu: (entry: RemoteEntry | null, x: number, y: number) => void;
   /** Click-and-drag on empty space: the names the band touches (`base` is the selection before the drag). */
   onMarquee: (names: string[], additive: boolean, base: ReadonlySet<string>) => void;
+  /** The names being dragged right now (all selected items travel together): they all dim. */
+  dragNames?: string[] | null;
   empty: string;
 }
 
-function GridItem({ e, dir, on, size, icon, onSelect, onOpen, onMenu }: {
-  e: RemoteEntry; dir: string; on: boolean; size: GridSize; icon: number;
+function GridItem({ e, dir, on, dim, size, icon, onSelect, onOpen, onMenu }: {
+  e: RemoteEntry; dir: string; on: boolean; dim: boolean; size: GridSize; icon: number;
   onSelect: Props["onSelect"]; onOpen: Props["onOpen"]; onMenu: Props["onMenu"];
 }) {
   const dnd = useEntryDnd(e, dir);
@@ -68,7 +70,7 @@ function GridItem({ e, dir, on, size, icon, onSelect, onOpen, onMenu }: {
          onClick={(ev) => { ev.stopPropagation(); onSelect(e.name, ev.shiftKey ? "range" : ev.ctrlKey || ev.metaKey ? "toggle" : "single"); }}
          onDoubleClick={() => onOpen(e)}
          onContextMenu={(ev) => { ev.preventDefault(); ev.stopPropagation(); onMenu(e, ev.clientX, ev.clientY); }}
-         className={`flex flex-col items-center gap-1 px-1.5 py-2 rounded-md text-center cursor-default select-none ${dnd.dragging ? "opacity-40" : ""} ${dnd.over
+         className={`flex flex-col items-center gap-1 px-1.5 py-2 rounded-md text-center cursor-default select-none ${dnd.dragging || dim ? "opacity-40" : ""} ${dnd.over
            ? "bg-[var(--color-primary)]/20 ring-2 ring-[var(--color-primary)]"
            : on ? "bg-[var(--color-primary)]/15 ring-1 ring-[var(--color-primary)]/40" : "hover:bg-[var(--color-bg-tertiary)]"}`}>
       <span role="gridcell" className={e.kind === "dir" ? "text-[var(--color-primary)]" : "text-[var(--color-text-muted)]"}>
@@ -81,7 +83,7 @@ function GridItem({ e, dir, on, size, icon, onSelect, onOpen, onMenu }: {
 }
 
 /** The folder as a grid of icons (same selection, open and right-click behaviour as the list). */
-export function RemoteFileGrid({ entries, dir, selected, sort, onSort, size, onZoom, onSelect, onOpen, onMenu, onMarquee, empty }: Props) {
+export function RemoteFileGrid({ entries, dir, selected, sort, onSort, size, onZoom, onSelect, onOpen, onMenu, onMarquee, dragNames, empty }: Props) {
   const icon = ICON_PX[size];
   const scroller = useRef<HTMLDivElement>(null);
   const selectedRef = useRef(selected);
@@ -121,7 +123,7 @@ export function RemoteFileGrid({ entries, dir, selected, sort, onSort, size, onZ
         {entries.length === 0 && <p className="px-3 py-8 text-center text-sm text-[var(--color-text-muted)]">{empty}</p>}
         <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${GRID_ITEM_PX[size]}px, 1fr))` }}>
           {entries.map((e) => (
-            <GridItem key={e.name} e={e} dir={dir} on={selected.has(e.name)} size={size} icon={icon} onSelect={onSelect} onOpen={onOpen} onMenu={onMenu} />
+            <GridItem key={e.name} e={e} dir={dir} on={selected.has(e.name)} dim={!!dragNames?.includes(e.name)} size={size} icon={icon} onSelect={onSelect} onOpen={onOpen} onMenu={onMenu} />
           ))}
         </div>
         {band && <div aria-hidden className="absolute z-10 pointer-events-none rounded-[2px] border border-[var(--color-primary)]/70 bg-[var(--color-primary)]/15" style={marqueeStyle(band)} />}

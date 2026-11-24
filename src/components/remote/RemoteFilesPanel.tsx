@@ -396,16 +396,19 @@ export function RemoteFilesPanel({ target, active = true, onPopOut }: {
                                       onView={setView} onSize={setGridSize} onPopOut={onPopOut} />
 
                 {view === "grid" ? (
-                  <RemoteFileGrid entries={shown} dir={path} selected={selected} sort={sort} onSort={sortBy} size={gridSize} onZoom={(d) => setGridSize(stepSize(gridSize, d))} onOpen={openEntry} onMenu={openMenu} onMarquee={marquee}
+                  <RemoteFileGrid entries={shown} dir={path} selected={selected} sort={sort} onSort={sortBy} size={gridSize} onZoom={(d) => setGridSize(stepSize(gridSize, d))} onOpen={openEntry} onMenu={openMenu} onMarquee={marquee} dragNames={dragNames}
                                   onSelect={(n, m) => (n === "" ? setSelected(new Set()) : select(n, m))} empty={emptyText} />
                 ) : (
-                  <RemoteFileTable entries={shown} dir={path} selected={selected} sort={sort} onSort={sortBy} onSelect={select} onOpen={openEntry} onMenu={openMenu} onMarquee={marquee}
+                  <RemoteFileTable entries={shown} dir={path} selected={selected} sort={sort} onSort={sortBy} onSelect={select} onOpen={openEntry} onMenu={openMenu} onMarquee={marquee} dragNames={dragNames}
                                    empty={emptyText} />
                 )}
                 <DragOverlay dropAnimation={null}>
                   {dragNames && (
-                    <div className="px-2.5 py-1.5 rounded-md text-sm shadow-lg border border-[var(--color-border)] bg-[var(--color-bg-secondary)] text-[var(--color-text)] whitespace-nowrap">
-                      {dragNames.length === 1 ? dragNames[0] : `${dragNames.length} items`}
+                    <div className="relative">
+                      {dragNames.length > 1 && <span aria-hidden className="absolute inset-0 translate-x-1 translate-y-1 rounded-md border border-[var(--color-border)] bg-[var(--color-bg-tertiary)]" />}
+                      <div className="relative px-2.5 py-1.5 rounded-md text-sm shadow-lg border border-[var(--color-border)] bg-[var(--color-bg-secondary)] text-[var(--color-text)] whitespace-nowrap">
+                        {dragNames.length === 1 ? dragNames[0] : `${dragNames.length} items`}
+                      </div>
                     </div>
                   )}
                 </DragOverlay>

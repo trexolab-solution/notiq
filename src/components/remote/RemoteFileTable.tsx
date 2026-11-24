@@ -23,6 +23,8 @@ interface Props {
   onMenu: (entry: RemoteEntry | null, x: number, y: number) => void;
   /** Click-and-drag on empty space: the names the band touches (`base` is the selection before the drag). */
   onMarquee: (names: string[], additive: boolean, base: ReadonlySet<string>) => void;
+  /** The names being dragged right now (all selected items travel together): they all dim. */
+  dragNames?: string[] | null;
   /** The empty-state text (an empty folder, or nothing matches the filter). */
   empty: string;
 }
@@ -49,8 +51,8 @@ function Glyph({ e }: { e: RemoteEntry }) {
   return e.link ? <FileSymlink size={15} aria-hidden /> : <File size={15} aria-hidden />;
 }
 
-function Row({ e, dir, on, onSelect, onOpen, onMenu }: {
-  e: RemoteEntry; dir: string; on: boolean; onSelect: Props["onSelect"]; onOpen: Props["onOpen"]; onMenu: Props["onMenu"];
+function Row({ e, dir, on, dim, onSelect, onOpen, onMenu }: {
+  e: RemoteEntry; dir: string; on: boolean; dim: boolean; onSelect: Props["onSelect"]; onOpen: Props["onOpen"]; onMenu: Props["onMenu"];
 }) {
   const dnd = useEntryDnd(e, dir);
   return (
@@ -58,7 +60,7 @@ function Row({ e, dir, on, onSelect, onOpen, onMenu }: {
          onClick={(ev) => onSelect(e.name, ev.shiftKey ? "range" : ev.ctrlKey || ev.metaKey ? "toggle" : "single")}
          onDoubleClick={() => onOpen(e)}
          onContextMenu={(ev) => { ev.preventDefault(); ev.stopPropagation(); onMenu(e, ev.clientX, ev.clientY); }}
-         className={`grid ${COLUMNS} items-center h-8 text-sm cursor-default select-none ${dnd.dragging ? "opacity-40" : ""} ${dnd.over
+         className={`grid ${COLUMNS} items-center h-8 text-sm cursor-default select-none ${dnd.dragging || dim ? "opacity-40" : ""} ${dnd.over
            ? "bg-[var(--color-primary)]/20 ring-1 ring-inset ring-[var(--color-primary)]"
            : on ? "bg-[var(--color-primary)]/15 text-[var(--color-text)]" : "hover:bg-[var(--color-bg-tertiary)]"}`}>
       <div role="gridcell" className="flex items-center gap-2 px-2 min-w-0">
@@ -77,7 +79,7 @@ function Row({ e, dir, on, onSelect, onOpen, onMenu }: {
 }
 
 /** The folder's listing: name, size, modified, permissions; click selects, double-click opens, drag moves. */
-export function RemoteFileTable({ entries, dir, selected, sort, onSort, onSelect, onOpen, onMenu, onMarquee, empty }: Props) {
+export function RemoteFileTable({ entries, dir, selected, sort, onSort, onSelect, onOpen, onMenu, onMarquee, dragNames, empty }: Props) {
   const scroller = useRef<HTMLDivElement>(null);
   const selectedRef = useRef(selected);
   selectedRef.current = selected;
@@ -92,7 +94,7 @@ export function RemoteFileTable({ entries, dir, selected, sort, onSort, onSelect
       </div>
       <div ref={scroller} className="relative flex-1 min-h-0 overflow-y-auto" data-remote-rows="" onContextMenu={(ev) => { ev.preventDefault(); onMenu(null, ev.clientX, ev.clientY); }}>
         {entries.length === 0 && <p className="px-3 py-8 text-center text-sm text-[var(--color-text-muted)]">{empty}</p>}
-        {entries.map((e) => <Row key={e.name} e={e} dir={dir} on={selected.has(e.name)} onSelect={onSelect} onOpen={onOpen} onMenu={onMenu} />)}
+        {entries.map((e) => <Row key={e.name} e={e} dir={dir} on={selected.has(e.name)} dim={!!dragNames?.includes(e.name)} onSelect={onSelect} onOpen={onOpen} onMenu={onMenu} />)}
         {band && <div aria-hidden className="absolute z-10 pointer-events-none rounded-[2px] border border-[var(--color-primary)]/70 bg-[var(--color-primary)]/15" style={marqueeStyle(band)} />}
       </div>
     </div>
