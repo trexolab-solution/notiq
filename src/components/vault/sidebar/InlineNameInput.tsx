@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 
 interface Props {
   initial: string;
@@ -15,6 +15,7 @@ interface Props {
 /** Inline text field used for rename / new folder / new entry rows. Enter saves, Esc cancels, blur saves. */
 export function InlineNameInput({ initial, label, validate, onCommit, onCancel, isNew = false }: Props) {
   const ref = useRef<HTMLInputElement>(null);
+  const hintId = useId();
   const [value, setValue] = useState(initial);
   const [touched, setTouched] = useState(false);
   const busy = useRef(false);
@@ -49,6 +50,7 @@ export function InlineNameInput({ initial, label, validate, onCommit, onCancel, 
         value={value}
         aria-label={label}
         aria-invalid={!!err}
+        aria-describedby={err ? hintId : undefined}
         spellCheck={false}
         maxLength={120}
         onChange={(e) => { setValue(e.target.value); setTouched(true); }}
@@ -67,7 +69,7 @@ export function InlineNameInput({ initial, label, validate, onCommit, onCancel, 
           void commit();
         }}
       />
-      {err && <div className="vt-row-hint" role="alert">{err}</div>}
+      {err && <div id={hintId} className="vt-row-hint" role="alert">{err}</div>}
     </>
   );
 }

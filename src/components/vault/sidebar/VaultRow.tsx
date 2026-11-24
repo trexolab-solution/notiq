@@ -165,6 +165,7 @@ export const VaultRow = memo(function VaultRow({
             </span>
           )}
           {node.starred && !showPath && <Star size={11} className="vt-row-star" fill="currentColor" aria-hidden />}
+          <span className="vt-row-actions">
           {node.kind === "login" && onCopyLogin && !selecting && (
             <>
               <Tooltip content="Copy username">
@@ -255,6 +256,7 @@ export const VaultRow = memo(function VaultRow({
           >
             <Ellipsis size={14} />
           </button>
+          </span>
         </>
       )}
     </div>
