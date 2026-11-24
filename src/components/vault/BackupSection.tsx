@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
-import { Download, FileUp, PackageOpen, ShieldCheck } from "lucide-react";
+import { Download, FileUp, PackageOpen, Share2, ShieldCheck } from "lucide-react";
 import { Modal } from "../ui/Modal";
 import { PasswordInput } from "../ui/PasswordInput";
 import { Button } from "../ui/Button";
 import { SettingRow } from "../ui/SettingRow";
 import { RestoreBackupDialog } from "./RestoreBackupDialog";
 import { ImportSharedDialog } from "./ImportSharedDialog";
+import { ShareItemsDialog } from "./ShareItemsDialog";
 import { toast } from "../../lib/toast";
 import { useVaultStore } from "../../store/vaultStore";
 import { vaultErrorMessage } from "../../lib/vault";
@@ -24,6 +25,7 @@ export function BackupSection() {
   const [askPw, setAskPw] = useState(false);
   const [restoring, setRestoring] = useState(false);
   const [importingShare, setImportingShare] = useState(false);
+  const [sharing, setSharing] = useState(false);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -43,6 +45,11 @@ export function BackupSection() {
     } finally {
       setBusy(false);
     }
+  };
+
+  const startShare = async () => {
+    if (!useVaultStore.getState().unlocked && !(await useVaultStore.getState().ensureUnlocked())) return;
+    setSharing(true);
   };
 
   const start = async () => {
@@ -81,6 +88,15 @@ export function BackupSection() {
       </SettingRow>
 
       <SettingRow
+        id="vault.backup.share"
+        label="Share items"
+        description="Make a .nqb file of chosen items for someone else, with its own password. You choose how often it can be imported, how long it works and how long the items stay."
+        keywords={["share", "send", "give", "someone", ".nqb", "expire", "self destruct", "temporary"]}
+      >
+        <Button className="settings-btn" size="sm" icon={<Share2 size={12} />} disabled={!exists} onClick={() => void startShare()}>Share items…</Button>
+      </SettingRow>
+
+      <SettingRow
         id="vault.backup.shared"
         label="Import shared items"
         description="Add items someone shared with you from a .nqb share file. You need the password they gave you, and your own vault open."
@@ -108,6 +124,7 @@ export function BackupSection() {
       )}
       {restoring && <RestoreBackupDialog onClose={() => setRestoring(false)} />}
       {importingShare && <ImportSharedDialog onClose={() => setImportingShare(false)} />}
+      {sharing && <ShareItemsDialog onClose={() => setSharing(false)} />}
     </>
   );
 }

@@ -25,6 +25,7 @@ import { BulkBar } from "./BulkBar";
 import { openRemoteFiles } from "../../../lib/remoteFiles";
 import { getFilesPlace, otherFilesPlace } from "../../../lib/vaultPrefs";
 import { MoveDialog } from "./MoveDialog";
+import { ShareItemsDialog } from "../ShareItemsDialog";
 import { TrashView } from "./TrashView";
 import { buildMenu, type MenuHandlers } from "./menuItems";
 import { RecentlySyncedView } from "./RecentlySyncedView";
@@ -67,6 +68,8 @@ export function VaultExplorer({ root, items, trash, loading, error, reload, foot
   const [menu, setMenu] = useState<Menu | null>(null);
   const [tagEdit, setTagEdit] = useState<TreeNode | null>(null);
   const [moving, setMoving] = useState<TreeNode | null>(null);
+  /** The paths the "Share items" dialog opens with ticked (null = closed). */
+  const [sharing, setSharing] = useState<string[] | null>(null);
   const [confirmTrash, setConfirmTrash] = useState<TreeNode | null>(null);
   const [showTrash, setShowTrash] = useState(false);
   // Rows ticked for a bulk action (rels), and the bulk dialogs.
@@ -216,6 +219,7 @@ export function VaultExplorer({ root, items, trash, loading, error, reload, foot
       if (rel) reveal(rel);
     },
     move: (n) => setMoving(n),
+    share: (n) => setSharing([n.rel]),
     trash: askTrash,
     create: startCreate,
     sort: setSort,
@@ -430,6 +434,7 @@ export function VaultExplorer({ root, items, trash, loading, error, reload, foot
           onMove={(dest) => { const n = moving; setMoving(null); void doMove(n.rel, dest); }}
         />
       )}
+      {sharing && <ShareItemsDialog initialPaths={sharing} onClose={() => setSharing(null)} />}
       {managingTags && (
         <TagManagerDialog
           tags={tags}

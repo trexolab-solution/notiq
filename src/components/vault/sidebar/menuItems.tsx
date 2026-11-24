@@ -1,6 +1,6 @@
 import {
   ArrowDownAZ, ChevronsDownUp, ChevronsUpDown, Clock, Copy, ExternalLink, FolderInput, FolderOpen, FolderPlus, Pencil, Star,
-  SquareArrowOutUpRight, SquareTerminal, StarOff, Tags, Trash2, Globe, History, TrendingUp, Lock, UserRound,
+  SquareArrowOutUpRight, SquareTerminal, StarOff, Tags, Trash2, Globe, History, TrendingUp, Lock, UserRound, Share2,
 } from "lucide-react";
 import { getFilesPlace } from "../../../lib/vaultPrefs";
 import type { ContextMenuItem } from "../../ui/ContextMenu";
@@ -25,6 +25,8 @@ export interface MenuHandlers {
   star: (n: TreeNode) => void;
   duplicate: (n: TreeNode) => void;
   move: (n: TreeNode) => void;
+  /** Share this note or folder (the "Share items" dialog opens with it ticked). */
+  share?: (n: TreeNode) => void;
   trash: (n: TreeNode) => void;
   create: (kind: NewEntryKind | "folder", parent: string) => void;
   sort: (m: SortMode) => void;
@@ -77,6 +79,7 @@ export function buildMenu(node: TreeNode | null, sort: SortMode, h: MenuHandlers
       { type: "item", label: "Rename", shortcut: "F2", icon: icon(<Pencil size={14} />), onClick: () => h.rename(node) },
       star,
       { type: "item", label: "Move to…", icon: icon(<FolderInput size={14} />), onClick: () => h.move(node) },
+      ...(h.share ? [{ type: "item" as const, label: "Share…", icon: icon(<Share2 size={14} />), onClick: () => h.share?.(node) }] : []),
       { type: "separator" },
       { type: "item", label: "Move to Trash", shortcut: "Del", danger: true, icon: icon(<Trash2 size={14} />), onClick: () => h.trash(node) },
     ];
@@ -100,6 +103,7 @@ export function buildMenu(node: TreeNode | null, sort: SortMode, h: MenuHandlers
     { type: "separator" },
     { type: "item", label: "Duplicate", icon: icon(<Copy size={14} />), onClick: () => h.duplicate(node) },
     { type: "item", label: "Move to…", icon: icon(<FolderInput size={14} />), onClick: () => h.move(node) },
+    ...(h.share ? [{ type: "item" as const, label: "Share…", icon: icon(<Share2 size={14} />), onClick: () => h.share?.(node) }] : []),
     { type: "separator" },
     { type: "item", label: "Move to Trash", shortcut: "Del", danger: true, icon: icon(<Trash2 size={14} />), onClick: () => h.trash(node) },
   ];
