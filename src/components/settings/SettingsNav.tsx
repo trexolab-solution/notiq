@@ -1,12 +1,13 @@
 import React from "react";
 import {
-  Settings as SettingsIcon, Type, Sparkles, Lock, Terminal, Monitor, Keyboard, Download, Info, type LucideIcon,
+  Settings as SettingsIcon, Type, Sparkles, Lock, Terminal, Monitor, Keyboard, Download, Info, FolderTree, Smartphone, type LucideIcon,
 } from "lucide-react";
-import { SECTION_LABELS, SECTION_ORDER, type SectionId } from "../../lib/settingsIndex";
+import { SECTION_GROUPS, SECTION_LABELS, type SectionId } from "../../lib/settingsIndex";
 
 export const SECTION_ICONS: Record<SectionId, LucideIcon> = {
-  general: SettingsIcon, editor: Type, ai: Sparkles, vault: Lock, terminal: Terminal,
-  appearance: Monitor, shortcuts: Keyboard, updates: Download, about: Info,
+  general: SettingsIcon, editor: Type, appearance: Monitor, shortcuts: Keyboard,
+  ai: Sparkles, terminal: Terminal, files: FolderTree, share: Smartphone,
+  vault: Lock, updates: Download, about: Info,
 };
 
 interface Props {
@@ -24,26 +25,31 @@ export const SettingsNav = React.memo(function SettingsNav({ active, counts, onS
   return (
     <nav className="settings-nav" aria-label="Settings sections">
       <ul className="settings-nav-list">
-        {SECTION_ORDER.map((id) => {
-          const Icon = SECTION_ICONS[id];
-          const count = counts?.[id];
-          const empty = counts !== null && !count;
-          return (
-            <li key={id}>
-              <a
-                href={`#settings-section-${id}`}
-                className="settings-nav-item"
-                aria-current={active === id ? "location" : undefined}
-                data-empty={empty || undefined}
-                onClick={(e) => { e.preventDefault(); onSelect(id); }}
-              >
-                <Icon size={15} aria-hidden />
-                <span className="settings-nav-label">{SECTION_LABELS[id]}</span>
-                {counts !== null && !empty && <span className="settings-nav-count">{count}</span>}
-              </a>
-            </li>
-          );
-        })}
+        {SECTION_GROUPS.map((group) => (
+          <React.Fragment key={group.label}>
+            <li className="settings-nav-heading" role="presentation">{group.label}</li>
+            {group.ids.map((id) => {
+              const Icon = SECTION_ICONS[id];
+              const count = counts?.[id];
+              const empty = counts !== null && !count;
+              return (
+                <li key={id}>
+                  <a
+                    href={`#settings-section-${id}`}
+                    className="settings-nav-item"
+                    aria-current={active === id ? "location" : undefined}
+                    data-empty={empty || undefined}
+                    onClick={(e) => { e.preventDefault(); onSelect(id); }}
+                  >
+                    <Icon size={15} aria-hidden />
+                    <span className="settings-nav-label">{SECTION_LABELS[id]}</span>
+                    {counts !== null && !empty && <span className="settings-nav-count">{count}</span>}
+                  </a>
+                </li>
+              );
+            })}
+          </React.Fragment>
+        ))}
       </ul>
     </nav>
   );

@@ -13,6 +13,8 @@ const mem = new Map<string, string>();
 };
 const VAULT_INDEX: SettingMeta[] = (await import("./VaultSection")).SETTINGS_INDEX;
 const AI_INDEX: SettingMeta[] = (await import("./AISettingsSection")).SETTINGS_INDEX;
+const FILES_INDEX: SettingMeta[] = (await import("./FileManagerSettings")).SETTINGS_INDEX;
+const SHARE_INDEX: SettingMeta[] = (await import("./WebdavShareSettings")).SETTINGS_INDEX;
 
 const root = resolve(__dirname, "../../..");
 const read = (rel: string) => readFileSync(resolve(root, rel), "utf8");
@@ -24,14 +26,17 @@ const VAULT_FILES = [
   "components/ui/settings/CaptureShieldRow.tsx",
   "components/ui/settings/QuickSearchRow.tsx",
   "components/ui/settings/HelloRow.tsx",
-  "components/ui/settings/FileManagerSettings.tsx",
-  "components/ui/settings/WebdavShareSettings.tsx",
   "components/ui/settings/RecoveryKeyRow.tsx",
   "components/ui/settings/AutofillSection.tsx",
   "components/ui/settings/AutofillIncognitoRow.tsx",
   "components/ui/settings/SyncSection.tsx",
   "components/ui/settings/SyncHistoryRow.tsx",
   "components/vault/BackupSection.tsx",
+];
+const FILES_FILES = ["components/ui/settings/FileManagerSettings.tsx"];
+const SHARE_FILES = [
+  "components/ui/settings/WebdavShareSettings.tsx",
+  "components/ui/settings/WebdavSignInDialog.tsx",
 ];
 const AI_FILES = [
   "components/ui/settings/AISettingsSection.tsx",
@@ -54,6 +59,8 @@ function renderedIds(files: string[], prefix: string): string[] {
 const cases = [
   { name: "vault", index: VAULT_INDEX, files: VAULT_FILES, prefix: "vault." },
   { name: "ai", index: AI_INDEX, files: AI_FILES, prefix: "ai." },
+  { name: "files", index: FILES_INDEX, files: FILES_FILES, prefix: "files." },
+  { name: "share", index: SHARE_INDEX, files: SHARE_FILES, prefix: "share." },
 ];
 
 describe.each(cases)("$name settings index", ({ index, files, prefix, name }) => {

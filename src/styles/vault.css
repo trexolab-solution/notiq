@@ -143,8 +143,21 @@
   border: 1px solid color-mix(in srgb, var(--color-primary) 35%, transparent);
 }
 .vt-bulk-count { flex: 1; min-width: 0; font-size: 12px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.vt-row-more { opacity: 0; width: 20px; height: 20px; }
-.vt-row:hover .vt-row-more, .vt-row.is-selected .vt-row-more, .vt-row-more[aria-expanded="true"] { opacity: 1; }
+/* Row actions (copy, open, "⋯") are an overlay at the row's right end: they take no width while the row is idle, so a
+   name is only cut where the buttons really cover it. A soft fade on their left edge blends them into the name. */
+.vt-row { --vt-row-bg: var(--color-bg-secondary); }
+.vt-row:hover { --vt-row-bg: color-mix(in srgb, var(--color-bg-tertiary) 70%, var(--color-bg-secondary)); }
+.vt-row.is-selected { --vt-row-bg: color-mix(in srgb, var(--color-primary) 14%, var(--color-bg-tertiary)); }
+.vt-row.is-checked { --vt-row-bg: color-mix(in srgb, var(--color-primary) 16%, var(--color-bg-secondary)); }
+.vt-row.is-drop { --vt-row-bg: color-mix(in srgb, var(--color-primary) 22%, var(--color-bg-secondary)); }
+.vt-row-actions {
+  position: absolute; right: 0; top: 0; bottom: 0; z-index: 1; display: none; align-items: center; gap: 1px;
+  padding: 0 4px 0 18px; border-radius: 0 5px 5px 0;
+  background: linear-gradient(to right, transparent 0, var(--vt-row-bg) 16px);
+}
+.vt-row:hover .vt-row-actions, .vt-row.is-selected .vt-row-actions, .vt-row:focus-within .vt-row-actions,
+.vt-row-actions:has([aria-expanded="true"]) { display: inline-flex; }
+.vt-row-more { width: 20px; height: 20px; }
 .vt-row-input {
   flex: 1; min-width: 0; height: 21px; padding: 0 5px; border-radius: 4px; font-size: 12.5px;
   background: var(--color-bg); color: var(--color-text);
@@ -152,9 +165,13 @@
 }
 .vt-row-input:focus-visible { box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 25%, transparent); }
 .vt-row-input.is-invalid { border-color: var(--color-danger); }
-.vt-row-hint { position: absolute; left: 24px; right: 4px; top: 100%; z-index: 5; margin-top: 2px;
-  padding: 3px 6px; border-radius: 4px; font-size: 11px; color: var(--color-danger);
-  background: var(--color-bg-secondary); border: 1px solid var(--color-danger); }
+/* Rename / create validation. The message sits in the row (which grows to hold it), so it never covers the rows below. */
+.vt-row:has(.vt-row-hint) { height: auto; flex-wrap: wrap; align-content: center; padding-top: 2px; padding-bottom: 3px; row-gap: 2px; }
+.vt-row-hint {
+  flex: 1 1 100%; margin: 0 2px 0 24px; padding: 0; font-size: 11px; line-height: 1.35; color: var(--color-danger);
+  display: flex; align-items: center; gap: 4px;
+}
+.vt-row-hint::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: var(--color-danger); flex: none; }
 
 .vt-drag-ghost {
   display: inline-flex; align-items: center; gap: 6px; padding: 4px 9px; border-radius: 6px; font-size: 12px;

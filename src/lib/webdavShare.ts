@@ -119,15 +119,15 @@ export const useShareStore = create<ShareStore>((set, get) => ({
  * One-step on / off from anywhere (palette, tray): stops a running share; otherwise starts the last folder and opens
  * the settings where the QR code is. With no folder yet it opens the settings to pick one.
  */
-export async function quickToggleShare(openSettings: (section: "vault", settingId: string) => void) {
+export async function quickToggleShare(openSettings: (section: "share", settingId: string) => void) {
   const s = useShareStore.getState();
   await s.refresh();
   try {
     if (useShareStore.getState().info) { await s.stop(); toast.success("Sharing to phone is off."); return; }
     const folder = getShareFolder();
-    if (!folder) { toast.info("Pick a folder to share first."); openSettings("vault", "vault.share.folder"); return; }
+    if (!folder) { toast.info("Pick a folder to share first."); openSettings("share", "share.folder"); return; }
     await s.start(folder);
     toast.success("Sharing to phone is on. Scan the QR code.");
-    openSettings("vault", "vault.share.enabled");
+    openSettings("share", "share.enabled");
   } catch (e) { toast.error(shareErrorMessage(e)); }
 }

@@ -1540,7 +1540,7 @@
     if (bar || warn || !settings.offerSave || settings.neverSave.includes(p.host.toLowerCase()) || anyVisiblePassword()) return;
     // `kind` is Notiq's own answer (an exact copy already saved never gets here); older backgrounds send `change`.
     const update = NS.offerKind(p.kind, p.change) === "update";
-    showBar({ host: clean(p.host, 253).toLowerCase(), username: clean(p.username, MAX_USER), change: update });
+    showBar({ host: clean(p.host, 253).toLowerCase(), username: clean(p.username, MAX_USER), change: update, locked: p.locked === true });
   }
 
   function armIdle() {
@@ -1561,12 +1561,12 @@
     const node = el("div", "nq-bar");
     node.setAttribute("role", "dialog");
     node.setAttribute("aria-live", "polite");
-    node.setAttribute("aria-label", p.change ? "Update password in Notiq" : "Save login to Notiq");
+    node.setAttribute("aria-label", p.locked ? "Unlock Notiq to save this login" : p.change ? "Update password in Notiq" : "Save login to Notiq");
     const head = el("div", "nq-head");
     const logo = el("div", "nq-logo");
     logo.appendChild(svg("", KEY));
     const text = el("div", "nq-text");
-    text.appendChild(el("div", "nq-title", p.change ? "Update password in Notiq?" : "Save login to Notiq?"));
+    text.appendChild(el("div", "nq-title", p.locked ? "Unlock Notiq to save this login?" : p.change ? "Update password in Notiq?" : "Save login to Notiq?"));
     text.appendChild(el("div", "nq-sub", `${p.host} · ${p.username || "no username"}`));
     head.appendChild(logo);
     head.appendChild(text);
@@ -1613,8 +1613,29 @@
       else setActions(close);
       armIdle();
     };
+    // The vault is locked: unlock first (Notiq's own window), then the same card offers Save or Update.
+    const doUnlock = async () => {
+      if (saving) return;
+      saving = true;
+      clearTimeout(barIdle);
+      setActions();
+      setStatus("", "Waiting for you to unlock Notiq…", true);
+      const res = await send({ type: "unlockSave" });
+      saving = false;
+      if (!bar || bar.node !== node) return;
+      if (res.ok) {
+        closeBar(false);
+        if (res.kind !== "none") showBar({ host: p.host, username: p.username, change: res.kind === "update", locked: false });
+        return;
+      }
+      setStatus("err", errText(res.error), false);
+      const close = mk("Close", "", () => closeBar(true));
+      if (RETRYABLE.has(res.error)) setActions(mk("Try again", "nq-primary", doUnlock), close);
+      else setActions(close);
+      armIdle();
+    };
     setActions(
-      mk(p.change ? "Update" : "Save", "nq-primary", doSave),
+      p.locked ? mk("Unlock & save", "nq-primary", doUnlock) : mk(p.change ? "Update" : "Save", "nq-primary", doSave),
       mk("Not now", "", () => closeBar(true)),
       mk("Never for this site", "nq-quiet", () => { send({ type: "never" }); closeBar(false); }),
     );

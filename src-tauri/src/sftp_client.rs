@@ -19,6 +19,7 @@ use russh_sftp::protocol::{FileAttributes, OpenFlags};
 use serde::Serialize;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
+use crate::remote_archive::{self as archive, Format, Kind, Tools};
 use crate::ssh_client::{establish, unattended, Conn, Connect, KnownHosts, Sink};
 
 const CHUNK: usize = 128 * 1024;
@@ -168,6 +169,38 @@ pub struct Entry {
     pub mode: Option<u32>,
 }
 
+/// Everything the Properties dialog shows about one item (a link shows what it points at, and where to).
+#[derive(Serialize, Debug, Clone, PartialEq)]
+pub struct Props {
+    pub path: String,
+    /// `dir`, `file` or `other`.
+    pub kind: &'static str,
+    pub link: bool,
+    /// Where a link points (as stored).
+    pub target: Option<String>,
+    pub size: u64,
+    /// Seconds since 1970.
+    pub mtime: Option<u32>,
+    pub atime: Option<u32>,
+    /// Permission bits only (`0o755`).
+    pub mode: Option<u32>,
+    pub uid: Option<u32>,
+    pub gid: Option<u32>,
+    /// Names, when the server sends them (many only send the numbers).
+    pub user: Option<String>,
+    pub group: Option<String>,
+}
+
+/// What lies under some folders and files: how many of each and how many bytes, without following links.
+#[derive(Serialize, Debug, Clone, Default, PartialEq)]
+pub struct Tally {
+    pub files: u64,
+    pub folders: u64,
+    pub bytes: u64,
+    /// Folders that could not be read (permissions), so the numbers are a lower bound.
+    pub unreadable: u64,
+}
+
 /// A whole file read for the in-app viewer.
 #[derive(Debug)]
 pub struct Content {
@@ -278,6 +311,18 @@ fn kind_of(a: &FileAttributes) -> &'static str {
     if a.is_dir() { "dir" } else if a.is_regular() { "file" } else { "other" }
 }
 
+/// `dir` + `/` + `name`, for a canonical absolute `dir`.
+fn join_path(dir: &str, name: &str) -> String {
+    if dir.ends_with('/') { format!("{dir}{name}") } else { format!("{dir}/{name}") }
+}
+
+/// What a failed shell job says, in a sentence: its last output lines.
+fn shell_failure(what: &str, output: &str) -> String {
+    let last: Vec<&str> = output.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
+    let tail = last.iter().rev().take(3).rev().cloned().collect::<Vec<_>>().join(" ");
+    if tail.is_empty() { format!("The server couldn't {what} that.") } else { format!("The server couldn't {what} that: {tail}") }
+}
+
 fn nice(e: impl std::fmt::Display) -> String {
     let t = e.to_string();
     match t.as_str() {
@@ -329,6 +374,122 @@ impl Sftp {
             (b.kind == "dir").cmp(&(a.kind == "dir")).then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase())).then_with(|| a.name.cmp(&b.name))
         });
         Ok(Listing { path: real, entries })
+    }
+
+    /// Details of one item for the Properties dialog.
+    pub async fn props(&self, path: &str) -> Result<Props, String> {
+        let m = self.sftp.symlink_metadata(path).await.map_err(nice)?;
+        let link = m.is_symlink();
+        let (target, shown) = if link {
+            let t = self.sftp.read_link(path).await.ok();
+            // A link shows what it points at; a broken link stays "other" with the link's own details.
+            (t, self.sftp.metadata(path).await.unwrap_or_else(|_| m.clone()))
+        } else { (None, m.clone()) };
+        Ok(Props {
+            path: path.to_string(), kind: kind_of(&shown), link, target, size: shown.size.unwrap_or(0),
+            mtime: m.mtime, atime: m.atime, mode: m.permissions.map(|p| p & 0o7777),
+            uid: m.uid, gid: m.gid, user: m.user.clone(), group: m.group.clone(),
+        })
+    }
+
+    /// Counts the files, folders and bytes under `paths` (links are counted, not followed). Stops when `cancel` is set;
+    /// `progress(items, bytes)` is told now and then.
+    pub async fn tally(&self, paths: &[String], cancel: &AtomicBool, progress: &(dyn Fn(u64, u64) + Send + Sync)) -> Result<Tally, String> {
+        let mut t = Tally::default();
+        let mut stack: Vec<(String, u32)> = paths.iter().map(|p| (p.clone(), 0)).collect();
+        while let Some((path, depth)) = stack.pop() {
+            if cancel.load(Ordering::Relaxed) { return Err(CANCELLED.into()); }
+            let m = match self.sftp.symlink_metadata(path.as_str()).await { Ok(m) => m, Err(_) => { t.unreadable += 1; continue; } };
+            if !m.is_dir() {
+                t.files += 1;
+                t.bytes += m.size.unwrap_or(0);
+            } else {
+                t.folders += 1;
+                if depth >= MAX_DEPTH { t.unreadable += 1; continue; }
+                match self.sftp.read_dir(path.as_str()).await {
+                    Ok(rd) => for e in rd { if e.file_name() != "." && e.file_name() != ".." { stack.push((e.path(), depth + 1)); } },
+                    Err(_) => t.unreadable += 1,
+                }
+            }
+            if (t.files + t.folders) % 50 == 0 { progress(t.files + t.folders, t.bytes); }
+        }
+        progress(t.files + t.folders, t.bytes);
+        Ok(t)
+    }
+
+    // ── compress and extract (shell tools on the server, see remote_archive.rs) ──────────────────
+
+    /// Runs `script` with `sh -c` on the server and returns its exit status and what it printed (stdout and stderr
+    /// together, capped). Stops, and returns `cancelled`, when `cancel` is set.
+    async fn run_script(&self, script: &str, cancel: &AtomicBool) -> Result<(u32, String), String> {
+        use russh::ChannelMsg;
+        const CAP: usize = 64 * 1024;
+        let mut ch = self._conn.channel_open_session().await.map_err(|e| format!("Couldn't open a session: {e}"))?;
+        ch.exec(true, format!("sh -c {}", archive::quote(script)).into_bytes()).await
+            .map_err(|_| "The server doesn't allow running commands, so it can't compress or extract.".to_string())?;
+        let (mut out, mut code) = (Vec::new(), None);
+        loop {
+            if cancel.load(Ordering::Relaxed) { let _ = ch.close().await; return Err(CANCELLED.into()); }
+            match tokio::time::timeout(std::time::Duration::from_millis(250), ch.wait()).await {
+                Err(_) => continue,
+                Ok(Some(ChannelMsg::Data { data })) | Ok(Some(ChannelMsg::ExtendedData { data, .. })) => {
+                    if out.len() < CAP { out.extend_from_slice(&data[..data.len().min(CAP - out.len())]); }
+                }
+                Ok(Some(ChannelMsg::ExitStatus { exit_status })) => code = Some(exit_status),
+                Ok(Some(ChannelMsg::Close)) | Ok(None) => break,
+                Ok(Some(_)) => {}
+            }
+        }
+        Ok((code.unwrap_or(1), String::from_utf8_lossy(&out).into_owned()))
+    }
+
+    /// Which of `zip`, `unzip` and `tar` the server has.
+    pub async fn archive_tools(&self) -> Result<Tools, String> {
+        let never = AtomicBool::new(false);
+        let (_, out) = self.run_script(archive::PROBE, &never).await?;
+        Ok(archive::parse_tools(&out))
+    }
+
+    /// Compresses `names` (in `dir`) into `out_name` there. `overwrite`: replace an archive of that name; otherwise
+    /// `already_exists`. A half-made archive is removed when the job fails or is stopped. Returns the archive's path.
+    pub async fn compress(&self, dir: &str, names: &[String], out_name: &str, fmt: Format, overwrite: bool, cancel: &AtomicBool) -> Result<String, String> {
+        if names.is_empty() || !names.iter().all(|n| archive::safe_name(n)) || !archive::safe_name(out_name) {
+            return Err("That name isn't valid.".into());
+        }
+        if names.iter().any(|n| n == out_name) { return Err("The archive can't have the same name as something inside it.".into()); }
+        let tools = self.archive_tools().await?;
+        if (fmt == Format::Zip && !tools.zip) || (fmt == Format::TarGz && !tools.tar) {
+            return Err(match fmt { Format::Zip => "zip isn't installed on this server.", Format::TarGz => "tar isn't installed on this server." }.into());
+        }
+        let out_path = join_path(dir, out_name);
+        if self.sftp.symlink_metadata(out_path.as_str()).await.is_ok() {
+            if !overwrite { return Err(EXISTS.into()); }
+            self.sftp.remove_file(out_path.as_str()).await.map_err(nice)?;
+        }
+        match self.run_script(&archive::compress_command(dir, names, out_name, fmt), cancel).await {
+            Ok((0, _)) => Ok(out_path),
+            Ok((_, text)) => { let _ = self.sftp.remove_file(out_path.as_str()).await; Err(shell_failure("compress", &text)) }
+            Err(e) => { let _ = self.sftp.remove_file(out_path.as_str()).await; Err(e) }
+        }
+    }
+
+    /// Extracts the archive at `archive_path` into `dest` (created when missing). `merge`: `skip` keeps files that are
+    /// already there, `replace` overwrites them; with none, an existing `dest` is `already_exists_folder`.
+    pub async fn extract(&self, archive_path: &str, dest: &str, merge: Option<Merge>, cancel: &AtomicBool) -> Result<(), String> {
+        let name = archive_path.rsplit('/').next().unwrap_or("");
+        let kind = archive::kind_of(name).ok_or("That isn't an archive Notiq can extract (zip, tar, tar.gz, tgz, tar.bz2, tar.xz).")?;
+        let tools = self.archive_tools().await?;
+        if (kind == Kind::Zip && !tools.unzip) || (kind == Kind::Tar && !tools.tar) {
+            return Err(match kind { Kind::Zip => "unzip isn't installed on this server.", Kind::Tar => "tar isn't installed on this server." }.into());
+        }
+        if merge.is_none() && self.sftp.try_exists(dest).await.unwrap_or(false) { return Err(EXISTS_DIR.into()); }
+        let overwrite = matches!(merge, Some(Merge::Replace));
+        match self.run_script(&archive::extract_command(archive_path, dest, kind, overwrite), cancel).await {
+            Ok((0, _)) => Ok(()),
+            Ok((_, text)) if kind == Kind::Tar && !overwrite && archive::only_kept_files(&text) => Ok(()),
+            Ok((_, text)) => Err(shell_failure("extract", &text)),
+            Err(e) => Err(e),
+        }
     }
 
     pub async fn mkdir(&self, path: &str) -> Result<(), String> {
@@ -769,6 +930,65 @@ mod commands {
     #[tauri::command]
     pub async fn sftp_list(id: u32, path: String, state: State<'_, SftpState>) -> Result<Listing, String> {
         state.session(id)?.list(&path).await
+    }
+
+    /// Details of the items for the Properties dialog (one entry per path, in order).
+    #[tauri::command]
+    pub async fn sftp_props(id: u32, paths: Vec<String>, state: State<'_, SftpState>) -> Result<Vec<Props>, String> {
+        let s = state.session(id)?;
+        let mut out = Vec::with_capacity(paths.len());
+        for p in &paths { out.push(s.props(p).await?); }
+        Ok(out)
+    }
+
+    /// Counts what lies under the items (the Properties dialog's size of a folder). Cancel with `sftp_cancel`; the
+    /// running count arrives as `sftp-progress` (`done` = items, `total` = bytes).
+    #[tauri::command]
+    pub async fn sftp_tally(id: u32, transfer_id: u32, paths: Vec<String>, app: AppHandle, state: State<'_, SftpState>) -> Result<Tally, String> {
+        let s = state.session(id)?;
+        let cancel = Arc::new(AtomicBool::new(false));
+        state.transfers.lock().unwrap_or_else(|e| e.into_inner()).insert(transfer_id, cancel.clone());
+        let last = Mutex::new(Instant::now() - Duration::from_secs(1));
+        let report = move |items: u64, bytes: u64| {
+            let mut t = last.lock().unwrap_or_else(|e| e.into_inner());
+            if t.elapsed() < Duration::from_millis(150) { return; }
+            *t = Instant::now();
+            let _ = app.emit("sftp-progress", ProgressEvent { transfer: transfer_id, done: items, total: bytes });
+        };
+        let result = s.tally(&paths, &cancel, &report).await;
+        state.transfers.lock().unwrap_or_else(|e| e.into_inner()).remove(&transfer_id);
+        result
+    }
+
+    /// Which of zip / unzip / tar the server has (the menu enables Compress and Extract by it).
+    #[tauri::command]
+    pub async fn sftp_archive_tools(id: u32, state: State<'_, SftpState>) -> Result<Tools, String> {
+        state.session(id)?.archive_tools().await
+    }
+
+    /// Compresses items of `dir` into an archive (`format`: `zip` or `tar.gz`). Cancel with `sftp_cancel`.
+    #[tauri::command]
+    pub async fn sftp_compress(id: u32, transfer_id: u32, dir: String, names: Vec<String>, out_name: String, format: String, overwrite: bool,
+                               state: State<'_, SftpState>) -> Result<String, String> {
+        let s = state.session(id)?;
+        let fmt = Format::parse(&format).ok_or("Unknown archive format.")?;
+        let cancel = Arc::new(AtomicBool::new(false));
+        state.transfers.lock().unwrap_or_else(|e| e.into_inner()).insert(transfer_id, cancel.clone());
+        let result = s.compress(&dir, &names, &out_name, fmt, overwrite, &cancel).await;
+        state.transfers.lock().unwrap_or_else(|e| e.into_inner()).remove(&transfer_id);
+        result
+    }
+
+    /// Extracts an archive into `dest`. `merge`: `skip` / `replace` for files already there. Cancel with `sftp_cancel`.
+    #[tauri::command]
+    pub async fn sftp_extract(id: u32, transfer_id: u32, archive: String, dest: String, merge: Option<String>, state: State<'_, SftpState>) -> Result<(), String> {
+        let s = state.session(id)?;
+        let merge = merge.as_deref().and_then(Merge::parse);
+        let cancel = Arc::new(AtomicBool::new(false));
+        state.transfers.lock().unwrap_or_else(|e| e.into_inner()).insert(transfer_id, cancel.clone());
+        let result = s.extract(&archive, &dest, merge, &cancel).await;
+        state.transfers.lock().unwrap_or_else(|e| e.into_inner()).remove(&transfer_id);
+        result
     }
 
     #[tauri::command]

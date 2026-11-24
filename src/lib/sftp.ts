@@ -41,6 +41,51 @@ export const sftpMkdir = (id: number, path: string) => invoke<void>("sftp_mkdir"
 export const sftpRename = (id: number, from: string, to: string) => invoke<void>("sftp_rename", { id, from, to });
 export const sftpChmod = (id: number, path: string, mode: number) => invoke<void>("sftp_chmod", { id, path, mode });
 export const sftpRemove = (id: number, path: string) => invoke<void>("sftp_remove", { id, path });
+/** Everything the Properties dialog shows about one item. */
+export interface RemoteProps {
+  path: string;
+  kind: "dir" | "file" | "other";
+  link: boolean;
+  target: string | null;
+  size: number;
+  mtime: number | null;
+  atime: number | null;
+  mode: number | null;
+  uid: number | null;
+  gid: number | null;
+  user: string | null;
+  group: string | null;
+}
+/** What lies under some folders and files (links are counted, not followed). */
+export interface RemoteTally { files: number; folders: number; bytes: number; unreadable: number }
+export const sftpProps = (id: number, paths: string[]) => invoke<RemoteProps[]>("sftp_props", { id, paths });
+/** Counts what lies under the paths; cancel with `sftpCancel(transferId)`. Progress arrives as `sftp-progress` (`done` = items, `total` = bytes). */
+export const sftpTally = (id: number, transferId: number, paths: string[]) => invoke<RemoteTally>("sftp_tally", { id, transferId, paths });
+/** Which archive tools the server has (Compress and Extract run them over SSH). */
+export interface ArchiveTools { zip: boolean; unzip: boolean; tar: boolean }
+export type ArchiveFormat = "zip" | "tar.gz";
+export const sftpArchiveTools = (id: number) => invoke<ArchiveTools>("sftp_archive_tools", { id });
+/** Compresses items of `dir` into `outName` there; resolves to the archive's path. Rejects with `already_exists` unless `overwrite`. */
+export const sftpCompress = (id: number, transferId: number, dir: string, names: string[], outName: string, format: ArchiveFormat, overwrite: boolean) =>
+  invoke<string>("sftp_compress", { id, transferId, dir, names, outName, format, overwrite });
+/** Extracts an archive into `dest`. `merge` keeps (`skip`) or replaces files already there; none rejects with `already_exists_folder` when `dest` exists. */
+export const sftpExtract = (id: number, transferId: number, archive: string, dest: string, merge?: MergeMode) =>
+  invoke<void>("sftp_extract", { id, transferId, archive, dest, merge: merge ?? null });
+
+/** Whether a file name ends like an archive the server can extract (zip, tar, tar.gz, tgz, tar.bz2, tar.xz). */
+export const isArchiveName = (name: string) => /\.(zip|tar|tar\.gz|tgz|tar\.bz2|tbz2|tar\.xz|txz)$/i.test(name);
+/** The archive's kind, for choosing the tool: zip needs `unzip`, everything else `tar`. */
+export const archiveNeeds = (name: string): "unzip" | "tar" => (/\.zip$/i.test(name) ? "unzip" : "tar");
+/** An archive's name without its archive extension ("site.tar.gz" -> "site"). */
+export const archiveStem = (name: string) => name.replace(/\.(tar\.gz|tar\.bz2|tar\.xz|tgz|tbz2|txz|tar|zip)$/i, "");
+/** The suggested name of a new archive: the item's own name for one item, else "Archive". */
+export const defaultArchiveName = (names: string[], fmt: ArchiveFormat) => `${names.length === 1 ? names[0] : "Archive"}${fmt === "zip" ? ".zip" : ".tar.gz"}`;
+/** The format a typed archive name asks for: ".tar.gz" / ".tgz" is tar, anything else zip (the extension is added when missing). */
+export function archiveTarget(typed: string): { name: string; format: ArchiveFormat } {
+  const name = typed.trim();
+  if (/\.(tar\.gz|tgz)$/i.test(name)) return { name, format: "tar.gz" };
+  return { name: /\.zip$/i.test(name) ? name : `${name}.zip`, format: "zip" };
+}
 export const sftpCancel = (transfer: number) => invoke<void>("sftp_cancel", { transfer });
 /** `merge` applies to a folder that already exists at the destination: keep (`skip`) or overwrite (`replace`) files with the same name. */
 export type MergeMode = "skip" | "replace";

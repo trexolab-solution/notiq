@@ -5,6 +5,8 @@ import { SETTINGS_INDEX as editor }     from "../components/ui/settings/EditorSe
 import { SETTINGS_INDEX as ai }         from "../components/ui/settings/AISettingsSection";
 import { SETTINGS_INDEX as vault }      from "../components/ui/settings/VaultSection";
 import { SETTINGS_INDEX as terminal }   from "../components/ui/settings/TerminalSettingsSection";
+import { SETTINGS_INDEX as files }      from "../components/ui/settings/FileManagerSettings";
+import { SETTINGS_INDEX as share }      from "../components/ui/settings/WebdavShareSettings";
 import { SETTINGS_INDEX as appearance } from "../components/ui/settings/AppearanceSection";
 import { SETTINGS_INDEX as shortcuts }  from "../components/ui/settings/ShortcutsSection";
 import { SETTINGS_INDEX as updates }    from "../components/ui/settings/UpdatesSection";
@@ -12,7 +14,7 @@ import { SETTINGS_INDEX as about }      from "../components/ui/settings/AboutSec
 
 /** Every searchable setting of every section, in section order. */
 export const ALL_SETTINGS: SettingMeta[] = [
-  ...general, ...editor, ...ai, ...vault, ...terminal, ...appearance, ...shortcuts, ...updates, ...about,
+  ...general, ...editor, ...appearance, ...shortcuts, ...ai, ...terminal, ...files, ...share, ...vault, ...updates, ...about,
 ];
 
 /**

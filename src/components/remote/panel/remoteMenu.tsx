@@ -1,9 +1,9 @@
 import {
-  ArchiveRestore, ClipboardPaste, Copy, Download, FilePenLine, FilePlus, FileX, FolderOpen, FolderPlus, FolderUp, Pencil,
-  RefreshCw, Scissors, ShieldCheck, Trash2, Upload,
+  Archive, ArchiveRestore, ClipboardPaste, Copy, Download, FilePenLine, FilePlus, FileX, FolderOpen, FolderPlus, FolderUp, Pencil,
+  Info, RefreshCw, Scissors, ShieldCheck, Trash2, Upload,
 } from "lucide-react";
 import type { ContextMenuItem } from "../../ui/ContextMenu";
-import { joinRemote, type RemoteEntry } from "../../../lib/sftp";
+import { archiveNeeds, archiveStem, isArchiveName, joinRemote, type ArchiveTools, type RemoteEntry } from "../../../lib/sftp";
 import type { Prompt } from "./types";
 
 /** What the right-click menu acts with. */
@@ -24,6 +24,13 @@ export interface RemoteMenuActions {
   cut: (list: RemoteEntry[]) => unknown;
   askDelete: (list: RemoteEntry[]) => void;
   askDeleteForever: (list: RemoteEntry[]) => void;
+  /** Opens Properties for these items (the open folder itself when given its own path and no entry). */
+  showProperties: (items: { path: string; entry?: RemoteEntry }[]) => void;
+  /** What the server can compress / extract with (null until known). */
+  tools: ArchiveTools | null;
+  compress: (list: RemoteEntry[]) => void;
+  extractHere: (e: RemoteEntry) => void;
+  extractToFolder: (e: RemoteEntry) => void;
 }
 
 /** The right-click menu: for a row (or the selection it is part of), followed by the folder's own actions. */
@@ -37,6 +44,7 @@ export function remoteMenuItems(entry: RemoteEntry | null, a: RemoteMenuActions)
     { type: "item", label: "Paste here", icon: <ClipboardPaste size={13} />, shortcut: "Ctrl+V", onClick: () => void a.paste(path) },
     { type: "item", label: "Refresh", icon: <RefreshCw size={13} />, onClick: () => void a.load(path) },
     { type: "item", label: "Copy folder path", icon: <Copy size={13} />, onClick: () => void a.copy(path) },
+    { type: "item", label: "Properties", icon: <Info size={13} />, onClick: () => a.showProperties([{ path }]) },
     { type: "separator" },
     { type: "item", label: "Open Trash", icon: <ArchiveRestore size={13} />, onClick: () => a.setShowTrash(true) },
   ];
@@ -53,7 +61,9 @@ export function remoteMenuItems(entry: RemoteEntry | null, a: RemoteMenuActions)
     { type: "separator" },
     { type: "item", label: "Cut", icon: <Scissors size={13} />, shortcut: "Ctrl+X", onClick: () => a.cut(group) },
     ...(one && entry.kind === "dir" ? [{ type: "item" as const, label: "Paste into folder", icon: <ClipboardPaste size={13} />, onClick: () => void a.paste(joinRemote(path, entry.name)) }] : []),
+    ...archiveItems(entry, group, a),
     { type: "item", label: "Rename…", icon: <Pencil size={13} />, shortcut: "F2", disabled: !one, onClick: () => a.setPrompt({ kind: "rename", entry }) },
+    { type: "item", label: "Properties", icon: <Info size={13} />, shortcut: "Alt+Enter", onClick: () => a.showProperties(group.map((e) => ({ path: joinRemote(path, e.name), entry: e }))) },
     { type: "item", label: "Permissions…", icon: <ShieldCheck size={13} />, disabled: !one, onClick: () => a.setPrompt({ kind: "perms", entry }) },
     { type: "item", label: "Copy path", icon: <Copy size={13} />, disabled: !one, onClick: () => void a.copy(joinRemote(path, entry.name)) },
     { type: "separator" },
@@ -62,4 +72,20 @@ export function remoteMenuItems(entry: RemoteEntry | null, a: RemoteMenuActions)
     { type: "separator" },
     ...here,
   ];
+}
+
+/** Compress (any selection) and Extract (a single archive file): enabled by the tools the server has. */
+function archiveItems(entry: RemoteEntry, group: RemoteEntry[], a: RemoteMenuActions): ContextMenuItem[] {
+  const canCompress = !!a.tools && (a.tools.zip || a.tools.tar);
+  const items: ContextMenuItem[] = [
+    { type: "item", label: group.length > 1 ? `Compress ${group.length} items…` : "Compress…", icon: <Archive size={13} />, disabled: !canCompress, onClick: () => a.compress(group) },
+  ];
+  if (group.length === 1 && entry.kind === "file" && isArchiveName(entry.name)) {
+    const can = !!a.tools && (archiveNeeds(entry.name) === "unzip" ? a.tools.unzip : a.tools.tar);
+    items.push(
+      { type: "item", label: "Extract here", icon: <ArchiveRestore size={13} />, disabled: !can, onClick: () => a.extractHere(entry) },
+      { type: "item", label: `Extract to \u201c${archiveStem(entry.name)}/\u201d`, icon: <ArchiveRestore size={13} />, disabled: !can, onClick: () => a.extractToFolder(entry) },
+    );
+  }
+  return items;
 }

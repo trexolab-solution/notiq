@@ -93,7 +93,7 @@ export function useCommands(deps: UseCommandsDeps): () => Command[] {
       { id: "share:toggle", label: useShareStore.getState().info ? "Phone Share: Stop" : "Phone Share: Start", group: "Actions", icon: <FolderOpen size={14} />,
         run: () => { void quickToggleShare(openSettings); } },
       ...(useShareStore.getState().info ? [{ id: "share:qr", label: "Phone Share: Show QR code", group: "Actions", icon: <FolderOpen size={14} />,
-        run: () => openSettings("vault", "vault.share.enabled") }] : []),
+        run: () => openSettings("share", "share.enabled") }] : []),
       { id: "act:settings", label: "Open Settings", group: "Actions", icon: <SettingsIcon size={14} />, trailing: "Ctrl+,", run: onOpenSettings },
     );
 

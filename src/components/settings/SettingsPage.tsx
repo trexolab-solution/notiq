@@ -17,6 +17,8 @@ import { EditorSettingsSection }   from "../ui/settings/EditorSettingsSection";
 import { AISettingsSection }       from "../ui/settings/AISettingsSection";
 import { VaultSection }            from "../ui/settings/VaultSection";
 import { TerminalSettingsSection } from "../ui/settings/TerminalSettingsSection";
+import { FileManagerSettings }     from "../ui/settings/FileManagerSettings";
+import { WebdavShareSettings }     from "../ui/settings/WebdavShareSettings";
 import { AppearanceSection }       from "../ui/settings/AppearanceSection";
 import { ShortcutsSection }        from "../ui/settings/ShortcutsSection";
 import { UpdatesSection }          from "../ui/settings/UpdatesSection";
@@ -26,9 +28,9 @@ import { AboutSection }            from "../ui/settings/AboutSection";
 const AISection = () => <AISettingsSection onRunSetup={requestRunAIOnboarding} />;
 
 const SECTION_COMPONENTS: Record<SectionId, React.ComponentType> = {
-  general: GeneralSection, editor: EditorSettingsSection, ai: AISection, vault: VaultSection,
-  terminal: TerminalSettingsSection, appearance: AppearanceSection, shortcuts: ShortcutsSection,
-  updates: UpdatesSection, about: AboutSection,
+  general: GeneralSection, editor: EditorSettingsSection, appearance: AppearanceSection, shortcuts: ShortcutsSection,
+  ai: AISection, terminal: TerminalSettingsSection, files: FileManagerSettings, share: WebdavShareSettings,
+  vault: VaultSection, updates: UpdatesSection, about: AboutSection,
 };
 
 export const sectionDomId = (id: SectionId) => `settings-section-${id}`;

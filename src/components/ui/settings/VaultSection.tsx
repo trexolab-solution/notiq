@@ -4,7 +4,6 @@ import { SettingsGroup, SettingsBlock } from "../SettingsGroup";
 import { Button } from "../Button";
 import { Toggle } from "../Toggle";
 import { Select } from "../Select";
-import { SegmentedControl } from "../SegmentedControl";
 import { PasswordInput } from "../PasswordInput";
 import { PanicShortcutRow, PasswordGeneratorRow, StorageFolderRow } from "./VaultPrefRows";
 import { SessionLockRow } from "./SessionLockRow";
@@ -27,11 +26,8 @@ import { masterPasswordProblem } from "../../../lib/masterPassword";
 import { PasswordStrengthMeter } from "../../vault/PasswordStrengthMeter";
 import {
   IDLE_OPTIONS, DEFAULT_IDLE_MINUTES, getIdleMinutes, setIdleMinutes, getLockOnHide, setLockOnHide,
-  getFilesPlace, setFilesPlace, type FilesPlace,
 } from "../../../lib/vaultPrefs";
 import type { SettingMeta } from "../../../lib/settingsIndex";
-import { FileManagerSettings, FILES_INDEX } from "./FileManagerSettings";
-import { WebdavShareSettings } from "./WebdavShareSettings";
 
 
 const STATE_TEXT = {
@@ -50,7 +46,6 @@ export const VaultSection = React.memo(function VaultSection() {
 
   const [idle, setIdle]       = useState(() => getIdleMinutes());
   const [onHide, setOnHide]   = useState(() => getLockOnHide());
-  const [filesPlace, setPlace] = useState<FilesPlace>(() => getFilesPlace());
 
   const [oldPw, setOldPw]     = useState("");
   const [newPw, setNewPw]     = useState("");
@@ -136,28 +131,6 @@ export const VaultSection = React.memo(function VaultSection() {
         <SessionLockRow />
         <CaptureShieldRow />
       </SettingsGroup>
-
-      <SettingsGroup title="Servers" description="Saved SSH servers open in the built-in terminal and the remote file manager.">
-        <SettingRow
-          id="vault.servers.files-place"
-          label="Open the file manager in"
-          description="A tab of this window, or a window of its own. The server's menu in the sidebar also offers the other one."
-          keywords={["sftp", "remote files", "ssh", "file manager", "new window", "tab", "server"]}
-          modified={filesPlace !== "tab"}
-          onReset={() => { setPlace("tab"); setFilesPlace("tab"); }}
-        >
-          <SegmentedControl
-            aria-label="Where the file manager opens"
-            value={filesPlace}
-            onChange={(v) => { setPlace(v); setFilesPlace(v); }}
-            options={[{ value: "tab", label: "Tab" }, { value: "window", label: "New window" }]}
-          />
-        </SettingRow>
-      </SettingsGroup>
-
-      <FileManagerSettings />
-
-      <WebdavShareSettings />
 
       <SettingsGroup title="Storage" description="Where the encrypted vault file lives on this computer.">
         <StorageFolderRow />
@@ -274,28 +247,6 @@ export const SETTINGS_INDEX: SettingMeta[] = [
   { id: "vault.locking.capture-shield", section: "vault", group: "Locking", label: "Hide from screenshots and screen sharing",
     description: "Keeps Notiq out of screenshots, screen recordings and screen sharing. While it is on, your own screen share or recording shows a black window.",
     keywords: ["screenshot", "screen share", "screen recording", "capture", "privacy", "black window", "hide window", "teams", "zoom", "obs"] },
-  { id: "vault.servers.files-place", section: "vault", group: "Servers", label: "Open the file manager in",
-    description: "A tab of this window, or a window of its own. The server's menu in the sidebar also offers the other one.",
-    keywords: ["sftp", "remote files", "ssh", "file manager", "new window", "tab", "server"] },
-  ...FILES_INDEX,
-  { id: "vault.share.folder", section: "vault", group: "Share files to phone", label: "Folder to share",
-    description: "The folder of this computer a phone on the same Wi-Fi can browse and download (read-only).",
-    keywords: ["webdav", "phone", "mobile", "share", "local network", "wifi", "lan", "files", "folder", "directory", "choose"] },
-  { id: "vault.share.login", section: "vault", group: "Share files to phone", label: "Sign-in",
-    description: "The user name and password a phone must enter. Change them while sharing, or reset to notiq and a random password.",
-    keywords: ["webdav", "phone", "mobile", "share", "user name", "username", "password", "login", "custom"] },
-  { id: "vault.share.upload", section: "vault", group: "Share files to phone", label: "Allow uploads from the phone",
-    description: "The phone can add new files and folders. Nothing is overwritten, deleted or moved.",
-    keywords: ["webdav", "phone", "mobile", "share", "upload", "send", "write", "add files", "camera", "photos"] },
-  { id: "vault.share.manage", section: "vault", group: "Share files to phone", label: "Allow renaming, moving and deleting",
-    description: "The phone can rename, move, copy and delete files and folders of the shared folder. A delete can't be undone.",
-    keywords: ["webdav", "phone", "mobile", "share", "manage", "rename", "move", "copy", "delete", "remove", "file manager"] },
-  { id: "vault.share.qr-login", section: "vault", group: "Share files to phone", label: "Put the password in the QR code",
-    description: "Off: after scanning, the phone asks for the user name and password. On: it signs in without asking.",
-    keywords: ["webdav", "phone", "mobile", "share", "qr", "password", "ask", "prompt", "scan"] },
-  { id: "vault.share.enabled", section: "vault", group: "Share files to phone", label: "Share this folder",
-    description: "Turns on a read-only WebDAV server for the folder, on the local network, with a random password.",
-    keywords: ["webdav", "phone", "mobile", "share", "local network", "wifi", "lan", "files", "server", "turn on"] },
   { id: "vault.storage.folder", section: "vault", group: "Storage", label: "Vault storage folder",
     description: "Where your encrypted vault file (vault.nqdb) is kept. Warns if the folder is synced by a cloud service.",
     keywords: ["folder", "directory", "location", "path", "vault.nqdb", "cloud", "onedrive", "dropbox", "sync", "move"] },

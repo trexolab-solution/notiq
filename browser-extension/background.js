@@ -502,13 +502,16 @@ async function onCapture(msg, sender) {
 // "update" / "save" set its wording. Locked, not running or an older app: the old offer (Notiq decides on Save).
 const saveChecksInFlight = new Map(); // tabId -> Promise
 async function checkSave(tabId, p) {
-  if (p.action) return p.action; // a kept "update" / "save"; no answer yet (null) means ask again
+  if (p.action) return { action: p.action, locked: false }; // a kept "update" / "save"; no answer yet (null) means ask again
   if (saveChecksInFlight.has(tabId)) return saveChecksInFlight.get(tabId);
   const run = (async () => {
     const req = { op: "save_check", host: p.host, username: p.username, password: p.password };
     if (p.current) req.current = p.current;
     if (p.incognito) req.incognito = true;
-    const action = NotiqShared.saveCheckAction(await ask(req));
+    const res = await ask(req);
+    const action = NotiqShared.saveCheckAction(res);
+    // A locked vault is told apart from "not running" / an older app: the offer then says "Unlock Notiq to save".
+    const locked = !!res && res.error === "locked";
     // Store the answer only on the same capture (a new login may have been captured meanwhile).
     const key = pendingKey(tabId);
     const now = (await chrome.storage.session.get(key))[key];
@@ -518,7 +521,7 @@ async function checkSave(tabId, p) {
       // in between turns the generic "Save" offer into "Update password".
       else if (action) await chrome.storage.session.set({ [key]: { ...now, action } });
     }
-    return action;
+    return { action, locked };
   })();
   saveChecksInFlight.set(tabId, run);
   try { return await run; } finally { saveChecksInFlight.delete(tabId); }
@@ -527,10 +530,25 @@ async function checkSave(tabId, p) {
 async function onPending(_msg, sender) {
   const p = await readPending(sender.tab.id);
   if (!p) return { pending: null };
-  const action = await checkSave(sender.tab.id, p);
+  const { action, locked } = await checkSave(sender.tab.id, p);
   if (action === "none") return { pending: null };
-  // Never hand the password back to the page side.
-  return { pending: { host: p.host, username: p.username, change: p.change === true, kind: NotiqShared.offerKind(action, p.change) } };
+  // Never hand the password back to the page side. `locked` only when Notiq said the vault is locked.
+  return { pending: { host: p.host, username: p.username, change: p.change === true, kind: NotiqShared.offerKind(action, p.change), ...(locked ? { locked: true } : {}) } };
+}
+
+// The save offer's "Unlock & save" (the vault was locked when the login was captured): Notiq shows its unlock window
+// and answers once the vault is open; the held login is then compared again, so the offer says Save or Update (or
+// nothing when that exact login is already saved). Never starts the app. The password stays here.
+async function onUnlockSave(_msg, sender) {
+  const tabId = sender.tab.id;
+  const p = await readPending(tabId);
+  if (!p) return { error: "expired" };
+  const res = await ask({ op: "unlock" });
+  if (!(res && res.ok === true && !res.error)) return { error: errorOf(res) };
+  const again = await readPending(tabId);
+  if (!again || again.at !== p.at) return { error: "expired" };
+  const { action } = await checkSave(tabId, again);
+  return { ok: true, kind: action === "none" ? "none" : NotiqShared.offerKind(action, again.change) };
 }
 
 const SAVE_STATUS = new Set(["saved", "updated", "unchanged"]);
@@ -797,6 +815,7 @@ const CONTENT_HANDLERS = {
   fillCard: (_m, s) => fillCardForSender(s),
   capture: onCapture,
   pending: onPending,
+  unlockSave: onUnlockSave,
   save: onSave,
   dismiss: onDismiss,
   never: onNever,

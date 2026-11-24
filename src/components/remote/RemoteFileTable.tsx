@@ -1,7 +1,11 @@
+import { useRef } from "react";
 import { ChevronDown, ChevronUp, File, FileSymlink, Folder, FolderSymlink } from "lucide-react";
 import { formatBytes } from "../../lib/vaultBackup";
 import { formatModified, modeString, type RemoteEntry, type SortKey, type SortState } from "../../lib/sftp";
 import { useEntryDnd } from "./useEntryDnd";
+import { marqueeStyle, useMarquee, type MarqueeBox } from "./useMarquee";
+
+export type { MarqueeBox };
 
 const COLUMNS = "grid-cols-[minmax(0,1fr)_88px_150px_84px]";
 
@@ -17,6 +21,8 @@ interface Props {
   onOpen: (entry: RemoteEntry) => void;
   /** Right-click on a row (`entry`) or on the empty space below the rows (`null`), at screen position x, y. */
   onMenu: (entry: RemoteEntry | null, x: number, y: number) => void;
+  /** Click-and-drag on empty space: the names the band touches (`base` is the selection before the drag). */
+  onMarquee: (names: string[], additive: boolean, base: ReadonlySet<string>) => void;
   /** The empty-state text (an empty folder, or nothing matches the filter). */
   empty: string;
 }
@@ -71,7 +77,11 @@ function Row({ e, dir, on, onSelect, onOpen, onMenu }: {
 }
 
 /** The folder's listing: name, size, modified, permissions; click selects, double-click opens, drag moves. */
-export function RemoteFileTable({ entries, dir, selected, sort, onSort, onSelect, onOpen, onMenu, empty }: Props) {
+export function RemoteFileTable({ entries, dir, selected, sort, onSort, onSelect, onOpen, onMenu, onMarquee, empty }: Props) {
+  const scroller = useRef<HTMLDivElement>(null);
+  const selectedRef = useRef(selected);
+  selectedRef.current = selected;
+  const band = useMarquee(scroller, () => selectedRef.current, onMarquee);
   return (
     <div role="grid" aria-label="Remote files" aria-multiselectable className="flex flex-col min-h-0 flex-1">
       <div role="row" className={`grid ${COLUMNS} items-center h-7 shrink-0 text-[11px] font-medium uppercase tracking-wide text-[var(--color-text-muted)] border-b border-[var(--color-border)]`}>
@@ -80,9 +90,10 @@ export function RemoteFileTable({ entries, dir, selected, sort, onSort, onSelect
         <Header label="Modified" k="mtime" sort={sort} onSort={onSort} />
         <Header label="Access" sort={sort} onSort={onSort} />
       </div>
-      <div className="flex-1 min-h-0 overflow-y-auto" data-remote-rows="" onContextMenu={(ev) => { ev.preventDefault(); onMenu(null, ev.clientX, ev.clientY); }}>
+      <div ref={scroller} className="relative flex-1 min-h-0 overflow-y-auto" data-remote-rows="" onContextMenu={(ev) => { ev.preventDefault(); onMenu(null, ev.clientX, ev.clientY); }}>
         {entries.length === 0 && <p className="px-3 py-8 text-center text-sm text-[var(--color-text-muted)]">{empty}</p>}
         {entries.map((e) => <Row key={e.name} e={e} dir={dir} on={selected.has(e.name)} onSelect={onSelect} onOpen={onOpen} onMenu={onMenu} />)}
+        {band && <div aria-hidden className="absolute z-10 pointer-events-none rounded-[2px] border border-[var(--color-primary)]/70 bg-[var(--color-primary)]/15" style={marqueeStyle(band)} />}
       </div>
     </div>
   );
