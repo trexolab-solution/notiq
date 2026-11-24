@@ -1,8 +1,8 @@
-// @vitest-environment jsdom
+// @vitest-environment happy-dom
 import { describe, expect, it } from "vitest";
 import { namesUnder } from "./useMarquee";
 
-/** A scroller with rows at fixed positions (jsdom has no layout, so each row reports a rectangle). */
+/** A scroller with rows at fixed positions (happy-dom has no layout, so each row reports a rectangle). */
 function scrollerWith(rows: Record<string, [number, number, number, number]>): HTMLElement {
   const root = document.createElement("div");
   for (const [name, [left, top, width, height]] of Object.entries(rows)) {
