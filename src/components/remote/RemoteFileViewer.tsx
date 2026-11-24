@@ -12,7 +12,7 @@ import { getFilesPrefs } from "../../lib/filesPrefs";
 import { formatBytes } from "../../lib/vaultBackup";
 import { getLanguageFromPath } from "../../lib/language";
 import {
-  bytesFromBase64, decodeText, imageMime, MAX_IMAGE_BYTES, MAX_TEXT_BYTES, sftpErrorMessage, sftpRead, sftpWrite,
+  bytesFromBase64, decodeText, imageMime, isPdf, MAX_IMAGE_BYTES, MAX_PDF_BYTES, MAX_TEXT_BYTES, sftpErrorMessage, sftpRead, sftpWrite,
   SFTP_CHANGED, SFTP_TOO_BIG,
 } from "../../lib/sftp";
 
@@ -22,6 +22,7 @@ const Editor = lazy(() => import("@monaco-editor/react"));
 type Loaded =
   | { kind: "loading" }
   | { kind: "image"; url: string; bytes: number }
+  | { kind: "pdf"; url: string; bytes: number }
   | { kind: "text"; text: string; mtime: number | null }
   | { kind: "unsupported"; why: string };
 
@@ -38,7 +39,7 @@ interface Props {
 }
 
 /**
- * Opens a remote file inside the file manager: pictures are shown, text is edited in the editor and saved straight
+ * Opens a remote file inside the file manager: pictures and PDFs are shown, text is edited in the editor and saved straight
  * back to the server. A Markdown file also opens as a page (Edit / Preview) and a CSV or TSV file as a table (Text /
  * Table); the preview follows what is typed, saved or not. Anything else (binary, too big) says so and offers the download.
  */
@@ -55,6 +56,9 @@ export function RemoteFileViewer({ session, path, name, onClose, onDownload, onS
 
   const dirty = loaded.kind === "text" && draft !== saved;
   const mime = useMemo(() => imageMime(name), [name]);
+  const pdf = useMemo(() => isPdf(name), [name]);
+  /** The most the file may be to open here, by what it is. */
+  const limit = pdf ? MAX_PDF_BYTES : mime ? MAX_IMAGE_BYTES : MAX_TEXT_BYTES;
   /** How the text can also be shown (a page, a table), and which of the two views is open: a preview first. */
   const kind = useMemo(() => previewKind(name), [name]);
   const [view, setView] = useState<"edit" | "preview">("preview");
@@ -65,8 +69,15 @@ export function RemoteFileViewer({ session, path, name, onClose, onDownload, onS
     setLoaded({ kind: "loading" });
     if (urlRef.current) { URL.revokeObjectURL(urlRef.current); urlRef.current = null; }
     try {
-      const r = await sftpRead(session, path, mime ? MAX_IMAGE_BYTES : MAX_TEXT_BYTES);
+      const r = await sftpRead(session, path, limit);
       const bytes = bytesFromBase64(r.data);
+      if (pdf) {
+        // The system's own PDF viewer shows it (pages, zoom, search, print), from a blob address made here.
+        const url = URL.createObjectURL(new Blob([bytes as BlobPart], { type: "application/pdf" }));
+        urlRef.current = url;
+        setLoaded({ kind: "pdf", url, bytes: bytes.length });
+        return;
+      }
       if (mime) {
         const url = URL.createObjectURL(new Blob([bytes as BlobPart], { type: mime }));
         urlRef.current = url;
@@ -81,9 +92,9 @@ export function RemoteFileViewer({ session, path, name, onClose, onDownload, onS
     } catch (e) {
       const m = sftpErrorMessage(e);
       setLoaded({ kind: "unsupported", why: m === SFTP_TOO_BIG
-        ? `This file is too large to open here (the limit is ${formatBytes(mime ? MAX_IMAGE_BYTES : MAX_TEXT_BYTES)}). Download it instead.` : m });
+        ? `This file is too large to open here (the limit is ${formatBytes(limit)}). Download it instead.` : m });
     }
-  }, [session, path, mime]);
+  }, [session, path, mime, pdf, limit]);
 
   useEffect(() => {
     void load();
@@ -144,6 +155,9 @@ export function RemoteFileViewer({ session, path, name, onClose, onDownload, onS
           <div className="absolute inset-0 overflow-auto grid place-items-center p-4 bg-[var(--color-bg-secondary)]">
             <img src={loaded.url} alt={name} className="max-w-full max-h-full object-contain" draggable={false} />
           </div>
+        )}
+        {loaded.kind === "pdf" && (
+          <iframe title={name} src={loaded.url} className="absolute inset-0 h-full w-full border-0 bg-[var(--color-bg-secondary)]" />
         )}
         {loaded.kind === "text" && previewing && kind === "markdown" && <MarkdownView text={draft} />}
         {loaded.kind === "text" && previewing && kind === "table" && <CsvTable text={draft} name={name} />}

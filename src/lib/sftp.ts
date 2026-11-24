@@ -222,6 +222,11 @@ export const percent = (done: number, total: number): number => (total <= 0 ? 10
 /** Biggest image and biggest text file the viewer opens (bigger ones are downloaded instead). */
 export const MAX_IMAGE_BYTES = 25 * 1024 * 1024;
 export const MAX_TEXT_BYTES = 2 * 1024 * 1024;
+/** A PDF is shown by the system's own viewer, so it may be as large as a picture. */
+export const MAX_PDF_BYTES = 25 * 1024 * 1024;
+
+/** Whether a file is shown as a PDF. */
+export const isPdf = (name: string): boolean => name.toLowerCase().endsWith(".pdf");
 
 const IMAGE_MIME: Record<string, string> = {
   png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp",

@@ -101,6 +101,36 @@ describe("RemoteFileViewer", () => {
     expect(Array.from(document.querySelectorAll("thead th")).slice(1).map((t) => t.textContent)).toEqual(["a", "b"]);
   });
 
+  it("a PDF opens in the system's viewer inside the page, from a blob address, with nothing to edit", async () => {
+    const created: Blob[] = [];
+    const url = vi.spyOn(URL, "createObjectURL").mockImplementation((b) => { created.push(b as Blob); return "blob:http://localhost/pdf-1"; });
+    const revoke = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+    await open("/home/me/Report.PDF");
+    const frame = q("iframe") as HTMLIFrameElement;
+    expect(frame.getAttribute("src")).toBe("blob:http://localhost/pdf-1");
+    expect(frame.getAttribute("title")).toBe("Report.PDF");
+    expect(created[0].type).toBe("application/pdf");
+    expect(q("[data-testid=editor]")).toBeNull();
+    expect(q("[role=radiogroup]")).toBeNull();
+    expect(q("[data-testid=markdown-view]")).toBeNull();
+    // It may be as large as a picture.
+    expect(invoke).toHaveBeenCalledWith("sftp_read", expect.objectContaining({ limit: 25 * 1024 * 1024 }));
+    // Closing the viewer lets the blob go.
+    await act(async () => root.unmount());
+    expect(revoke).toHaveBeenCalledWith("blob:http://localhost/pdf-1");
+    url.mockRestore(); revoke.mockRestore();
+    root = createRoot(host);
+  });
+
+  it("a PDF over the limit says so and offers the download", async () => {
+    invoke.mockImplementation(async (cmd: string) => { if (cmd === "sftp_read") throw "too_big"; return null; });
+    await act(async () => { root.render(<RemoteFileViewer session={1} path="/home/me/Report.PDF" name="Report.PDF" onClose={onClose} onDownload={() => {}} onSaved={() => {}} />); });
+    await flush(); await flush();
+    expect(q("iframe")).toBeNull();
+    expect(document.body.textContent).toMatch(/too large to open here \(the limit is 25(\.0)? MB\)/);
+    expect(button("Download")).toBeTruthy();
+  });
+
   it("any other text opens in the editor alone, with no switch", async () => {
     await open("/home/me/notes.txt");
     expect((q("[data-testid=editor]") as HTMLTextAreaElement).value).toBe("plain text\n");
