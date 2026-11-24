@@ -180,6 +180,13 @@ a { color: inherit; text-decoration: none; }
 .btn { height: 34px; padding: 0 14px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel); cursor: pointer; }
 .btn:hover:not(:disabled) { background: var(--panel-2); }
 .btn:disabled { opacity: .45; cursor: default; }
+.dlg-m { margin: 0; padding: 2px 18px 14px; line-height: 1.5; }
+.dlg-b { padding: 2px 18px 4px; }
+.dlg-i { width: 100%; height: 40px; padding: 0 12px; border-radius: 11px; border: 1px solid var(--line); background: var(--panel-2); outline: none; }
+.dlg-i:focus { border-color: var(--accent); background: var(--panel); }
+.dlg-i[aria-invalid="true"] { border-color: var(--danger); }
+.dlg-e { min-height: 20px; margin-top: 6px; color: var(--danger); font-size: 12.5px; }
+.btn-up.danger { background: var(--danger); color: #fff; }
 .btn-up { background: var(--accent); border-color: transparent; color: var(--accent-ink); font-weight: 600; }
 .btn-up:hover:not(:disabled) { background: var(--accent); filter: brightness(1.07); }
 .pr dl { margin: 0; padding: 4px 18px 10px; }
@@ -335,6 +342,13 @@ a { color: inherit; text-decoration: none; }
 </div>
 <div class="ctx" id="ctx" role="menu" hidden></div>
 <div class="band" id="band" hidden></div>
+<div class="modal" id="dlg" hidden role="dialog" aria-modal="true" aria-labelledby="dlg-t">
+  <form class="mbox" id="dlg-f" novalidate>
+    <div class="mh" id="dlg-t"></div>
+    <div id="dlg-b"></div>
+    <div class="mf"><span class="sp"></span><button type="button" class="btn" id="dlg-c">Cancel</button><button type="submit" class="btn btn-up" id="dlg-ok">OK</button></div>
+  </form>
+</div>
 <div class="modal" id="props" hidden role="dialog" aria-modal="true" aria-labelledby="pr-t">
   <div class="mbox pr">
     <div class="mh" id="pr-t">Properties</div>
@@ -613,6 +627,38 @@ a { color: inherit; text-decoration: none; }
     const t = $("#toast"); t.textContent = msg; t.className = "toast on" + (bad ? " bad" : "");
     clearTimeout(say.t); say.t = setTimeout(() => t.classList.remove("on"), 3800);
   }
+  // The page's own dialogs (never the browser's prompt / confirm): a title, a message or a name field with live checking.
+  function dialog({ title, message, input, validate, confirm = "OK", danger = false }) {
+    return new Promise((resolve) => {
+      const d = $("#dlg"), body = $("#dlg-b"), ok = $("#dlg-ok"), cancel = $("#dlg-c"); $("#dlg-t").textContent = title; body.replaceChildren();
+      if (message) { const m = el("p", "dlg-m"); m.textContent = message; body.append(m); }
+      let inp = null, err = null;
+      if (input) {
+        const wrap = el("div", "dlg-b"); inp = document.createElement("input"); inp.className = "dlg-i"; inp.value = input.value || ""; inp.maxLength = 255;
+        inp.autocomplete = "off"; inp.spellcheck = false; inp.setAttribute("aria-label", input.label || title); err = el("div", "dlg-e"); err.setAttribute("role", "alert"); wrap.append(inp, err); body.append(wrap);
+      }
+      ok.textContent = confirm; ok.classList.toggle("danger", danger);
+      const check = () => { if (!inp) return true; const v = inp.value.trim(), m = v ? (validate ? validate(v) : "") : ""; err.textContent = m; inp.setAttribute("aria-invalid", String(!!m)); ok.disabled = !v || !!m || (input.keep === true ? false : v === input.value); return !ok.disabled; };
+      const finish = (yes) => {
+        d.hidden = true; $("#dlg-f").onsubmit = null; cancel.onclick = null; d.onmousedown = null; document.removeEventListener("keydown", onKey, true);
+        resolve(input ? (yes ? inp.value.trim() : null) : yes);
+      };
+      const onKey = (e) => { if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); finish(false); } };
+      document.addEventListener("keydown", onKey, true);
+      $("#dlg-f").onsubmit = (e) => { e.preventDefault(); if (check()) finish(true); };
+      cancel.onclick = () => finish(false); d.onmousedown = (e) => { if (e.target === d) finish(false); };
+      if (inp) inp.oninput = check;
+      d.hidden = false;
+      if (inp) { check(); inp.focus(); const dot = input.value && input.value.lastIndexOf("."); inp.setSelectionRange(0, dot > 0 && !input.whole ? dot : inp.value.length); } else (danger ? cancel : ok).focus();
+    });
+  }
+  /** Asks for a file or folder name; resolves to the trimmed name, or null when cancelled. Names that clash or are not allowed show why. */
+  const askName = ({ title, label, value = "", confirm, skip = null }) => dialog({
+    title, confirm, input: { label, value, whole: false },
+    validate: (v) => badName(v) ? "A name can't contain / \\ : * ? \" < > |, or end with a dot or space."
+      : st.items.some((i) => i !== skip && i.name.toLowerCase() === v.toLowerCase()) ? "A file or folder with that name already exists." : "",
+  });
+  const askConfirm = (o) => dialog(o);
   const okStatus = (c) => c === 200 || c === 201 || c === 204;
   const encName = (n) => encodeURIComponent(n);
   const badName = (n) => !n || /[\\/:*?"<>|]/.test(n) || n === "." || n === ".." || /[. ]$/.test(n);
@@ -629,17 +675,16 @@ a { color: inherit; text-decoration: none; }
   }
   async function doRename() {
     const it = selItems()[0]; if (!it) return;
-    const answer = prompt("Rename to", it.name); if (answer == null) return;
-    const name = answer.trim(); if (!name || name === it.name) return;
-    if (badName(name)) { say("That name isn't valid.", true); return; }
-    if (st.items.some((i) => i !== it && i.name.toLowerCase() === name.toLowerCase())) { say("A file or folder with that name already exists.", true); return; }
+    const name = await askName({ title: it.dir ? "Rename folder" : "Rename file", label: "New name", value: it.name, confirm: "Rename", skip: it }); if (!name || name === it.name) return;
     const c = await dav("MOVE", it.href, st.path + encName(name) + (it.dir ? "/" : ""));
     if (okStatus(c)) { say("Renamed."); st.sel.clear(); await load(st.path, true); } else say(c === 409 ? "Couldn't rename: that name is taken or not allowed." : "Couldn't rename (" + c + ").", true);
   }
   async function doDelete() {
     const items = selItems(); if (!items.length) return;
     const what = items.length === 1 ? '"' + items[0].name + '"' : items.length + " items";
-    if (!confirm("Delete " + what + "?" + (items.some((i) => i.dir) ? "\nFolders are deleted with everything inside." : "") + "\nThis can't be undone.")) return;
+    const dirs = items.some((i) => i.dir);
+    if (!(await askConfirm({ title: items.length === 1 ? "Delete " + (items[0].dir ? "folder" : "file") + "?" : "Delete " + items.length + " items?",
+      message: (items.length === 1 ? "\u201c" + items[0].name + "\u201d will be deleted" : "These " + items.length + " items will be deleted") + (dirs ? (items.length === 1 ? ", with everything inside it" : ", with everything inside the folders") : "") + ". This can't be undone.", confirm: "Delete", danger: true }))) return;
     let ok = 0, bad = 0;
     for (const it of items) { if (okStatus(await dav("DELETE", it.href))) ok++; else bad++; }
     st.sel.clear(); say(bad ? ok + " deleted, " + bad + " failed." : ok === 1 ? "Deleted." : ok + " items deleted.", !!bad);
@@ -716,7 +761,7 @@ a { color: inherit; text-decoration: none; }
   for (const t of ["pointerup", "pointercancel", "pointermove"]) main.addEventListener(t, () => clearTimeout(lp));
   main.addEventListener("contextmenu", (e) => { if (e.target.closest("[data-i]") && matchMedia("(pointer: coarse)").matches) e.preventDefault(); });
   window.addEventListener("keydown", (e) => {
-    if (viewerOn || !$("#pick").hidden || /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
+    if (viewerOn || !$("#pick").hidden || !$("#dlg").hidden || /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
     if (e.key === "Escape" && st.selecting) setSelecting(false);
     else if (st.selecting && (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "a") { e.preventDefault(); for (const i of shown) st.sel.add(i.href); refreshSel(); }
     else if (st.selecting && canManage && e.key === "Delete") void doDelete();
@@ -795,9 +840,7 @@ a { color: inherit; text-decoration: none; }
 
   // New file, cut / copy / paste
   async function newFile() {
-    const answer = prompt("New file name"); if (answer == null) return;
-    const name = answer.trim(); if (badName(name)) { say("That name isn't valid.", true); return; }
-    const final = uniqueName(name, new Set(st.items.map((i) => i.name)));
+    const final = await askName({ title: "New file", label: "File name", confirm: "Create" }); if (!final) return;
     try { const r = await fetch(abs(encPath(st.path, final, false)), { method: "PUT", body: "", credentials: "same-origin" }); if (okStatus(r.status)) { say("Created " + final + "."); await load(st.path, true); } else say("Couldn't create the file.", true); } catch { say("Connection lost.", true); }
   }
   function setClip(mode) {
@@ -868,7 +911,7 @@ a { color: inherit; text-decoration: none; }
 
   // Keyboard
   window.addEventListener("keydown", (e) => {
-    if (viewerOn || !$("#pick").hidden || !$("#props").hidden || /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
+    if (viewerOn || !$("#pick").hidden || !$("#dlg").hidden || !$("#props").hidden || /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
     if (e.key === "Escape" && !ctx.hidden) { closeMenu(); return; }
     const mod = e.ctrlKey || e.metaKey, k = e.key.toLowerCase();
     if (mod && k === "a") { e.preventDefault(); st.sel.clear(); for (const i of shown) st.sel.add(i.href); st.selecting = shown.length > 0; render(); }
@@ -1071,8 +1114,8 @@ a { color: inherit; text-decoration: none; }
     paintTotal();
   }
   $("#upc").addEventListener("click", () => { $("#ups").classList.toggle("col"); $("#upc").title = $("#ups").classList.contains("col") ? "Expand" : "Collapse"; });
-  $("#upx").addEventListener("click", () => {
-    if (busyUps()) { if (!confirm("Stop the uploads in progress?")) return; for (const j of [...ups.jobs]) cancelJob(j); }
+  $("#upx").addEventListener("click", async () => {
+    if (busyUps()) { if (!(await askConfirm({ title: "Stop the uploads?", message: "Files still uploading will be cancelled. Files already uploaded stay.", confirm: "Stop uploads", danger: true }))) return; for (const j of [...ups.jobs]) cancelJob(j); }
     $("#ups").hidden = true; ups.jobs = [];
   });
   $("#ups").addEventListener("pointerenter", () => { ups.over = true; clearTimeout(ups.closeTimer); });
@@ -1107,11 +1150,9 @@ a { color: inherit; text-decoration: none; }
   $("#up").addEventListener("click", () => $("#file").click());
   $("#file").addEventListener("change", (e) => { void uploadFiles(e.target.files); e.target.value = ""; });
   $("#mk").addEventListener("click", async () => {
-    const name = (prompt("New folder name") || "").trim();
-    if (!name) return;
-    if (/[\\/:*?"<>|]/.test(name) || name === "." || name === "..") { alert("That name isn't valid."); return; }
-    const r = await fetch(abs(st.path + encodeURIComponent(name) + "/"), { method: "MKCOL", credentials: "same-origin" });
-    if (r.status === 201) await load(st.path, true); else alert(r.status === 409 ? "A file or folder with that name already exists." : "Couldn't create the folder.");
+    const name = await askName({ title: "New folder", label: "Folder name", confirm: "Create" }); if (!name) return;
+    const r = await fetch(abs(st.path + encodeURIComponent(name) + "/"), { method: "MKCOL", credentials: "same-origin" }).catch(() => null);
+    if (r && r.status === 201) { say("Created " + name + "."); await load(st.path, true); } else say(r && r.status === 409 ? "A file or folder with that name already exists." : "Couldn't create the folder.", true);
   });
 
   // Drag files in from the computer: anywhere on the page uploads to the open folder, onto a folder (a row, a card, the
