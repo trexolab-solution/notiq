@@ -6,6 +6,7 @@ import { formatBytes } from "../../lib/vaultBackup";
 import { imageMime, type RemoteEntry, type SortKey, type SortState } from "../../lib/sftp";
 import { GRID_ITEM_PX, type GridSize } from "../../lib/filesPrefs";
 import { useEntryDnd } from "./useEntryDnd";
+import { marqueeStyle, useMarquee } from "./useMarquee";
 
 export type FileIcon = "folder" | "image" | "text" | "code" | "archive" | "audio" | "video" | "file";
 
@@ -52,6 +53,8 @@ interface Props {
   onSelect: (name: string, mode: "single" | "toggle" | "range") => void;
   onOpen: (entry: RemoteEntry) => void;
   onMenu: (entry: RemoteEntry | null, x: number, y: number) => void;
+  /** Click-and-drag on empty space: the names the band touches (`base` is the selection before the drag). */
+  onMarquee: (names: string[], additive: boolean, base: ReadonlySet<string>) => void;
   empty: string;
 }
 
@@ -78,9 +81,12 @@ function GridItem({ e, dir, on, size, icon, onSelect, onOpen, onMenu }: {
 }
 
 /** The folder as a grid of icons (same selection, open and right-click behaviour as the list). */
-export function RemoteFileGrid({ entries, dir, selected, sort, onSort, size, onZoom, onSelect, onOpen, onMenu, empty }: Props) {
+export function RemoteFileGrid({ entries, dir, selected, sort, onSort, size, onZoom, onSelect, onOpen, onMenu, onMarquee, empty }: Props) {
   const icon = ICON_PX[size];
   const scroller = useRef<HTMLDivElement>(null);
+  const selectedRef = useRef(selected);
+  selectedRef.current = selected;
+  const band = useMarquee(scroller, () => selectedRef.current, onMarquee);
   const zoom = useRef(onZoom);
   zoom.current = onZoom;
   // A native, non-passive listener: React's onWheel can't stop the page itself from zooming.
@@ -109,7 +115,7 @@ export function RemoteFileGrid({ entries, dir, selected, sort, onSort, size, onZ
           );
         })}
       </div>
-      <div ref={scroller} className="flex-1 min-h-0 overflow-y-auto p-3" data-remote-rows="" data-remote-grid=""
+      <div ref={scroller} className="relative flex-1 min-h-0 overflow-y-auto p-3" data-remote-rows="" data-remote-grid=""
            onContextMenu={(ev) => { ev.preventDefault(); onMenu(null, ev.clientX, ev.clientY); }}
            onClick={(ev) => { if (ev.target === ev.currentTarget) onSelect("", "single"); }}>
         {entries.length === 0 && <p className="px-3 py-8 text-center text-sm text-[var(--color-text-muted)]">{empty}</p>}
@@ -118,6 +124,7 @@ export function RemoteFileGrid({ entries, dir, selected, sort, onSort, size, onZ
             <GridItem key={e.name} e={e} dir={dir} on={selected.has(e.name)} size={size} icon={icon} onSelect={onSelect} onOpen={onOpen} onMenu={onMenu} />
           ))}
         </div>
+        {band && <div aria-hidden className="absolute z-10 pointer-events-none rounded-[2px] border border-[var(--color-primary)]/70 bg-[var(--color-primary)]/15" style={marqueeStyle(band)} />}
       </div>
     </div>
   );

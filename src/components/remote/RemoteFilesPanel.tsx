@@ -107,6 +107,11 @@ export function RemoteFilesPanel({ target, active = true, onPopOut }: {
   const ready = phase === "ready";
   const trashOn = getFilesPrefs().useTrash;
 
+  /** Rubber-band selection: replaces the selection, or adds to what was selected when the drag began. */
+  const marquee = (names: string[], additive: boolean, base: ReadonlySet<string>) => {
+    anchor.current = names[0] ?? null;
+    setSelected(new Set(additive ? [...base, ...names] : names));
+  };
   const select = (name: string, mode: "single" | "toggle" | "range") => {
     if (mode === "range" && anchor.current) {
       const a = shown.findIndex((e) => e.name === anchor.current), b = shown.findIndex((e) => e.name === name);
@@ -363,10 +368,10 @@ export function RemoteFilesPanel({ target, active = true, onPopOut }: {
                                       onView={setView} onSize={setGridSize} onPopOut={onPopOut} />
 
                 {view === "grid" ? (
-                  <RemoteFileGrid entries={shown} dir={path} selected={selected} sort={sort} onSort={sortBy} size={gridSize} onZoom={(d) => setGridSize(stepSize(gridSize, d))} onOpen={openEntry} onMenu={openMenu}
+                  <RemoteFileGrid entries={shown} dir={path} selected={selected} sort={sort} onSort={sortBy} size={gridSize} onZoom={(d) => setGridSize(stepSize(gridSize, d))} onOpen={openEntry} onMenu={openMenu} onMarquee={marquee}
                                   onSelect={(n, m) => (n === "" ? setSelected(new Set()) : select(n, m))} empty={emptyText} />
                 ) : (
-                  <RemoteFileTable entries={shown} dir={path} selected={selected} sort={sort} onSort={sortBy} onSelect={select} onOpen={openEntry} onMenu={openMenu}
+                  <RemoteFileTable entries={shown} dir={path} selected={selected} sort={sort} onSort={sortBy} onSelect={select} onOpen={openEntry} onMenu={openMenu} onMarquee={marquee}
                                    empty={emptyText} />
                 )}
                 <DragOverlay dropAnimation={null}>
