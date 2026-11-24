@@ -4,8 +4,15 @@ import type { VaultItem } from "./vault";
 
 /** The "Share items…" prompt: what the form holds, how it is checked, and how it becomes a `vault_share_export` call. */
 
-export type ValidFor = "1d" | "7d" | "30d" | "never";
-export type ItemLife = "1d" | "7d" | "30d" | "forever";
+export type TimeUnit = "hours" | "days";
+
+/** A length of time the sender sets (or turns off): "7 days", "36 hours", or none. */
+export interface TimeLimit {
+  /** Off = no end (the file) or the items stay (the items). */
+  on: boolean;
+  amount: number;
+  unit: TimeUnit;
+}
 
 export interface ShareForm {
   /** What was ticked: notes or folders (a folder takes everything in it). */
@@ -16,9 +23,9 @@ export interface ShareForm {
   /** How many times the file can be imported (1 to 100). */
   maxImports: number;
   /** How long the file can be imported. */
-  validFor: ValidFor;
+  validFor: TimeLimit;
   /** How long imported items stay in the receiver's vault. */
-  itemLife: ItemLife;
+  itemLife: TimeLimit;
   /** Delete the file after its last import. */
   deleteFile: boolean;
   masterPassword: string;
@@ -26,31 +33,48 @@ export interface ShareForm {
 
 export const MAX_IMPORTS = 100;
 export const MIN_SHARE_PASSWORD = 8;
+/** The longest either time can be: a year. */
+export const MAX_LIMIT_HOURS = 365 * 24;
 const HOUR = 3_600_000;
-const DAY = 24 * HOUR;
 
-export const VALID_FOR_OPTIONS: { value: ValidFor; label: string }[] = [
-  { value: "1d", label: "1 day" }, { value: "7d", label: "7 days" }, { value: "30d", label: "30 days" }, { value: "never", label: "No end date" },
-];
-export const ITEM_LIFE_OPTIONS: { value: ItemLife; label: string }[] = [
-  { value: "1d", label: "1 day" }, { value: "7d", label: "7 days" }, { value: "30d", label: "30 days" }, { value: "forever", label: "They stay" },
-];
+export const UNIT_OPTIONS: { value: TimeUnit; label: string }[] = [{ value: "hours", label: "hours" }, { value: "days", label: "days" }];
 
 /** What the form starts with: one import, a week for the file, a week for the items, the file deleted afterwards. */
 export function initialShareForm(paths: string[] = [], password = generateSharePassword()): ShareForm {
-  return { paths, attachments: false, sharePassword: password, maxImports: 1, validFor: "7d", itemLife: "7d", deleteFile: true, masterPassword: "" };
+  return {
+    paths, attachments: false, sharePassword: password, maxImports: 1,
+    validFor: { on: true, amount: 7, unit: "days" }, itemLife: { on: true, amount: 7, unit: "days" },
+    deleteFile: true, masterPassword: "",
+  };
 }
 
-const DAYS: Record<Exclude<ValidFor, "never">, number> = { "1d": 1, "7d": 7, "30d": 30 };
+/** The length of a limit in hours (0 when it is off). */
+export function limitHours(l: TimeLimit): number {
+  return l.on ? l.amount * (l.unit === "days" ? 24 : 1) : 0;
+}
+
+/** What is wrong with a limit, in words (`what` names it: "The file"); null when it is fine or off. */
+export function limitProblem(l: TimeLimit, what: string): string | null {
+  if (!l.on) return null;
+  if (!Number.isInteger(l.amount) || l.amount < 1) return `${what}: enter a whole number, 1 or more.`;
+  if (limitHours(l) > MAX_LIMIT_HOURS) return `${what}: at most 1 year (365 days).`;
+  return null;
+}
 
 /** Unix ms when the file stops being importable, or null for no end. */
-export function validUntilMs(v: ValidFor, now: number): number | null {
-  return v === "never" ? null : now + DAYS[v] * DAY;
+export function validUntilMs(l: TimeLimit, now: number): number | null {
+  return l.on ? now + limitHours(l) * HOUR : null;
 }
 
 /** Hours imported items stay, or null for ever. */
-export function itemLifeHours(l: ItemLife): number | null {
-  return l === "forever" ? null : DAYS[l] * 24;
+export function itemLifeHours(l: TimeLimit): number | null {
+  return l.on ? limitHours(l) : null;
+}
+
+/** "7 days", "1 day", "36 hours", "1 hour". */
+export function describeLimit(l: TimeLimit): string {
+  const n = l.amount;
+  return `${n} ${l.unit === "days" ? (n === 1 ? "day" : "days") : (n === 1 ? "hour" : "hours")}`;
 }
 
 /**
@@ -94,14 +118,43 @@ export function listForShare(items: readonly VaultItem[], query: string): VaultI
   return [...shown].sort((a, b) => a.rel.toLowerCase().localeCompare(b.rel.toLowerCase()));
 }
 
-/** The first thing wrong with the form, in words; null when it can be saved. */
-export function shareFormProblem(f: ShareForm): string | null {
-  if (f.paths.length === 0) return "Choose what to share.";
+/** Step "Items": something has to be chosen. */
+export function itemsProblem(f: ShareForm): string | null {
+  return f.paths.length === 0 ? "Choose what to share." : null;
+}
+
+/** Step "Rules": the password, how often, and the two time limits. */
+export function rulesProblem(f: ShareForm): string | null {
   if (f.sharePassword.length < MIN_SHARE_PASSWORD) return `The password needs at least ${MIN_SHARE_PASSWORD} characters.`;
-  if (f.sharePassword === f.masterPassword) return "Use a different password than your master password.";
   if (!Number.isInteger(f.maxImports) || f.maxImports < 1 || f.maxImports > MAX_IMPORTS) return `It can be imported between 1 and ${MAX_IMPORTS} times.`;
+  return limitProblem(f.validFor, "The file") ?? limitProblem(f.itemLife, "The items");
+}
+
+/** Step "Confirm": the master password, and not the same as the receiver's. */
+export function confirmProblem(f: ShareForm): string | null {
+  if (f.sharePassword === f.masterPassword) return "Use a different password than your master password.";
   if (!f.masterPassword) return "Enter your master password.";
   return null;
+}
+
+/** The first thing wrong with the form, in words; null when it can be saved. */
+export function shareFormProblem(f: ShareForm): string | null {
+  return itemsProblem(f) ?? rulesProblem(f) ?? confirmProblem(f);
+}
+
+/** The short summary the last step shows: what is shared and the rules, in plain words. */
+export function shareSummary(f: ShareForm, preview: { notes: number; folders: number; attachments: number } | null, now: number): string[] {
+  const out: string[] = [];
+  if (preview) {
+    const n = (c: number, one: string, many = `${one}s`) => `${c} ${c === 1 ? one : many}`;
+    out.push(`${n(preview.notes, "note")}${preview.folders > 0 ? `, ${n(preview.folders, "folder")}` : ""}${f.attachments && preview.attachments > 0 ? `, ${n(preview.attachments, "attachment")}` : ""}`);
+  }
+  out.push(`Can be imported ${f.maxImports} ${f.maxImports === 1 ? "time" : "times"}`);
+  const until = validUntilMs(f.validFor, now);
+  out.push(until == null ? "The file has no end date" : `The file works for ${describeLimit(f.validFor)}`);
+  out.push(f.itemLife.on ? `Items are removed ${describeLimit(f.itemLife)} after the import` : "Items stay in the receiver's vault");
+  out.push(f.deleteFile ? "The file is deleted after its last import" : "The file is kept after the last import");
+  return out;
 }
 
 /** The call `vault_share_export` takes for this form and the chosen file. */

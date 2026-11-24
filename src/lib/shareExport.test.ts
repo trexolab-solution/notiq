@@ -3,12 +3,17 @@ vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn(), save: vi.fn() }));
 vi.mock("@tauri-apps/plugin-fs", () => ({ stat: vi.fn() }));
 import {
-  coveredBy, defaultShareName, generateSharePassword, initialShareForm, itemLifeHours, listForShare, shareFormProblem,
-  toExportArgs, toggleChosen, validUntilMs, type ShareForm,
+  confirmProblem, coveredBy, defaultShareName, describeLimit, generateSharePassword, initialShareForm, itemLifeHours, itemsProblem,
+  limitHours, limitProblem, listForShare, rulesProblem, shareFormProblem, shareSummary, toExportArgs, toggleChosen, validUntilMs,
+  type ShareForm, type TimeLimit,
 } from "./shareExport";
 import type { VaultItem } from "./vault";
 
-const DAY = 86_400_000;
+const HOUR = 3_600_000;
+const DAY = 24 * HOUR;
+const days = (n: number): TimeLimit => ({ on: true, amount: n, unit: "days" });
+const hours = (n: number): TimeLimit => ({ on: true, amount: n, unit: "hours" });
+const off: TimeLimit = { on: false, amount: 7, unit: "days" };
 const form = (o: Partial<ShareForm> = {}): ShareForm => ({ ...initialShareForm(["Work/bank.nqv"], "a password for sharing"), masterPassword: "the master password", ...o });
 const item = (rel: string, o: Partial<VaultItem> = {}): VaultItem => ({
   rel, ext: rel.endsWith(".nqv") ? "md" : "", updated: 0, dir: !rel.endsWith(".nqv"), tags: [], starred: false, trashed_at: null, attachments: 0, history: 0, ...o,
@@ -17,17 +22,42 @@ const item = (rel: string, o: Partial<VaultItem> = {}): VaultItem => ({
 describe("share form defaults", () => {
   it("starts with one import, a week for the file, a week for the items and the file deleted afterwards", () => {
     const f = initialShareForm(["a.nqv"]);
-    expect(f).toMatchObject({ paths: ["a.nqv"], attachments: false, maxImports: 1, validFor: "7d", itemLife: "7d", deleteFile: true, masterPassword: "" });
+    expect(f).toMatchObject({ paths: ["a.nqv"], attachments: false, maxImports: 1, validFor: days(7), itemLife: days(7), deleteFile: true, masterPassword: "" });
     expect(f.sharePassword.length).toBeGreaterThanOrEqual(20);
   });
-  it("turns the choices into times", () => {
+});
+
+describe("time limits", () => {
+  it("count in hours or days", () => {
+    expect(limitHours(days(2))).toBe(48);
+    expect(limitHours(hours(36))).toBe(36);
+    expect(limitHours(off)).toBe(0);
+  });
+  it("turn into times", () => {
     const now = 1_000_000;
-    expect(validUntilMs("1d", now)).toBe(now + DAY);
-    expect(validUntilMs("30d", now)).toBe(now + 30 * DAY);
-    expect(validUntilMs("never", now)).toBeNull();
-    expect(itemLifeHours("7d")).toBe(168);
-    expect(itemLifeHours("1d")).toBe(24);
-    expect(itemLifeHours("forever")).toBeNull();
+    expect(validUntilMs(hours(5), now)).toBe(now + 5 * HOUR);
+    expect(validUntilMs(days(30), now)).toBe(now + 30 * DAY);
+    expect(validUntilMs(off, now)).toBeNull();
+    expect(itemLifeHours(days(7))).toBe(168);
+    expect(itemLifeHours(hours(36))).toBe(36);
+    expect(itemLifeHours(off)).toBeNull();
+  });
+  it("are checked: a whole number, at least 1, at most a year", () => {
+    expect(limitProblem(days(7), "The file")).toBeNull();
+    expect(limitProblem(days(365), "The file")).toBeNull();
+    expect(limitProblem(hours(8760), "The file")).toBeNull();
+    expect(limitProblem(days(366), "The file")).toMatch(/at most 1 year/);
+    expect(limitProblem(hours(8761), "The items")).toMatch(/The items: at most 1 year/);
+    expect(limitProblem(days(0), "The file")).toMatch(/whole number/);
+    expect(limitProblem(hours(1.5), "The file")).toMatch(/whole number/);
+    expect(limitProblem(hours(NaN), "The file")).toMatch(/whole number/);
+    expect(limitProblem({ ...off, amount: NaN }, "The file")).toBeNull();
+  });
+  it("read as words", () => {
+    expect(describeLimit(days(7))).toBe("7 days");
+    expect(describeLimit(days(1))).toBe("1 day");
+    expect(describeLimit(hours(36))).toBe("36 hours");
+    expect(describeLimit(hours(1))).toBe("1 hour");
   });
 });
 
@@ -42,7 +72,6 @@ describe("share password", () => {
     expect(seen.size).toBe(50);
   });
   it("never uses a byte that would make some characters likelier", () => {
-    // Bytes of 248 and over are skipped; with only such bytes first, the next batch is used.
     let calls = 0;
     const p = generateSharePassword((n) => { calls++; return calls === 1 ? new Uint8Array(n).fill(255) : new Uint8Array(n).fill(0); });
     expect(calls).toBe(2);
@@ -71,30 +100,60 @@ describe("choosing items", () => {
   });
 });
 
-describe("share form checks", () => {
-  it("accepts a complete form", () => {
-    expect(shareFormProblem(form())).toBeNull();
+describe("step checks", () => {
+  it("Items: something has to be chosen", () => {
+    expect(itemsProblem(form())).toBeNull();
+    expect(itemsProblem(form({ paths: [] }))).toMatch(/Choose what to share/);
   });
-  it("names what is missing, one thing at a time", () => {
-    expect(shareFormProblem(form({ paths: [] }))).toMatch(/Choose what to share/);
-    expect(shareFormProblem(form({ sharePassword: "short" }))).toMatch(/at least 8/);
-    expect(shareFormProblem(form({ sharePassword: "same password", masterPassword: "same password" }))).toMatch(/different password/);
-    expect(shareFormProblem(form({ maxImports: 0 }))).toMatch(/between 1 and 100/);
-    expect(shareFormProblem(form({ maxImports: 101 }))).toMatch(/between 1 and 100/);
-    expect(shareFormProblem(form({ maxImports: 1.5 }))).toMatch(/between 1 and 100/);
+  it("Rules: the password, how often, and both time limits", () => {
+    expect(rulesProblem(form())).toBeNull();
+    expect(rulesProblem(form({ sharePassword: "short" }))).toMatch(/at least 8/);
+    expect(rulesProblem(form({ maxImports: 0 }))).toMatch(/between 1 and 100/);
+    expect(rulesProblem(form({ maxImports: 101 }))).toMatch(/between 1 and 100/);
+    expect(rulesProblem(form({ maxImports: 1.5 }))).toMatch(/between 1 and 100/);
+    expect(rulesProblem(form({ maxImports: NaN }))).toMatch(/between 1 and 100/);
+    expect(rulesProblem(form({ validFor: days(0) }))).toMatch(/^The file:/);
+    expect(rulesProblem(form({ itemLife: hours(9000) }))).toMatch(/^The items:/);
+    expect(rulesProblem(form({ validFor: off, itemLife: off }))).toBeNull();
+  });
+  it("Confirm: the master password, and not the receiver's", () => {
+    expect(confirmProblem(form())).toBeNull();
+    expect(confirmProblem(form({ masterPassword: "" }))).toMatch(/master password/);
+    expect(confirmProblem(form({ sharePassword: "same password", masterPassword: "same password" }))).toMatch(/different password/);
+  });
+  it("the whole form is the first problem of any step", () => {
+    expect(shareFormProblem(form())).toBeNull();
+    expect(shareFormProblem(form({ paths: [], sharePassword: "x" }))).toMatch(/Choose what to share/);
+    expect(shareFormProblem(form({ sharePassword: "x" }))).toMatch(/at least 8/);
     expect(shareFormProblem(form({ masterPassword: "" }))).toMatch(/master password/);
+  });
+});
+
+describe("summary", () => {
+  const preview = { notes: 3, folders: 1, attachments: 2 };
+  it("says what is shared and the rules in plain words", () => {
+    const lines = shareSummary(form({ attachments: true, maxImports: 2, validFor: hours(36), itemLife: days(7) }), preview, 0);
+    expect(lines).toEqual([
+      "3 notes, 1 folder, 2 attachments", "Can be imported 2 times", "The file works for 36 hours",
+      "Items are removed 7 days after the import", "The file is deleted after its last import",
+    ]);
+  });
+  it("names what is turned off", () => {
+    const lines = shareSummary(form({ validFor: off, itemLife: off, deleteFile: false }), { notes: 1, folders: 0, attachments: 4 }, 0);
+    expect(lines).toEqual(["1 note", "Can be imported 1 time", "The file has no end date", "Items stay in the receiver's vault", "The file is kept after the last import"]);
+    expect(shareSummary(form(), null, 0)[0]).toBe("Can be imported 1 time");
   });
 });
 
 describe("the export call", () => {
   it("carries every choice", () => {
     const now = 5_000_000;
-    const args = toExportArgs(form({ attachments: true, maxImports: 3, validFor: "30d", itemLife: "1d", deleteFile: false }), "C:/x.nqb", now);
+    const args = toExportArgs(form({ attachments: true, maxImports: 3, validFor: hours(36), itemLife: days(1), deleteFile: false }), "C:/x.nqb", now);
     expect(args).toEqual({
       paths: ["Work/bank.nqv"], attachments: true, masterPassword: "the master password", sharePassword: "a password for sharing",
-      maxImports: 3, validUntilMs: now + 30 * DAY, itemLifeHours: 24, deleteFile: false, destPath: "C:/x.nqb",
+      maxImports: 3, validUntilMs: now + 36 * HOUR, itemLifeHours: 24, deleteFile: false, destPath: "C:/x.nqb",
     });
-    expect(toExportArgs(form({ validFor: "never", itemLife: "forever" }), "C:/x.nqb", now)).toMatchObject({ validUntilMs: null, itemLifeHours: null });
+    expect(toExportArgs(form({ validFor: off, itemLife: off }), "C:/x.nqb", now)).toMatchObject({ validUntilMs: null, itemLifeHours: null });
   });
   it("names the file by local date", () => {
     expect(defaultShareName(new Date(2026, 10, 5))).toBe("notiq-share-2026-11-05.nqb");

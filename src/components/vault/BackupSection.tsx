@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Download, FileUp, PackageOpen, Share2, ShieldCheck } from "lucide-react";
+import { Archive, ArchiveRestore, Download, FileUp, PackageOpen, Share2, ShieldCheck } from "lucide-react";
 import { Modal } from "../ui/Modal";
 import { PasswordInput } from "../ui/PasswordInput";
 import { Button } from "../ui/Button";
@@ -7,10 +7,11 @@ import { SettingRow } from "../ui/SettingRow";
 import { RestoreBackupDialog } from "./RestoreBackupDialog";
 import { ImportSharedDialog } from "./ImportSharedDialog";
 import { ShareItemsDialog } from "./ShareItemsDialog";
+import { ChooseKindDialog } from "./ChooseKindDialog";
 import { toast } from "../../lib/toast";
 import { useVaultStore } from "../../store/vaultStore";
 import { vaultErrorMessage } from "../../lib/vault";
-import { exportBackupWithDialog, vaultVerifyPassword, formatBytes } from "../../lib/vaultBackup";
+import { checkDroppedBackup, exportBackupWithDialog, vaultBackupInspect, vaultVerifyPassword, formatBytes } from "../../lib/vaultBackup";
 import {
   BACKUP_EVENT, describeAge, getLastBackup, noteVaultSeen,
   getBackupReminderDisabled, setBackupReminderDisabled,
@@ -23,9 +24,11 @@ export function BackupSection() {
   const [last, setLast] = useState<number | null>(() => getLastBackup());
   const [remind, setRemind] = useState(() => !getBackupReminderDisabled());
   const [askPw, setAskPw] = useState(false);
-  const [restoring, setRestoring] = useState(false);
-  const [importingShare, setImportingShare] = useState(false);
-  const [sharing, setSharing] = useState(false);
+  /** Which dialog is open: the choice for Export / Import, or one of the flows. */
+  const [dialog, setDialog] = useState<"export" | "import" | "restore" | "importShare" | "share" | null>(null);
+  /** A file the Import choice was given by drag and drop: the flow it picked opens with it. */
+  const [droppedPath, setDroppedPath] = useState<string | undefined>(undefined);
+  const close = () => { setDialog(null); setDroppedPath(undefined); };
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -48,8 +51,20 @@ export function BackupSection() {
   };
 
   const startShare = async () => {
+    setDialog(null);
     if (!useVaultStore.getState().unlocked && !(await useVaultStore.getState().ensureUnlocked())) return;
-    setSharing(true);
+    setDialog("share");
+  };
+
+  /** A file dropped on the Import choice: a share file opens the share import, anything else the restore. */
+  const routeDrop = async (paths: string[]) => {
+    const r = await checkDroppedBackup(paths);
+    if ("error" in r) { toast.error(r.error); return; }
+    try {
+      const h = await vaultBackupInspect(r.path);
+      setDroppedPath(r.path);
+      setDialog(h.kind === "share" ? "importShare" : "restore");
+    } catch (e) { toast.error(vaultErrorMessage(e)); }
   };
 
   const start = async () => {
@@ -68,41 +83,23 @@ export function BackupSection() {
     <>
       <SettingRow
         id="vault.backup.export"
-        label="Export encrypted backup"
-        description={`${last ? `Last backup: ${describeAge(last, Date.now())} (${new Date(last).toLocaleString()}).` : "You haven't exported a backup yet."} The file stays protected by your master password and recovery key.`}
+        label="Export"
+        description={`${last ? `Last backup: ${describeAge(last, Date.now())} (${new Date(last).toLocaleString()}).` : "You haven't exported a backup yet."} Save an encrypted backup of your whole vault, or share chosen items with someone else.`}
         help="Without the backup file plus the master password or recovery key, a backup cannot be opened, so keep it somewhere safe."
-        keywords={["backup", "last backup", "export", "save a copy", ".nqb", "encrypted"]}
+        keywords={["backup", "last backup", "export", "save a copy", ".nqb", "encrypted", "share", "send", "give", "someone", "expire", "temporary"]}
       >
-        <Button className="settings-btn-primary" size="sm" variant="primary" icon={<Download size={12} />} disabled={!exists} loading={busy} loadingText="Exporting…" onClick={() => void start()}>
-          Export backup…
+        <Button className="settings-btn-primary" size="sm" variant="primary" icon={<Download size={12} />} disabled={!exists} loading={busy} loadingText="Exporting…" onClick={() => setDialog("export")}>
+          Export…
         </Button>
       </SettingRow>
 
       <SettingRow
         id="vault.backup.import"
-        label="Import backup"
-        description="Restore a .nqb file. If a vault already exists here you can merge the backup into it or replace it (a copy is kept either way)."
-        keywords={["restore", "backup", "import", ".nqb", "recover", "merge"]}
+        label="Import"
+        description="Restore a .nqb backup (merge it into this vault or replace it), or import items someone shared with you. Drop a file on the dialog and Notiq picks the right one."
+        keywords={["restore", "backup", "import", ".nqb", "recover", "merge", "share", "shared", "receive", "password"]}
       >
-        <Button className="settings-btn" size="sm" icon={<FileUp size={12} />} onClick={() => setRestoring(true)}>Import backup…</Button>
-      </SettingRow>
-
-      <SettingRow
-        id="vault.backup.share"
-        label="Share items"
-        description="Make a .nqb file of chosen items for someone else, with its own password. You choose how often it can be imported, how long it works and how long the items stay."
-        keywords={["share", "send", "give", "someone", ".nqb", "expire", "self destruct", "temporary"]}
-      >
-        <Button className="settings-btn" size="sm" icon={<Share2 size={12} />} disabled={!exists} onClick={() => void startShare()}>Share items…</Button>
-      </SettingRow>
-
-      <SettingRow
-        id="vault.backup.shared"
-        label="Import shared items"
-        description="Add items someone shared with you from a .nqb share file. You need the password they gave you, and your own vault open."
-        keywords={["share", "shared", "import", ".nqb", "password", "receive", "expire"]}
-      >
-        <Button className="settings-btn" size="sm" icon={<PackageOpen size={12} />} disabled={!exists} onClick={() => setImportingShare(true)}>Import shared…</Button>
+        <Button className="settings-btn" size="sm" icon={<FileUp size={12} />} onClick={() => setDialog("import")}>Import…</Button>
       </SettingRow>
 
       <SettingRow
@@ -122,9 +119,33 @@ export function BackupSection() {
           onVerified={() => { setAskPw(false); void runExport(); }}
         />
       )}
-      {restoring && <RestoreBackupDialog onClose={() => setRestoring(false)} />}
-      {importingShare && <ImportSharedDialog onClose={() => setImportingShare(false)} />}
-      {sharing && <ShareItemsDialog onClose={() => setSharing(false)} />}
+      {dialog === "export" && (
+        <ChooseKindDialog
+          title="Export" icon={<Download size={16} />} initial="backup" onClose={close}
+          intro="What do you want to export?"
+          options={[
+            { value: "backup", title: "Backup of my vault", icon: <Archive size={16} />, description: "Everything in it, encrypted with your master password. To keep safe, or to move to another PC." },
+            { value: "share", title: "Share chosen items", icon: <Share2 size={16} />, description: "Only what you pick, with a password for the receiver. You set how often it can be imported, how long it works and how long the items stay." },
+          ]}
+          onChoose={(v) => { if (v === "backup") { setDialog(null); void start(); } else void startShare(); }}
+        />
+      )}
+      {dialog === "import" && (
+        <ChooseKindDialog
+          title="Import" icon={<FileUp size={16} />} initial="restore" onClose={close}
+          intro="What do you want to import?"
+          options={[
+            { value: "restore", title: "Restore a backup", icon: <ArchiveRestore size={16} />, description: "A backup of a whole vault: merge it into this vault, or replace it." },
+            { value: "share", title: "Import shared items", icon: <PackageOpen size={16} />, description: "A share file someone made for you. You need the password they gave you, and your own vault open." },
+          ]}
+          dropHint="Or drop the file here: Notiq opens the right one."
+          onDrop={(p) => void routeDrop(p)}
+          onChoose={(v) => setDialog(v === "restore" ? "restore" : "importShare")}
+        />
+      )}
+      {dialog === "restore" && <RestoreBackupDialog initialPath={droppedPath} onClose={close} />}
+      {dialog === "importShare" && <ImportSharedDialog initialPath={droppedPath} onClose={close} />}
+      {dialog === "share" && <ShareItemsDialog onClose={close} />}
     </>
   );
 }
