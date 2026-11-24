@@ -3,7 +3,7 @@ vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn(), save: vi.fn() }));
 vi.mock("@tauri-apps/plugin-fs", () => ({ stat: vi.fn() }));
 import {
-  confirmProblem, coveredBy, defaultShareName, describeLimit, generateSharePassword, importsProblem, initialShareForm, itemLifeHours, itemsProblem,
+  chooseAll, chosenCount, confirmProblem, coveredBy, defaultShareName, describeLimit, generateSharePassword, importsProblem, initialShareForm, itemLifeHours, itemsProblem,
   limitHours, limitMax, limitProblem, listForShare, passwordProblem, rulesProblem, shareFormProblem, shareSummary, toExportArgs, toggleChosen, validUntilMs,
   type ShareForm, type TimeLimit,
 } from "./shareExport";
@@ -22,7 +22,7 @@ const item = (rel: string, o: Partial<VaultItem> = {}): VaultItem => ({
 describe("share form defaults", () => {
   it("starts with one import, a week for the file, a week for the items and the file deleted afterwards", () => {
     const f = initialShareForm(["a.nqv"]);
-    expect(f).toMatchObject({ paths: ["a.nqv"], attachments: false, maxImports: 1, validFor: days(7), itemLife: days(7), deleteFile: true, masterPassword: "" });
+    expect(f).toMatchObject({ paths: ["a.nqv"], attachments: true, maxImports: 1, validFor: days(7), itemLife: days(7), deleteFile: true, masterPassword: "" });
     expect(f.sharePassword.length).toBeGreaterThanOrEqual(20);
   });
 });
@@ -101,6 +101,22 @@ describe("choosing items", () => {
     expect(toggleChosen(["Work"], "Work", true)).toEqual(["Work"]);
     expect(toggleChosen(["Work", "top.nqv"], "Work", false)).toEqual(["top.nqv"]);
   });
+  it("Select all ticks everything shown, keeps the paths short, and unticks only what is shown", () => {
+    const shown = [item("top.nqv"), item("Work"), item("Work/bank.nqv"), item("Work/mail.nqv")];
+    expect(chooseAll([], shown, true)).toEqual(["top.nqv", "Work"]);
+    expect(chooseAll(["Work/bank.nqv", "Other.nqv"], shown, true)).toEqual(["Other.nqv", "top.nqv", "Work"]);
+    expect(chooseAll(["top.nqv", "Work", "Other.nqv"], shown, false)).toEqual(["Other.nqv"]);
+    // A search shows part of the vault: only that part is ticked.
+    expect(chooseAll([], [item("Work/bank.nqv")], true)).toEqual(["Work/bank.nqv"]);
+    expect(chooseAll([], [], true)).toEqual([]);
+  });
+  it("counts what is ticked, by itself or through a folder", () => {
+    const shown = [item("top.nqv"), item("Work"), item("Work/bank.nqv"), item("Work/mail.nqv")];
+    expect(chosenCount([], shown)).toBe(0);
+    expect(chosenCount(["Work"], shown)).toBe(3);
+    expect(chosenCount(["Work/bank.nqv", "top.nqv"], shown)).toBe(2);
+    expect(chosenCount(["top.nqv", "Work"], shown)).toBe(4);
+  });
   it("lists the vault by path, without the recycle bin, and filters by a search", () => {
     const items = [item("top.nqv"), item("Work"), item("Work/bank.nqv"), item("gone.nqv", { trashed_at: 5 })];
     expect(listForShare(items, "").map((i) => i.rel)).toEqual(["top.nqv", "Work", "Work/bank.nqv"]);
@@ -148,7 +164,7 @@ describe("summary", () => {
     ]);
   });
   it("names what is turned off", () => {
-    const lines = shareSummary(form({ validFor: off, itemLife: off, deleteFile: false }), { notes: 1, folders: 0, attachments: 4 }, 0);
+    const lines = shareSummary(form({ attachments: false, validFor: off, itemLife: off, deleteFile: false }), { notes: 1, folders: 0, attachments: 4 }, 0);
     expect(lines).toEqual(["1 note", "Can be imported 1 time", "The file never expires", "Items are never removed", "The file is kept after its last import"]);
     expect(shareSummary(form(), null, 0)[0]).toBe("Can be imported 1 time");
   });

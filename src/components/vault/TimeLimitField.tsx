@@ -3,7 +3,7 @@ import { Select } from "../ui/Select";
 import { limitMax, limitProblem, UNIT_OPTIONS, type TimeLimit, type TimeUnit } from "../../lib/shareExport";
 
 /** The dropdown buttons inside the group: no border or background of their own, the group draws them. */
-const BARE = { border: "none", background: "transparent", borderRadius: 0, minWidth: 0, padding: "0 12px", height: 36 } as const;
+const BARE = { border: "none", background: "transparent", borderRadius: 0, minWidth: 0, padding: "0 12px", height: "100%" } as const;
 
 /**
  * A time the sender sets, or turns off, as ONE group: a choice ("a set time" / "never"), and when it is a set time a

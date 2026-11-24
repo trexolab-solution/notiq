@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Check, Copy, Dices, Folder, FileText, FolderOpen, Share2, TriangleAlert } from "lucide-react";
+import { Check, Copy, Dices, FolderOpen, Share2, TriangleAlert } from "lucide-react";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { Dialog, DialogBody, DialogButton, DialogFooter } from "../ui/Dialog";
 import { Input } from "../ui/Input";
@@ -8,11 +8,13 @@ import { PasswordInput } from "../ui/PasswordInput";
 import { Button } from "../ui/Button";
 import { Stepper, useStepFocus } from "../ui/Stepper";
 import { TimeLimitField } from "./TimeLimitField";
+import { EntryIcon } from "./sidebar/EntryIcon";
+import { displayName, entryKind } from "../../lib/vaultTree";
 import { toast } from "../../lib/toast";
 import { vaultErrorMessage, vaultList, type VaultItem } from "../../lib/vault";
 import { formatBytes, vaultSharePreview, type SharePreview } from "../../lib/vaultBackup";
 import {
-  confirmProblem, coveredBy, exportShareWithDialog, FILE_EXPIRY, generateSharePassword, importsProblem, initialShareForm, ITEM_REMOVAL, itemsProblem,
+  chooseAll, chosenCount, confirmProblem, coveredBy, exportShareWithDialog, FILE_EXPIRY, generateSharePassword, importsProblem, initialShareForm, ITEM_REMOVAL, itemsProblem,
   listForShare, MAX_IMPORTS, passwordProblem, rulesProblem, shareSummary, toggleChosen, type ShareForm,
 } from "../../lib/shareExport";
 import { getFileName, middleEllipsis } from "../../lib/pathUtils";
@@ -60,6 +62,8 @@ export function ShareItemsDialog({ onClose, initialPaths = [] }: { onClose: () =
   }, [form.paths, form.attachments]);
 
   const shown = useMemo(() => listForShare(items, query), [items, query]);
+  const ticked = chosenCount(form.paths, shown);
+  const allTicked = shown.length > 0 && ticked === shown.length;
   const itemsBlock = itemsProblem(form) ?? previewError;
   const rulesBlock = rulesProblem(form);
   const confirmBlock = confirmProblem(form);
@@ -96,6 +100,15 @@ export function ShareItemsDialog({ onClose, initialPaths = [] }: { onClose: () =
     <div className="flex flex-col gap-2.5">
       <p className="text-sm">Choose the notes or folders to share. A folder takes everything in it.</p>
       <Input value={query} placeholder="Search" aria-label="Search items" spellCheck={false} data-step-focus="" onChange={(e) => setQuery(e.target.value)} />
+      <div className="flex items-center justify-between text-xs">
+        <label className="flex cursor-pointer items-center gap-2 text-[13px]">
+          <input type="checkbox" aria-label="Select all" checked={allTicked} disabled={shown.length === 0}
+                 ref={(el) => { if (el) el.indeterminate = ticked > 0 && !allTicked; }}
+                 onChange={(e) => set("paths", chooseAll(form.paths, shown, e.target.checked))} />
+          Select all
+        </label>
+        <span className="text-[var(--color-text-muted)]" data-testid="share-ticked">{ticked} of {shown.length} selected</span>
+      </div>
       <ul className="max-h-[220px] overflow-y-auto rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] py-1" data-testid="share-list">
         {shown.length === 0 && <li className="px-3 py-2 text-xs text-[var(--color-text-muted)]">{items.length === 0 ? "Nothing in the vault yet." : "No match."}</li>}
         {shown.map((i) => {
@@ -107,8 +120,8 @@ export function ShareItemsDialog({ onClose, initialPaths = [] }: { onClose: () =
               <label className="flex min-w-0 cursor-pointer items-center gap-2 py-1 text-[13px]" title={parent ? `Included with ${parent}` : i.rel}>
                 <input type="checkbox" checked={on} disabled={!!parent} aria-label={i.rel}
                        onChange={(e) => set("paths", toggleChosen(form.paths, i.rel, e.target.checked))} />
-                {i.dir ? <Folder size={14} className="shrink-0 text-[var(--color-text-muted)]" /> : <FileText size={14} className="shrink-0 text-[var(--color-text-muted)]" />}
-                <span className="truncate">{getFileName(i.rel).replace(/\.nqv$/i, "")}</span>
+                <EntryIcon kind={entryKind(i)} size={14} />
+                <span className="truncate">{displayName(i.rel)}</span>
               </label>
             </li>
           );

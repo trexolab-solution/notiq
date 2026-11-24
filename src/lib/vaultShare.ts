@@ -4,8 +4,20 @@ import { BACKUP_EXTS } from "./vaultBackup";
 
 /** Importing a share file (vault_share.rs): the file's rules are read once the password opens it. */
 
+/** One item of a share file, by name (never its content). */
+export interface ShareItem {
+  /** The path inside the vault (`Work/bank.nqv`); a folder has no suffix. */
+  path: string;
+  /** The type of note ("login", "ssh", "md", …); empty for a folder. */
+  ext: string;
+  dir: boolean;
+  attachments: number;
+}
+
 /** What the import prompt shows once the file is open (`vault_share_inspect`). */
 export interface ShareInfo {
+  /** What is in it, in path order. */
+  items: ShareItem[];
   notes: number;
   folders: number;
   attachments: number;
@@ -50,6 +62,23 @@ export async function pickShareFile(): Promise<string | null> {
 }
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+
+/**
+ * The items with the folders above them added where the share has no entry of its own for one (a folder that exists
+ * only because notes sit in it), so every note shows under its folder. In path order, a folder before what is in it.
+ */
+export function withFolders(items: readonly ShareItem[]): ShareItem[] {
+  const have = new Set(items.filter((i) => i.dir).map((i) => i.path));
+  const extra: ShareItem[] = [];
+  for (const i of items) {
+    const parts = i.path.split("/");
+    for (let n = 1; n < parts.length; n++) {
+      const dir = parts.slice(0, n).join("/");
+      if (!have.has(dir)) { have.add(dir); extra.push({ path: dir, ext: "", dir: true, attachments: 0 }); }
+    }
+  }
+  return [...items, ...extra].sort((a, b) => a.path.toLowerCase().localeCompare(b.path.toLowerCase()) || a.path.localeCompare(b.path));
+}
 
 /** "7 days", "1 day", "5 hours", "1 hour" (item lives are whole hours; whole days are named in days). */
 export function formatLife(ms: number): string {

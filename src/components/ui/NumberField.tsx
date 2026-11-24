@@ -39,7 +39,7 @@ export function NumberField({ value, onChange, label, min = 1, max, step = 1, di
     : `rounded-lg border bg-[var(--color-bg)] ${bad ? "border-[var(--color-danger)]" : "border-[var(--color-border)] focus-within:border-[var(--color-primary)]"}`;
 
   return (
-    <div style={{ width }} data-invalid={bad || undefined} className={`inline-flex h-9 items-stretch overflow-hidden ${frame} ${className}`}>
+    <div style={{ width }} data-invalid={bad || undefined} className={`inline-flex ${bare ? "h-full" : "h-9"} items-stretch overflow-hidden ${frame} ${className}`}>
       <button type="button" tabIndex={-1} aria-label={`Decrease ${label}`} disabled={disabled || (known && value <= min)} className={edge} onClick={() => bump(-1)}>
         <Minus size={13} aria-hidden />
       </button>

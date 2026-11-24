@@ -5,6 +5,7 @@ import { PasswordInput } from "../ui/PasswordInput";
 import { Button } from "../ui/Button";
 import { Spinner } from "../ui/Loading";
 import { Stepper, useStepFocus } from "../ui/Stepper";
+import { ShareItemList } from "./ShareItemList";
 import { DropZone, useDropTarget } from "../ui/DropZone";
 import { toast } from "../../lib/toast";
 import { useVaultStore } from "../../store/vaultStore";
@@ -189,6 +190,7 @@ export function ImportSharedDialog({ onClose, initialPath }: { onClose: () => vo
         {info.folders > 0 && <>, {info.folders} {info.folders === 1 ? "folder" : "folders"}</>}
         {info.attachments > 0 && <>, {info.attachments} {info.attachments === 1 ? "attachment" : "attachments"}</>}
       </p>
+      {info.items.length > 0 && <ShareItemList items={info.items} />}
       {info.vault === "none" && <p role="alert" className="text-xs text-[var(--color-danger)]">You don't have a vault yet. Create your vault first, then import this file.</p>}
       {info.vault === "locked" && (
         <div className="flex items-center gap-2.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-tertiary)] p-3 text-xs">
@@ -199,7 +201,7 @@ export function ImportSharedDialog({ onClose, initialPath }: { onClose: () => vo
       )}
       {info.problem && <p role="alert" className="text-xs text-[var(--color-danger)]">{problemText(info.problem)}</p>}
       {canImport && lines.length > 0 && (
-        <ul className="list-disc space-y-0.5 pl-4 text-[11px] leading-relaxed text-[var(--color-text-muted)]">
+        <ul data-testid="share-note" className="list-disc space-y-0.5 pl-4 text-[11px] leading-relaxed text-[var(--color-text-muted)]">
           {lines.map((l) => <li key={l}>{l}</li>)}
         </ul>
       )}

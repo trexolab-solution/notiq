@@ -31,7 +31,12 @@ type ShareInfo = import("../../lib/vaultShare").ShareInfo;
 const PATH = "C:/Users/me/Downloads/friend.nqb";
 const HEADER = { ok: true, kind: "share", vault_id_hex: "ab", db_bytes: 4096, created: null };
 const INFO: ShareInfo = {
-  notes: 2, folders: 1, attachments: 0, validUntil: null, itemLifeMs: 7 * 24 * 3_600_000, deleteFile: true,
+  items: [
+    { path: "Work", ext: "", dir: true, attachments: 0 },
+    { path: "Work/bank.nqv", ext: "login", dir: false, attachments: 0 },
+    { path: "Work/server.nqv", ext: "ssh", dir: false, attachments: 2 },
+  ],
+  notes: 2, folders: 1, attachments: 2, validUntil: null, itemLifeMs: 7 * 24 * 3_600_000, deleteFile: true,
   vault: "ready", importsLeft: 1, problem: null,
 };
 const RESULT = { added: 2, already: 0, expired: 0, importsLeft: 0, expiresAt: Date.now() + 7 * 86_400_000, fileDeleted: true, deleteFailed: false };
@@ -149,11 +154,17 @@ describe("import shared items", () => {
     expect(step()).toBe("review");
     expect(calls("vault_share_inspect")[0][1]).toEqual({ path: PATH, password: "a password for sharing" });
     const review = document.querySelector("[data-testid=share-review]")!;
-    expect(review.textContent).toContain("2 notes, 1 folder");
+    expect(review.textContent).toContain("2 notes, 1 folder, 2 attachments");
     expect(review.textContent).toMatch(/removed from your vault on .+ \(in 7 days\)/);
     expect(review.textContent).toContain("can be imported 1 more time");
     expect(review.textContent).toContain("After this import, the file is deleted from this computer.");
     expect(button("Import")!.disabled).toBe(false);
+  });
+
+  it("lists the items by name, under their folder, with their type", async () => {
+    await toReview();
+    const rows = Array.from(document.querySelectorAll("[data-testid=share-items] li")).map((li) => li.textContent);
+    expect(rows).toEqual(["Work", "bankLogin", "serverSSH / server· 2 files"]);
   });
 
   it("imports, refreshes the vault and ends on Done with what happened", async () => {
@@ -214,7 +225,8 @@ describe("import shared items", () => {
     await toReview({ ...INFO, problem, importsLeft: 0 });
     expect(document.querySelector("[role=alert]")!.textContent).toMatch(text);
     expect(button("Import")!.disabled).toBe(true);
-    expect(document.querySelector("[data-testid=share-review] ul")).toBeNull();
+    expect(document.querySelector("[data-testid=share-note]")).toBeNull();
+    expect(document.querySelector("[data-testid=share-items]")).toBeTruthy();
   });
 
   it("when the file couldn't be deleted it says so, once", async () => {

@@ -270,10 +270,34 @@ pub fn file_goes(merged: &ShareMerge, imports_left: u32, policy: &SharePolicy) -
     policy.delete_file && merged.added > 0 && imports_left == 0
 }
 
+/// One item of a share file, as the import prompt lists it (names and types only, never content).
+#[derive(Serialize, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ShareItem {
+    /// The path inside the vault (`Work/bank.nqv`; a folder has no suffix).
+    pub path: String,
+    /// The type of note ("login", "ssh", "md", …); empty for a folder.
+    pub ext: String,
+    pub dir: bool,
+    /// How many attachments it carries.
+    pub attachments: u32,
+}
+
+/// The items of a share database, in path order (what the importer is shown before it agrees).
+pub fn list_items(share: &Db) -> Vec<ShareItem> {
+    let mut out: Vec<ShareItem> = share.entries.values().filter(|e| !e.deleted).map(|e| ShareItem {
+        path: e.path.clone(), ext: e.ext.clone(), dir: e.dir, attachments: e.live_attachments().count() as u32,
+    }).collect();
+    out.sort_by(|a, b| a.path.to_lowercase().cmp(&b.path.to_lowercase()).then_with(|| a.path.cmp(&b.path)));
+    out
+}
+
 /// What the import prompt shows once the file is open.
 #[derive(Serialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct ShareInfo {
+    /// What is in it, by name.
+    pub items: Vec<ShareItem>,
     pub notes: u32,
     pub folders: u32,
     pub attachments: u32,
@@ -350,7 +374,7 @@ pub async fn vault_share_inspect(app: AppHandle, state: State<'_, VaultState>, p
         let left = policy.max_imports.saturating_sub(uses);
         ("ready", Some(left), check_policy(&policy, uses, vdb::now_ms(), seen).err().map(ShareProblem::code))
     };
-    Ok(ShareInfo { notes, folders, attachments, valid_until: policy.valid_until, item_life_ms: policy.item_life_ms, delete_file: policy.delete_file, vault, imports_left, problem })
+    Ok(ShareInfo { items: list_items(&share), notes, folders, attachments, valid_until: policy.valid_until, item_life_ms: policy.item_life_ms, delete_file: policy.delete_file, vault, imports_left, problem })
 }
 
 /// Imports a share file into the unlocked vault (see `Db::merge_share`), counts the import, and deletes the file
@@ -859,5 +883,26 @@ mod tests {
         let mut bad = share.clone();
         bad.share.as_mut().unwrap().max_imports = 0;
         assert!(policy_of(&bad).is_err());
+    }
+
+    #[test]
+    fn the_import_prompt_lists_what_is_in_a_share_by_name_in_path_order() {
+        let mut p = policy();
+        p.valid_until = None;
+        let mut src = vault();
+        src.attach_add("Work/mail.nqv", "a.txt", &vdb::b64_encode(b"x")).unwrap();
+        let share = build_share_db(&src, &paths(&["Work", "top.nqv"]), true, p).unwrap();
+        let list = list_items(&share);
+        let shown: Vec<(&str, &str, bool, u32)> = list.iter().map(|i| (i.path.as_str(), i.ext.as_str(), i.dir, i.attachments)).collect();
+        assert_eq!(shown, vec![
+            ("top.nqv", "md", false, 0),
+            ("Work", "", true, 0),
+            ("Work/bank.nqv", "login", false, 0),
+            ("Work/mail.nqv", "login", false, 1),
+        ]);
+        // Names and types only: no content anywhere in what the prompt gets.
+        let json = serde_json::to_string(&list).unwrap();
+        assert!(!json.contains("bank secret") && !json.contains("mail secret"));
+        assert!(json.contains("\"attachments\":1"));
     }
 }

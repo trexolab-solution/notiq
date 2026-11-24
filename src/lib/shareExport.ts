@@ -46,7 +46,7 @@ export const UNIT_OPTIONS: { value: TimeUnit; label: string }[] = [{ value: "hou
 /** What the form starts with: one import, a week for the file, a week for the items, the file deleted afterwards. */
 export function initialShareForm(paths: string[] = [], password = generateSharePassword()): ShareForm {
   return {
-    paths, attachments: false, sharePassword: password, maxImports: 1,
+    paths, attachments: true, sharePassword: password, maxImports: 1,
     validFor: { on: true, amount: 7, unit: "days" }, itemLife: { on: true, amount: 7, unit: "days" },
     deleteFile: true, masterPassword: "",
   };
@@ -116,6 +116,23 @@ export function toggleChosen(paths: readonly string[], rel: string, on: boolean)
   if (!on) return paths.filter((p) => p !== rel);
   if (paths.includes(rel) || coveredBy(paths, rel)) return [...paths];
   return [...paths.filter((p) => !p.startsWith(`${rel}/`)), rel];
+}
+
+/**
+ * Ticks (or unticks) everything in `shown` at once, such as everything a search matches: a folder takes what is under
+ * it, so the paths stay short. Unticking only removes what is shown.
+ */
+export function chooseAll(paths: readonly string[], shown: readonly { rel: string }[], on: boolean): string[] {
+  if (!on) {
+    const hide = new Set(shown.map((i) => i.rel));
+    return paths.filter((p) => !hide.has(p));
+  }
+  return shown.reduce<string[]>((acc, i) => toggleChosen(acc, i.rel, true), [...paths]);
+}
+
+/** How much of `shown` is ticked, by itself or through a folder above it. */
+export function chosenCount(paths: readonly string[], shown: readonly { rel: string }[]): number {
+  return shown.filter((i) => paths.includes(i.rel) || coveredBy(paths, i.rel) != null).length;
 }
 
 /** The vault's items as the list the dialog shows (folders first within their parent, by path), deepest last. */

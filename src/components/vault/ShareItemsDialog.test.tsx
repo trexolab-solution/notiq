@@ -72,8 +72,9 @@ describe("share items stepper", () => {
     expect(Array.from(document.querySelectorAll("[data-stepper] li")).map((li) => li.textContent?.replace("(completed)", "").trim().replace(/^\d/, "").trim())).toEqual(["Items", "Rules", "Confirm", "Done"]);
     expect(field("Work/bank.nqv").checked).toBe(true);
     expect(field("Work/mail.nqv").checked).toBe(false);
-    expect(calls("vault_share_preview")[0][1]).toEqual({ paths: ["Work/bank.nqv"], attachments: false });
+    expect(calls("vault_share_preview")[0][1]).toEqual({ paths: ["Work/bank.nqv"], attachments: true });
     expect(document.querySelector("[data-testid=share-preview]")!.textContent).toContain("1 note, 1 folder");
+    expect(field("Include attachments")?.checked ?? Array.from(document.querySelectorAll("label")).find((l) => l.textContent?.includes("Include attachments"))!.querySelector("input")!.checked).toBe(true);
   });
 
   it("can't go on with nothing chosen", async () => {
@@ -88,14 +89,39 @@ describe("share items stepper", () => {
     await act(async () => { field("Work").click(); });
     expect(field("Work/bank.nqv").checked).toBe(true);
     expect(field("Work/bank.nqv").disabled).toBe(true);
-    expect(calls("vault_share_preview").at(-1)![1]).toEqual({ paths: ["Work"], attachments: false });
+    expect(calls("vault_share_preview").at(-1)![1]).toEqual({ paths: ["Work"], attachments: true });
   });
 
-  it("including attachments asks for the size again", async () => {
+  it("attachments are included unless it is turned off, and that asks for the size again", async () => {
     await render();
     const label = Array.from(document.querySelectorAll("label")).find((l) => l.textContent?.includes("Include attachments"))!;
     await act(async () => { (label.querySelector("input") as HTMLInputElement).click(); });
-    expect(calls("vault_share_preview").at(-1)![1]).toEqual({ paths: ["Work/bank.nqv"], attachments: true });
+    expect(calls("vault_share_preview").at(-1)![1]).toEqual({ paths: ["Work/bank.nqv"], attachments: false });
+  });
+
+  it("Select all ticks everything, says how many, and unticks it again", async () => {
+    await render([]);
+    expect(field("Select all").checked).toBe(false);
+    expect(document.querySelector("[data-testid=share-ticked]")!.textContent).toBe("0 of 4 selected");
+    await act(async () => { field("Select all").click(); });
+    expect(field("Select all").checked).toBe(true);
+    expect(document.querySelector("[data-testid=share-ticked]")!.textContent).toBe("4 of 4 selected");
+    expect(calls("vault_share_preview").at(-1)![1]).toEqual({ paths: ["top.nqv", "Work"], attachments: true });
+    expect(field("Work/bank.nqv").disabled).toBe(true);
+    expect(button("Next")!.disabled).toBe(false);
+    await act(async () => { field("Select all").click(); });
+    expect(document.querySelector("[data-testid=share-ticked]")!.textContent).toBe("0 of 4 selected");
+    expect(button("Next")!.disabled).toBe(true);
+  });
+
+  it("Select all is half ticked when only some are, and follows a search", async () => {
+    await render(["top.nqv"]);
+    expect(field("Select all").indeterminate).toBe(true);
+    expect(document.querySelector("[data-testid=share-ticked]")!.textContent).toBe("1 of 4 selected");
+    await type(document.querySelector("input[aria-label='Search items']") as HTMLInputElement, "mail");
+    expect(document.querySelector("[data-testid=share-ticked]")!.textContent).toBe("0 of 1 selected");
+    await act(async () => { field("Select all").click(); });
+    expect(calls("vault_share_preview").at(-1)![1]).toEqual({ paths: ["top.nqv", "Work/mail.nqv"], attachments: true });
   });
 
   it("a selection that can't be shared says why and stops the step", async () => {
@@ -191,7 +217,7 @@ describe("share items stepper", () => {
     expect(save).toHaveBeenCalledTimes(1);
     const args = (calls("vault_share_export")[0][1] as { args: Record<string, unknown> }).args;
     expect(args).toMatchObject({
-      paths: ["Work/bank.nqv"], attachments: false, masterPassword: "the master password", sharePassword: password, maxImports: 3,
+      paths: ["Work/bank.nqv"], attachments: true, masterPassword: "the master password", sharePassword: password, maxImports: 3,
       itemLifeHours: 168, deleteFile: true, destPath: "C:/Users/me/Desktop/notiq-share.nqb",
     });
     expect(typeof args.validUntilMs).toBe("number");

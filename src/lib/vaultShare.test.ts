@@ -4,13 +4,13 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn(), save: vi.fn() }));
 vi.mock("@tauri-apps/plugin-fs", () => ({ stat: vi.fn() }));
 import { invoke } from "@tauri-apps/api/core";
 import {
-  formatLife, importSummary, problemText, shareNoteLines, vaultShareImport, vaultShareInspect,
-  type ShareImportResult, type ShareInfo,
+  formatLife, importSummary, problemText, shareNoteLines, vaultShareImport, vaultShareInspect, withFolders,
+  type ShareImportResult, type ShareInfo, type ShareItem,
 } from "./vaultShare";
 
 const HOUR = 3_600_000;
 const info = (o: Partial<ShareInfo> = {}): ShareInfo => ({
-  notes: 3, folders: 1, attachments: 0, validUntil: null, itemLifeMs: 7 * 24 * HOUR, deleteFile: true,
+  items: [], notes: 3, folders: 1, attachments: 0, validUntil: null, itemLifeMs: 7 * 24 * HOUR, deleteFile: true,
   vault: "ready", importsLeft: 1, problem: null, ...o,
 });
 const result = (o: Partial<ShareImportResult> = {}): ShareImportResult => ({
@@ -60,5 +60,18 @@ describe("share wording", () => {
     expect(importSummary(result({ added: 1, expiresAt: null }))).toBe("Imported 1 note.");
     expect(importSummary(result({ added: 0, expired: 2, expiresAt: null }))).toMatch(/already been removed/);
     expect(importSummary(result({ added: 0, already: 2, expiresAt: null }))).toMatch(/already in your vault/);
+  });
+});
+
+describe("the item list", () => {
+  const note = (path: string, ext = "md"): ShareItem => ({ path, ext, dir: false, attachments: 0 });
+  it("adds the folders a note sits in when the share has no entry for them, in path order", () => {
+    const rows = withFolders([note("top.nqv"), note("Work/Bank/login.nqv", "login"), { path: "Work", ext: "", dir: true, attachments: 0 }]);
+    expect(rows.map((r) => `${r.dir ? "d" : "f"}:${r.path}`)).toEqual(["f:top.nqv", "d:Work", "d:Work/Bank", "f:Work/Bank/login.nqv"]);
+  });
+  it("adds each missing folder once and leaves the ones that are there", () => {
+    const rows = withFolders([note("A/x.nqv"), note("A/y.nqv"), { path: "A", ext: "", dir: true, attachments: 0 }]);
+    expect(rows.filter((r) => r.dir)).toHaveLength(1);
+    expect(withFolders([])).toEqual([]);
   });
 });
