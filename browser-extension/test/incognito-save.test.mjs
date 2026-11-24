@@ -244,6 +244,56 @@ test("an unanswered save_check (locked) is not remembered: once Notiq answers, S
   assert.equal(sw.asked.length, 2, "a real answer is kept again");
 });
 
+test("locked vault: the offer says so (locked) so the card can offer Unlock & save; other failures do not", async () => {
+  const sw = saveSw({ error: "locked" });
+  await sw.page("capture", { payload: CAPTURE });
+  assert.deepEqual(await sw.page("pending"), { pending: { host: "accounts.example.com", username: "alice@example.com", change: false, kind: "save", locked: true } });
+  for (const reply of [{ error: "app_not_running" }, { error: "unknown_op" }]) {
+    const other = saveSw(reply);
+    await other.page("capture", { payload: CAPTURE });
+    assert.equal("locked" in (await other.page("pending")).pending, false, reply.error);
+  }
+});
+
+test("Unlock & save: Notiq unlocks, the held login is checked again and the offer becomes Save or Update", async () => {
+  let unlocked = false;
+  const unlockAsked = [];
+  const sw = boot((m) => {
+    if (m.op === "save_check") return unlocked ? { ok: true, action: "update", choices: 1 } : { error: "locked" };
+    if (m.op === "unlock") { unlockAsked.push(m); unlocked = true; return { ok: true }; }
+    return m.op === "ping" ? PING : { error: "x" };
+  });
+  await sw.page("capture", { payload: CAPTURE });
+  assert.equal((await sw.page("pending")).pending.locked, true);
+  const r = await sw.page("unlockSave");
+  assert.deepEqual(r, { ok: true, kind: "update" });
+  assert.equal(unlockAsked.length, 1);
+  assert.equal(JSON.stringify(r).includes("New-Secret"), false, "no password goes back to the page");
+  const after = await sw.page("pending");
+  assert.equal(after.pending.kind, "update");
+  assert.equal("locked" in after.pending, false);
+});
+
+test("Unlock & save: a declined / timed-out unlock keeps the login and reports why; nothing held means expired", async () => {
+  const sw = boot((m) => (m.op === "save_check" ? { error: "locked" } : m.op === "unlock" ? { error: "timeout" } : m.op === "ping" ? PING : { error: "x" }));
+  assert.deepEqual(await sw.page("unlockSave"), { error: "expired" });
+  await sw.page("capture", { payload: CAPTURE });
+  assert.deepEqual(await sw.page("unlockSave"), { error: "timeout" });
+  assert.equal((await sw.page("pending")).pending.locked, true, "the login is still held for another try");
+});
+
+test("Unlock & save: when that exact login turns out to be saved already, there is nothing to offer", async () => {
+  let n = 0;
+  const sw2 = boot((m) => {
+    if (m.op === "save_check") return ++n === 1 ? { error: "locked" } : { ok: true, action: "none", choices: 1 };
+    return m.op === "unlock" ? { ok: true } : m.op === "ping" ? PING : { error: "x" };
+  });
+  await sw2.page("capture", { payload: CAPTURE });
+  await sw2.page("pending");
+  assert.deepEqual(await sw2.page("unlockSave"), { ok: true, kind: "none" });
+  assert.equal(Object.keys(sw2.session()).some((k) => k.startsWith("pending:")), false);
+});
+
 test("change-password form: the current password goes to Notiq (check and save), never back to the page", async () => {
   const sw = saveSw({ ok: true, action: "update", choices: 1 });
   await sw.page("capture", { payload: { ...CAPTURE, username: "", change: true, current: "Old-Secret-1!" } });
