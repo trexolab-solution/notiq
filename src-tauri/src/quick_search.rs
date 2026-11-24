@@ -607,7 +607,7 @@ pub(crate) fn set_webview_visible(w: &tauri::WebviewWindow, visible: bool) {
 /// Takes the window off screen without touching the show bookkeeping (the guard uses it for a window
 /// that is visible although nobody asked for it).
 fn force_hide(app: &AppHandle, w: &tauri::WebviewWindow) {
-    eprintln!("[window] quick search hidden (was visible={:?})", w.is_visible().ok());
+    crate::window_log::log(&format!("quick search hidden (was visible={:?})", w.is_visible().ok()));
     let _ = w.hide();
     set_webview_visible(w, false);
     let _ = app.emit_to(WINDOW_LABEL, HIDDEN_EVENT, ());
@@ -783,7 +783,7 @@ fn create_window(app: &AppHandle) -> Result<tauri::WebviewWindow, String> {
         .map_err(|e| e.to_string())?;
     // Hidden window, hidden webview: nothing renders or grabs the focus until a show.
     set_webview_visible(&w, false);
-    eprintln!("[window] quick search created (hidden)");
+    crate::window_log::log("quick search created (hidden)");
     crate::capture_shield::refresh(app);
     #[cfg(windows)]
     start_guard(app);
@@ -819,7 +819,7 @@ fn show_window(app: &AppHandle, gen: u64) {
         return;
     }
     // The only place the quick window goes on screen: a show the user asked for (hotkey / reopen).
-    eprintln!("[window] quick search show");
+    crate::window_log::log("quick search show");
     SHOWN_AT.store(mono_ms(), Ordering::Release);
     OPEN.store(true, Ordering::Release);
     let _ = w.center();

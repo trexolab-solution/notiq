@@ -1072,7 +1072,7 @@ fn ensure_prompt(app: &AppHandle) -> Result<(), String> {
             crate::quick_search::set_webview_visible(&w, false);
         }
         crate::capture_shield::refresh(app);
-        eprintln!("[window] autofill prompt created (hidden)");
+        crate::window_log::log("autofill prompt created (hidden)");
         start_prompt_guard(app);
     }
     if wait_for(&PROMPT_READY, PROMPT_READY_WAIT) { Ok(()) } else { Err("the prompt window did not load".into()) }
@@ -1082,7 +1082,7 @@ fn hide_prompt(app: &AppHandle, restore: bool) {
     let Some(w) = app.get_webview_window(PROMPT_LABEL) else { return };
     // Only hand the focus back when the prompt still has it (the user may have moved on meanwhile).
     let had_focus = w.is_focused().unwrap_or(false);
-    eprintln!("[window] autofill prompt hide (restore={restore}, was visible={:?})", w.is_visible().ok());
+    crate::window_log::log(&format!("autofill prompt hide (restore={restore}, was visible={:?})", w.is_visible().ok()));
     let _ = w.hide();
     // The webview goes with the window: a hidden Chromium surface is stale, and showing it again could flash blank / white.
     crate::quick_search::set_webview_visible(&w, false);
@@ -1184,7 +1184,9 @@ pub fn autofill_prompt_show(app: AppHandle) -> Result<(), String> {
         hide_prompt(&app, false);
         return Ok(());
     }
-    eprintln!("[window] autofill prompt show ({waiting} request(s) waiting)");
+    crate::window_log::log(&format!("autofill prompt show ({waiting} request(s) waiting)"));
+    PAINTED.store(false, Ordering::Release);
+    SHOWN_AT.store(now_ms(), Ordering::Release);
     remember_prev_foreground(&w);
     let monitor = app
         .cursor_position()
@@ -1210,6 +1212,43 @@ pub fn autofill_prompt_show(app: AppHandle) -> Result<(), String> {
     let _ = w.show();
     let _ = w.unminimize();
     w.set_focus().map_err(|e| e.to_string())
+}
+
+/// The prompt page confirmed it painted after the last show, and when that show was (`now_ms`).
+static PAINTED: AtomicBool = AtomicBool::new(true);
+static SHOWN_AT: AtomicU64 = AtomicU64::new(0);
+
+/// The page reports that it painted a frame while on screen. A window that is shown but never reports this has a
+/// dead surface (it looks like an empty white box), see `paint_guard_step`.
+#[tauri::command]
+pub fn autofill_prompt_painted() {
+    PAINTED.store(true, Ordering::Release);
+}
+
+/// How long a shown prompt may take to report a painted frame before something is done about it.
+const PAINT_WAIT_MS: u64 = 1500;
+
+/// What to do about a prompt window that is on screen.
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum PaintAction {
+    Nothing,
+    /// Toggle the webview's visibility and nudge its size, which makes WebView2 present a frame again.
+    Repaint,
+    /// The surface stays dead: take the window down and make a new one for the next request.
+    Rebuild,
+}
+
+/// Decides from what is known about a shown prompt (pure). `tries` counts the actions taken for this show.
+pub fn paint_guard_step(visible: bool, waiting_requests: usize, painted: bool, since_show_ms: u64, tries: &mut u32) -> PaintAction {
+    if !visible || waiting_requests == 0 || painted {
+        *tries = 0;
+        return PaintAction::Nothing;
+    }
+    if since_show_ms < PAINT_WAIT_MS * (*tries as u64 + 1) {
+        return PaintAction::Nothing;
+    }
+    *tries += 1;
+    if *tries == 1 { PaintAction::Repaint } else { PaintAction::Rebuild }
 }
 
 /// How often the guard looks at the prompt window, and how many looks in a row it must be on screen with
@@ -1239,15 +1278,37 @@ fn start_prompt_guard(app: &AppHandle) {
     let app = app.clone();
     std::thread::spawn(move || {
         let mut strikes = 0u32;
+        let mut tries = 0u32;
         loop {
             std::thread::sleep(PROMPT_GUARD_TICK);
-            let Some(w) = app.get_webview_window(PROMPT_LABEL) else { strikes = 0; continue };
+            let Some(w) = app.get_webview_window(PROMPT_LABEL) else { strikes = 0; tries = 0; continue };
             let visible = w.is_visible().unwrap_or(false);
             let waiting = pending().lock().unwrap_or_else(|e| e.into_inner()).len();
             if prompt_guard_step(visible, waiting, &mut strikes) {
-                eprintln!("[window] autofill prompt was on screen without a request: hiding it");
+                crate::window_log::log("autofill prompt was on screen without a request: hiding it");
                 strikes = 0;
                 hide_prompt(&app, false);
+            }
+            // On screen for a request, but the page never painted: a blank (white) box. Repaint it, then rebuild it.
+            let since = now_ms().saturating_sub(SHOWN_AT.load(Ordering::Acquire));
+            match paint_guard_step(visible, waiting, PAINTED.load(Ordering::Acquire), since, &mut tries) {
+                PaintAction::Nothing => {}
+                PaintAction::Repaint => {
+                    crate::window_log::log(&format!("autofill prompt shown {since} ms ago but nothing painted: repainting"));
+                    crate::quick_search::set_webview_visible(&w, false);
+                    std::thread::sleep(Duration::from_millis(60));
+                    crate::quick_search::set_webview_visible(&w, true);
+                    if let Ok(s) = w.inner_size() {
+                        let _ = w.set_size(tauri::PhysicalSize::new(s.width + 1, s.height));
+                        let _ = w.set_size(s);
+                    }
+                }
+                PaintAction::Rebuild => {
+                    crate::window_log::log(&format!("autofill prompt shown {since} ms ago and still blank: rebuilding the window"));
+                    hide_prompt(&app, true);
+                    let _ = w.destroy();
+                    tries = 0;
+                }
             }
         }
     });
@@ -1984,6 +2045,22 @@ mod tests {
         assert!(!prompt_guard_step(true, 2, &mut n)); // a request waits: leave it
         assert_eq!(n, 0);
         assert!(!prompt_guard_step(false, 0, &mut n)); // hidden: nothing to do
+    }
+
+    #[test]
+    fn a_shown_prompt_that_never_paints_is_repainted_then_rebuilt() {
+        let mut tries = 0;
+        let step = |visible, waiting, painted, since, t: &mut u32| paint_guard_step(visible, waiting, painted, since, t);
+        assert_eq!(step(true, 1, false, 500, &mut tries), PaintAction::Nothing, "still within the wait");
+        assert_eq!(step(true, 1, false, 1600, &mut tries), PaintAction::Repaint);
+        assert_eq!(step(true, 1, false, 2000, &mut tries), PaintAction::Nothing, "the repaint gets time to work");
+        assert_eq!(step(true, 1, false, 3100, &mut tries), PaintAction::Rebuild);
+        // Nothing to do for a window that painted, is hidden, or has no request (the other guard handles that).
+        for (v, w, p) in [(true, 1, true), (false, 1, false), (true, 0, false)] {
+            let mut t = 1;
+            assert_eq!(step(v, w, p, 9_000, &mut t), PaintAction::Nothing);
+            assert_eq!(t, 0, "the count starts over");
+        }
     }
 
     #[test]

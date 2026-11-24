@@ -80,6 +80,8 @@ export function usePromptMachine() {
         if (stateRef.current.stage === "idle") return;
         shown.current = true;
         await invoke("autofill_prompt_show").catch(() => {});
+        // Tell Rust a frame really was painted: a window that is on screen but never says so is blank, and Rust repaints it.
+        requestAnimationFrame(() => requestAnimationFrame(() => { void invoke("autofill_prompt_painted").catch(() => {}); }));
         requestAnimationFrame(() => {
           const a = document.activeElement;
           if (!a || a === document.body) {

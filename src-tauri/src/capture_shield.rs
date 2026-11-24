@@ -151,7 +151,7 @@ fn apply_to(app: &AppHandle, label: &str, protect: bool) {
     if !needs_apply(last, handle, protect) {
         return;
     }
-    eprintln!("[window] capture shield: {label} protected={protect} visible={:?}", w.is_visible().ok());
+    crate::window_log::log(&format!("capture shield: {label} protected={protect} visible={:?}", w.is_visible().ok()));
     let _ = w.set_content_protected(protect);
     applied.retain(|(l, _, _)| l != label);
     applied.push((label.to_string(), handle, protect));

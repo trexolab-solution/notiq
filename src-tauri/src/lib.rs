@@ -33,6 +33,7 @@ mod hello; // 0.7.0 hello
 mod capture_shield; // 0.9.1 hide from screen capture
 // 0.7.0 quick search
 mod quick_search;
+mod window_log; // 0.14.1 window events kept in window.log
 // 0.9.0 vault sync: storage providers (P2) + orchestrator (P3)
 mod sync;
 #[cfg(desktop)]
@@ -888,6 +889,7 @@ pub fn run() {
         autofill::autofill_ui_ready,
         autofill::autofill_set_theme,
         autofill::autofill_prompt_show,
+        autofill::autofill_prompt_painted,
         autofill::autofill_prompt_hide,
         autofill::autofill_prompt_open_entry,
         autofill::autofill_incognito_get,
@@ -1001,6 +1003,7 @@ pub fn run() {
         autofill::autofill_ui_ready,
         autofill::autofill_set_theme,
         autofill::autofill_prompt_show,
+        autofill::autofill_prompt_painted,
         autofill::autofill_prompt_hide,
         autofill::autofill_prompt_open_entry,
         autofill::autofill_incognito_get,
@@ -1090,6 +1093,7 @@ pub fn run() {
             }
 
             #[cfg(desktop)]
+            if let Ok(dir) = app.path().app_data_dir() { window_log::init(dir); }
             autofill::start(app.handle());
 
             // 0.7.0 session lock
