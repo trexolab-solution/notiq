@@ -23,7 +23,7 @@ export function FileManagerSettings() {
   const change = (patch: Partial<FilesPrefs>) => setP(setFilesPrefs(patch));
 
   return (
-    <>
+    <div className="flex flex-col gap-5">
       <SettingsGroup title="Opening" description="The remote file manager opens on a saved SSH server (right-click a server in the vault, or use its folder button).">
         <SettingRow id="files.open.place" label="Open the file manager in" description="A tab of this window, or a window of its own. The server's menu in the sidebar also offers the other one."
                     keywords={[...KW, "new window", "tab"]} modified={place !== "tab"} onReset={() => { setPlace("tab"); setFilesPlace("tab"); }}>
@@ -93,7 +93,7 @@ export function FileManagerSettings() {
                          formatValue={(v) => `${v} px`} aria-label="File manager editor font size" />
         </SettingRow>
       </SettingsGroup>
-    </>
+    </div>
   );
 }
 

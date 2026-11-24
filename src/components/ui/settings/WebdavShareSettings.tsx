@@ -81,7 +81,7 @@ export function WebdavShareSettings() {
   const mode = shareMode(info ? info.upload : upload || manage, info ? info.manage : manage);
 
   return (
-    <>
+    <div className="flex flex-col gap-5">
       <SettingsGroup title="Sharing" description="Open the files of this computer on your phone, on the same Wi-Fi, in the phone's browser or any WebDAV app.">
         <SettingRow id="share.enabled" label="Share this folder" keywords={[...KW, "server", "turn on"]}
                     description={info ? `On. A phone can: ${mode.toLowerCase()}.` : "Turns on while Notiq is open. The connection isn't encrypted, so use a network you trust."}>
@@ -151,7 +151,7 @@ export function WebdavShareSettings() {
       </SettingsGroup>
 
       {editing && <WebdavSignInDialog user={info?.username ?? user} pass={info?.password ?? pass} running={!!info} onSave={(u, p) => void save(u, p)} onClose={() => setEditing(false)} />}
-    </>
+    </div>
   );
 }
 
