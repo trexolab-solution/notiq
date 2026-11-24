@@ -15,12 +15,19 @@
   --c-folder: #d49a1a; --c-image: #2f9e6e; --c-video: #7c5cd6; --c-audio: #d1568e; --c-pdf: #d6453d; --c-text: #3b82c4; --c-archive: #8a6d3b; --c-file: #7a8696;
 }
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --bg: #0f1218; --panel: #171b23; --panel-2: #1f2430; --text: #e8ebf0; --muted: #8b95a5; --line: #272d3a;
     --accent: #e0b04a; --accent-bg: #2b2412; --danger: #ff7a70; --shadow: 0 1px 2px rgba(0,0,0,.4), 0 6px 18px rgba(0,0,0,.35);
     --c-folder: #e0b04a; --c-image: #4cc790; --c-video: #a58bff; --c-audio: #f06aa4; --c-pdf: #ff6e66; --c-text: #5fa8ef; --c-archive: #c4a15f; --c-file: #8f9bb0;
   }
 }
+:root[data-theme="dark"] {
+  color-scheme: dark;
+    --bg: #0f1218; --panel: #171b23; --panel-2: #1f2430; --text: #e8ebf0; --muted: #8b95a5; --line: #272d3a;
+    --accent: #e0b04a; --accent-bg: #2b2412; --danger: #ff7a70; --shadow: 0 1px 2px rgba(0,0,0,.4), 0 6px 18px rgba(0,0,0,.35);
+    --c-folder: #e0b04a; --c-image: #4cc790; --c-video: #a58bff; --c-audio: #f06aa4; --c-pdf: #ff6e66; --c-text: #5fa8ef; --c-archive: #c4a15f; --c-file: #8f9bb0;
+}
+:root[data-theme="light"] { color-scheme: light; }
 * { box-sizing: border-box; }
 html, body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; -webkit-tap-highlight-color: transparent; }
 button, input, select { font: inherit; color: inherit; }
@@ -46,7 +53,7 @@ select, .btn { padding: 8px 10px; border-radius: 10px; border: 1px solid var(--l
 .seg button[aria-pressed="true"] { background: var(--accent-bg); color: var(--accent); }
 .btn { display: inline-grid; place-items: center; }
 .list { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); overflow: hidden; }
-.row { display: grid; grid-template-columns: 28px 1fr auto auto 36px; gap: 12px; align-items: center; padding: 10px 14px; border-top: 1px solid var(--line); cursor: pointer; }
+.row { display: grid; grid-template-columns: 28px minmax(0, 1fr) 84px 168px 36px 32px; gap: 12px; align-items: center; padding: 10px 14px; border-top: 1px solid var(--line); cursor: pointer; }
 .row:first-child { border-top: 0; }
 .row:hover { background: var(--panel-2); }
 .row .ico { font-size: 22px; display: grid; place-items: center; }
@@ -92,7 +99,7 @@ select, .btn { padding: 8px 10px; border-radius: 10px; border: 1px solid var(--l
 .chk svg { width: 14px; height: 14px; stroke-width: 3.2; }
 .selecting .chk { display: grid; }
 .sel .chk { background: var(--accent); border-color: var(--accent); color: var(--panel); }
-.list.selecting .row { grid-template-columns: 22px 28px 1fr auto auto 36px; }
+.list.selecting .row { grid-template-columns: 22px 28px minmax(0, 1fr) 84px 168px 36px 32px; }
 .row.sel { background: var(--accent-bg); }
 .card { position: relative; }
 .card .chk { position: absolute; top: 9px; left: 9px; z-index: 2; }
@@ -123,10 +130,44 @@ select, .btn { padding: 8px 10px; border-radius: 10px; border: 1px solid var(--l
 .toast.on { opacity: 1; transform: translate(-50%, 0); }
 .toast.bad { background: var(--danger); color: #fff; }
 @media (max-width: 640px) {
-  .list.selecting .row { grid-template-columns: 22px 26px 1fr auto 34px; }
+  .list.selecting .row { grid-template-columns: 22px 26px 1fr auto 34px 34px; }
   .selbar .lbl { display: none; }
   .sb { padding: 9px 11px; }
 }
+.row, .card { -webkit-touch-callout: none; }
+#main { min-height: 52vh; }
+.lhead { display: none; grid-template-columns: 28px minmax(0, 1fr) 84px 168px 36px 32px; gap: 12px; align-items: center; padding: 8px 14px; color: var(--muted); font-size: 12px; font-weight: 600; letter-spacing: .02em; border: 1px solid var(--line); border-bottom: 0; border-radius: 14px 14px 0 0; background: var(--panel-2); user-select: none; }
+.lhead.sel { grid-template-columns: 22px 28px minmax(0, 1fr) 84px 168px 36px 32px; }
+.lhead button { all: unset; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; padding: 2px 0; }
+.lhead button:hover { color: var(--text); }
+.lhead .r { justify-self: end; }
+.lhead + .list { border-radius: 0 0 14px 14px; }
+@media (min-width: 641px) { .lhead { display: grid; } }
+.row .more, .card .more { all: unset; box-sizing: border-box; display: grid; place-items: center; width: 30px; height: 30px; border-radius: 9px; color: var(--muted); cursor: pointer; }
+.row .more:hover, .card .more:hover { background: var(--panel); color: var(--accent); }
+.card .more { position: absolute; top: 6px; right: 6px; z-index: 2; background: color-mix(in srgb, var(--panel) 80%, transparent); }
+.selecting .more { display: none; }
+.cut { opacity: .45; }
+.dropto { outline: 2px solid var(--accent); outline-offset: -2px; background: var(--accent-bg) !important; }
+.ctx { position: fixed; z-index: 40; min-width: 210px; max-width: 280px; padding: 6px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow), 0 12px 32px rgba(0,0,0,.18); }
+.ctx button { all: unset; box-sizing: border-box; display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; border-radius: 8px; cursor: pointer; font-size: 14px; }
+.ctx button:hover:not(:disabled), .ctx button:focus-visible { background: var(--accent-bg); color: var(--accent); }
+.ctx button:disabled { opacity: .4; cursor: default; }
+.ctx button.danger { color: var(--danger); }
+.ctx button svg { color: var(--muted); }
+.ctx button.danger svg { color: var(--danger); }
+.ctx hr { border: 0; border-top: 1px solid var(--line); margin: 5px 4px; }
+.ctx .k { margin-left: auto; color: var(--muted); font-size: 12px; }
+.band { position: fixed; z-index: 9; pointer-events: none; border: 1px solid var(--accent); background: color-mix(in srgb, var(--accent) 16%, transparent); border-radius: 3px; }
+.pr dl { margin: 0; padding: 4px 16px 10px; }
+.pr .prow { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 12px; padding: 7px 0; border-top: 1px solid var(--line); font-size: 14px; }
+.pr .prow:first-child { border-top: 0; }
+.pr dt { color: var(--muted); }
+.pr dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.pr .phead { display: flex; align-items: center; gap: 12px; padding: 4px 16px 10px; }
+.pr .phead svg { font-size: 30px; }
+.pr .phead b { display: block; font-size: 16px; overflow-wrap: anywhere; }
+.pr .phead span { color: var(--muted); font-size: 13px; }
 .viewer { position: fixed; inset: 0; z-index: 20; background: #0a0c10; display: none; flex-direction: column; color: #eef1f6; }
 .viewer.on { display: flex; }
 .vbar { display: flex; align-items: center; gap: 10px; padding: calc(env(safe-area-inset-top) + 10px) 14px 10px; }
@@ -145,7 +186,7 @@ select, .btn { padding: 8px 10px; border-radius: 10px; border: 1px solid var(--l
 .nav.prev { left: 10px; } .nav.next { right: 10px; }
 .stage .hint { position: absolute; bottom: 14px; left: 0; right: 0; text-align: center; color: #9aa4b5; font-size: 12px; pointer-events: none; }
 @media (max-width: 640px) {
-  .row { grid-template-columns: 26px 1fr auto 34px; gap: 10px; padding: 11px 12px; }
+  .row { grid-template-columns: 26px 1fr auto 34px 34px; gap: 10px; padding: 11px 12px; }
   .row .date { display: none; }
   .grid { grid-template-columns: repeat(auto-fill, minmax(128px, 1fr)); gap: 10px; }
   .tools { flex-wrap: wrap; justify-content: stretch; }
@@ -167,6 +208,7 @@ select, .btn { padding: 8px 10px; border-radius: 10px; border: 1px solid var(--l
         <select id="sort" aria-label="Sort by"><option value="name">Name</option><option value="size">Size</option><option value="mtime">Modified</option></select>
         <button class="btn" id="dir" aria-label="Reverse the order" title="Reverse the order"><svg viewBox="0 0 24 24"><path d="M7 4v16M3 8l4-4 4 4M17 20V4M13 16l4 4 4-4"/></svg></button>
         <button class="btn" id="sel" aria-pressed="false" aria-label="Select files" title="Select files"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="4"/><path d="m8 12 3 3 5-6"/></svg></button>
+        <button class="btn" id="theme" aria-label="Theme" title="Theme: follows the system"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 4v16" /></svg></button>
         <div class="seg" role="group" aria-label="Layout">
           <button id="vlist" aria-label="List" title="List"><svg viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg></button>
           <button id="vgrid" aria-label="Grid" title="Grid"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg></button>
@@ -195,6 +237,15 @@ select, .btn { padding: 8px 10px; border-radius: 10px; border: 1px solid var(--l
     <div class="mlist" id="pk-l"></div>
     <div class="mhint" id="pk-h"></div>
     <div class="mf"><button class="btn" id="pk-up">Up</button><span class="sp"></span><button class="btn" id="pk-c">Cancel</button><button class="btn btn-up" id="pk-ok">Move here</button></div>
+  </div>
+</div>
+<div class="ctx" id="ctx" role="menu" hidden></div>
+<div class="band" id="band" hidden></div>
+<div class="modal" id="props" hidden role="dialog" aria-modal="true" aria-labelledby="pr-t">
+  <div class="mbox pr">
+    <div class="mh" id="pr-t">Properties</div>
+    <div id="pr-b"></div>
+    <div class="mf"><span class="sp"></span><button class="btn btn-up" id="pr-x">Close</button></div>
   </div>
 </div>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
@@ -247,6 +298,9 @@ select, .btn { padding: 8px 10px; border-radius: 10px; border: 1px solid var(--l
 
   const st = { path: location.pathname, items: [], sel: new Set(), selecting: false, q: "", view: store("view", "list"), sort: store("sort", "name"), desc: store("desc", "0") === "1", loading: true, error: "" };
   let shown = [], viewerList = [], vi = -1, viewerOn = false, canUpload = false, canManage = false;
+  /** A mouse (or similar): click selects and double-click opens, like a desktop file manager. A touch screen taps to open. */
+  const fine = typeof matchMedia === "function" && matchMedia("(pointer: fine)").matches;
+  let clip = null, anchor = null;
 
   // An address like http://user:pass@host/ makes every relative URL carry the password, and browsers refuse such
   // fetches and subresources. So drop it from the address bar and build every URL from the bare origin.
@@ -347,9 +401,22 @@ select, .btn { padding: 8px 10px; border-radius: 10px; border: 1px solid var(--l
         a.append(ic, name, sz, dt);
         if (!it.dir) { const d = el("a", "dl", '<svg viewBox="0 0 24 24"><path d="M12 3v12m0 0 4-4m-4 4-4-4M4 20h16"/></svg>'); d.href = abs(it.href); d.setAttribute("download", it.name); d.setAttribute("aria-label", "Download " + it.name); d.title = "Download"; d.onclick = (e) => e.stopPropagation(); a.append(d); } else a.append(el("span"));
       }
+      const more = el("button", "more", '<svg viewBox="0 0 24 24"><circle cx="12" cy="5" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="12" cy="19" r="1.4"/></svg>');
+      more.type = "button"; more.setAttribute("aria-label", "More actions for " + it.name); more.title = "More actions";
+      more.onclick = (ev) => { ev.preventDefault(); ev.stopPropagation(); if (!st.sel.has(it.href)) { st.sel.clear(); st.sel.add(it.href); } const b = more.getBoundingClientRect(); showMenu(b.left, b.bottom + 4, itemMenu()); };
+      a.append(more);
+      if (clip && clip.mode === "cut" && clip.items.some((x) => x.href === it.href)) a.classList.add("cut");
+      if (fine && canManage) a.draggable = true;
       a.prepend(chk);
       wrap.append(a);
     });
+    if (st.view !== "grid") {
+      const head = el("div", "lhead" + (st.selecting ? " sel" : ""));
+      if (st.selecting) head.append(el("span"));
+      const col = (label, key, cls) => { const b = el("button", cls || ""); b.type = "button"; b.textContent = label + (st.sort === key ? (st.desc ? " \u2193" : " \u2191") : ""); b.onclick = () => { if (st.sort === key) st.desc = !st.desc; else { st.sort = key; st.desc = false; } save("sort", st.sort); save("desc", st.desc ? "1" : "0"); render(); }; return b; };
+      head.append(el("span"), col("Name", "name"), col("Size", "size", "r"), col("Modified", "mtime"), el("span"), el("span"));
+      main.append(head);
+    }
     main.append(wrap);
     const dirs = shown.filter((i) => i.dir).length, files = shown.length - dirs, total = shown.reduce((s, i) => s + (i.size || 0), 0);
     foot.textContent = [dirs && dirs + (dirs === 1 ? " folder" : " folders"), files && files + (files === 1 ? " file" : " files"), files && size(total)].filter(Boolean).join(" · ");
@@ -360,13 +427,21 @@ select, .btn { padding: 8px 10px; border-radius: 10px; border: 1px solid var(--l
   let suppress = false;
   document.addEventListener("click", (e) => {
     if (suppress) { suppress = false; e.preventDefault(); e.stopPropagation(); return; }
-    const a = e.target.closest("a"); if (!a || e.defaultPrevented || e.metaKey || e.ctrlKey || e.shiftKey || e.button) return;
+    const a = e.target.closest("a"); if (!a || e.defaultPrevented || e.button) return;
+    if ((e.metaKey || e.ctrlKey || e.shiftKey) && !(fine && a.dataset.i != null)) return;
     if (a.dataset.go) { e.preventDefault(); if (st.selecting) setSelecting(false); go(a.dataset.go); return; }
     if (a.dataset.i != null && a.closest("#main")) {
       e.preventDefault(); const it = shown[Number(a.dataset.i)]; if (!it) return;
+      if (e.target.closest(".more")) return;
+      if (fine && !e.target.closest(".chk")) { pickRow(it, e); return; }
       if (st.selecting) { toggleSel(it.href); return; }
-      if (it.dir) go(it.href); else if (PREVIEW.has(kindOf(it))) openViewer(it); else location.href = abs(it.href);
+      openItem(it);
     }
+  });
+  document.addEventListener("dblclick", (e) => {
+    if (!fine) return;
+    const a = e.target.closest("#main [data-i]"); if (!a || e.target.closest(".dl, .more, .chk")) return;
+    const it = shown[Number(a.dataset.i)]; if (it) openItem(it);
   });
   window.addEventListener("popstate", () => { if (viewerOn) { closeViewer(true); return; } load(location.pathname); });
   $("#q").addEventListener("input", (e) => { st.q = e.target.value; render(); });
@@ -497,6 +572,199 @@ select, .btn { padding: 8px 10px; border-radius: 10px; border: 1px solid var(--l
     else if (st.selecting && canManage && e.key === "Delete") void doDelete();
   });
 
+  // ── a file manager's own habits: pick rows, menus, clipboard, drag, shortcuts, properties ──
+  const openItem = (it) => { if (it.dir) go(it.href); else if (PREVIEW.has(kindOf(it))) openViewer(it); else location.href = abs(it.href); };
+  function pickRow(it, e) {
+    const idx = shown.indexOf(it), add = e.ctrlKey || e.metaKey;
+    if (e.shiftKey && anchor != null && shown[anchor]) {
+      if (!add) st.sel.clear();
+      for (let i = Math.min(anchor, idx); i <= Math.max(anchor, idx); i++) st.sel.add(shown[i].href);
+    } else if (add) { if (st.sel.has(it.href)) st.sel.delete(it.href); else st.sel.add(it.href); anchor = idx; }
+    else { st.sel.clear(); st.sel.add(it.href); anchor = idx; }
+    const was = st.selecting; st.selecting = st.sel.size > 0;
+    if (was !== st.selecting) render(); else refreshSel();
+  }
+  const encPath = (dir, name, isDir) => dir + encodeURIComponent(name) + (isDir ? "/" : "");
+  const folderName = () => dec(st.path).replace(/\/+$/, "").split("/").pop() || "Shared";
+
+  // Context menu (right-click, the ⋯ button, a long press on a phone)
+  const ctx = $("#ctx");
+  const I = {
+    open: '<svg viewBox="0 0 24 24"><path d="M5 12h14m0 0-5-5m5 5-5 5"/></svg>', dl: '<svg viewBox="0 0 24 24"><path d="M12 3v12m0 0 4-4m-4 4-4-4M4 20h16"/></svg>',
+    ren: '<svg viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg>', cut: '<svg viewBox="0 0 24 24"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M20 4 8.1 15.9M14.5 14.5 20 20M8.1 8.1 12 12"/></svg>',
+    cp: '<svg viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>',
+    mv: '<svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>',
+    del: '<svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3"/></svg>', info: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg>',
+    plus: '<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>', up: '<svg viewBox="0 0 24 24"><path d="M12 16V4m0 0-4 4m4-4 4 4M4 20h16"/></svg>', ref: '<svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/></svg>', all: '<svg viewBox="0 0 24 24"><path d="M4 7l3 3 5-6M4 17l3 3 5-6M15 8h6M15 18h6"/></svg>',
+  };
+  function closeMenu() { ctx.hidden = true; ctx.replaceChildren(); }
+  function showMenu(x, y, items) {
+    ctx.replaceChildren();
+    for (const m of items) {
+      if (m === "sep") { ctx.append(document.createElement("hr")); continue; }
+      const b = el("button", m.danger ? "danger" : "", (m.icon || "") + "<span></span>"); b.type = "button"; b.setAttribute("role", "menuitem"); b.lastChild.textContent = m.label;
+      if (m.key) b.append(el("span", "k", m.key));
+      b.disabled = !!m.disabled; b.onclick = () => { closeMenu(); m.run(); }; ctx.append(b);
+    }
+    ctx.hidden = false;
+    const w = ctx.offsetWidth, h = ctx.offsetHeight;
+    ctx.style.left = Math.max(6, Math.min(x, innerWidth - w - 6)) + "px"; ctx.style.top = Math.max(6, Math.min(y, innerHeight - h - 6)) + "px";
+    const first = ctx.querySelector("button:not(:disabled)"); if (first) first.focus({ preventScroll: true });
+  }
+  function itemMenu() {
+    const items = selItems(), one = items.length === 1 ? items[0] : null, files = items.filter((i) => !i.dir), m = [];
+    if (one) m.push({ label: one.dir ? "Open" : PREVIEW.has(kindOf(one)) ? "Preview" : "Download", icon: I.open, run: () => openItem(one), key: fine ? "Enter" : "" });
+    if (files.length) m.push({ label: files.length > 1 ? "Download " + files.length + " files" : "Download", icon: I.dl, run: doDownload });
+    if (canManage) m.push("sep", { label: "Rename", icon: I.ren, disabled: !one, run: doRename, key: "F2" }, { label: "Cut", icon: I.cut, run: () => setClip("cut"), key: "Ctrl+X" }, { label: "Copy", icon: I.cp, run: () => setClip("copy"), key: "Ctrl+C" },
+      { label: "Move to\u2026", icon: I.mv, run: () => openPicker("move") }, { label: "Copy to\u2026", icon: I.mv, run: () => openPicker("copy") }, { label: "Delete", icon: I.del, danger: true, run: doDelete, key: "Del" });
+    m.push("sep", { label: "Properties", icon: I.info, run: () => showProps(items) });
+    return m;
+  }
+  function bgMenu() {
+    const m = [];
+    if (canUpload) m.push({ label: "New folder", icon: I.plus, run: () => $("#mk").click() }, { label: "New file", icon: I.plus, run: newFile }, { label: "Upload files\u2026", icon: I.up, run: () => $("#file").click() });
+    if (canManage) m.push({ label: "Paste" + (clip ? " (" + clip.items.length + ")" : ""), icon: I.cp, disabled: !clip, run: doPaste, key: "Ctrl+V" });
+    m.push("sep", { label: "Select all", icon: I.all, run: () => { st.sel.clear(); for (const i of shown) st.sel.add(i.href); st.selecting = shown.length > 0; render(); } },
+      { label: "Refresh", icon: I.ref, run: () => load(st.path, true) }, "sep", { label: "Properties", icon: I.info, run: () => showProps([{ name: folderName(), href: st.path, dir: true, size: null, mtime: 0 }]) });
+    return m;
+  }
+  $("#main").addEventListener("contextmenu", (e) => {
+    e.preventDefault();
+    const a = e.target.closest("[data-i]"), it = a && shown[Number(a.dataset.i)];
+    if (it) { if (!st.sel.has(it.href)) { st.sel.clear(); st.sel.add(it.href); anchor = shown.indexOf(it); const was = st.selecting; st.selecting = true; if (!was) render(); else refreshSel(); } showMenu(e.clientX, e.clientY, itemMenu()); }
+    else showMenu(e.clientX, e.clientY, bgMenu());
+  });
+  document.addEventListener("pointerdown", (e) => { if (!ctx.hidden && !e.target.closest("#ctx")) closeMenu(); }, true);
+  window.addEventListener("scroll", closeMenu, true); window.addEventListener("resize", closeMenu);
+
+  // New file, cut / copy / paste
+  async function newFile() {
+    const answer = prompt("New file name"); if (answer == null) return;
+    const name = answer.trim(); if (badName(name)) { say("That name isn't valid.", true); return; }
+    const final = uniqueName(name, new Set(st.items.map((i) => i.name)));
+    try { const r = await fetch(abs(encPath(st.path, final, false)), { method: "PUT", body: "", credentials: "same-origin" }); if (okStatus(r.status)) { say("Created " + final + "."); await load(st.path, true); } else say("Couldn't create the file.", true); } catch { say("Connection lost.", true); }
+  }
+  function setClip(mode) {
+    const items = selItems(); if (!items.length) return;
+    clip = { mode, items: items.map((i) => ({ href: i.href, name: i.name, dir: i.dir })) };
+    say((mode === "cut" ? "Cut " : "Copied ") + (items.length === 1 ? '"' + items[0].name + '"' : items.length + " items") + ". Open a folder and paste."); render();
+  }
+  async function doPaste() {
+    if (!clip || !canManage) return;
+    const dest = st.path, taken = new Set(st.items.map((i) => i.name)), method = clip.mode === "cut" ? "MOVE" : "COPY";
+    let ok = 0, bad = 0;
+    for (const it of clip.items) {
+      const here = it.href.replace(/[^/]+\/?$/, "") === dest;
+      if (method === "MOVE" && here) continue;
+      if (it.dir && dest.startsWith(it.href)) { bad++; continue; }
+      const name = uniqueName(it.name, taken); taken.add(name);
+      if (okStatus(await dav(method, it.href, encPath(dest, name, it.dir)))) ok++; else bad++;
+    }
+    if (method === "MOVE") clip = null;
+    say(bad ? ok + " done, " + bad + " failed." : ok ? ok + (ok === 1 ? " item" : " items") + (method === "MOVE" ? " moved." : " copied.") : "Nothing to paste here.", !!bad);
+    await load(st.path, true);
+  }
+
+  // Drag items onto a folder (or a breadcrumb) to move them
+  let dragHrefs = null;
+  const main2 = $("#main");
+  main2.addEventListener("dragstart", (e) => {
+    const a = e.target.closest("[data-i]"); const it = a && shown[Number(a.dataset.i)]; if (!it || !canManage) { e.preventDefault(); return; }
+    if (!st.sel.has(it.href)) { st.sel.clear(); st.sel.add(it.href); st.selecting = true; refreshSel(); }
+    dragHrefs = [...st.sel]; e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", "notiq:" + dragHrefs.length);
+  });
+  const dropTarget = (e) => { const f = e.target.closest("#main [data-i], #crumbs [data-go]"); if (!f) return null; if (f.dataset.go) return f.dataset.go; const it = shown[Number(f.dataset.i)]; return it && it.dir && !(dragHrefs || []).includes(it.href) ? it.href : null; };
+  const clearDrop = () => document.querySelectorAll(".dropto").forEach((n) => n.classList.remove("dropto"));
+  document.addEventListener("dragover", (e) => { if (!dragHrefs) return; const t = dropTarget(e); clearDrop(); if (t) { e.preventDefault(); e.dataTransfer.dropEffect = "move"; e.target.closest("#main [data-i], #crumbs [data-go]").classList.add("dropto"); } });
+  document.addEventListener("dragend", () => { dragHrefs = null; clearDrop(); });
+  document.addEventListener("drop", async (e) => {
+    if (!dragHrefs) return; const dest = dropTarget(e); clearDrop(); if (!dest) { dragHrefs = null; return; }
+    e.preventDefault(); const hrefs = dragHrefs; dragHrefs = null;
+    const items = st.items.filter((i) => hrefs.includes(i.href)); const taken = new Set((await listDir(dest).catch(() => [])).map((i) => i.name));
+    let ok = 0, bad = 0;
+    for (const it of items) { if (it.dir && dest.startsWith(it.href)) { bad++; continue; } const name = uniqueName(it.name, taken); taken.add(name); if (okStatus(await dav("MOVE", it.href, encPath(dest, name, it.dir)))) ok++; else bad++; }
+    st.sel.clear(); st.selecting = false; say(bad ? ok + " moved, " + bad + " failed." : ok + (ok === 1 ? " item moved." : " items moved."), !!bad); await load(st.path, true);
+  });
+
+  // Rubber-band selection on empty space (mouse)
+  const band = $("#band");
+  main2.addEventListener("pointerdown", (e) => {
+    if (!fine || e.button !== 0 || e.target.closest("[data-i], button, a, input, .lhead")) return;
+    const add = e.ctrlKey || e.metaKey || e.shiftKey, base = new Set(st.sel), x0 = e.clientX, y0 = e.clientY; let moved = false;
+    const move = (m) => {
+      if (!moved && Math.hypot(m.clientX - x0, m.clientY - y0) < 4) return; moved = true;
+      const L = Math.min(x0, m.clientX), T = Math.min(y0, m.clientY), W = Math.abs(m.clientX - x0), H = Math.abs(m.clientY - y0);
+      band.hidden = false; band.style.left = L + "px"; band.style.top = T + "px"; band.style.width = W + "px"; band.style.height = H + "px";
+      st.sel = new Set(add ? base : []);
+      document.querySelectorAll("#main [data-i]").forEach((n) => { const b = n.getBoundingClientRect(); if (b.right > L && b.left < L + W && b.bottom > T && b.top < T + H) { const it = shown[Number(n.dataset.i)]; if (it) st.sel.add(it.href); } });
+      const was = st.selecting; st.selecting = st.sel.size > 0; if (was !== st.selecting) render(); else refreshSel();
+    };
+    const up = () => {
+      removeEventListener("pointermove", move); removeEventListener("pointerup", up); band.hidden = true;
+      if (!moved && !add && st.sel.size) { st.sel.clear(); st.selecting = false; render(); }
+    };
+    addEventListener("pointermove", move); addEventListener("pointerup", up);
+  });
+
+  // Keyboard
+  window.addEventListener("keydown", (e) => {
+    if (viewerOn || !$("#pick").hidden || !$("#props").hidden || /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
+    if (e.key === "Escape" && !ctx.hidden) { closeMenu(); return; }
+    const mod = e.ctrlKey || e.metaKey, k = e.key.toLowerCase();
+    if (mod && k === "a") { e.preventDefault(); st.sel.clear(); for (const i of shown) st.sel.add(i.href); st.selecting = shown.length > 0; render(); }
+    else if (mod && k === "c" && st.sel.size && canManage) { e.preventDefault(); setClip("copy"); }
+    else if (mod && k === "x" && st.sel.size && canManage) { e.preventDefault(); setClip("cut"); }
+    else if (mod && k === "v" && clip && canManage) { e.preventDefault(); void doPaste(); }
+    else if (e.key === "F2" && st.sel.size === 1 && canManage) { e.preventDefault(); void doRename(); }
+    else if (e.key === "Enter" && st.sel.size === 1) { const it = selItems()[0]; if (it) { e.preventDefault(); openItem(it); } }
+    else if (e.key === "Backspace" || (e.altKey && e.key === "ArrowUp")) { const parts = st.path.split("/").filter(Boolean); if (parts.length) { e.preventDefault(); parts.pop(); go("/" + parts.join("/") + (parts.length ? "/" : "")); } }
+    else if ((e.key === "ArrowDown" || e.key === "ArrowUp" || e.key === "ArrowRight" || e.key === "ArrowLeft") && shown.length) {
+      e.preventDefault(); const dir = e.key === "ArrowDown" || e.key === "ArrowRight" ? 1 : -1;
+      const next = Math.max(0, Math.min(shown.length - 1, (anchor == null ? (dir > 0 ? -1 : shown.length) : anchor) + dir));
+      pickRow(shown[next], e); const n = document.querySelector('#main [data-i="' + next + '"]'); if (n) n.scrollIntoView({ block: "nearest" });
+    }
+  });
+
+  // Properties (one or several items; a folder's contents are counted while the dialog is open)
+  const pr = { token: 0 };
+  const closeProps = () => { pr.token++; $("#props").hidden = true; };
+  async function showProps(items) {
+    const my = ++pr.token, body = $("#pr-b"); body.replaceChildren();
+    const one = items.length === 1 ? items[0] : null, kind = one ? kindOf(one) : "file";
+    $("#pr-t").textContent = "Properties";
+    const head = el("div", "phead", '<span class="k-' + (one ? kind : "folder") + '">' + icon(one ? kind : "folder") + "</span>"); const t = el("div"); const b = document.createElement("b"); b.textContent = one ? one.name : items.length + " items";
+    const sub = el("span"); sub.textContent = one ? (one.dir ? "Folder" : ((one.name.split(".").length > 1 ? one.name.split(".").pop().toUpperCase() + " file" : "File"))) : "Selection"; t.append(b, sub); head.append(t); body.append(head);
+    const dl = el("dl"); body.append(dl);
+    const row = (label, value) => { const r = el("div", "prow"); const dt = el("dt"); dt.textContent = label; const dd = el("dd"); if (typeof value === "string") dd.textContent = value; else dd.append(value); r.append(dt, dd); dl.append(r); return dd; };
+    const parent = one ? dec(one.href).replace(/\/+$/, "").replace(/[^/]*$/, "") || "/" : dec(st.path);
+    row("Location", parent);
+    if (one) { const w = el("span"); const code = document.createElement("code"); code.textContent = dec(one.href); const cp = el("button", "btn", "Copy"); cp.type = "button"; cp.style.marginLeft = "8px"; cp.onclick = () => { navigator.clipboard && navigator.clipboard.writeText(abs(one.href)).then(() => say("Address copied."), () => say("Couldn't copy.", true)); }; w.append(code, cp); row("Address", w); }
+    if (one && !one.dir) row("Size", size(one.size) + " (" + (one.size ?? 0).toLocaleString() + " bytes)");
+    const sizeDd = (!one || one.dir) ? row("Size", "Counting\u2026") : null, contDd = (!one || one.dir) ? row("Contains", "Counting\u2026") : null;
+    if (one && one.mtime) row("Modified", new Date(one.mtime).toLocaleString([], { dateStyle: "long", timeStyle: "medium" }));
+    $("#props").hidden = false;
+    if (!sizeDd) return;
+    let files = 0, dirs = 0, bytes = 0, seen = 0; const queue = items.map((i) => i.dir ? { href: i.href } : null).filter(Boolean);
+    for (const it of items) if (!it.dir) { files++; bytes += it.size || 0; }
+    const paint = (done) => { sizeDd.textContent = size(bytes) + " (" + bytes.toLocaleString() + " bytes)" + (done ? "" : " \u2026"); contDd.textContent = files + (files === 1 ? " file, " : " files, ") + dirs + (dirs === 1 ? " folder" : " folders") + (done ? "" : " \u2026"); };
+    paint(false);
+    while (queue.length && pr.token === my && seen < 20000) {
+      const d = queue.pop(); let list = []; try { list = await listDir(d.href); } catch { /* unreadable */ }
+      for (const c of list) { seen++; if (c.dir) { dirs++; queue.push(c); } else { files++; bytes += c.size || 0; } }
+      paint(false);
+    }
+    if (pr.token === my) { paint(true); if (queue.length) contDd.textContent += " (stopped at 20,000 items)"; }
+  }
+  $("#pr-x").addEventListener("click", closeProps);
+  $("#props").addEventListener("click", (e) => { if (e.target === $("#props")) closeProps(); });
+  window.addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("#props").hidden) closeProps(); });
+
+  // Theme: follow the system, or light / dark
+  const themes = ["auto", "light", "dark"]; let theme = store("theme", "auto"); if (!themes.includes(theme)) theme = "auto";
+  const applyTheme = () => { if (theme === "auto") document.documentElement.removeAttribute("data-theme"); else document.documentElement.dataset.theme = theme; $("#theme").title = "Theme: " + (theme === "auto" ? "follows the system" : theme); };
+  $("#theme").addEventListener("click", () => { theme = themes[(themes.indexOf(theme) + 1) % 3]; save("theme", theme); applyTheme(); say("Theme: " + (theme === "auto" ? "follows the system" : theme) + "."); });
+  applyTheme();
+
   // ── viewer ──────────────────────────────────────────────────────────────
   const stage = $("#stage");
   function clearStage() { for (const c of [...stage.children]) if (!c.classList.contains("nav")) { if (c.pause) c.pause(); c.remove(); } }
@@ -575,26 +843,47 @@ select, .btn { padding: 8px 10px; border-radius: 10px; border: 1px solid var(--l
       fail: (msg) => { row.classList.add("bad"); m.textContent = msg; },
     };
   }
-  async function uploadFiles(list) {
+  async function uploadFiles(list, forceDir) {
     const files = [...list].filter((f) => f && f.name);
     if (!canUpload || !files.length || uploading) return;
     uploading = true; $("#uplist").replaceChildren(); $("#ups").hidden = false; $("#upt").textContent = "Uploading " + files.length + (files.length === 1 ? " file" : " files");
-    const dir = st.path, taken = new Set(st.items.map((i) => i.name));
+    const dir = forceDir || st.path, taken = new Set(st.items.map((i) => i.name));
     let ok = 0, failed = 0;
     for (const f of files) {
-      const row = upRow(f.name); let name = uniqueName(f.name, taken), status = 0;
-      for (let tries = 0; tries < 5; tries++) {
-        status = await put(abs(dir + encodeURIComponent(name)), f, row.set);
-        if (status !== 409) break;
+      const row = upRow(f.__rel || f.name); let name = f.__rel ? f.__rel : uniqueName(f.name, taken), status = 0;
+      for (let tries = 0; tries < (f.__rel ? 1 : 5); tries++) {
+        status = await put(abs(dir + name.split("/").map(encodeURIComponent).join("/")), f, row.set);
+        if (status !== 409 || f.__rel) break;
         taken.add(name); name = uniqueName(f.name, taken);
       }
-      taken.add(name);
-      if (status === 200 || status === 201 || status === 204) { ok++; row.done(name !== f.name ? "Saved as " + name : "Uploaded"); }
+      if (!f.__rel) taken.add(name);
+      if (status === 200 || status === 201 || status === 204) { ok++; row.done(!f.__rel && name !== f.name ? "Saved as " + name : "Uploaded"); }
       else { failed++; row.fail(status === 0 ? "Connection lost" : status === 409 ? "Couldn't save this file" : "Failed (" + status + ")"); }
     }
     uploading = false; $("#upt").textContent = failed ? ok + " uploaded, " + failed + " failed" : "Uploaded " + ok + (ok === 1 ? " file" : " files");
     if (st.path === dir) await load(dir, true);
     if (!failed) setTimeout(() => { if (!uploading) $("#ups").hidden = true; }, 3500);
+  }
+  // Dropped folders: make the folders, then upload every file into its place (the top folder gets a free name).
+  async function walk(entry, rel, out) {
+    if (entry.isFile) { out.files.push({ file: await new Promise((ok, no) => entry.file(ok, no)), rel }); return; }
+    out.dirs.push(rel);
+    const reader = entry.createReader();
+    for (;;) {
+      const batch = await new Promise((ok, no) => reader.readEntries(ok, no));
+      if (!batch.length) break;
+      for (const c of batch) await walk(c, rel + "/" + c.name, out);
+    }
+  }
+  async function uploadEntries(entries) {
+    if (!canUpload || uploading) return; uploading = true;
+    const dirBase = st.path, taken = new Set(st.items.map((i) => i.name)), out = { files: [], dirs: [] };
+    try {
+      for (const en of entries.filter(Boolean)) { const top = uniqueName(en.name, taken); taken.add(top); await walk(en, top, out); }
+    } catch { uploading = false; say("Couldn't read the dropped folder.", true); return; }
+    uploading = false;
+    for (const d of out.dirs) await fetch(abs(dirBase + d.split("/").map(encodeURIComponent).join("/") + "/"), { method: "MKCOL", credentials: "same-origin" }).catch(() => {});
+    await uploadFiles(out.files.map((x) => Object.assign(x.file, { __rel: x.rel })), dirBase);
   }
   $("#up").addEventListener("click", () => $("#file").click());
   $("#file").addEventListener("change", (e) => { void uploadFiles(e.target.files); e.target.value = ""; });
@@ -614,8 +903,9 @@ select, .btn { padding: 8px 10px; border-radius: 10px; border: 1px solid var(--l
   window.addEventListener("drop", (e) => {
     if (!hasFiles(e)) return;
     e.preventDefault(); dragDepth = 0; $("#drop").classList.remove("on");
-    const files = [...e.dataTransfer.items].filter((i) => i.kind === "file" && !(i.webkitGetAsEntry && i.webkitGetAsEntry() && i.webkitGetAsEntry().isDirectory)).map((i) => i.getAsFile());
-    void uploadFiles(files);
+    const entries = [...e.dataTransfer.items].filter((i) => i.kind === "file").map((i) => (i.webkitGetAsEntry ? i.webkitGetAsEntry() : null));
+    if (entries.some((x) => x && x.isDirectory)) { void uploadEntries(entries); return; }
+    void uploadFiles([...e.dataTransfer.files]);
   });
 
   void detect();
