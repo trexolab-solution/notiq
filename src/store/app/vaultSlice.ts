@@ -1,4 +1,8 @@
-import { isVaultPath, extFromPath, vaultLock, vaultReadFile, vaultWriteFile, vaultErrorMessage, vaultFileExists } from "../../lib/vault";
+import { readFile } from "@tauri-apps/plugin-fs";
+import { bytesToBase64, isVaultPath, extFromPath, vaultAttachAdd, vaultLock, vaultReadFile, vaultWriteFile, vaultErrorMessage, vaultFileExists } from "../../lib/vault";
+import { attachmentLimitError, vaultAttachmentsUsed } from "../../lib/attachmentLimits";
+import { migrateLocalImages } from "../../lib/vaultImageMigrate";
+import { dirname, isAbsolute, joinPath } from "../../lib/pathUtils";
 import { flushVaultPendingOps } from "../../lib/vaultPendingOps";
 import { pickVaultDestination } from "../../lib/vaultDest";
 import { scrubMonacoModels } from "../../lib/vaultMemory";
@@ -9,6 +13,39 @@ import { useVaultStore } from "../vaultStore";
 import { debounceGraphRebuild, titleFromPath } from "./helpers";
 import type { SliceContext } from "./context";
 import type { AppState } from "./state";
+
+/**
+ * Images of a note being locked into the vault: the files its links point at (next to the note, or the temp folder
+ * of an unsaved one) become attachments of the new entry, and the links point at those. Returns the rewritten
+ * content, or null when there was nothing to move. Links that can't be moved are left alone and reported.
+ */
+async function moveImagesIntoVault(
+  tab: { content: string; filePath?: string; attachments?: Record<string, string> },
+  target: string,
+): Promise<string | null> {
+  const dir = tab.filePath ? dirname(tab.filePath.replace(/\\/g, "/")) : null;
+  let count = 0;
+  let used = await vaultAttachmentsUsed(await ensureVaultDir());
+  const r = await migrateLocalImages(tab.content, {
+    resolve: (src) => tab.attachments?.[src] ?? (isAbsolute(src) ? src : dir ? joinPath(dir, src) : null),
+    load: async (abs) => new Uint8Array(await readFile(abs)),
+    add: async (name, bytes) => {
+      const why = attachmentLimitError(bytes.length, count, used);
+      if (why) throw new Error(why);
+      const meta = await vaultAttachAdd(target, name, bytesToBase64(bytes));
+      count++; used += bytes.length;
+      return meta.id;
+    },
+  });
+  if (r.failed.length) {
+    const first = r.failed[0];
+    const n = r.failed.length === 1 ? "1 image" : `${r.failed.length} images`;
+    toast.warning(`${n} couldn't be moved into the vault and still point at files on disk. ${first.src}: ${first.reason}`);
+  }
+  if (!r.moved) return null;
+  toast.info(`${r.moved === 1 ? "1 image" : `${r.moved} images`} moved into the vault, encrypted with this note`);
+  return r.content;
+}
 
 export type VaultSlice = Pick<
   AppState,
@@ -37,7 +74,18 @@ export function createVaultSlice({ set, get, persist, updateTab, saveTabImpl }: 
         }
         const ext = extFromPath(plainPath);
         await vaultWriteFile(target, tab.content, ext);
+        // Images are files on disk; a vault note reaches only its own attachments.
+        let content = tab.content;
+        if (/^(md|markdown|mdx|txt)?$/i.test(ext)) {
+          try {
+            const moved = await moveImagesIntoVault(tab, target);
+            if (moved !== null) { await vaultWriteFile(target, moved, ext); content = moved; }
+          } catch (e) {
+            toast.warning(`Couldn't move the note's images into the vault: ${vaultErrorMessage(e)}`);
+          }
+        }
         updateTab(id, {
+          content,
           filePath: target.replace(/\\/g, "/"),
           title: titleFromPath(target, tab.title),
           vaultExt: ext,
