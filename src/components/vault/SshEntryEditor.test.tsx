@@ -255,3 +255,38 @@ describe("SshEntryEditor", () => {
     expect(stored().fields).toMatchObject({ password: "added", privateKey: ED25519_PRIV });
   });
 });
+
+describe("SshEntryEditor layout", () => {
+  const wideAt = async (width: number) => {
+    vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} unobserve() {} });
+    vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(width);
+    await render();
+  };
+
+  it("narrow: the command and its actions sit inside Connection, with no summary column", async () => {
+    await wideAt(600);
+    expect(q("aside")).toBeNull();
+    expect(q("#ssh-sec-connection")!.textContent).toContain("ssh root@srv.example.com");
+    expect(document.querySelectorAll('button[aria-label="Open in terminal"]')).toHaveLength(1);
+  });
+
+  it("wide: the command moves to a summary column beside the form, once, with the status and a section list", async () => {
+    await wideAt(1000);
+    const side = q("aside")!;
+    expect(side.textContent).toContain("ssh root@srv.example.com");
+    expect(side.textContent).toContain("Ready to connect");
+    expect(q("#ssh-sec-connection")!.textContent).not.toContain("ssh root@srv.example.com");
+    expect(document.querySelectorAll('button[aria-label="Open in terminal"]')).toHaveLength(1);
+    expect([...side.querySelectorAll("nav button")].map((b) => b.textContent)).toEqual(["Connection", "Sign in", "Advanced", "Custom fields", "Attachments"]);
+    // The form is still all there.
+    expect(q("#ssh-host")).toBeTruthy();
+    expect(q("#ssh-key")).toBeTruthy();
+  });
+
+  it("wide: the status says what is missing", async () => {
+    await wideAt(1000);
+    await typeInto(q<HTMLInputElement>("#ssh-host")!, "");
+    expect(q("aside")!.textContent).toContain("Add a host");
+  });
+});
+

@@ -82,9 +82,9 @@ export function LoginSitesEditor({ entry, onChange }: { entry: LoginEntry; onCha
       )}
       {adding ? (
         <div>
-          <div className="flex items-center gap-1.5">
+          <div className="flex flex-wrap items-center gap-1.5">
             <Input aria-label="New website for this login" value={draft} autoFocus spellCheck={false}
-                   placeholder="e.g. https://login.example.co.uk" {...field.inputProps} className={field.errorClass}
+                   placeholder="e.g. https://login.example.co.uk" {...field.inputProps} className={`flex-[1_1_12rem] min-w-0 ${field.errorClass ?? ""}`}
                    onChange={(e) => { setDraft(e.target.value); setErr(null); }}
                    onKeyDown={(e) => {
                      if (e.key === "Enter") { e.preventDefault(); add(); }

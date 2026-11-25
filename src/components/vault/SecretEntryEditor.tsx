@@ -144,15 +144,16 @@ export function SecretEntryEditor({ tab, kind }: { tab: Tab; kind: string }) {
         </div>
         {groups.map((g) => {
           const fields = (
-            <div className="grid grid-cols-2 gap-x-3 gap-y-4">
+            // Two columns when the form is wide enough; one when it is narrow (half-width fields stack).
+            <div className="grid grid-cols-1 @md:grid-cols-2 gap-x-3 gap-y-4">
               {g.fields.map((f) => (
-                <div key={f.key} className={f.width ? "col-span-1 min-w-0" : "col-span-2 min-w-0"}>
+                <div key={f.key} className={f.width ? "@md:col-span-1 min-w-0" : "@md:col-span-2 min-w-0"}>
                   <Field kind={kind} def={f} value={entry.fields[f.key] ?? ""} hideLabel={f.label === g.title}
                          onChange={(v) => save({ ...entry, fields: { ...entry.fields, [f.key]: v } })} />
                 </div>
               ))}
               {kind === "wifi" && g.title === "Network" && (
-                <div className="col-span-2 flex items-center gap-2">
+                <div className="@md:col-span-2 flex flex-wrap items-center gap-x-2 gap-y-1.5">
                   <Tooltip content="Enter the network name first" disabled={!!qr}><span className="inline-flex"><Button size="sm" icon={<QrCode size={12} />} disabled={!qr}
                           onClick={() => { if (qr) void copySecret(qr, "Wi-Fi QR text"); }}>
                     Copy Wi-Fi QR text

@@ -57,7 +57,9 @@ export function EntryLayout({ tab, children }: { tab: Tab; children: React.React
         {/* `data-entry-drop`: the area files can be dropped on to attach them (AttachmentsPanel), and the
             positioned box its drop highlight is drawn over. */}
         <div data-entry-drop="" className="relative flex-1 min-w-0 flex flex-col">
-          <div className="flex-1 min-h-0 overflow-y-auto"
+          {/* `@container`: the parts below size themselves by this area's width (it shrinks when History is open
+              or the tab is narrow), not the window's. */}
+          <div className="@container flex-1 min-h-0 overflow-y-auto"
                onScroll={(e) => setScrolled(e.currentTarget.scrollTop > 0)}>{children}</div>
         </div>
         {open && (
@@ -85,22 +87,23 @@ export function EntryHeader({ icon: Icon, title, tab, badge }: {
   const stuck = !!history?.scrolled;
   return (
     <>
-      <div data-entry-header="" className={`sticky top-0 z-20 -mx-6 px-6 -my-2 py-2 flex items-center gap-2 bg-[var(--color-editor-bg)] border-b transition-colors motion-reduce:transition-none ${
+      <div data-entry-header="" className={`sticky top-0 z-20 -mx-4 px-4 @md:-mx-6 @md:px-6 -my-2 py-2 flex items-center gap-2 bg-[var(--color-editor-bg)] border-b transition-colors motion-reduce:transition-none ${
         stuck ? "border-[var(--color-border)]" : "border-transparent"}`}>
-        <Icon size={18} style={{ color: "var(--color-primary)" }} />
-        <h1 className="text-base font-semibold">{title}</h1>
+        <Icon size={18} className="shrink-0" style={{ color: "var(--color-primary)" }} />
+        <h1 className="min-w-0 truncate text-base font-semibold">{title}</h1>
         {badge && (
-          <span className="text-[11px] px-1.5 py-0.5 rounded bg-[var(--color-bg-tertiary)] border border-[var(--color-border)] text-[var(--color-text-muted)]">
+          <span className="shrink-0 text-[11px] px-1.5 py-0.5 rounded bg-[var(--color-bg-tertiary)] border border-[var(--color-border)] text-[var(--color-text-muted)]">
             {badge}
           </span>
         )}
-        <div className="flex-1" />
+        <div className="flex-1 min-w-0" />
         <EntrySaveButton tab={tab} />
         <Tooltip content="Earlier saved versions of this entry">
           <Button size="sm" icon={<History size={13} />} disabled={!tab.filePath || !history}
-                  aria-pressed={history?.open ?? false} onClick={history?.toggle}
-                  className="aria-pressed:bg-[var(--color-bg-tertiary)] aria-pressed:text-[var(--color-text)]">
-            History
+                  aria-label="History" aria-pressed={history?.open ?? false} onClick={history?.toggle}
+                  className="shrink-0 aria-pressed:bg-[var(--color-bg-tertiary)] aria-pressed:text-[var(--color-text)]">
+            {/* Icon only when the form is narrow. */}
+            <span className="hidden @sm:inline">History</span>
           </Button>
         </Tooltip>
       </div>
@@ -109,8 +112,27 @@ export function EntryHeader({ icon: Icon, title, tab, badge }: {
   );
 }
 
+/**
+ * Whether the element is at least `min` px wide, followed live (the History panel and the tab's size change it).
+ * False until measured, so the narrow layout is the default.
+ */
+export function useWide(min: number): [React.RefObject<HTMLDivElement>, boolean] {
+  const ref = useRef<HTMLDivElement>(null);
+  const [wide, setWide] = useState(false);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const read = () => setWide(el.clientWidth >= min);
+    read();
+    const obs = new ResizeObserver(read);
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, [min]);
+  return [ref, wide];
+}
+
 /** The form column every structured editor uses: one rhythm (24px between sections) and one width. */
-export const formColumn = "max-w-xl mx-auto px-6 py-8 flex flex-col gap-6 text-[var(--color-text)]";
+export const formColumn = "max-w-xl mx-auto px-4 @md:px-6 py-6 @md:py-8 flex flex-col gap-6 text-[var(--color-text)]";
 
 /**
  * Section heading with a rule. `hint` is one muted line under the heading that says what the section is for
@@ -120,8 +142,9 @@ export function Section({ title, hint, aside, children }: { title: string; hint?
   return (
     <section className="flex flex-col gap-4">
       <div className="flex flex-col gap-1 border-b border-[var(--color-border)] pb-1.5">
-        <div className="flex items-center gap-2">
-          <h2 className="flex-1 text-[11px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">{title}</h2>
+        {/* Wraps: a heading with buttons beside it puts them on a second line when the form is narrow. */}
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
+          <h2 className="flex-1 min-w-[8rem] text-[11px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">{title}</h2>
           {aside}
         </div>
         {hint && <p className="text-xs text-[var(--color-text-muted)]">{hint}</p>}

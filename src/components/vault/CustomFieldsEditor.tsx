@@ -60,7 +60,7 @@ function FieldRow({ id, field, index, count, error, lifted, sortDescribedBy, onS
                        onKeyDown={onSortKeyDown} handleProps={sortable.handleProps} />
       </div>
       {/* Name and value side by side, so a list of fields reads like a table. */}
-      <div className="flex-1 min-w-0 grid grid-cols-[minmax(0,2fr)_minmax(0,3fr)] gap-2 items-start">
+      <div className="flex-1 min-w-0 grid grid-cols-1 @md:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] gap-2 items-start">
         <div className="min-w-0">
           <Input data-row-focus aria-label={`Field name ${index + 1}`} value={field.label}
                  placeholder="Name" maxLength={MAX_CUSTOM_LABEL} spellCheck={false} autoComplete="off"

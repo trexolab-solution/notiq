@@ -13,7 +13,7 @@ import { useAutoHide } from "../../hooks/useAutoHide";
 import { CopyIconButton } from "./CopyIconButton";
 import { CustomFieldsEditor } from "./CustomFieldsEditor";
 import { AttachmentsPanel } from "./AttachmentsPanel";
-import { CollapsibleSection, EntryHeader, EntryLayout, FieldRow as Row, fieldLabel, formColumn, RevealButton, SaveHint, Section, SubGroup, textArea } from "./EntryParts";
+import { CollapsibleSection, EntryHeader, EntryLayout, FieldRow as Row, fieldLabel, formColumn, RevealButton, SaveHint, Section, SubGroup, textArea, useWide } from "./EntryParts";
 import { reinsert, RowIconButton, useAnnouncer, useListFocus, useUndoToast } from "./ListEditor";
 import { ImportErrors, KeyFactsRow, KeyFileList, KeyViewerDialog, useKeyFacts, type ImportError } from "./SshKeyParts";
 import { GenerateKeyDialog } from "./GenerateKeyDialog";
@@ -282,10 +282,42 @@ function SshEntryEditorInner({ tab }: { tab: Tab }) {
   const pubBad = pubHasText && pubState !== "public";
   const canDrop = unlocked && active && !tab.vaultLocked;
 
+  // ── Layout: one column, or (when the form area is wide) the form beside a sticky summary ──
+
+  const [shellRef, wide] = useWide(900);
+  const missing = !f.host?.trim() ? "Add a host" : !f.username?.trim() ? "Add a username"
+    : !sshMethods(f).length ? "Save a password or a private key" : "";
+  const go = (id: string) => document.getElementById(id)?.scrollIntoView({ block: "start", behavior: "smooth" });
+  const blocked = !!tab.isDirty || !!tab.vaultLocked || !tab.filePath;
+  const why = (what: string) => tab.isDirty ? `Save this entry first (Ctrl+S); the ${what} uses the saved version`
+    : tab.vaultLocked ? "Unlock the vault first" : null;
+
+  const commandBox = command ? (
+    <div className={wide ? "flex flex-col gap-2 rounded-md p-2.5 bg-[var(--color-bg-secondary)] border border-[var(--color-border)]"
+      : "flex items-center gap-2 rounded-md px-2.5 py-1.5 bg-[var(--color-bg-secondary)] border border-[var(--color-border)]"}>
+      <code className={wide ? "min-w-0 break-all text-xs font-mono" : "flex-1 min-w-0 truncate text-xs font-mono"}>{command}</code>
+      <div className="flex items-center gap-1 shrink-0">
+        <CopyIconButton value={command} label="ssh command" />
+        <RowIconButton label="Open in terminal" icon={<SquareTerminal size={13} />}
+                       tooltip={why("terminal") ?? "Open in terminal"} disabled={blocked} onClick={openInTerminal} />
+        <RowIconButton label="Open file manager" icon={<FolderOpen size={13} />}
+                       tooltip={why("file manager") ?? "Open file manager"} disabled={blocked} onClick={() => openServer("files")} />
+      </div>
+    </div>
+  ) : null;
+
+  const sections: [string, string][] = [
+    ["ssh-sec-connection", "Connection"], ["ssh-sec-signin", "Sign in"], ["ssh-sec-advanced", "Advanced"],
+    ["ssh-sec-fields", "Custom fields"], ["ssh-sec-files", "Attachments"],
+  ];
+
   return (
     <EntryLayout tab={tab}>
-      <div className={formColumn}>
+      <div ref={shellRef}>
+      <div className={wide ? "max-w-5xl mx-auto px-6 py-8 flex flex-col gap-6 text-[var(--color-text)]" : formColumn}>
         <EntryHeader icon={Terminal} title="SSH / server" tab={tab} />
+        <div className={wide ? "flex items-start gap-8" : "contents"}>
+        <div className={wide ? "flex-1 min-w-0 max-w-xl flex flex-col gap-6" : "contents"}>
 
         <div>
           <label className={fieldLabel} htmlFor="ssh-title">Name</label>
@@ -293,15 +325,17 @@ function SshEntryEditorInner({ tab }: { tab: Tab }) {
                  onChange={(e) => save({ ...currentEntry(tab), title: e.target.value })} />
         </div>
 
+        <div id="ssh-sec-connection" className="scroll-mt-16">
         <Section title="Connection">
-          <div className="flex gap-3">
-            <div className="flex-1 min-w-0">
+          {/* Wraps: on a narrow form the port drops under the host instead of squeezing it. */}
+          <div className="flex flex-wrap gap-x-3 gap-y-4">
+            <div className="flex-[1_1_14rem] min-w-0">
               <Row htmlFor="ssh-host" text="Host or IP" actions={<CopyIconButton value={f.host ?? ""} label="host" />}>
                 <Input id="ssh-host" value={f.host ?? ""} placeholder="server.example.com" spellCheck={false} autoComplete="off"
                        onChange={(e) => setField("host", e.target.value.trim())} />
               </Row>
             </div>
-            <div className="w-[148px] shrink-0">
+            <div className="flex-[0_0_148px] max-w-full">
               <Row htmlFor="ssh-port" text="Port" actions={<CopyIconButton value={f.port ?? ""} label="port" />}>
                 <Input id="ssh-port" value={f.port ?? ""} placeholder="22" inputMode="numeric" spellCheck={false}
                        aria-invalid={!!portErr} className={portErr ? "!border-[var(--color-danger)]" : ""}
@@ -316,24 +350,11 @@ function SshEntryEditorInner({ tab }: { tab: Tab }) {
                    onChange={(e) => setField("username", e.target.value.trim())} />
           </Row>
 
-          {command && (
-            <div className="flex items-center gap-2 rounded-md px-2.5 py-1.5 bg-[var(--color-bg-secondary)] border border-[var(--color-border)]">
-              <code className="flex-1 min-w-0 truncate text-xs font-mono">{command}</code>
-              <CopyIconButton value={command} label="ssh command" />
-              <RowIconButton label="Open in terminal" icon={<SquareTerminal size={13} />}
-                             tooltip={tab.isDirty ? "Save this entry first (Ctrl+S); the terminal uses the saved version"
-                               : tab.vaultLocked ? "Unlock the vault first" : "Open in terminal"}
-                             disabled={!!tab.isDirty || !!tab.vaultLocked || !tab.filePath}
-                             onClick={openInTerminal} />
-              <RowIconButton label="Open file manager" icon={<FolderOpen size={13} />}
-                             tooltip={tab.isDirty ? "Save this entry first (Ctrl+S); the file manager uses the saved version"
-                               : tab.vaultLocked ? "Unlock the vault first" : "Open file manager"}
-                             disabled={!!tab.isDirty || !!tab.vaultLocked || !tab.filePath}
-                             onClick={() => openServer("files")} />
-            </div>
-          )}
+          {!wide && commandBox}
         </Section>
+        </div>
 
+        <div id="ssh-sec-signin" className="scroll-mt-16">
         <Section title="Sign in"
                  hint="Save a password, a private key, or both. With both saved, Notiq asks which one to use when you open the server in the terminal.">
           <SubGroup title="Password" hint="Used when you sign in with a password.">
@@ -353,9 +374,9 @@ function SshEntryEditorInner({ tab }: { tab: Tab }) {
               <DropZone id={`ssh-keys-${tab.id}`} enabled={canDrop} onDrop={(p) => { void importPaths(p); }}
                         hoverLabel={importing ? "Still importing…" : "Drop to import key files"} hoverIcon={<ArrowDownToLine size={14} />}>
                 <div className="flex flex-col gap-1.5 px-3 py-2.5">
-                  <div className="flex items-center gap-3">
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
                   <FileUp size={18} aria-hidden className="shrink-0 text-[var(--color-text-muted)]" />
-                  <p className="flex-1 min-w-0 text-sm">Drop key files here</p>
+                  <p className="flex-[1_1_8rem] min-w-0 text-sm">Drop key files here</p>
                   <Button size="sm" icon={<FilePlus2 size={12} />} disabled={!canDrop || importing}
                           className="shrink-0 border border-[var(--color-border)] bg-[var(--color-bg-secondary)] !text-[var(--color-text)]" onClick={() => setGenerating(true)}>
                     Generate key…
@@ -442,7 +463,9 @@ function SshEntryEditorInner({ tab }: { tab: Tab }) {
             </div>
           </SubGroup>
         </Section>
+        </div>
 
+        <div id="ssh-sec-advanced" className="scroll-mt-16">
         <CollapsibleSection id="ssh-advanced" title="Advanced" summary="Jump host, fingerprint, notes" open={advOpen} onToggle={() => setAdvOpen((v) => !v)}>
           <Row htmlFor="ssh-jump" text="Jump host" hint="· optional" actions={<CopyIconButton value={f.jump ?? ""} label="jump host" />}>
             <Input id="ssh-jump" value={f.jump ?? ""} placeholder="user@bastion.example.com" spellCheck={false} autoComplete="off"
@@ -459,10 +482,28 @@ function SshEntryEditorInner({ tab }: { tab: Tab }) {
                       onChange={(e) => setField("notes", e.target.value)} />
           </div>
         </CollapsibleSection>
+        </div>
 
-        <CustomFieldsEditor value={entry.custom} onChange={(custom) => save({ ...currentEntry(tab), custom })} />
-        <AttachmentsPanel tab={tab} />
+        <div id="ssh-sec-fields" className="scroll-mt-16"><CustomFieldsEditor value={entry.custom} onChange={(custom) => save({ ...currentEntry(tab), custom })} /></div>
+        <div id="ssh-sec-files" className="scroll-mt-16"><AttachmentsPanel tab={tab} /></div>
         <SaveHint />
+        </div>
+        {wide && (
+          <aside aria-label="Server summary" className="sticky top-16 w-72 shrink-0 flex flex-col gap-4">
+            {commandBox}
+            <StatusLine tone={missing ? "bad" : "ok"} icon={missing ? TriangleAlert : CircleCheck}>{missing || "Ready to connect"}</StatusLine>
+            <nav aria-label="Sections" className="flex flex-col border-t border-[var(--color-border)] pt-2">
+              {sections.map(([id, label]) => (
+                <button key={id} type="button" onClick={() => go(id)}
+                        className="text-left text-xs px-2 py-1.5 rounded text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-bg-tertiary)] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-primary)]/50">
+                  {label}
+                </button>
+              ))}
+            </nav>
+          </aside>
+        )}
+        </div>
+      </div>
       </div>
       <div data-ssh-live="">{region}</div>
 
