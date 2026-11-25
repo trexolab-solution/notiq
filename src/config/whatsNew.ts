@@ -13,26 +13,30 @@ import { APP_VERSION } from "./app";
  */
 export const WHATS_NEW = `# What's New in Notiq ${APP_VERSION}
 
-Share chosen items from your vault with someone, with rules that you set, and a better file viewer for SFTP.
+Vault items are easier to read and edit, and .nqb files now open in the right place.
 
-## 🔗 Share items
+## 🧩 Vault items, section by section
 
-- **Share chosen items:** open **Export** in Settings → Vault → Backup (or right-click a note or folder and choose **Share…**). Pick the notes or folders, give the receiver a password, and save a .nqb file. It never holds your master password, your history, or anything you didn't pick.
-- **Rules in the file:** how many times it can be imported, when the file expires (after a set time, or on a date and time), when the items are removed from the receiver's vault, and whether the file is deleted after its last import. The rules are sealed inside the file, so nobody can edit them.
-- **Items remove themselves:** at the time you set, on every device that syncs the vault. Old copies of them on that PC are cleaned too.
-- **Import:** open **Import** and choose **Import shared items**, or drop the file on the dialog. Before anything is added, Notiq shows what is in it and when it will be removed.
+- **One section at a time:** SSH servers, logins, cards, Wi-Fi, identities and recovery codes open as sections (Connection, Sign in, Details, Attachments…) in a list beside the form, or as tabs when the tab is narrow.
+- **SSH sign-in:** choose Password, SSH key or Both, pick what to use when both are saved, and see at a glance whether the server is ready to connect.
+- **Cleaner fields:** copy, show, open and generate buttons sit inside the field, Attachments start open, and **Unsaved changes** shows next to Save.
 
-## 📄 SFTP file viewer
+## 📦 Share files and backups
 
-- **Markdown** opens as a page (with Edit and Preview), **CSV and TSV** as a table you can sort, and **PDF** files in the built-in viewer.
+- Double-clicking a .nqb file opens **Import** for a share file and **Restore** for a backup. Before, a share file was refused.
+- The Unlock window now shows above Import and Restore instead of hiding behind them.
 
-## 🔐 Vault sync
+## 🖼️ Images
 
-- **Disconnect and remove the vault from this PC:** a new choice in the Disconnect dialog. Your latest changes are uploaded first; the vault stays in Google Drive.
+- Locking a note into the vault now takes its images with it, encrypted with the note, instead of leaving broken links.
 
-## 🔧 Fixes
+## 👋 Welcome
 
-- A blank window that could appear over the app is now repainted or rebuilt by itself, and window events are logged to window.log in the app data folder.
+- The first-run welcome note now shows what Notiq can do, with screenshots and links. Replay the tour in Settings → General.
+
+## 🔧 Other
+
+- The storage folder is chosen in Settings → Vault only; the sidebar no longer has a shortcut for it.
 
 ---
 
