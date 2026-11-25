@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useRef, useState } from "react";
-import { ChevronRight, Eye, EyeOff, History, type LucideIcon } from "lucide-react";
+import { ChevronRight, CircleCheck, Eye, EyeOff, History, TriangleAlert, type LucideIcon } from "lucide-react";
 import { Button } from "../ui/Button";
 import { Tooltip } from "../ui/Tooltip";
 import { EntrySaveButton } from "./EntrySaveButton";
@@ -97,6 +97,11 @@ export function EntryHeader({ icon: Icon, title, tab, badge }: {
           </span>
         )}
         <div className="flex-1 min-w-0" />
+        {tab.isDirty && (
+          <span role="status" className="hidden @sm:inline-flex shrink-0 items-center h-6 px-2.5 rounded-full text-[11px] font-medium border border-[var(--color-warning)]/40 bg-[var(--color-warning)]/10 text-[var(--color-warning)]">
+            Unsaved changes
+          </span>
+        )}
         <EntrySaveButton tab={tab} />
         <Tooltip content="Earlier saved versions of this entry">
           <Button size="sm" icon={<History size={13} />} disabled={!tab.filePath || !history}
@@ -134,17 +139,19 @@ export function useWide(min: number): [React.RefObject<HTMLDivElement>, boolean]
 /** The form column every structured editor uses: one rhythm (24px between sections) and one width. */
 export const formColumn = "max-w-xl mx-auto px-4 @md:px-6 py-6 @md:py-8 flex flex-col gap-6 text-[var(--color-text)]";
 
+/** The bordered surface every section of an entry editor sits on. */
+export const cardClass = "rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-secondary)]/25 p-4 @md:p-6";
+
 /**
- * Section heading with a rule. `hint` is one muted line under the heading that says what the section is for
- * (e.g. that both a password and a key may be saved).
+ * A section as a card: a heading, one muted line under it that says what the section is for (`hint`), and its
+ * fields. `aside` sits beside the heading (buttons wrap under it when the form is narrow).
  */
 export function Section({ title, hint, aside, children }: { title: string; hint?: React.ReactNode; aside?: React.ReactNode; children: React.ReactNode }) {
   return (
-    <section className="flex flex-col gap-4">
-      <div className="flex flex-col gap-1 border-b border-[var(--color-border)] pb-1.5">
-        {/* Wraps: a heading with buttons beside it puts them on a second line when the form is narrow. */}
+    <section className={`flex flex-col gap-4 ${cardClass}`}>
+      <div className="flex flex-col gap-0.5">
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
-          <h2 className="flex-1 min-w-[8rem] text-[11px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">{title}</h2>
+          <h2 className="flex-1 min-w-[8rem] text-sm font-semibold">{title}</h2>
           {aside}
         </div>
         {hint && <p className="text-xs text-[var(--color-text-muted)]">{hint}</p>}
@@ -154,12 +161,98 @@ export function Section({ title, hint, aside, children }: { title: string; hint?
   );
 }
 
+/** One line that says whether the entry is ready to use, or what is missing. */
+export function StatusBanner({ ok, children }: { ok: boolean; children: React.ReactNode }) {
+  const Icon = ok ? CircleCheck : TriangleAlert;
+  return (
+    <div role="status" data-status-banner={ok ? "ok" : "warn"}
+         className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-medium ${ok
+           ? "border-[var(--color-success)]/30 bg-[var(--color-success)]/10 text-[var(--color-success)]"
+           : "border-[var(--color-warning)]/40 bg-[var(--color-warning)]/10 text-[var(--color-warning)]"}`}>
+      <Icon size={14} className="shrink-0" aria-hidden />
+      <span className="min-w-0">{children}</span>
+    </div>
+  );
+}
+
+export interface NavItem { id: string; label: string; badge?: string | number }
+
+/**
+ * The section switcher: a vertical rail beside the form when it is wide, a scrolling tab bar above it when it is
+ * narrow. Only the selected section is shown; the others stay mounted (hidden), so nothing is lost on a switch.
+ */
+export function SectionNav({ items, value, onChange, vertical, label = "Sections" }: {
+  items: NavItem[]; value: string; onChange: (id: string) => void; vertical: boolean; label?: string;
+}) {
+  const ref = useRef<HTMLElement>(null);
+  // Tabs that don't all fit scroll sideways without a scrollbar: the edge fades while more is hidden there, and the
+  // selected tab is brought into view.
+  const [fade, setFade] = useState<{ start: boolean; end: boolean }>({ start: false, end: false });
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || vertical) return;
+    const read = () => setFade({ start: el.scrollLeft > 1, end: el.scrollWidth - el.scrollLeft - el.clientWidth > 1 });
+    read();
+    el.addEventListener("scroll", read, { passive: true });
+    const obs = typeof ResizeObserver !== "undefined" ? new ResizeObserver(read) : null;
+    obs?.observe(el);
+    return () => { el.removeEventListener("scroll", read); obs?.disconnect(); };
+  }, [vertical]);
+  useEffect(() => {
+    if (vertical) return;
+    ref.current?.querySelector<HTMLElement>("[aria-current]")?.scrollIntoView?.({ inline: "nearest", block: "nearest" });
+  }, [value, vertical]);
+  const mask = fade.start || fade.end
+    ? `linear-gradient(to right, ${fade.start ? "transparent, #000 28px" : "#000, #000 0"}, ${fade.end ? "#000 calc(100% - 28px), transparent" : "#000 100%, #000"})`
+    : undefined;
+  return (
+    <nav ref={ref} aria-label={label} data-section-nav={vertical ? "rail" : "tabs"}
+         style={vertical || !mask ? undefined : { maskImage: mask, WebkitMaskImage: mask }}
+         className={vertical ? "flex flex-col gap-0.5" : "flex overflow-x-auto border-b border-[var(--color-border)] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"}>
+      {items.map((it) => {
+        const on = it.id === value;
+        return (
+          <button key={it.id} type="button" aria-current={on ? "page" : undefined} onClick={() => onChange(it.id)}
+                  className={`cursor-pointer whitespace-nowrap text-[13px] font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-primary)]/50 ${vertical
+                    ? `flex items-center gap-2 text-left px-3 py-2 rounded-md ${on
+                      ? "bg-[var(--color-bg-tertiary)] text-[var(--color-text)]"
+                      : "text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-bg-tertiary)]/60"}`
+                    : `shrink-0 px-3 py-2.5 border-b-2 -mb-px rounded-t ${on
+                      ? "border-[var(--color-primary)] text-[var(--color-text)]"
+                      : "border-transparent text-[var(--color-text-muted)] hover:text-[var(--color-text)]"}`}`}>
+            {it.label}
+            {!!it.badge && <span className={`text-[11px] font-normal text-[var(--color-text-muted)] ${vertical ? "ml-auto" : "ml-1"}`}>{it.badge}</span>}
+          </button>
+        );
+      })}
+    </nav>
+  );
+}
+
+/** A row of mutually exclusive choices that reads as one control (Password / SSH key / Both). */
+export function Segmented<T extends string>({ options, value, onChange, label }: {
+  options: { value: T; label: string }[]; value: T; onChange: (v: T) => void; label: string;
+}) {
+  return (
+    <div role="group" aria-label={label} className="flex gap-1 p-1 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-tertiary)]/60">
+      {options.map((o) => (
+        <button key={o.value} type="button" aria-pressed={o.value === value} onClick={() => onChange(o.value)}
+                className={`flex-1 min-h-8 px-2 rounded-md text-[13px] font-medium cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-primary)]/50 border ${o.value === value
+                  ? "bg-[var(--color-bg)] text-[var(--color-text)] border-[var(--color-border)]"
+                  : "text-[var(--color-text-muted)] hover:text-[var(--color-text)] border-transparent"}`}>
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 /** A group inside a section (e.g. "Password" and "Private key" under Sign in): a small title and its fields. */
 export function SubGroup({ title, hint, children }: { title: string; hint?: React.ReactNode; children: React.ReactNode }) {
   return (
-    <div className="flex flex-col gap-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-secondary)]/40 p-3.5">
+    <div className="flex flex-col gap-3 border-t border-[var(--color-border)] pt-5">
       <div className="flex flex-col gap-0.5">
-        <h3 className="text-sm font-medium">{title}</h3>
+        <h3 className="text-sm font-semibold">{title}</h3>
         {hint && <p className="text-xs text-[var(--color-text-muted)]">{hint}</p>}
       </div>
       {children}

@@ -235,10 +235,10 @@ describe("SshEntryEditor", () => {
     expect(priv().value).toBe(ED25519_PRIV);
   });
 
-  it("shows the password and the private key together, and keeps both when either is edited", async () => {
+  it("shows the password and the private key together when both are saved, and keeps both when either is edited", async () => {
     await render(JSON.stringify({ v: 1, kind: "ssh", title: "Prod", fields: { host: "h.io", username: "root", password: "pw1", privateKey: ED25519_PRIV } }));
-    // No either/or switch: both fields are on screen at once.
-    expect(q("[aria-label=\"Sign-in method\"]")).toBeNull();
+    // Both are saved, so the chooser starts on Both and both fields are on screen.
+    expect(q("[aria-label=\"Sign-in method\"] [aria-pressed=true]")!.textContent).toBe("Both");
     expect(q<HTMLInputElement>("#ssh-pass")!.value).toBe("pw1");
     expect(priv().value).toBe(ED25519_PRIV);
 
@@ -248,11 +248,37 @@ describe("SshEntryEditor", () => {
     expect(stored().fields).toMatchObject({ password: "pw2", privateKey: "" });
   });
 
-  it("can add a password to an entry that only had a key", async () => {
+  it("starts on the one method that is saved, says what the chooser hides, and Both adds the other", async () => {
     await render();
+    expect(q("[aria-label=\"Sign-in method\"] [aria-pressed=true]")!.textContent).toBe("SSH key");
+    expect(q("#ssh-pass")).toBeNull();
+    await click([...document.querySelectorAll("[aria-label=\"Sign-in method\"] button")].find((b) => b.textContent === "Password")!);
+    expect(q("#ssh-key")).toBeNull();
+    expect(q("[data-hidden-note]")!.textContent).toContain("private key is also saved");
+    await click([...document.querySelectorAll("[aria-label=\"Sign-in method\"] button")].find((b) => b.textContent === "Both")!);
+    expect(q("[data-hidden-note]")).toBeNull();
     expect(q<HTMLInputElement>("#ssh-pass")!.value).toBe("");
     await typeInto(q<HTMLInputElement>("#ssh-pass")!, "added");
     expect(stored().fields).toMatchObject({ password: "added", privateKey: ED25519_PRIV });
+  });
+
+  it("shows one section at a time and keeps the others mounted", async () => {
+    await render();
+    const shown = () => [...document.querySelectorAll("[hidden]")].length;
+    expect(q("#ssh-host")!.closest("[hidden]")).toBeNull();
+    expect(q("#ssh-key")!.closest("[hidden]")).not.toBeNull();
+    await click([...document.querySelectorAll("nav[aria-label=Sections] button")].find((b) => b.textContent === "Sign in")!);
+    expect(q("#ssh-key")!.closest("[hidden]")).toBeNull();
+    expect(q("#ssh-host")!.closest("[hidden]")).not.toBeNull();
+    expect(shown()).toBeGreaterThan(0);
+  });
+
+  it("asks which method to use when both are saved, unless a preference is set", async () => {
+    await render(JSON.stringify({ v: 1, kind: "ssh", title: "Prod", fields: { host: "h.io", username: "root", password: "pw1", privateKey: ED25519_PRIV } }));
+    const radios = [...document.querySelectorAll<HTMLInputElement>("input[name=ssh-pref]")];
+    expect(radios.map((r) => r.checked)).toEqual([true, false, false]);
+    await click(radios[1]);
+    expect(JSON.parse(localStorage.getItem("pref:sshPreferredAuth") ?? "{}")).toBeTruthy();
   });
 });
 
@@ -263,30 +289,30 @@ describe("SshEntryEditor layout", () => {
     await render();
   };
 
-  it("narrow: the command and its actions sit inside Connection, with no summary column", async () => {
+  it("narrow: tabs above the form and the command in a bar at the bottom, with no summary column", async () => {
     await wideAt(600);
     expect(q("aside")).toBeNull();
-    expect(q("#ssh-sec-connection")!.textContent).toContain("ssh root@srv.example.com");
+    expect(q("[data-section-nav=tabs]")).toBeTruthy();
+    expect(q("[data-section-nav=rail]")).toBeNull();
+    expect(q("[data-ssh-bar]")!.textContent).toContain("ssh root@srv.example.com");
     expect(document.querySelectorAll('button[aria-label="Open in terminal"]')).toHaveLength(1);
   });
 
-  it("wide: the command moves to a summary column beside the form, once, with the status and a section list", async () => {
+  it("wide: a section rail on the left and the command in a summary column on the right, once", async () => {
     await wideAt(1000);
     const side = q("aside")!;
     expect(side.textContent).toContain("ssh root@srv.example.com");
-    expect(side.textContent).toContain("Ready to connect");
-    expect(q("#ssh-sec-connection")!.textContent).not.toContain("ssh root@srv.example.com");
+    expect(q("[data-ssh-bar]")).toBeNull();
     expect(document.querySelectorAll('button[aria-label="Open in terminal"]')).toHaveLength(1);
-    expect([...side.querySelectorAll("nav button")].map((b) => b.textContent)).toEqual(["Connection", "Sign in", "Advanced", "Custom fields", "Attachments"]);
-    // The form is still all there.
-    expect(q("#ssh-host")).toBeTruthy();
-    expect(q("#ssh-key")).toBeTruthy();
+    expect([...q("[data-section-nav=rail]")!.querySelectorAll("button")].map((b) => b.textContent)).toEqual(["Connection", "Sign in", "Custom fields", "Advanced", "Attachments"]);
+    expect(q("[data-section-nav=tabs]")).toBeNull();
+    expect(q("[data-status-banner]")!.textContent).toBe("Ready to connect");
   });
 
-  it("wide: the status says what is missing", async () => {
+  it("the banner says what is missing", async () => {
     await wideAt(1000);
     await typeInto(q<HTMLInputElement>("#ssh-host")!, "");
-    expect(q("aside")!.textContent).toContain("Add a host");
+    expect(q("[data-status-banner]")!.textContent).toBe("Add a host");
+    expect(q("[data-status-banner]")!.getAttribute("data-status-banner")).toBe("warn");
   });
 });
-

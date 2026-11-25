@@ -13,7 +13,7 @@ import { useAutoHide } from "../../hooks/useAutoHide";
 import { CopyIconButton } from "./CopyIconButton";
 import { CustomFieldsEditor } from "./CustomFieldsEditor";
 import { AttachmentsPanel } from "./AttachmentsPanel";
-import { CollapsibleSection, EntryHeader, EntryLayout, FieldRow as Row, fieldLabel, formColumn, RevealButton, SaveHint, Section, SubGroup, textArea, useWide } from "./EntryParts";
+import { EntryHeader, EntryLayout, FieldRow as Row, fieldLabel, formColumn, RevealButton, SaveHint, Section, SectionNav, Segmented, StatusBanner, SubGroup, textArea, useWide } from "./EntryParts";
 import { reinsert, RowIconButton, useAnnouncer, useListFocus, useUndoToast } from "./ListEditor";
 import { ImportErrors, KeyFactsRow, KeyFileList, KeyViewerDialog, useKeyFacts, type ImportError } from "./SshKeyParts";
 import { GenerateKeyDialog } from "./GenerateKeyDialog";
@@ -27,6 +27,7 @@ import { fileNameOf } from "../../lib/attachmentLimits";
 import { parseSecret, serializeSecret, type SecretEntry } from "../../lib/secretEntry";
 import { analyzeKey, normalizeKey, portError, sshCommand, type SshAuth } from "../../lib/sshEntry";
 import { keysMatch } from "../../lib/sshKeyInfo";
+import { getAuthPreference, setAuthPreference, type AuthPreference } from "../../lib/sshPreferredAuth";
 import {
   byteLength, importSummary, MAX_KEY_FILE_BYTES, parseKeyFiles, rejectReason, roleOf, routeImport, serializeKeyFiles,
   type ImportInput, type KeyFile,
@@ -101,6 +102,9 @@ export function SshEntryEditor({ tab }: { tab: Tab }) {
   return <SshEntryEditorInner key={tab.id} tab={tab} />;
 }
 
+type Panel = "connection" | "signin" | "advanced" | "fields" | "files";
+type SignInMode = "password" | "key" | "both";
+
 function SshEntryEditorInner({ tab }: { tab: Tab }) {
   const entry = useMemo(() => parseSecret("ssh", tab.content), [tab.content]);
   useFocusNameOnCreate(tab.filePath, "ssh-title");
@@ -113,8 +117,12 @@ function SshEntryEditorInner({ tab }: { tab: Tab }) {
   useAutoHide(showPass, setShowPass);
   useAutoHide(showKey, setShowKey);
   useAutoHide(showPhrase, setShowPhrase);
-  // Advanced starts folded, but opens by itself when it already holds something.
-  const [advOpen, setAdvOpen] = useState(() => !!(f.jump || f.fingerprint || f.notes));
+  /** The section shown (one at a time), and which sign-in method(s) the Sign in section shows. */
+  const [panel, setPanel] = useState<Panel>("connection");
+  // Follows what is saved (one method: that one, otherwise Both) until the user picks one themselves.
+  const [picked, setMode] = useState<SignInMode | null>(null);
+  const mode: SignInMode = picked ?? (sshMethods(f).length === 1 ? sshMethods(f)[0] : "both");
+  const [pref, setPref] = useState<AuthPreference>(() => getAuthPreference(tab.filePath));
   const [viewing, setViewing] = useState<KeyFile | null>(null);
   // A viewed private key closes like any other revealed secret (timer, blur, session lock).
   const viewingSecret = !!viewing && roleOf(viewing.name, viewing.value) === "private";
@@ -174,7 +182,7 @@ function SshEntryEditorInner({ tab }: { tab: Tab }) {
       for (const name of r.overflow) failed.push({ key: `${stamp}-o-${name}`, name, error: "Not added: this entry already keeps the most other key files" });
       setErrors(failed);
       const fields: Record<string, string> = { privateKey: r.privateKey, publicKey: r.publicKey, keyFiles: serializeKeyFiles(r.files) };
-      if (r.toPrivate || r.toPublic) fields.auth = "key";
+      if (r.toPrivate || r.toPublic) { fields.auth = "key"; setMode((m) => (m === "key" ? "key" : "both")); }
       save({ ...cur, fields: { ...cur.fields, ...fields } });
       const failText = failed.length ? ` ${failed.length} file${failed.length === 1 ? "" : "s"} couldn't be imported.` : "";
       announce(importSummary(r) + failText);
@@ -209,6 +217,7 @@ function SshEntryEditorInner({ tab }: { tab: Tab }) {
     const methods = sshMethods(f);
     if (methods.length === 0) { toast.error("Add a private key or a password first"); return; }
     if (methods.length === 1) startServer(where, methods[0]);
+    else if (pref !== "ask") startServer(where, pref); // both saved: the preference set under Sign in
     else setChoosing(where); // both saved: ask which one to sign in with
   };
   const openInTerminal = () => openServer("terminal");
@@ -217,6 +226,7 @@ function SshEntryEditorInner({ tab }: { tab: Tab }) {
 
   const onGenerated = (gen: GeneratedKey, passphrase: string) => {
     patch(applyGeneratedKey(currentEntry(tab).fields, gen, passphrase));
+    setMode((m) => (m === "key" ? "key" : "both"));
     setGenerating(false);
     setShowKey(false);
     announce("New key generated. Copy the public key to the server's authorized_keys.");
@@ -282,20 +292,24 @@ function SshEntryEditorInner({ tab }: { tab: Tab }) {
   const pubBad = pubHasText && pubState !== "public";
   const canDrop = unlocked && active && !tab.vaultLocked;
 
-  // ── Layout: one column, or (when the form area is wide) the form beside a sticky summary ──
+  // ── Layout: sections one at a time (a rail beside the form when it is wide, tabs above it when it is not) ──
 
   const [shellRef, wide] = useWide(900);
   const missing = !f.host?.trim() ? "Add a host" : !f.username?.trim() ? "Add a username"
     : !sshMethods(f).length ? "Save a password or a private key" : "";
-  const go = (id: string) => document.getElementById(id)?.scrollIntoView({ block: "start", behavior: "smooth" });
   const blocked = !!tab.isDirty || !!tab.vaultLocked || !tab.filePath;
   const why = (what: string) => tab.isDirty ? `Save this entry first (Ctrl+S); the ${what} uses the saved version`
     : tab.vaultLocked ? "Unlock the vault first" : null;
+  const savedMethods = sshMethods(f);
+  const bothSaved = savedMethods.length === 2;
+  /** A saved method the chosen mode hides: said under the chooser, so a hidden secret is never a surprise. */
+  const hiddenNote = mode === "password" && savedMethods.includes("key") ? "A private key is also saved. Choose SSH key or Both to see it."
+    : mode === "key" && savedMethods.includes("password") ? "A password is also saved. Choose Password or Both to see it." : null;
 
   const commandBox = command ? (
-    <div className={wide ? "flex flex-col gap-2 rounded-md p-2.5 bg-[var(--color-bg-secondary)] border border-[var(--color-border)]"
-      : "flex items-center gap-2 rounded-md px-2.5 py-1.5 bg-[var(--color-bg-secondary)] border border-[var(--color-border)]"}>
-      <code className={wide ? "min-w-0 break-all text-xs font-mono" : "flex-1 min-w-0 truncate text-xs font-mono"}>{command}</code>
+    <div className={wide ? "flex flex-col gap-2 rounded-lg p-3 bg-[var(--color-bg-secondary)] border border-[var(--color-border)]"
+      : "flex items-center gap-2 rounded-lg px-3 py-1.5 bg-[var(--color-bg-secondary)] border border-[var(--color-border)]"}>
+      <code className={wide ? "min-w-0 break-all text-xs font-mono" : "flex-1 min-w-0 truncate text-xs font-mono"}><span className="text-[var(--color-primary)]">$ </span>{command}</code>
       <div className="flex items-center gap-1 shrink-0">
         <CopyIconButton value={command} label="ssh command" />
         <RowIconButton label="Open in terminal" icon={<SquareTerminal size={13} />}
@@ -306,27 +320,36 @@ function SshEntryEditorInner({ tab }: { tab: Tab }) {
     </div>
   ) : null;
 
-  const sections: [string, string][] = [
-    ["ssh-sec-connection", "Connection"], ["ssh-sec-signin", "Sign in"], ["ssh-sec-advanced", "Advanced"],
-    ["ssh-sec-fields", "Custom fields"], ["ssh-sec-files", "Attachments"],
+  const navItems = [
+    { id: "connection", label: "Connection" }, { id: "signin", label: "Sign in" }, { id: "fields", label: "Custom fields", badge: entry.custom.length },
+    { id: "advanced", label: "Advanced" }, { id: "files", label: "Attachments" },
   ];
+  /** Each section stays mounted while another is shown, so drafts, reveals and drops are not lost on a switch. */
+  const show = (id: Panel) => panel !== id;
 
   return (
     <EntryLayout tab={tab}>
-      <div ref={shellRef}>
-      <div className={wide ? "max-w-5xl mx-auto px-6 py-8 flex flex-col gap-6 text-[var(--color-text)]" : formColumn}>
+      <div ref={shellRef} className="min-h-full">
+      <div className={wide ? "max-w-6xl mx-auto px-6 py-8 flex flex-col gap-6 text-[var(--color-text)]" : `${formColumn} min-h-full`}>
         <EntryHeader icon={Terminal} title="SSH / server" tab={tab} />
+        {!wide && <SectionNav items={navItems} value={panel} onChange={(id) => setPanel(id as Panel)} vertical={false} />}
         <div className={wide ? "flex items-start gap-8" : "contents"}>
-        <div className={wide ? "flex-1 min-w-0 max-w-xl flex flex-col gap-6" : "contents"}>
+        {wide && (
+          <div className="sticky top-16 w-44 shrink-0">
+            <SectionNav items={navItems} value={panel} onChange={(id) => setPanel(id as Panel)} vertical />
+          </div>
+        )}
+        <div className={wide ? "flex-1 min-w-0 max-w-2xl flex flex-col gap-6" : "contents"}>
+        <StatusBanner ok={!missing}>{missing || "Ready to connect"}</StatusBanner>
 
-        <div>
-          <label className={fieldLabel} htmlFor="ssh-title">Name</label>
-          <Input id="ssh-title" value={entry.title} placeholder="e.g. Production VPS"
-                 onChange={(e) => save({ ...currentEntry(tab), title: e.target.value })} />
-        </div>
-
-        <div id="ssh-sec-connection" className="scroll-mt-16">
+        <div hidden={show("connection")}>
+        <div className="flex flex-col gap-6">
         <Section title="Connection">
+          <div>
+            <label className={fieldLabel} htmlFor="ssh-title">Name</label>
+            <Input id="ssh-title" value={entry.title} placeholder="e.g. Production VPS"
+                   onChange={(e) => save({ ...currentEntry(tab), title: e.target.value })} />
+          </div>
           {/* Wraps: on a narrow form the port drops under the host instead of squeezing it. */}
           <div className="flex flex-wrap gap-x-3 gap-y-4">
             <div className="flex-[1_1_14rem] min-w-0">
@@ -350,123 +373,146 @@ function SshEntryEditorInner({ tab }: { tab: Tab }) {
                    onChange={(e) => setField("username", e.target.value.trim())} />
           </Row>
 
-          {!wide && commandBox}
         </Section>
         </div>
+        </div>
 
-        <div id="ssh-sec-signin" className="scroll-mt-16">
+        <div hidden={show("signin")}>
         <Section title="Sign in"
                  hint="Save a password, a private key, or both. With both saved, Notiq asks which one to use when you open the server in the terminal.">
-          <SubGroup title="Password" hint="Used when you sign in with a password.">
-            <Row htmlFor="ssh-pass" text="Password" hideLabel
-                 actions={<>
-                   <RevealButton shown={showPass} onToggle={() => setShowPass((v) => !v)} name="password" />
-                   <CopyIconButton value={f.password ?? ""} label="password" />
-                 </>}>
-              <Input id="ssh-pass" type={showPass ? "text" : "password"} value={f.password ?? ""}
-                     autoComplete="off" spellCheck={false} className="font-mono"
-                     onChange={(e) => setField("password", e.target.value)} />
-            </Row>
-          </SubGroup>
+          <Segmented label="Sign-in method" value={mode} onChange={setMode}
+                     options={[{ value: "password", label: "Password" }, { value: "key", label: "SSH key" }, { value: "both", label: "Both" }]} />
+          {hiddenNote && <p className="text-xs text-[var(--color-text-muted)]" data-hidden-note="">{hiddenNote}</p>}
+          {mode !== "key" && (
+            <SubGroup title="Password" hint="Used when you sign in with a password.">
+              <Row htmlFor="ssh-pass" text="Password" hideLabel
+                   actions={<>
+                     <RevealButton shown={showPass} onToggle={() => setShowPass((v) => !v)} name="password" />
+                     <CopyIconButton value={f.password ?? ""} label="password" />
+                   </>}>
+                <Input id="ssh-pass" type={showPass ? "text" : "password"} value={f.password ?? ""}
+                       autoComplete="off" spellCheck={false} className="font-mono"
+                       onChange={(e) => setField("password", e.target.value)} />
+              </Row>
+            </SubGroup>
 
-          <SubGroup title="SSH key pair" hint="Paste a key, import the files, or generate a new pair.">
-            <div ref={rootRef} className="flex flex-col gap-4">
-              <DropZone id={`ssh-keys-${tab.id}`} enabled={canDrop} onDrop={(p) => { void importPaths(p); }}
-                        hoverLabel={importing ? "Still importing…" : "Drop to import key files"} hoverIcon={<ArrowDownToLine size={14} />}>
-                <div className="flex flex-col gap-1.5 px-3 py-2.5">
-                  <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-                  <FileUp size={18} aria-hidden className="shrink-0 text-[var(--color-text-muted)]" />
-                  <p className="flex-[1_1_8rem] min-w-0 text-sm">Drop key files here</p>
-                  <Button size="sm" icon={<FilePlus2 size={12} />} disabled={!canDrop || importing}
-                          className="shrink-0 border border-[var(--color-border)] bg-[var(--color-bg-secondary)] !text-[var(--color-text)]" onClick={() => setGenerating(true)}>
-                    Generate key…
-                  </Button>
-                  <Button size="sm" icon={<FileUp size={12} />} loading={importing} loadingText="Importing…"
-                          aria-describedby="ssh-import-hint" className="shrink-0 border border-[var(--color-border)] bg-[var(--color-bg-secondary)] !text-[var(--color-text)]" onClick={() => { void pick(); }}>
-                    Import files…
-                  </Button>
+          )}
+          {mode !== "password" && (
+            <SubGroup title="SSH key pair" hint="Paste a key, import the files, or generate a new pair.">
+              <div ref={rootRef} className="flex flex-col gap-4">
+                <DropZone id={`ssh-keys-${tab.id}`} enabled={canDrop} onDrop={(p) => { void importPaths(p); }}
+                          hoverLabel={importing ? "Still importing…" : "Drop to import key files"} hoverIcon={<ArrowDownToLine size={14} />}>
+                  <div className="flex flex-col gap-1.5 px-3 py-2.5">
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+                    <FileUp size={18} aria-hidden className="shrink-0 text-[var(--color-text-muted)]" />
+                    <p className="flex-[1_1_8rem] min-w-0 text-sm">Drop key files here</p>
+                    <Button size="sm" icon={<FilePlus2 size={12} />} disabled={!canDrop || importing}
+                            className="shrink-0 border border-[var(--color-border)] bg-[var(--color-bg-secondary)] !text-[var(--color-text)]" onClick={() => setGenerating(true)}>
+                      Generate key…
+                    </Button>
+                    <Button size="sm" icon={<FileUp size={12} />} loading={importing} loadingText="Importing…"
+                            aria-describedby="ssh-import-hint" className="shrink-0 border border-[var(--color-border)] bg-[var(--color-bg-secondary)] !text-[var(--color-text)]" onClick={() => { void pick(); }}>
+                      Import files…
+                    </Button>
+                    </div>
+                    <p id="ssh-import-hint" className="text-[11px] pl-[30px] text-[var(--color-text-muted)]">
+                      e.g. id_ed25519 and id_ed25519.pub. Each key goes to its field below; any other file is kept in a list.
+                    </p>
                   </div>
-                  <p id="ssh-import-hint" className="text-[11px] pl-[30px] text-[var(--color-text-muted)]">
-                    e.g. id_ed25519 and id_ed25519.pub. Each key goes to its field below; any other file is kept in a list.
-                  </p>
-                </div>
-              </DropZone>
-              <ImportErrors errors={errors} onDismiss={(k) => setErrors((es) => es.filter((e) => e.key !== k))} />
+                </DropZone>
+                <ImportErrors errors={errors} onDismiss={(k) => setErrors((es) => es.filter((e) => e.key !== k))} />
 
-              <KeyField id="ssh-key" text="Private key"
-                        actions={<>
-                          <RevealButton shown={showKey} onToggle={() => setShowKey((v) => !v)} name="private key" />
-                          <CopyIconButton value={normalizeKey(f.privateKey ?? "")} label="private key" />
-                          <RowIconButton danger label="Clear private key" tooltip="Clear private key" icon={<Trash2 size={13} />}
-                                         disabled={!f.privateKey?.trim()} onClick={() => setConfirmClear(true)} />
-                        </>}
-                        footer={<>
-                          <StatusLine tone={keyTone} icon={key.state === "empty" ? undefined : KeyIcon}
-                                      action={key.state === "public"
-                                        ? <Button size="sm" onClick={moveToPublic}>Move to Public key</Button> : undefined}>
-                            {key.state === "empty" ? "Paste a private key or import the file" : key.label}
-                          </StatusLine>
-                          {priv.facts && priv.facts.side === "private" && <KeyFactsRow compact facts={priv.facts} fingerprint={priv.fingerprint} name="Private key" />}
-                        </>}>
-                <textarea id="ssh-key" rows={6} value={f.privateKey ?? ""} spellCheck={false} autoComplete="off"
-                          placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"
-                          aria-describedby="ssh-key-mask"
-                          onChange={(e) => setField("privateKey", e.target.value)}
-                          className={`${textArea} font-mono text-xs leading-relaxed resize-y`}
-                          data-masked={!showKey || undefined}
-                          style={!showKey ? ({ WebkitTextSecurity: "disc" } as React.CSSProperties) : undefined} />
-                <span id="ssh-key-mask" className="sr-only">{showKey ? "Shown" : "Hidden. Use Show private key to see it."}</span>
-              </KeyField>
-
-              {needsPassphrase && (
-                <Row htmlFor="ssh-phrase" text="Key passphrase"
-                     hint={key.state === "encrypted" ? "· needed for this key" : "· only if the key is encrypted"}
-                     actions={<>
-                       <RevealButton shown={showPhrase} onToggle={() => setShowPhrase((v) => !v)} name="passphrase" />
-                       <CopyIconButton value={f.passphrase ?? ""} label="passphrase" />
-                     </>}>
-                  <Input id="ssh-phrase" type={showPhrase ? "text" : "password"} value={f.passphrase ?? ""}
-                         autoComplete="off" spellCheck={false} className="font-mono"
-                         onChange={(e) => setField("passphrase", e.target.value)} />
-                </Row>
-              )}
-
-              <KeyField id="ssh-pub" text="Public key" hint="· optional, for authorized_keys"
-                        actions={<CopyIconButton value={(f.publicKey ?? "").trim()} label="public key" />}
-                        footer={pubHasText && (<>
-                          {pubBad ? (
-                            <StatusLine tone="bad" icon={TriangleAlert}>
-                              {pubState === "ok" || pubState === "encrypted" ? "That's a private key — keep it in the Private key field" : "This doesn't look like a public key"}
+                <KeyField id="ssh-key" text="Private key"
+                          actions={<>
+                            <RevealButton shown={showKey} onToggle={() => setShowKey((v) => !v)} name="private key" />
+                            <CopyIconButton value={normalizeKey(f.privateKey ?? "")} label="private key" />
+                            <RowIconButton danger label="Clear private key" tooltip="Clear private key" icon={<Trash2 size={13} />}
+                                           disabled={!f.privateKey?.trim()} onClick={() => setConfirmClear(true)} />
+                          </>}
+                          footer={<>
+                            <StatusLine tone={keyTone} icon={key.state === "empty" ? undefined : KeyIcon}
+                                        action={key.state === "public"
+                                          ? <Button size="sm" onClick={moveToPublic}>Move to Public key</Button> : undefined}>
+                              {key.state === "empty" ? "Paste a private key or import the file" : key.label}
                             </StatusLine>
-                          ) : match === false ? (
-                            <StatusLine tone="bad" icon={TriangleAlert}>Doesn't match the private key — it belongs to a different key pair</StatusLine>
-                          ) : match === true ? (
-                            <StatusLine tone="ok" icon={CircleCheck}>Matches the private key</StatusLine>
-                          ) : null}
-                          {pub.facts && pub.facts.side === "public" && <KeyFactsRow facts={pub.facts} fingerprint={pub.fingerprint} name="Public key" />}
-                        </>)}>
-                <textarea id="ssh-pub" rows={3} value={f.publicKey ?? ""} spellCheck={false} autoComplete="off"
-                          placeholder="ssh-ed25519 AAAA… user@host"
-                          onChange={(e) => setField("publicKey", e.target.value)}
-                          className={`${textArea} font-mono text-xs leading-relaxed resize-y break-all`} />
-              </KeyField>
+                            {priv.facts && priv.facts.side === "private" && <KeyFactsRow compact facts={priv.facts} fingerprint={priv.fingerprint} name="Private key" />}
+                          </>}>
+                  <textarea id="ssh-key" rows={6} value={f.privateKey ?? ""} spellCheck={false} autoComplete="off"
+                            placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"
+                            aria-describedby="ssh-key-mask"
+                            onChange={(e) => setField("privateKey", e.target.value)}
+                            className={`${textArea} font-mono text-xs leading-relaxed resize-y`}
+                            data-masked={!showKey || undefined}
+                            style={!showKey ? ({ WebkitTextSecurity: "disc" } as React.CSSProperties) : undefined} />
+                  <span id="ssh-key-mask" className="sr-only">{showKey ? "Shown" : "Hidden. Use Show private key to see it."}</span>
+                </KeyField>
 
-              {files.length > 0 && (
-                <div className="flex flex-col gap-1.5" data-key-files="">
-                  <div className="flex items-baseline gap-2">
-                    <h3 className="text-xs text-[var(--color-text-muted)]">Other key files ({files.length})</h3>
-                    <span className="text-[11px] text-[var(--color-text-muted)] opacity-80">Stored encrypted with this entry</span>
+                {needsPassphrase && (
+                  <Row htmlFor="ssh-phrase" text="Key passphrase"
+                       hint={key.state === "encrypted" ? "· needed for this key" : "· only if the key is encrypted"}
+                       actions={<>
+                         <RevealButton shown={showPhrase} onToggle={() => setShowPhrase((v) => !v)} name="passphrase" />
+                         <CopyIconButton value={f.passphrase ?? ""} label="passphrase" />
+                       </>}>
+                    <Input id="ssh-phrase" type={showPhrase ? "text" : "password"} value={f.passphrase ?? ""}
+                           autoComplete="off" spellCheck={false} className="font-mono"
+                           onChange={(e) => setField("passphrase", e.target.value)} />
+                  </Row>
+                )}
+
+                <KeyField id="ssh-pub" text="Public key" hint="· optional, for authorized_keys"
+                          actions={<CopyIconButton value={(f.publicKey ?? "").trim()} label="public key" />}
+                          footer={pubHasText && (<>
+                            {pubBad ? (
+                              <StatusLine tone="bad" icon={TriangleAlert}>
+                                {pubState === "ok" || pubState === "encrypted" ? "That's a private key — keep it in the Private key field" : "This doesn't look like a public key"}
+                              </StatusLine>
+                            ) : match === false ? (
+                              <StatusLine tone="bad" icon={TriangleAlert}>Doesn't match the private key — it belongs to a different key pair</StatusLine>
+                            ) : match === true ? (
+                              <StatusLine tone="ok" icon={CircleCheck}>Matches the private key</StatusLine>
+                            ) : null}
+                            {pub.facts && pub.facts.side === "public" && <KeyFactsRow facts={pub.facts} fingerprint={pub.fingerprint} name="Public key" />}
+                          </>)}>
+                  <textarea id="ssh-pub" rows={3} value={f.publicKey ?? ""} spellCheck={false} autoComplete="off"
+                            placeholder="ssh-ed25519 AAAA… user@host"
+                            onChange={(e) => setField("publicKey", e.target.value)}
+                            className={`${textArea} font-mono text-xs leading-relaxed resize-y break-all`} />
+                </KeyField>
+
+                {files.length > 0 && (
+                  <div className="flex flex-col gap-1.5" data-key-files="">
+                    <div className="flex items-baseline gap-2">
+                      <h3 className="text-xs text-[var(--color-text-muted)]">Other key files ({files.length})</h3>
+                      <span className="text-[11px] text-[var(--color-text-muted)] opacity-80">Stored encrypted with this entry</span>
+                    </div>
+                    <KeyFileList files={files} onView={setViewing} onUse={promoteFile} onRemove={removeFile} />
                   </div>
-                  <KeyFileList files={files} onView={setViewing} onUse={promoteFile} onRemove={removeFile} />
-                </div>
-              )}
-            </div>
-          </SubGroup>
+                )}
+              </div>
+            </SubGroup>
+          )}
+          {bothSaved && (
+            <fieldset className="flex flex-col gap-1.5 border-t border-[var(--color-border)] pt-5">
+              <legend className="sr-only">When both are saved</legend>
+              <h3 className="text-sm font-semibold">When both are saved</h3>
+              <div role="radiogroup" aria-label="Preferred sign-in method" className="flex flex-col">
+                {([["ask", "Ask each time"], ["key", "Prefer SSH key"], ["password", "Prefer password"]] as [AuthPreference, string][]).map(([v, label]) => (
+                  <label key={v} className="flex items-center gap-2.5 min-h-8 text-[13px] cursor-pointer">
+                    <input type="radio" name="ssh-pref" checked={pref === v} className="accent-[var(--color-primary)]"
+                           onChange={() => { setPref(v); setAuthPreference(tab.filePath, v); }} />
+                    {label}
+                  </label>
+                ))}
+              </div>
+              <p className="text-xs text-[var(--color-text-muted)]">Kept on this device only.</p>
+            </fieldset>
+          )}
         </Section>
         </div>
 
-        <div id="ssh-sec-advanced" className="scroll-mt-16">
-        <CollapsibleSection id="ssh-advanced" title="Advanced" summary="Jump host, fingerprint, notes" open={advOpen} onToggle={() => setAdvOpen((v) => !v)}>
+        <div hidden={show("advanced")}>
+        <Section title="Advanced" hint="Jump host, host fingerprint, notes">
           <Row htmlFor="ssh-jump" text="Jump host" hint="· optional" actions={<CopyIconButton value={f.jump ?? ""} label="jump host" />}>
             <Input id="ssh-jump" value={f.jump ?? ""} placeholder="user@bastion.example.com" spellCheck={false} autoComplete="off"
                    onChange={(e) => setField("jump", e.target.value.trim())} />
@@ -481,28 +527,20 @@ function SshEntryEditorInner({ tab }: { tab: Tab }) {
             <textarea id="ssh-notes" rows={4} value={f.notes ?? ""} className={textArea}
                       onChange={(e) => setField("notes", e.target.value)} />
           </div>
-        </CollapsibleSection>
+        </Section>
         </div>
 
-        <div id="ssh-sec-fields" className="scroll-mt-16"><CustomFieldsEditor value={entry.custom} onChange={(custom) => save({ ...currentEntry(tab), custom })} /></div>
-        <div id="ssh-sec-files" className="scroll-mt-16"><AttachmentsPanel tab={tab} /></div>
+        <div hidden={show("fields")}><CustomFieldsEditor value={entry.custom} onChange={(custom) => save({ ...currentEntry(tab), custom })} /></div>
+        <div hidden={show("files")}><AttachmentsPanel tab={tab} /></div>
         <SaveHint />
         </div>
-        {wide && (
-          <aside aria-label="Server summary" className="sticky top-16 w-72 shrink-0 flex flex-col gap-4">
-            {commandBox}
-            <StatusLine tone={missing ? "bad" : "ok"} icon={missing ? TriangleAlert : CircleCheck}>{missing || "Ready to connect"}</StatusLine>
-            <nav aria-label="Sections" className="flex flex-col border-t border-[var(--color-border)] pt-2">
-              {sections.map(([id, label]) => (
-                <button key={id} type="button" onClick={() => go(id)}
-                        className="text-left text-xs px-2 py-1.5 rounded text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-bg-tertiary)] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-primary)]/50">
-                  {label}
-                </button>
-              ))}
-            </nav>
-          </aside>
-        )}
+        {wide && <aside aria-label="Server summary" className="sticky top-16 w-72 shrink-0 flex flex-col gap-4">{commandBox}</aside>}
         </div>
+        {!wide && commandBox && (
+          <div data-ssh-bar="" className="sticky bottom-0 z-10 mt-auto -mx-4 @md:-mx-6 -mb-6 @md:-mb-8 px-4 @md:px-6 py-2.5 bg-[var(--color-editor-bg)] border-t border-[var(--color-border)]">
+            {commandBox}
+          </div>
+        )}
       </div>
       </div>
       <div data-ssh-live="">{region}</div>
