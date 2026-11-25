@@ -33,7 +33,8 @@
           "$DESKTOP/**",
           "$DOWNLOAD/**",
           "$HOME/**",
-          "$APPDATA/notiq/**"
+          "$APPDATA/notiq/**",
+          "$RESOURCE/welcome/**"
         ]
       }
     }
@@ -89,6 +90,9 @@
     ],
     "resources": {
       "icons/association.ico": "icons/association.ico",
+      "welcome/editor.jpg": "welcome/editor.jpg",
+      "welcome/login.jpg": "welcome/login.jpg",
+      "welcome/ssh.jpg": "welcome/ssh.jpg",
       "../browser-extension/manifest.json": "browser-extension/manifest.json",
       "../browser-extension/content.js": "browser-extension/content.js",
       "../browser-extension/background.js": "browser-extension/background.js",
