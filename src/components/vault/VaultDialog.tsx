@@ -63,7 +63,7 @@ const cancel = () => useVaultStore.getState().finish(false);
 function UnlockDialog() {
   const u = useVaultUnlock({ onUnlocked: succeed });
   return (
-    <Dialog onClose={cancel} zClassName="z-[70]" size="sm" onSubmit={u.submit} title="Unlock vault" icon={<Lock size={16} />}>
+    <Dialog onClose={cancel} zClassName="z-[90]" size="sm" onSubmit={u.submit} title="Unlock vault" icon={<Lock size={16} />}>
       <DialogBody>
         <VaultUnlockBody u={u} purpose="open locked notes" idPrefix="vault-unlock" />
       </DialogBody>
@@ -164,7 +164,7 @@ function VaultDialogInner({ mode, onCreated }: { mode: SetupMode; onCreated?: ()
   }
 
   return (
-    <Dialog onClose={cancel} zClassName="z-[70]" size="sm" onSubmit={submit} title={title}
+    <Dialog onClose={cancel} zClassName="z-[90]" size="sm" onSubmit={submit} title={title}
             icon={mode === "recover" ? <KeyRound size={16} /> : <Lock size={16} />}>
       <DialogBody>
         {mode === "setup" && driveAvailable && <SetupChoice onUseDrive={openDriveFromSetup} />}
