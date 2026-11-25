@@ -1,8 +1,6 @@
 import { useEffect, useState } from "react";
-import { Cloud, FolderOpen, HardDrive, Lock, LockOpen, RotateCcw, ShieldCheck } from "lucide-react";
+import { Cloud, Lock, LockOpen, ShieldCheck } from "lucide-react";
 import { useVaultStore } from "../../store/vaultStore";
-import { pickVaultDir, resetVaultDir } from "../../lib/vaultDir";
-import { getVaultDir } from "../../lib/vaultPrefs";
 import { useVaultItems } from "./sidebar/useVaultItems";
 import { PanelHeader } from "./sidebar/PanelHeader";
 import { VaultExplorer } from "./sidebar/VaultExplorer";
@@ -14,12 +12,10 @@ import { useSyncStatus } from "../../lib/vaultSync";
 import { startSyncSetup } from "../../lib/syncSetupFlow";
 import { useVaultPanelResize } from "../../hooks/useVaultPanelResize";
 
-import { Tooltip } from "../ui/Tooltip";
-const baseName = (p: string) => p.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || p;
 
 /**
  * Sidebar "Secure Vault" panel. A thin shell: locked state, or the explorer
- * (tree, tags, trash) when unlocked, plus the storage-folder row.
+ * (tree, tags, trash) when unlocked. The storage folder is chosen in Settings → Vault.
  */
 export function VaultPanel() {
   const unlocked = useVaultStore((s) => s.unlocked);
@@ -28,25 +24,7 @@ export function VaultPanel() {
   const [checked, setChecked] = useState(false);
   useEffect(() => { void useVaultStore.getState().refresh().finally(() => setChecked(true)); }, []);
   const data = useVaultItems();
-  const custom = getVaultDir() !== null;
   const { width, dragging, handleProps } = useVaultPanelResize();
-
-  const storageRow = (
-    <div className="vt-footer-row">
-      <HardDrive size={13} className="shrink-0" aria-hidden />
-      <span className="flex-1 min-w-0 truncate text-[11px]">
-        {!data.root ? "…" : custom ? baseName(data.root) : "App data (default)"}
-      </span>
-      <Tooltip content="Choose storage folder"><button type="button" className="vt-icon-btn" style={{ width: 20, height: 20 }} aria-label="Choose storage folder" onClick={() => void pickVaultDir()}>
-        <FolderOpen size={12} />
-      </button></Tooltip>
-      {custom && (
-        <Tooltip content="Use default folder"><button type="button" className="vt-icon-btn" style={{ width: 20, height: 20 }} aria-label="Use default folder" onClick={resetVaultDir}>
-          <RotateCcw size={11} />
-        </button></Tooltip>
-      )}
-    </div>
-  );
 
   return (
     <section className="vt-panel" aria-label="Secure Vault" style={{ width }}>
@@ -54,7 +32,7 @@ export function VaultPanel() {
         <>
           <BackupReminder />
           <SyncBanner />
-          <VaultExplorer {...data} footer={storageRow} />
+          <VaultExplorer {...data} />
         </>
       ) : (
         <>
@@ -62,7 +40,6 @@ export function VaultPanel() {
           <div data-context-area="vault-locked" className="flex-1 min-h-0 overflow-y-auto flex flex-col items-center justify-center px-5 py-6 text-center gap-2">
             {exists || !checked ? <LockedState /> : <NoVaultState />}
           </div>
-          <div className="vt-footer">{storageRow}</div>
         </>
       )}
       <div className={`vt-resize-handle${dragging ? " is-dragging" : ""}`} {...handleProps} />

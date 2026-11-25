@@ -1,16 +1,14 @@
-import type { ReactNode } from "react";
 import { Trash2 } from "lucide-react";
 import { Tooltip } from "../../../ui/Tooltip";
 
-/** The footer rows: Recently synced (when sync brought changes), Trash, and the caller's extra rows. */
-export function ExplorerFooter({ syncedCount, showReview, onToggleReview, showTrash, onToggleTrash, trashCount, children }: {
+/** The footer rows: Recently synced (when sync brought changes), Trash. */
+export function ExplorerFooter({ syncedCount, showReview, onToggleReview, showTrash, onToggleTrash, trashCount }: {
   syncedCount: number;
   showReview: boolean;
   onToggleReview: () => void;
   showTrash: boolean;
   onToggleTrash: () => void;
   trashCount: number;
-  children: ReactNode;
 }) {
   return (
     <div className="vt-footer">
@@ -42,7 +40,6 @@ export function ExplorerFooter({ syncedCount, showReview, onToggleReview, showTr
           {trashCount > 0 && <span className="vt-count">{trashCount}</span>}
         </button>
       </Tooltip>
-      {children}
     </div>
   );
 }

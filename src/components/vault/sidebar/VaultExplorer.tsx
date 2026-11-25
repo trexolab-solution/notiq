@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { VaultItem } from "../../../lib/vault";
 import { DEFAULT_ENTRY_NAME, type NewEntryKind } from "../../../lib/vaultCreate";
 import {
@@ -45,15 +45,13 @@ interface Props {
   loading: boolean;
   error: string | null;
   reload: () => Promise<void>;
-  /** Extra footer content (storage folder row). */
-  footer: ReactNode;
 }
 
 type Creating = { parent: string; kind: NewEntryKind | "folder"; suggested: string };
 type Menu = { x: number; y: number; node: TreeNode | null };
 
 /** The unlocked vault: toolbar, search, tag filter, tree, trash, and every entry action. */
-export function VaultExplorer({ root, items, trash, loading, error, reload, footer }: Props) {
+export function VaultExplorer({ root, items, trash, loading, error, reload }: Props) {
   const { expanded, toggle, expandAll, collapseAll, remap } = useExpanded();
   const [sort, setSort] = useSortMode();
   const usage = useVaultUsage();
@@ -401,9 +399,7 @@ export function VaultExplorer({ root, items, trash, loading, error, reload, foot
         showTrash={showTrash}
         onToggleTrash={() => { setReviewOpen(false); setShowTrash((v) => !v); }}
         trashCount={trashCount}
-      >
-        {footer}
-      </ExplorerFooter>
+      />
 
       {menu && (
         <ContextMenu
