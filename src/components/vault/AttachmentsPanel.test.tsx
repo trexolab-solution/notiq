@@ -63,8 +63,7 @@ const live = () => document.querySelector('[role="status"][aria-live="polite"]')
 async function render(files: Att[] = []) {
   stored = files;
   await act(async () => { root.render(<EntryLayout tab={tab}><AttachmentsPanel tab={tab} /></EntryLayout>); });
-  await flush();
-  await click(byText("Attachments"));
+  await flush(); // the section starts unfolded
 }
 
 beforeEach(() => {
@@ -91,6 +90,16 @@ afterEach(async () => {
   clearDropTargets();
   vi.restoreAllMocks();
   vi.useRealTimers();
+});
+
+describe("Attachments section", () => {
+  it("starts unfolded and can be folded", async () => {
+    await render();
+    const head = byText("Attachments");
+    expect(head.getAttribute("aria-expanded")).toBe("true");
+    await click(head);
+    expect(byText("Attachments").getAttribute("aria-expanded")).toBe("false");
+  });
 });
 
 describe("Attachments list", () => {

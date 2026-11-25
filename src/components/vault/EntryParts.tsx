@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ChevronRight, CircleCheck, Eye, EyeOff, History, TriangleAlert, type LucideIcon } from "lucide-react";
 import { Button } from "../ui/Button";
 import { Tooltip } from "../ui/Tooltip";
@@ -229,6 +229,82 @@ export function SectionNav({ items, value, onChange, vertical, label = "Sections
   );
 }
 
+const SHOW_PANEL = "sectioned-form:show";
+
+/**
+ * Makes sure the section holding the element with this id is the one shown, so it can be scrolled to and focused
+ * (a field in a hidden section can't take focus). Returns the element, or null when there is none.
+ */
+export function revealField(id: string): HTMLElement | null {
+  const el = document.getElementById(id);
+  const panel = el?.closest<HTMLElement>("[data-panel]");
+  if (el && panel?.hidden) panel.dispatchEvent(new CustomEvent(SHOW_PANEL, { bubbles: true, detail: panel.dataset.panel }));
+  return el;
+}
+
+export interface FormPanel extends NavItem {
+  /** The section's content: one or more `Section` cards. */
+  content: React.ReactNode;
+}
+
+/**
+ * The frame of a structured entry editor that is split into sections: one section is shown at a time, picked from
+ * a rail beside the form when it is wide and from a tab bar above it when it is not. Every section stays mounted
+ * (hidden) while another is shown, so drafts, reveals and drops are not lost on a switch.
+ *
+ * `side` is a short summary or action box (e.g. an SSH command): a sticky column on the right when wide, a bar
+ * pinned to the bottom when narrow. `banner` is a status line above the shown section.
+ */
+export function SectionedForm({ header, panels, banner, side, footer }: {
+  header: React.ReactNode;
+  panels: FormPanel[];
+  banner?: React.ReactNode;
+  side?: (wide: boolean) => React.ReactNode;
+  footer?: React.ReactNode;
+}) {
+  const [shellRef, wide] = useWide(900);
+  const [picked, setPicked] = useState(panels[0]?.id ?? "");
+  // A section that went away (the list changes with the entry's kind) falls back to the first one.
+  const current = panels.some((p) => p.id === picked) ? picked : panels[0]?.id ?? "";
+  useEffect(() => {
+    const el = shellRef.current;
+    if (!el) return;
+    const on = (e: Event) => { const id = (e as CustomEvent<string>).detail; if (id) setPicked(id); };
+    el.addEventListener(SHOW_PANEL, on);
+    return () => el.removeEventListener(SHOW_PANEL, on);
+  }, [shellRef]);
+  const nav = panels.map(({ id, label, badge }) => ({ id, label, badge }));
+  const sideBox = side?.(wide) ?? null;
+  return (
+    <div ref={shellRef} className="min-h-full">
+      <div className={wide ? "max-w-6xl mx-auto px-6 py-8 flex flex-col gap-6 text-[var(--color-text)]" : `${formColumn} min-h-full`}>
+        {header}
+        {!wide && <SectionNav items={nav} value={current} onChange={setPicked} vertical={false} />}
+        <div className={wide ? "flex items-start gap-8" : "contents"}>
+          {wide && (
+            <div className="sticky top-16 w-44 shrink-0">
+              <SectionNav items={nav} value={current} onChange={setPicked} vertical />
+            </div>
+          )}
+          <div className={wide ? "flex-1 min-w-0 max-w-2xl flex flex-col gap-6" : "contents"}>
+            {banner}
+            {panels.map((p) => (
+              <div key={p.id} data-panel={p.id} hidden={p.id !== current}><div className="flex flex-col gap-6">{p.content}</div></div>
+            ))}
+            {footer}
+          </div>
+          {wide && sideBox && <aside aria-label="Summary" className="sticky top-16 w-72 shrink-0 flex flex-col gap-4">{sideBox}</aside>}
+        </div>
+        {!wide && sideBox && (
+          <div data-form-bar="" className="sticky bottom-0 z-10 mt-auto -mx-4 @md:-mx-6 -mb-6 @md:-mb-8 px-4 @md:px-6 py-2.5 bg-[var(--color-editor-bg)] border-t border-[var(--color-border)]">
+            {sideBox}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /** A row of mutually exclusive choices that reads as one control (Password / SSH key / Both). */
 export function Segmented<T extends string>({ options, value, onChange, label }: {
   options: { value: T; label: string }[]; value: T; onChange: (v: T) => void; label: string;
@@ -261,8 +337,40 @@ export function SubGroup({ title, hint, children }: { title: string; hint?: Reac
 }
 
 /**
- * One labelled field. Every action sits in the same fixed-width slot to the right, so inputs of different
- * rows end at the same edge. `hint` follows the label in muted text ("· optional").
+ * An input (or textarea) with its icon actions (copy, show / hide, …) inside its right edge, so the field uses the
+ * whole row and no empty slot is left beside it. The input keeps clear of the actions by their measured width.
+ * `top` pins the actions to the top corner, for a textarea.
+ */
+export function InputWithActions({ actions, top, children }: { actions?: React.ReactNode; top?: boolean; children: React.ReactNode }) {
+  const actionsRef = useRef<HTMLDivElement>(null);
+  const [pad, setPad] = useState(0);
+  const has = !!actions;
+  useLayoutEffect(() => {
+    const el = actionsRef.current;
+    if (!has || !el) { setPad(0); return; }
+    const read = () => setPad(el.offsetWidth + 8);
+    read();
+    if (typeof ResizeObserver === "undefined") return;
+    const obs = new ResizeObserver(read);
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, [has]);
+  return (
+    <div className="relative min-w-0" style={has ? ({ "--act-w": `${pad}px` } as React.CSSProperties) : undefined}>
+      <div className={has ? "[&>input]:pr-[var(--act-w)] [&>textarea]:pr-[var(--act-w)]" : undefined}>{children}</div>
+      {has && (
+        <div ref={actionsRef} data-input-actions=""
+             className={`absolute right-1 flex items-center gap-0.5 ${top ? "top-1" : "top-1/2 -translate-y-1/2"} [&_button:hover:not(:disabled)]:bg-[var(--color-bg-secondary)] [&_button:hover:not(:disabled)]:text-[var(--color-text)]`}>
+          {actions}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * One labelled field, its actions inside the input's right edge. `hint` follows the label in muted text
+ * ("· optional").
  */
 export function FieldRow({ htmlFor, text, hint, children, actions, help, error, hideLabel }: {
   htmlFor: string; text: string; hint?: string; children: React.ReactNode; actions?: React.ReactNode;
@@ -278,10 +386,7 @@ export function FieldRow({ htmlFor, text, hint, children, actions, help, error, 
       <label className={hideLabel ? "sr-only" : fieldLabel} htmlFor={htmlFor}>
         {text}{hint && <span className="ml-1.5 opacity-70">{hint}</span>}
       </label>
-      <div className="flex items-start gap-2">
-        <div className="flex-1 min-w-0">{children}</div>
-        <div className="w-[68px] shrink-0 flex items-center justify-end gap-1 pt-px">{actions}</div>
-      </div>
+      <InputWithActions actions={actions}>{children}</InputWithActions>
       {error ? <p className="text-xs mt-1 text-[var(--color-danger)]" role="alert">{error}</p>
         : help ? <p className="text-xs mt-1 text-[var(--color-text-muted)]">{help}</p> : null}
     </div>
@@ -314,6 +419,7 @@ export function RevealButton({ shown, onToggle, name }: { shown: boolean; onTogg
   return (
     <Tooltip content={shown ? `Hide ${name}` : `Show ${name}`}>
       <Button size="sm" aria-label={shown ? `Hide ${name}` : `Show ${name}`} aria-pressed={shown}
+              className="!p-0 h-7 w-7 justify-center shrink-0 aria-pressed:text-[var(--color-primary)]"
               icon={shown ? <EyeOff size={13} /> : <Eye size={13} />} onClick={onToggle} />
     </Tooltip>
   );

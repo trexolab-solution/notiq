@@ -20,7 +20,7 @@ interface Props {
  * into a check mark for a moment once the value is on the clipboard (the clipboard
  * is still wiped after the "Clear copied secrets after" setting by `copySecret`).
  */
-export function CopyIconButton({ value, label, className }: Props) {
+export function CopyIconButton({ value, label, className = "!p-0 h-7 w-7 justify-center shrink-0" }: Props) {
   const [copied, setCopied] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 

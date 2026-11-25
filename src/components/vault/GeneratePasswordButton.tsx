@@ -17,8 +17,10 @@ const POPUP_W = 288;
  * and a ⚙ button (plus Settings → Vault) brings the options back.
  * When the field already holds a password (`current`), replacing it is confirmed first.
  */
-export function GeneratePasswordButton({ onGenerate, current }: {
+export function GeneratePasswordButton({ onGenerate, current, compact }: {
   onGenerate: (password: string) => void;
+  /** Icon-only, for inside an input's right edge. */
+  compact?: boolean;
   /** The field's current value; a non-empty one asks before it is replaced. */
   current?: string;
 }) {
@@ -71,16 +73,18 @@ export function GeneratePasswordButton({ onGenerate, current }: {
       <div ref={trigger} className="flex items-center gap-1">
         <Tooltip content="Generate a strong password"><Button
           size="sm"
-          icon={<Dices size={12} />}
+          icon={<Dices size={compact ? 13 : 12} />}
+          aria-label={compact ? "Generate a strong password" : undefined}
+          className={compact ? "!p-0 h-7 w-7 justify-center shrink-0" : undefined}
           aria-haspopup={ask ? "dialog" : undefined}
           aria-expanded={ask ? open : undefined}
           onClick={() => (ask ? (open ? setOpen(false) : openPopup()) : generate(getPwOptions()))}
         >
-          Generate
+          {compact ? null : "Generate"}
         </Button></Tooltip>
         {!ask && (
           <Tooltip content="Password generator options">
-            <Button size="sm" aria-label="Password generator options" aria-haspopup="dialog" aria-expanded={open}
+            <Button size="sm" aria-label="Password generator options" aria-haspopup="dialog" aria-expanded={open} className={compact ? "!p-0 h-7 w-7 justify-center shrink-0" : undefined}
                     icon={<SlidersHorizontal size={12} />} onClick={() => (open ? setOpen(false) : openPopup())} />
           </Tooltip>
         )}

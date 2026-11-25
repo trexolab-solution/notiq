@@ -65,14 +65,14 @@ export function entryDisplayName(tab: Pick<Tab, "content" | "title">): string {
  * vault. Files can be added with the Add button or dropped from the OS anywhere on the entry form.
  * Keyed by tab so pending removals and Undo never carry over to another entry.
  */
-export function AttachmentsPanel({ tab }: { tab: Tab }) {
-  return <AttachmentsPanelInner key={tab.id} tab={tab} />;
+export function AttachmentsPanel({ tab, defaultOpen = true }: { tab: Tab; /** Whether the section starts unfolded (it does by default). */ defaultOpen?: boolean }) {
+  return <AttachmentsPanelInner key={tab.id} tab={tab} defaultOpen={defaultOpen} />;
 }
 
-function AttachmentsPanelInner({ tab }: { tab: Tab }) {
+function AttachmentsPanelInner({ tab, defaultOpen }: { tab: Tab; defaultOpen: boolean }) {
   const path = tab.filePath;
   const name = entryDisplayName(tab);
-  const [open_, setOpen] = useState(false);
+  const [open_, setOpen] = useState(defaultOpen);
   const [list, setList] = useState<VaultAttachment[] | null>(null);
   const [vaultUsed, setVaultUsed] = useState<number | null>(null);
   const [jobs, setJobs] = useState<Job[]>([]);

@@ -294,7 +294,7 @@ describe("SshEntryEditor layout", () => {
     expect(q("aside")).toBeNull();
     expect(q("[data-section-nav=tabs]")).toBeTruthy();
     expect(q("[data-section-nav=rail]")).toBeNull();
-    expect(q("[data-ssh-bar]")!.textContent).toContain("ssh root@srv.example.com");
+    expect(q("[data-form-bar]")!.textContent).toContain("ssh root@srv.example.com");
     expect(document.querySelectorAll('button[aria-label="Open in terminal"]')).toHaveLength(1);
   });
 
@@ -302,7 +302,7 @@ describe("SshEntryEditor layout", () => {
     await wideAt(1000);
     const side = q("aside")!;
     expect(side.textContent).toContain("ssh root@srv.example.com");
-    expect(q("[data-ssh-bar]")).toBeNull();
+    expect(q("[data-form-bar]")).toBeNull();
     expect(document.querySelectorAll('button[aria-label="Open in terminal"]')).toHaveLength(1);
     expect([...q("[data-section-nav=rail]")!.querySelectorAll("button")].map((b) => b.textContent)).toEqual(["Connection", "Sign in", "Custom fields", "Advanced", "Attachments"]);
     expect(q("[data-section-nav=tabs]")).toBeNull();

@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { ExternalLink, KeyRound } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { Button } from "../ui/Button";
 import { Input } from "../ui/Input";
 import { useAppStore } from "../../store";
 import { useFocusNameOnCreate } from "../../hooks/useFocusNameOnCreate";
 import { ENTRY_FOCUS_EVENT, takeEntryFocus } from "../../lib/entryFocus";
 import { CopyIconButton } from "./CopyIconButton";
+import { RowIconButton } from "./ListEditor";
 import { useAutoHide } from "../../hooks/useAutoHide";
 import { GeneratePasswordButton } from "./GeneratePasswordButton";
 import { CustomFieldsEditor } from "./CustomFieldsEditor";
@@ -14,7 +14,7 @@ import { AttachmentsPanel } from "./AttachmentsPanel";
 import { PasskeysList } from "./PasskeysList";
 import { TotpPanel } from "./TotpPanel";
 import { LoginSitesEditor } from "./LoginSitesEditor";
-import { EntryHeader, EntryLayout, FieldRow, RevealButton, SaveHint, Section, fieldLabel, formColumn, textArea } from "./EntryParts";
+import { EntryHeader, EntryLayout, FieldRow, InputWithActions, RevealButton, SaveHint, Section, SectionedForm, fieldLabel, revealField, textArea } from "./EntryParts";
 import { hostOf, parseLogin, serializeLogin, type LoginEntry } from "../../lib/loginEntry";
 import type { Tab } from "../../types";
 
@@ -27,6 +27,8 @@ export function LoginEntryEditor({ tab }: { tab: Tab }) {
     const go = () => {
       const id = takeEntryFocus(tab.filePath);
       if (!id) return;
+      // The field may be in a section that isn't shown: show it first, then focus once it is on screen.
+      revealField(id);
       requestAnimationFrame(() => {
         const el = document.getElementById(id);
         el?.scrollIntoView({ block: "center" });
@@ -43,66 +45,65 @@ export function LoginEntryEditor({ tab }: { tab: Tab }) {
     useAppStore.getState().updateTabContent(tab.id, serializeLogin({ ...entry, ...patch }));
 
   const host = hostOf(entry.url);
-  const row = "flex items-center gap-2";
 
   return (
     <EntryLayout tab={tab}>
-      <div className={formColumn}>
-        <EntryHeader icon={KeyRound} title="Login" tab={tab} />
+      <SectionedForm
+        header={<EntryHeader icon={KeyRound} title="Login" tab={tab} />}
+        footer={<SaveHint />}
+        panels={[
+          { id: "login", label: "Login", content: (<>
+            <Section title="Website">
+              <div>
+                <label className={fieldLabel} htmlFor="le-title">Name</label>
+                <Input id="le-title" value={entry.title} onChange={(e) => set({ title: e.target.value })} placeholder="e.g. Google" />
+              </div>
+              <div>
+                <label className={fieldLabel} htmlFor="le-url">Address</label>
+                <InputWithActions actions={host ? (
+                  <RowIconButton label={`Open ${host}`} tooltip="Open this website" icon={<ExternalLink size={13} />}
+                                 onClick={() => { void openUrl(`https://${host}`); }} />
+                ) : undefined}>
+                  <Input id="le-url" value={entry.url} onChange={(e) => set({ url: e.target.value })}
+                         placeholder="https://accounts.google.com" spellCheck={false} />
+                </InputWithActions>
+                <LoginSitesEditor entry={entry} onChange={(urls) => set({ urls })} />
+              </div>
+            </Section>
 
-        <div>
-          <label className={fieldLabel} htmlFor="le-title">Name</label>
-          <Input id="le-title" value={entry.title} onChange={(e) => set({ title: e.target.value })} placeholder="e.g. Google" />
-        </div>
+            <Section title="Sign in">
+              <FieldRow htmlFor="le-user" text="Username or email"
+                        actions={<CopyIconButton value={entry.username} label="username" />}>
+                <Input id="le-user" value={entry.username} onChange={(e) => set({ username: e.target.value })}
+                       autoComplete="off" spellCheck={false} />
+              </FieldRow>
 
-        <Section title="Website">
-          <div>
-            <label className={fieldLabel} htmlFor="le-url">Address</label>
-            <div className={row}>
-              <Input id="le-url" value={entry.url} onChange={(e) => set({ url: e.target.value })}
-                     placeholder="https://accounts.google.com" spellCheck={false} />
-              {host && (
-                <Button size="sm" icon={<ExternalLink size={12} />}
-                        onClick={() => { void openUrl(`https://${host}`); }}>Open</Button>
-              )}
-            </div>
-            <LoginSitesEditor entry={entry} onChange={(urls) => set({ urls })} />
-          </div>
-        </Section>
-
-        <Section title="Sign in">
-          <FieldRow htmlFor="le-user" text="Username or email"
-                    actions={<CopyIconButton value={entry.username} label="username" />}>
-            <Input id="le-user" value={entry.username} onChange={(e) => set({ username: e.target.value })}
-                   autoComplete="off" spellCheck={false} />
-          </FieldRow>
-
-          <FieldRow htmlFor="le-pass" text="Password"
-                    actions={<>
-                      <RevealButton shown={show} onToggle={() => setShow((v) => !v)} name="password" />
-                      <CopyIconButton value={entry.password} label="password" />
-                    </>}>
-            <div className={row}>
-              <Input id="le-pass" type={show ? "text" : "password"} value={entry.password}
-                     onChange={(e) => set({ password: e.target.value })}
-                     autoComplete="off" spellCheck={false} className="font-mono" />
-              <GeneratePasswordButton current={entry.password} onGenerate={(password) => { set({ password }); setShow(true); }} />
-            </div>
-          </FieldRow>
-        </Section>
-
-        <TotpPanel secret={entry.totp} onChange={(totp) => set({ totp })} />
-
-        <Section title="Notes">
-          <textarea id="le-notes" aria-label="Notes" rows={4} value={entry.notes} onChange={(e) => set({ notes: e.target.value })}
-                    placeholder="Security questions, recovery hints, anything else worth keeping" className={textArea} />
-        </Section>
-
-        <CustomFieldsEditor value={entry.custom ?? []} onChange={(custom) => set({ custom })} />
-        <PasskeysList value={entry.passkeys ?? []} onChange={(passkeys) => set({ passkeys })} />
-        <AttachmentsPanel tab={tab} />
-        <SaveHint />
-      </div>
+              <FieldRow htmlFor="le-pass" text="Password">
+                <InputWithActions actions={<>
+                  <RevealButton shown={show} onToggle={() => setShow((v) => !v)} name="password" />
+                  <CopyIconButton value={entry.password} label="password" />
+                  <GeneratePasswordButton compact current={entry.password} onGenerate={(password) => { set({ password }); setShow(true); }} />
+                </>}>
+                  <Input id="le-pass" type={show ? "text" : "password"} value={entry.password}
+                         onChange={(e) => set({ password: e.target.value })}
+                         autoComplete="off" spellCheck={false} className="font-mono" />
+                </InputWithActions>
+              </FieldRow>
+            </Section>
+          </>) },
+          { id: "security", label: "Security", content: (<>
+            <TotpPanel secret={entry.totp} onChange={(totp) => set({ totp })} />
+            <PasskeysList value={entry.passkeys ?? []} onChange={(passkeys) => set({ passkeys })} />
+          </>) },
+          { id: "details", label: "Details", badge: (entry.custom ?? []).length, content: (<>
+            <Section title="Notes">
+              <textarea id="le-notes" aria-label="Notes" rows={4} value={entry.notes} onChange={(e) => set({ notes: e.target.value })}
+                        placeholder="Security questions, recovery hints, anything else worth keeping" className={textArea} />
+            </Section>
+            <CustomFieldsEditor value={entry.custom ?? []} onChange={(custom) => set({ custom })} />
+          </>) },
+          { id: "files", label: "Attachments", content: <AttachmentsPanel tab={tab} /> },
+        ]} />
     </EntryLayout>
   );
 }

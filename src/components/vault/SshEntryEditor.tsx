@@ -13,7 +13,7 @@ import { useAutoHide } from "../../hooks/useAutoHide";
 import { CopyIconButton } from "./CopyIconButton";
 import { CustomFieldsEditor } from "./CustomFieldsEditor";
 import { AttachmentsPanel } from "./AttachmentsPanel";
-import { EntryHeader, EntryLayout, FieldRow as Row, fieldLabel, formColumn, RevealButton, SaveHint, Section, SectionNav, Segmented, StatusBanner, SubGroup, textArea, useWide } from "./EntryParts";
+import { EntryHeader, EntryLayout, FieldRow as Row, fieldLabel, RevealButton, SaveHint, Section, SectionedForm, Segmented, StatusBanner, SubGroup, textArea } from "./EntryParts";
 import { reinsert, RowIconButton, useAnnouncer, useListFocus, useUndoToast } from "./ListEditor";
 import { ImportErrors, KeyFactsRow, KeyFileList, KeyViewerDialog, useKeyFacts, type ImportError } from "./SshKeyParts";
 import { GenerateKeyDialog } from "./GenerateKeyDialog";
@@ -102,7 +102,6 @@ export function SshEntryEditor({ tab }: { tab: Tab }) {
   return <SshEntryEditorInner key={tab.id} tab={tab} />;
 }
 
-type Panel = "connection" | "signin" | "advanced" | "fields" | "files";
 type SignInMode = "password" | "key" | "both";
 
 function SshEntryEditorInner({ tab }: { tab: Tab }) {
@@ -117,8 +116,7 @@ function SshEntryEditorInner({ tab }: { tab: Tab }) {
   useAutoHide(showPass, setShowPass);
   useAutoHide(showKey, setShowKey);
   useAutoHide(showPhrase, setShowPhrase);
-  /** The section shown (one at a time), and which sign-in method(s) the Sign in section shows. */
-  const [panel, setPanel] = useState<Panel>("connection");
+  /** Which sign-in method(s) the Sign in section shows. */
   // Follows what is saved (one method: that one, otherwise Both) until the user picks one themselves.
   const [picked, setMode] = useState<SignInMode | null>(null);
   const mode: SignInMode = picked ?? (sshMethods(f).length === 1 ? sshMethods(f)[0] : "both");
@@ -294,7 +292,6 @@ function SshEntryEditorInner({ tab }: { tab: Tab }) {
 
   // ── Layout: sections one at a time (a rail beside the form when it is wide, tabs above it when it is not) ──
 
-  const [shellRef, wide] = useWide(900);
   const missing = !f.host?.trim() ? "Add a host" : !f.username?.trim() ? "Add a username"
     : !sshMethods(f).length ? "Save a password or a private key" : "";
   const blocked = !!tab.isDirty || !!tab.vaultLocked || !tab.filePath;
@@ -306,7 +303,7 @@ function SshEntryEditorInner({ tab }: { tab: Tab }) {
   const hiddenNote = mode === "password" && savedMethods.includes("key") ? "A private key is also saved. Choose SSH key or Both to see it."
     : mode === "key" && savedMethods.includes("password") ? "A password is also saved. Choose Password or Both to see it." : null;
 
-  const commandBox = command ? (
+  const commandBox = (wide: boolean) => command ? (
     <div className={wide ? "flex flex-col gap-2 rounded-lg p-3 bg-[var(--color-bg-secondary)] border border-[var(--color-border)]"
       : "flex items-center gap-2 rounded-lg px-3 py-1.5 bg-[var(--color-bg-secondary)] border border-[var(--color-border)]"}>
       <code className={wide ? "min-w-0 break-all text-xs font-mono" : "flex-1 min-w-0 truncate text-xs font-mono"}><span className="text-[var(--color-primary)]">$ </span>{command}</code>
@@ -320,30 +317,16 @@ function SshEntryEditorInner({ tab }: { tab: Tab }) {
     </div>
   ) : null;
 
-  const navItems = [
-    { id: "connection", label: "Connection" }, { id: "signin", label: "Sign in" }, { id: "fields", label: "Custom fields", badge: entry.custom.length },
-    { id: "advanced", label: "Advanced" }, { id: "files", label: "Attachments" },
-  ];
-  /** Each section stays mounted while another is shown, so drafts, reveals and drops are not lost on a switch. */
-  const show = (id: Panel) => panel !== id;
 
   return (
     <EntryLayout tab={tab}>
-      <div ref={shellRef} className="min-h-full">
-      <div className={wide ? "max-w-6xl mx-auto px-6 py-8 flex flex-col gap-6 text-[var(--color-text)]" : `${formColumn} min-h-full`}>
-        <EntryHeader icon={Terminal} title="SSH / server" tab={tab} />
-        {!wide && <SectionNav items={navItems} value={panel} onChange={(id) => setPanel(id as Panel)} vertical={false} />}
-        <div className={wide ? "flex items-start gap-8" : "contents"}>
-        {wide && (
-          <div className="sticky top-16 w-44 shrink-0">
-            <SectionNav items={navItems} value={panel} onChange={(id) => setPanel(id as Panel)} vertical />
-          </div>
-        )}
-        <div className={wide ? "flex-1 min-w-0 max-w-2xl flex flex-col gap-6" : "contents"}>
-        <StatusBanner ok={!missing}>{missing || "Ready to connect"}</StatusBanner>
-
-        <div hidden={show("connection")}>
-        <div className="flex flex-col gap-6">
+      <SectionedForm
+        header={<EntryHeader icon={Terminal} title="SSH / server" tab={tab} />}
+        banner={<StatusBanner ok={!missing}>{missing || "Ready to connect"}</StatusBanner>}
+        side={commandBox}
+        footer={<SaveHint />}
+        panels={[
+          { id: "connection", label: "Connection", content: (<>
         <Section title="Connection">
           <div>
             <label className={fieldLabel} htmlFor="ssh-title">Name</label>
@@ -374,10 +357,8 @@ function SshEntryEditorInner({ tab }: { tab: Tab }) {
           </Row>
 
         </Section>
-        </div>
-        </div>
-
-        <div hidden={show("signin")}>
+          </>) },
+          { id: "signin", label: "Sign in", content: (<>
         <Section title="Sign in"
                  hint="Save a password, a private key, or both. With both saved, Notiq asks which one to use when you open the server in the terminal.">
           <Segmented label="Sign-in method" value={mode} onChange={setMode}
@@ -509,9 +490,10 @@ function SshEntryEditorInner({ tab }: { tab: Tab }) {
             </fieldset>
           )}
         </Section>
-        </div>
-
-        <div hidden={show("advanced")}>
+          </>) },
+          { id: "fields", label: "Custom fields", badge: entry.custom.length,
+            content: <CustomFieldsEditor value={entry.custom} onChange={(custom) => save({ ...currentEntry(tab), custom })} /> },
+          { id: "advanced", label: "Advanced", content: (<>
         <Section title="Advanced" hint="Jump host, host fingerprint, notes">
           <Row htmlFor="ssh-jump" text="Jump host" hint="· optional" actions={<CopyIconButton value={f.jump ?? ""} label="jump host" />}>
             <Input id="ssh-jump" value={f.jump ?? ""} placeholder="user@bastion.example.com" spellCheck={false} autoComplete="off"
@@ -528,21 +510,9 @@ function SshEntryEditorInner({ tab }: { tab: Tab }) {
                       onChange={(e) => setField("notes", e.target.value)} />
           </div>
         </Section>
-        </div>
-
-        <div hidden={show("fields")}><CustomFieldsEditor value={entry.custom} onChange={(custom) => save({ ...currentEntry(tab), custom })} /></div>
-        <div hidden={show("files")}><AttachmentsPanel tab={tab} /></div>
-        <SaveHint />
-        </div>
-        {wide && <aside aria-label="Server summary" className="sticky top-16 w-72 shrink-0 flex flex-col gap-4">{commandBox}</aside>}
-        </div>
-        {!wide && commandBox && (
-          <div data-ssh-bar="" className="sticky bottom-0 z-10 mt-auto -mx-4 @md:-mx-6 -mb-6 @md:-mb-8 px-4 @md:px-6 py-2.5 bg-[var(--color-editor-bg)] border-t border-[var(--color-border)]">
-            {commandBox}
-          </div>
-        )}
-      </div>
-      </div>
+          </>) },
+          { id: "files", label: "Attachments", content: <AttachmentsPanel tab={tab} /> },
+        ]} />
       <div data-ssh-live="">{region}</div>
 
       {viewing && <KeyViewerDialog file={viewing} onClose={() => setViewing(null)} />}
