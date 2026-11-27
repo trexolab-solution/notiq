@@ -7,10 +7,12 @@
 export type FilesSortKey = "name" | "size" | "mtime";
 export type FilesOpenAction = "open" | "download";
 export type FilesView = "list" | "grid";
-export type GridSize = "small" | "medium" | "large";
+export type GridSize = "xsmall" | "small" | "medium" | "large" | "xlarge";
+/** Every grid size, smallest first. */
+export const GRID_SIZES: readonly GridSize[] = ["xsmall", "small", "medium", "large", "xlarge"];
 
 /** Width in px of one grid item at each size. */
-export const GRID_ITEM_PX: Record<GridSize, number> = { small: 88, medium: 124, large: 172 };
+export const GRID_ITEM_PX: Record<GridSize, number> = { xsmall: 68, small: 88, medium: 124, large: 172, xlarge: 232 };
 
 export interface FilesPrefs {
   /** Show dot files when a folder is listed. */
@@ -50,7 +52,7 @@ export function sanitizeFilesPrefs(raw: unknown): FilesPrefs {
   return {
     showHidden: bool(o.showHidden, d.showHidden),
     view: o.view === "grid" ? "grid" : "list",
-    gridSize: o.gridSize === "small" || o.gridSize === "large" ? o.gridSize : "medium",
+    gridSize: GRID_SIZES.includes(o.gridSize as GridSize) ? (o.gridSize as GridSize) : "medium",
     sortKey: o.sortKey === "size" || o.sortKey === "mtime" || o.sortKey === "name" ? o.sortKey : d.sortKey,
     sortDesc: bool(o.sortDesc, d.sortDesc),
     openAction: o.openAction === "download" ? "download" : "open",

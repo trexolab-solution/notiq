@@ -2,8 +2,10 @@
 //!
 //! It signs in exactly like the terminal does (`ssh_client::establish`: same vault entry, same host-key rules,
 //! same jump host), then opens the `sftp` subsystem on that connection. There is nobody to answer a question,
-//! so a host the terminal hasn't trusted yet, a key passphrase that isn't saved or a one-time code ends the
-//! attempt with a message saying to open the server in the terminal once.
+//! so a key passphrase that isn't saved or a one-time code ends the attempt with a message saying to open the
+//! server in the terminal once. A host that isn't trusted yet ends it with [`UNKNOWN_HOST`] and the key's
+//! details: the UI shows them, and signs in again with the user's approval of exactly that key. A key that
+//! *changed* is always refused.
 //!
 //! [`Sftp`] holds one session and is tested against an in-process server; the Tauri commands at the bottom keep
 //! sessions by id and report transfer progress as `sftp-progress` events. Secrets stay in the backend.
@@ -20,7 +22,7 @@ use serde::Serialize;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use crate::remote_archive::{self as archive, Format, Kind, Tools};
-use crate::ssh_client::{establish, unattended, Conn, Connect, KnownHosts, Sink};
+use crate::ssh_client::{establish, unattended, Conn, Connect, KnownHosts, Sink, UnknownHost};
 
 const CHUNK: usize = 128 * 1024;
 /// Deepest folder `remove` will walk into (a symlink loop can't make it run forever; links aren't followed anyway).
@@ -37,6 +39,9 @@ pub const CHANGED: &str = "changed";
 pub const TRASH_FAILED: &str = "trash_failed";
 /// What a folder transfer says when the destination folder is already there and no merge mode was given.
 pub const EXISTS_DIR: &str = "already_exists_folder";
+
+/// What opening says (followed by the [`UnknownHost`] as JSON) when the user has to approve the server's key.
+pub const UNKNOWN_HOST: &str = "unknown_host:";
 
 /// How a folder transfer treats files that are already in the destination folder.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -101,16 +106,36 @@ const TRASH_REL: &str = ".local/share/Trash";
 
 /// Collects what the sign-in code would have printed in a terminal, to explain a failure.
 #[derive(Default)]
-struct Notes(std::sync::Mutex<String>);
+struct Notes {
+    text: std::sync::Mutex<String>,
+    /// The key the user approved in the UI for this attempt.
+    approved: Option<UnknownHost>,
+    /// The untrusted key that stopped the attempt.
+    unknown: std::sync::Mutex<Option<UnknownHost>>,
+}
 
 impl Sink for Notes {
     fn out(&self, data: &[u8]) {
-        self.0.lock().unwrap_or_else(|e| e.into_inner()).push_str(&String::from_utf8_lossy(data));
+        self.text.lock().unwrap_or_else(|e| e.into_inner()).push_str(&String::from_utf8_lossy(data));
+    }
+
+    fn approve_host(&self, host: &UnknownHost) -> bool {
+        let ok = self.approved.as_ref() == Some(host);
+        if !ok { *self.unknown.lock().unwrap_or_else(|e| e.into_inner()) = Some(host.clone()); }
+        ok
     }
 }
 
 impl Notes {
-    fn text(&self) -> String { self.0.lock().unwrap_or_else(|e| e.into_inner()).clone() }
+    fn text(&self) -> String { self.text.lock().unwrap_or_else(|e| e.into_inner()).clone() }
+
+    /// Why signing in failed, for the UI.
+    fn failure(&self, err: String) -> String {
+        match self.unknown.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
+            Some(host) => format!("{UNKNOWN_HOST}{}", serde_json::to_string(host).unwrap_or_default()),
+            None => explain(&self.text(), err),
+        }
+    }
 }
 
 /// Text without terminal colour codes and carriage returns.
@@ -133,9 +158,6 @@ fn plain(text: &str) -> String {
 /// The message for a failed sign-in: the terminal's own explanation, or a pointer to the terminal for the
 /// things only a person at a prompt can answer.
 fn explain(notes: &str, err: String) -> String {
-    if notes.contains("can't be established") {
-        return "This server isn't a trusted host yet. Open it in the terminal once and accept its fingerprint, then open the file manager again.".into();
-    }
     if notes.contains("Enter passphrase") || notes.contains("didn't unlock this key") {
         return "This key is protected by a passphrase that isn't saved with the entry. Save it in the entry, or open the server in the terminal once.".into();
     }
@@ -332,12 +354,18 @@ fn nice(e: impl std::fmt::Display) -> String {
     }
 }
 
-/// Connects and signs in for `c`, then starts the SFTP subsystem.
+/// [`open_approved`] with no approval.
+#[cfg(test)]
 pub async fn open(c: Connect, known: KnownHosts) -> Result<Sftp, String> {
-    let notes = Arc::new(Notes::default());
+    open_approved(c, known, None).await
+}
+
+/// Signs in for `c` and starts SFTP, trusting `approved` (and remembering it) if that is exactly what an untrusted host presents.
+pub async fn open_approved(c: Connect, known: KnownHosts, approved: Option<UnknownHost>) -> Result<Sftp, String> {
+    let notes = Arc::new(Notes { approved, ..Default::default() });
     let sink: Arc<dyn Sink> = notes.clone();
     let prompter = unattended(sink.clone());
-    let (conn, jump) = establish(&c, &known, &prompter, &sink).await.map_err(|e| explain(&notes.text(), e))?;
+    let (conn, jump) = establish(&c, &known, &prompter, &sink).await.map_err(|e| notes.failure(e))?;
     let ch = conn.channel_open_session().await.map_err(|e| format!("Couldn't open a session: {e}"))?;
     ch.request_subsystem(true, "sftp").await.map_err(|_| "SFTP isn't enabled on this server, so the file manager can't open it.".to_string())?;
     let sftp = SftpSession::new(ch.into_stream()).await.map_err(|e| format!("The server's SFTP service didn't start: {}", nice(e)))?;
@@ -910,13 +938,13 @@ mod commands {
     pub struct FileData { data: String, mtime: Option<u32> }
 
     #[tauri::command]
-    pub async fn sftp_open(id: u32, path: String, auth: String, app: AppHandle, state: State<'_, SftpState>,
-                           vault: State<'_, crate::vault::VaultState>) -> Result<Opened, String> {
+    pub async fn sftp_open(id: u32, path: String, auth: String, trust: Option<UnknownHost>, app: AppHandle,
+                           state: State<'_, SftpState>, vault: State<'_, crate::vault::VaultState>) -> Result<Opened, String> {
         let session = crate::ssh_connect::load_session(&vault, &path, crate::ssh_connect::Auth::parse(&auth)?)?;
         let title = session.title.clone();
         let connect = Connect::from_session(session)?;
         let known = KnownHosts::new(app.path().app_data_dir().map_err(|e| e.to_string())?.join("ssh_known_hosts.json"));
-        let sftp = Arc::new(open(connect, known).await?);
+        let sftp = Arc::new(open_approved(connect, known, trust).await?);
         let home = sftp.home().await?;
         state.sessions.lock().unwrap_or_else(|e| e.into_inner()).insert(id, sftp);
         Ok(Opened { title, home })
@@ -1316,6 +1344,28 @@ mod tests {
     fn no_progress() -> impl Fn(u64, u64) + Sync { |_, _| {} }
 
     #[tokio::test]
+    async fn an_untrusted_host_is_reported_and_only_the_approved_key_is_trusted() {
+        let f = start(true).await;
+        let hosts = known();
+        let reported = |e: String| -> UnknownHost { serde_json::from_str(e.strip_prefix(UNKNOWN_HOST).expect("unknown host")).unwrap() };
+        let first = reported(open(connect(f.port, None), hosts.clone()).await.err().expect("not trusted yet"));
+        assert_eq!((first.host.as_str(), first.port, first.fp.as_str()), ("127.0.0.1", f.port, f.fp.as_str()));
+        // An approval of any other key, or for another server, trusts nothing.
+        for wrong in [UnknownHost { fp: "SHA256:other".into(), ..first.clone() }, UnknownHost { host: "elsewhere".into(), ..first.clone() }] {
+            let again = reported(open_approved(connect(f.port, None), hosts.clone(), Some(wrong)).await.err().expect("still not trusted"));
+            assert_eq!(again, first);
+        }
+        assert!(matches!(hosts.check("127.0.0.1", f.port, &f.fp), crate::ssh_client::Known::Unknown));
+        // The approved key signs in, and is remembered for next time.
+        open_approved(connect(f.port, None), hosts.clone(), Some(first.clone())).await.expect("approved");
+        open(connect(f.port, None), hosts.clone()).await.expect("remembered");
+        // A key that changed is refused even if the UI sends an approval for it.
+        hosts.remember("127.0.0.1", f.port, &first.alg, "SHA256:old").unwrap();
+        let refused = open_approved(connect(f.port, None), hosts, Some(first)).await.err().expect("changed key");
+        assert!(refused.contains("HOST KEY") && !refused.starts_with(UNKNOWN_HOST), "{refused}");
+    }
+
+    #[tokio::test]
     async fn lists_folders_first_then_files_by_name() {
         let f = start(true).await;
         std::fs::write(f.root.join("b.txt"), "bb").unwrap();
@@ -1597,11 +1647,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn an_untrusted_host_points_to_the_terminal() {
+    async fn a_host_the_terminal_trusted_connects_without_asking() {
         let f = start(true).await;
-        let e = open(connect(f.port, None), known()).await.err().expect("must not connect");
-        assert!(e.contains("terminal"), "{e}");
-        // Once the terminal has trusted it, the file manager connects without asking.
         let k = known();
         k.remember("127.0.0.1", f.port, "ssh-ed25519", &f.fp).unwrap();
         assert!(open(connect(f.port, None), k).await.is_ok());

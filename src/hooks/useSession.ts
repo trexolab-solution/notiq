@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { loadSession } from "../lib/session";
-import { useAppStore, flushPendingPersist, flushPendingGraphRebuild } from "../store";
+import { useAppStore, flushPendingPersist } from "../store";
 import { scanOrphanTempFolders } from "../lib/attachments";
 import { buildWelcomeNote, loadWelcomeImages } from "../config/welcomeNote";
 
@@ -39,7 +39,6 @@ export function useSession() {
   useEffect(() => {
     const onBeforeUnload = () => {
       flushPendingPersist();
-      flushPendingGraphRebuild();
     };
     window.addEventListener("beforeunload", onBeforeUnload);
     return () => window.removeEventListener("beforeunload", onBeforeUnload);

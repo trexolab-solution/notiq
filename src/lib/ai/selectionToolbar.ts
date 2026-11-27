@@ -2,6 +2,7 @@ import type * as monacoNs from "monaco-editor";
 import { useAppStore } from "../../store";
 import { aiImprove, aiFixGrammar, aiSummarize, aiCustomEdit } from "./actions";
 import { attachTooltip } from "../domTooltip";
+import { aiBlockedFor } from "./access";
 
 type Editor = monacoNs.editor.ICodeEditor;
 
@@ -193,7 +194,7 @@ export function attachSelectionToolbar(editor: Editor, monaco: typeof monacoNs):
 
   function update() {
     if (editing) return; // don't disturb an open instruction input
-    if (!useAppStore.getState().aiEnabled) { hide(); return; }
+    if (!useAppStore.getState().aiEnabled || aiBlockedFor(editor.getModel())) { hide(); return; }
     const sel = editor.getSelection();
     const model = editor.getModel();
     if (!sel || !model || sel.isEmpty()) { hide(); return; }

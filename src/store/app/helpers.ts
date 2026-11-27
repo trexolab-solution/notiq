@@ -23,21 +23,6 @@ export function flushPendingPersist() {
   }
 }
 
-let _graphRebuildTimer: ReturnType<typeof setTimeout> | null = null;
-
-export function debounceGraphRebuild(fn: () => void) {
-  if (_graphRebuildTimer) clearTimeout(_graphRebuildTimer);
-  _graphRebuildTimer = setTimeout(fn, 400);
-}
-
-/** Flush any pending debounced graph rebuild immediately — called on window close. */
-export function flushPendingGraphRebuild() {
-  if (_graphRebuildTimer) {
-    clearTimeout(_graphRebuildTimer);
-    _graphRebuildTimer = null;
-  }
-}
-
 // ─── helpers ────────────────────────────────────────────────────────────────
 
 export function titleFromPath(path: string, fallback: string): string {

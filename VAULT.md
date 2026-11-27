@@ -10,6 +10,10 @@ All locked entries (notes, logins, SSH entries, API keys, cards, Wi-Fi, recovery
 - **Backups (Settings → Vault → Backup):** Notiq does not upload anything unless you turn on sync, so you make the backups. **Export encrypted backup** (asks for your master password again) writes one `.nqb` file you can put on a USB drive (double-click it to open the restore dialog; `.nqbackup` files from earlier versions still work); **Restore from backup file** is on the vault setup screen and in Settings, and replacing an existing vault first keeps the old files in a `before-restore-…` folder. A gentle reminder appears when you have never backed up or the last backup is over 30 days old. The backup is still protected by your master password and recovery key, and cannot be opened without them.
 - **Format upgrades:** the database is versioned (v2 adds entry history and attachments). The first save after upgrading an older database keeps a copy as `vault.nqdb.v1.bak`.
 
+## Viewing and editing
+
+A saved item opens in **view mode**: copy, show, open and download work, but nothing can be changed. Press **Edit** (next to *History*) to change it; **Save** returns to view mode and **Cancel** asks before dropping unsaved changes. A new item opens ready to edit. Each open item remembers the section you were on. On an SSH item with a saved private key, *Generate* and *Import* stay closed until you choose **Replace key** and type `REPLACE`. Generating over a saved login password asks for the same typed confirmation.
+
 ## Sidebar: a file manager for your secrets
 
 - **Resizable** — drag the sidebar's edge (or use the arrow keys); Notiq remembers the width
@@ -27,12 +31,12 @@ All locked entries (notes, logins, SSH entries, API keys, cards, Wi-Fi, recovery
 ## Entry types
 
 - **Secure note** — free text / Markdown
-- **Login** — site, username, password, optional 2-step (TOTP) secret with a live code
+- **Login** — site, username, password, optional 2-step (TOTP) secret with a live code, and the account's recovery codes (under *Security*). Update Notiq on every synced device first: an older version drops the codes when it saves the login
 - **SSH / server** — host, port, username and a password, a private key, or both (Notiq asks which to use when you open it in the terminal). Pasted keys are analysed as you paste (OpenSSH, PEM, PuTTY; encrypted or not; a public key is flagged), you can import a key file or generate a new Ed25519 / RSA pair, and a ready `ssh -p … user@host` command can be copied. Jump host, host-key fingerprint and notes sit under *Advanced*
 - **API key / secret** — service, token, optional environment variable name
 - **Card** — cardholder, number (grouped as you type, brand shown, Luhn hint), expiry, CVV, PIN
 - **Wi-Fi** — network name, password, security type; copy the `WIFI:` text used for QR codes
-- **Recovery codes** — a list of one-time codes with per-code "used" marks and *Copy next unused*
+- **Recovery codes** — a list of one-time codes with per-code "used" marks and *Copy next unused*, for codes that don't belong to a login. Pasted codes are also added when you press Save
 - **Identity** — full name, email, phone, address lines 1–2, city, state, PIN/ZIP and country (e.g. "Home", "Office"); the browser extension can fill it into address and checkout forms
 - **Custom fields, other sites and attachments** — every structured entry can carry custom fields (optionally secret), a login can list extra websites, and files (up to 5 MB each, 25 MB per vault) can be attached inside the same encrypted file
 - **History** — the last 10 versions of every entry are kept inside the vault; preview and restore them from the History button (a restored version becomes the current one)
@@ -48,7 +52,7 @@ All locked entries (notes, logins, SSH entries, API keys, cards, Wi-Fi, recovery
 - **Quick search (optional):** a system-wide hotkey (default `Ctrl+Alt+K`, off until you turn it on) opens a small search window; *Enter* copies the main secret, *Ctrl+Enter* the username, *Alt+Enter* opens the entry. It never displays secrets.
 - **Windows Hello unlock (experimental, off by default):** a Windows Hello key protects the vault key, so unlocking needs a Hello prompt instead of typing the password. The master password stays the root secret: it is required again after a backup restore or if Hello is reset. Treat it as a convenience, not a stronger lock.
 - **Recovery kit:** when you create a vault you can print a one-page recovery kit (the key is shown once and never stored).
-- **AI & search:** vault content is never sent to AI (chat, actions, autocomplete) and is excluded from global search and the graph.
+- **AI & search:** vault content is never sent to AI (chat, actions, autocomplete) and is excluded from global search.
 - **Brute force:** repeated wrong passwords are throttled in-app; offline resistance comes from the Argon2 cost, so choose a long, unique password. Anyone who gets a copy of `vault.nqdb` can only try to guess it offline.
 - **Images in secure notes:** an image pasted into a vault Secure note is stored as an encrypted attachment of that note (same limits: 5 MB each, 25 MB per vault, 20 per item) and referenced as `vault-attachment:<id>`; it is never written to disk, is included in backups and Vault Sync, and is decrypted in memory only while shown. Images pasted into ordinary notes are still plain files next to the note. An image removed from the text is deleted from the vault when the note is saved, but only once none of the note's last 10 history versions still shows it (so restoring an older version never loses its pictures; files you attach yourself are never removed this way); a duplicated note starts without attachments.
 - **Not covered:** a compromised OS (keylogger, memory dump while unlocked) defeats any in-app encryption.

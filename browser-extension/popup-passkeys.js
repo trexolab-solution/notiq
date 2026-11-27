@@ -1,8 +1,9 @@
-// Notiq Autofill popup — the "Save and use passkeys with Notiq (experimental)" switch (off by default).
-// Turning it on asks for the optional host access the browser needs to register the passkey page scripts
-// (the same sites the extension's content script already runs on). Turning it off gives that access back. The
-// background registers the scripts only while BOTH the setting and the access are there, and re-checks when
-// either changes, so it still works if the browser closes this popup while its permission prompt is open.
+// Notiq Autofill popup — the "Save and use passkeys with Notiq (experimental)" switch (on by default).
+// The host access the browser needs to register the passkey page scripts is part of the manifest (the same sites the
+// extension's content script already runs on). Where the browser lets the user withhold it (Firefox, or Chrome's
+// "on click" site access), the switch shows off and turning it on asks for it. The background registers the scripts
+// only while BOTH the setting and the access are there, and re-checks when either changes, so it still works if the
+// browser closes this popup while its permission prompt is open.
 (() => {
   "use strict";
   const ORIGINS = ["https://*/*", "http://localhost/*"];
@@ -10,7 +11,7 @@
   if (!box) return;
   const perms = chrome.permissions;
   Promise.all([
-    chrome.storage.local.get({ passkeys: false }),
+    chrome.storage.local.get({ passkeys: true }),
     perms ? perms.contains({ origins: ORIGINS }).catch(() => false) : Promise.resolve(false),
   ]).then(([s, granted]) => { box.checked = s.passkeys === true && granted === true; }, () => {});
 
@@ -25,9 +26,7 @@
         return chrome.storage.local.set({ passkeys: false });
       }).catch(() => {});
     } else {
-      chrome.storage.local.set({ passkeys: false })
-        .then(() => (perms ? perms.remove({ origins: ORIGINS }) : false))
-        .catch(() => {});
+      chrome.storage.local.set({ passkeys: false }).catch(() => {});
     }
   });
 })();

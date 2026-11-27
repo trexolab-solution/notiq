@@ -1,4 +1,4 @@
-import { Archive, ArchiveRestore, ArrowLeft, ArrowRight, ArrowUp, RefreshCw, Search } from "lucide-react";
+import { Archive, ArchiveRestore, ArrowLeft, ArrowRight, ArrowUp, RefreshCw, Search, X } from "lucide-react";
 import { Input } from "../../ui/Input";
 import { RowIconButton } from "../../vault/ListEditor";
 import { crumbs } from "../../../lib/sftp";
@@ -57,12 +57,19 @@ export function RemotePathBar({
       )}
       <div className="relative w-44 shrink-0">
         <Search size={13} aria-hidden className="absolute left-2 top-1/2 -translate-y-1/2 text-[var(--color-text-muted)]" />
-        <Input className="!pl-7" value={filter} placeholder="Filter" aria-label="Filter files" spellCheck={false}
+        <Input className="!pl-7 !pr-7" value={filter} placeholder="Filter" aria-label="Filter files" spellCheck={false}
                onChange={(e) => onFilter(e.target.value)}
                onKeyDown={(e) => {
                  // Esc: clear the filter and go back to the list (a second Esc does nothing else here).
                  if (e.key === "Escape") { e.stopPropagation(); onFilter(""); e.currentTarget.blur(); onFilterEscape(); }
                }} />
+        {filter !== "" && (
+          <button type="button" aria-label="Clear filter"
+                  className="absolute right-1 top-1/2 -translate-y-1/2 grid place-items-center h-5 w-5 rounded cursor-pointer text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-bg-secondary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-primary)]/50"
+                  onClick={(e) => { onFilter(""); e.currentTarget.parentElement?.querySelector("input")?.focus(); }}>
+            <X size={13} aria-hidden />
+          </button>
+        )}
       </div>
       <span className="relative inline-flex">
         <RowIconButton label="Trash" pressed={showTrash} onClick={onToggleTrash}

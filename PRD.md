@@ -18,7 +18,7 @@ This application is a modern Markdown-first editor inspired by Notepad++, with a
 3. Advanced theming system (like VS Code)
 4. Persistent session recovery (even unsaved data)
 5. Rich editor + raw markdown editor
-6. Real-time preview + knowledge graph
+6. Real-time preview
 
 ---
 
@@ -89,7 +89,6 @@ State should include:
 * Editor content
 * Theme
 * Session
-* Graph
 
 ---
 
@@ -113,15 +112,6 @@ Use:
   * Monaco Editor
 * Rich Editor:
   * TipTap
-
----
-
-# 📊 Knowledge Graph
-
-* Parse [[links]] from markdown
-* Build graph
-* Render using:
-  * D3.js or react-force-graph
 
 ---
 

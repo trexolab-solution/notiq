@@ -87,9 +87,9 @@ describe("RestoreBackupDialog", () => {
     expect(current()).toBe("1File");
     expect(document.querySelectorAll('[aria-current="step"]')).toHaveLength(1);
     expect(q('[role="status"][aria-live="polite"]')).toBeTruthy();
-    expect(q("[data-drop-zone]")?.textContent).toContain("Drop a .nqb file here");
+    expect(q("[data-drop-zone]")?.textContent).toContain("Drag & drop a .nqb backup file here, or browse");
     expect(button("Next")!.disabled).toBe(true);
-    expect(document.activeElement).toBe(button("Choose file…"));
+    expect(document.activeElement).toBe(button("browse"));
   });
 
   it("chooses a dropped backup, checks it and shows its card", async () => {
@@ -130,7 +130,7 @@ describe("RestoreBackupDialog", () => {
   it("merges into the unlocked vault and shows the counts", async () => {
     await render();
     dialogOpen.mockResolvedValue("C:/b.nqbackup");
-    await click(button("Choose file…"));
+    await click(button("browse"));
     await click(button("Next"));
     expect(step()).toBe("method");
     expect(current()).toBe("2Method");

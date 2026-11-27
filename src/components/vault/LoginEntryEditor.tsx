@@ -12,6 +12,8 @@ import { GeneratePasswordButton } from "./GeneratePasswordButton";
 import { CustomFieldsEditor } from "./CustomFieldsEditor";
 import { AttachmentsPanel } from "./AttachmentsPanel";
 import { PasskeysList } from "./PasskeysList";
+import { RecoveryCodeList } from "./RecoveryCodeList";
+import { setEntryEditing, useEntryEditing } from "../../lib/entryUi";
 import { TotpPanel } from "./TotpPanel";
 import { LoginSitesEditor } from "./LoginSitesEditor";
 import { EntryHeader, EntryLayout, FieldRow, InputWithActions, RevealButton, SaveHint, Section, SectionedForm, fieldLabel, revealField, textArea } from "./EntryParts";
@@ -21,12 +23,14 @@ import type { Tab } from "../../types";
 /** Structured editor for a `login` vault entry (replaces the text editor). */
 export function LoginEntryEditor({ tab }: { tab: Tab }) {
   const entry = useMemo(() => parseLogin(tab.content), [tab.content]);
-  useFocusNameOnCreate(tab.filePath, "le-title");
+  useFocusNameOnCreate(tab.filePath, "le-title", () => setEntryEditing(tab.id, true));
+  const readOnly = !useEntryEditing(tab);
   // Vault health → "Fix": open the entry with the cursor already in the field that needs changing.
   useEffect(() => {
     const go = () => {
       const id = takeEntryFocus(tab.filePath);
       if (!id) return;
+      setEntryEditing(tab.id, true);
       // The field may be in a section that isn't shown: show it first, then focus once it is on screen.
       revealField(id);
       requestAnimationFrame(() => {
@@ -38,7 +42,7 @@ export function LoginEntryEditor({ tab }: { tab: Tab }) {
     go();
     window.addEventListener(ENTRY_FOCUS_EVENT, go);
     return () => window.removeEventListener(ENTRY_FOCUS_EVENT, go);
-  }, [tab.filePath]);
+  }, [tab.filePath, tab.id]);
   const [show, setShow] = useState(false);
   useAutoHide(show, setShow);
   const set = (patch: Partial<LoginEntry>) =>
@@ -56,7 +60,7 @@ export function LoginEntryEditor({ tab }: { tab: Tab }) {
             <Section title="Website">
               <div>
                 <label className={fieldLabel} htmlFor="le-title">Name</label>
-                <Input id="le-title" value={entry.title} onChange={(e) => set({ title: e.target.value })} placeholder="e.g. Google" />
+                <Input id="le-title" readOnly={readOnly} value={entry.title} onChange={(e) => set({ title: e.target.value })} placeholder="e.g. Google" />
               </div>
               <div>
                 <label className={fieldLabel} htmlFor="le-url">Address</label>
@@ -64,7 +68,7 @@ export function LoginEntryEditor({ tab }: { tab: Tab }) {
                   <RowIconButton label={`Open ${host}`} tooltip="Open this website" icon={<ExternalLink size={13} />}
                                  onClick={() => { void openUrl(`https://${host}`); }} />
                 ) : undefined}>
-                  <Input id="le-url" value={entry.url} onChange={(e) => set({ url: e.target.value })}
+                  <Input id="le-url" readOnly={readOnly} value={entry.url} onChange={(e) => set({ url: e.target.value })}
                          placeholder="https://accounts.google.com" spellCheck={false} />
                 </InputWithActions>
                 <LoginSitesEditor entry={entry} onChange={(urls) => set({ urls })} />
@@ -74,7 +78,7 @@ export function LoginEntryEditor({ tab }: { tab: Tab }) {
             <Section title="Sign in">
               <FieldRow htmlFor="le-user" text="Username or email"
                         actions={<CopyIconButton value={entry.username} label="username" />}>
-                <Input id="le-user" value={entry.username} onChange={(e) => set({ username: e.target.value })}
+                <Input id="le-user" readOnly={readOnly} value={entry.username} onChange={(e) => set({ username: e.target.value })}
                        autoComplete="off" spellCheck={false} />
               </FieldRow>
 
@@ -82,9 +86,9 @@ export function LoginEntryEditor({ tab }: { tab: Tab }) {
                 <InputWithActions actions={<>
                   <RevealButton shown={show} onToggle={() => setShow((v) => !v)} name="password" />
                   <CopyIconButton value={entry.password} label="password" />
-                  <GeneratePasswordButton compact current={entry.password} onGenerate={(password) => { set({ password }); setShow(true); }} />
+                  {!readOnly && <GeneratePasswordButton compact current={entry.password} onGenerate={(password) => { set({ password }); setShow(true); }} />}
                 </>}>
-                  <Input id="le-pass" type={show ? "text" : "password"} value={entry.password}
+                  <Input id="le-pass" readOnly={readOnly} type={show ? "text" : "password"} value={entry.password}
                          onChange={(e) => set({ password: e.target.value })}
                          autoComplete="off" spellCheck={false} className="font-mono" />
                 </InputWithActions>
@@ -94,10 +98,12 @@ export function LoginEntryEditor({ tab }: { tab: Tab }) {
           { id: "security", label: "Security", content: (<>
             <TotpPanel secret={entry.totp} onChange={(totp) => set({ totp })} />
             <PasskeysList value={entry.passkeys ?? []} onChange={(passkeys) => set({ passkeys })} />
+            <RecoveryCodeList tabId={tab.id} title="Recovery codes" codes={entry.recovery ?? []}
+                              onChange={(recovery) => set({ recovery })} />
           </>) },
           { id: "details", label: "Details", badge: (entry.custom ?? []).length, content: (<>
             <Section title="Notes">
-              <textarea id="le-notes" aria-label="Notes" rows={4} value={entry.notes} onChange={(e) => set({ notes: e.target.value })}
+              <textarea id="le-notes" readOnly={readOnly} aria-label="Notes" rows={4} value={entry.notes} onChange={(e) => set({ notes: e.target.value })}
                         placeholder="Security questions, recovery hints, anything else worth keeping" className={textArea} />
             </Section>
             <CustomFieldsEditor value={entry.custom ?? []} onChange={(custom) => set({ custom })} />

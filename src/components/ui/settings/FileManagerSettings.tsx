@@ -42,7 +42,7 @@ export function FileManagerSettings() {
         <SettingRow id="files.browse.grid-size" label="Grid item size" description={p.view === "grid" ? undefined : "Only used by the grid layout."} disabled={p.view !== "grid"}
                     keywords={[...KW, "grid", "icons", "size", "small", "large", "thumbnail"]} modified={p.gridSize !== D.gridSize} onReset={() => change({ gridSize: D.gridSize })}>
           <SegmentedControl aria-label="Grid item size" value={p.gridSize} disabled={p.view !== "grid"} onChange={(v) => change({ gridSize: v as FilesPrefs["gridSize"] })}
-                            options={[{ value: "small", label: "Small" }, { value: "medium", label: "Medium" }, { value: "large", label: "Large" }]} />
+                            options={[{ value: "xsmall", label: "XS" }, { value: "small", label: "Small" }, { value: "medium", label: "Medium" }, { value: "large", label: "Large" }, { value: "xlarge", label: "XL" }]} />
         </SettingRow>
 
         <SettingRow id="files.browse.sort" label="Sort files by" description="Folders always come first."

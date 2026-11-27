@@ -118,7 +118,7 @@ describe("import shared items", () => {
 
   it("a file that is chosen is checked the same way", async () => {
     await render();
-    await click(button("Choose file"));
+    await click(document.querySelector<HTMLButtonElement>('button[aria-label="Browse for a file"]')!);
     expect(dialogOpen).toHaveBeenCalledTimes(1);
     expect(document.querySelector("[data-file-card]")!.textContent).toContain("Share file");
   });

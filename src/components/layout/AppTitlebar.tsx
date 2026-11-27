@@ -4,7 +4,7 @@ import { useAppStore } from "../../store";
 import { ContextMenu, type ContextMenuItem } from "../ui/ContextMenu";
 import { MODES } from "./TitlebarModePicker";
 import { openStickyNote, openStickyNotesList } from "../../lib/stickyNote";
-import type { Tab, AppView } from "../../types";
+import type { Tab } from "../../types";
 
 import { TitlebarMenuBar } from "./TitlebarMenuBar";
 import { TitlebarModePicker } from "./TitlebarModePicker";
@@ -21,10 +21,7 @@ interface Props {
   onOpenMultiple:    () => void;
   onOpenFolder:      () => void;
   onOpenSettings:    () => void;
-  onShowGraph:       () => void;
-  onShowEditor:      () => void;
   requestClose:      (id: string) => void;
-  activeView:        AppView;
   activeTab:         Tab | undefined;
   isMdNote:          boolean;
   aiOnboarded:       boolean;
@@ -42,7 +39,7 @@ interface Props {
  */
 export function AppTitlebar({
   onHeaderMouseDown, onNewWhiteboard, onOpenMultiple, onOpenFolder, onOpenSettings,
-  onShowGraph, onShowEditor, requestClose, activeView, activeTab, isMdNote,
+  requestClose, activeTab, isMdNote,
   aiOnboarded, aiEnabled, aiChatOpen, onAIClick, onOpenAISettings, onToggleAiChat,
 }: Props) {
   const [more, setMore] = useState<{ x: number; y: number } | null>(null);
@@ -52,7 +49,7 @@ export function AppTitlebar({
   const moreItems: ContextMenuItem[] = [
     { type: "item", label: "New Sticky Note", icon: <NotepadText size={13} />, onClick: () => openStickyNote() },
     { type: "item", label: "Sticky Notes List", icon: <List size={13} />, onClick: () => openStickyNotesList() },
-    ...(activeView === "editor" && activeTab?.kind === "note" && isMdNote ? [
+    ...(activeTab?.kind === "note" && isMdNote ? [
       { type: "separator" as const },
       { type: "label" as const, label: "Editor mode" },
       ...MODES.map((m) => ({
@@ -86,14 +83,12 @@ export function AppTitlebar({
           onOpenMultiple={onOpenMultiple}
           onOpenFolder={onOpenFolder}
           onOpenSettings={onOpenSettings}
-          onShowGraph={onShowGraph}
-          onShowEditor={onShowEditor}
           requestClose={requestClose}
         />
       </div>
 
       <div className="header-center">
-        {activeView === "editor" && activeTab?.kind === "note" && isMdNote && (
+        {activeTab?.kind === "note" && isMdNote && (
           <TitlebarModePicker tab={activeTab} />
         )}
       </div>

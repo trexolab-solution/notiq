@@ -1083,12 +1083,24 @@ fn hide_prompt(app: &AppHandle, restore: bool) {
     // Only hand the focus back when the prompt still has it (the user may have moved on meanwhile).
     let had_focus = w.is_focused().unwrap_or(false);
     crate::window_log::log(&format!("autofill prompt hide (restore={restore}, was visible={:?})", w.is_visible().ok()));
+    SHOW_ASKED.store(false, Ordering::Release);
     let _ = w.hide();
     // The webview goes with the window: a hidden Chromium surface is stale, and showing it again could flash blank / white.
     crate::quick_search::set_webview_visible(&w, false);
     let prev = take_prev_foreground();
     if restore && had_focus {
         restore_foreground(prev);
+    }
+}
+
+/// Takes the prompt window out of the way before the main window asks instead: it is always on top, so a leftover
+/// would cover the dialog. One whose page never got ready is destroyed, so the next request makes a fresh one.
+fn discard_prompt(app: &AppHandle) {
+    let Some(w) = app.get_webview_window(PROMPT_LABEL) else { return };
+    hide_prompt(app, false);
+    if !PROMPT_READY.load(Ordering::Acquire) {
+        crate::window_log::log("autofill prompt never got ready: closing it");
+        let _ = w.destroy();
     }
 }
 
@@ -1108,6 +1120,9 @@ fn await_ui(app: &AppHandle, event: &str, mut payload: Value, allow_fallback: bo
     }
 
     let routed = ensure_prompt(app).and_then(|()| app.emit_to(PROMPT_LABEL, event, payload.clone()).map_err(|e| e.to_string()));
+    if routed.is_err() {
+        discard_prompt(app);
+    }
     let fallback = match routed {
         Ok(()) => None,
         Err(e) if !allow_fallback => {
@@ -1186,6 +1201,7 @@ pub fn autofill_prompt_show(app: AppHandle) -> Result<(), String> {
     }
     crate::window_log::log(&format!("autofill prompt show ({waiting} request(s) waiting)"));
     PAINTED.store(false, Ordering::Release);
+    SHOW_ASKED.store(true, Ordering::Release);
     SHOWN_AT.store(now_ms(), Ordering::Release);
     remember_prev_foreground(&w);
     let monitor = app
@@ -1214,6 +1230,8 @@ pub fn autofill_prompt_show(app: AppHandle) -> Result<(), String> {
     w.set_focus().map_err(|e| e.to_string())
 }
 
+/// Notiq asked for the prompt to be on screen (set by a show, cleared by a hide).
+static SHOW_ASKED: AtomicBool = AtomicBool::new(false);
 /// The prompt page confirmed it painted after the last show, and when that show was (`now_ms`).
 static PAINTED: AtomicBool = AtomicBool::new(true);
 static SHOWN_AT: AtomicU64 = AtomicU64::new(0);
@@ -1256,10 +1274,11 @@ pub fn paint_guard_step(visible: bool, waiting_requests: usize, painted: bool, s
 const PROMPT_GUARD_TICK: Duration = Duration::from_millis(300);
 const PROMPT_GUARD_STRIKES: u32 = 2;
 
-/// The prompt window is on screen but no request waits for an answer (pure). Counts consecutive such
-/// looks in `strikes`; returns true once the window should be taken down.
-pub fn prompt_guard_step(visible: bool, waiting_requests: usize, strikes: &mut u32) -> bool {
-    if visible && !should_show_prompt(waiting_requests) {
+/// The prompt window is on screen although it shouldn't be: no request waits for an answer, or Notiq never asked
+/// to show it (`asked`; its page is hidden then, so it is an empty white box that covers whatever is behind it).
+/// Counts consecutive such looks in `strikes`; returns true once the window should be taken down. (pure)
+pub fn prompt_guard_step(visible: bool, asked: bool, waiting_requests: usize, strikes: &mut u32) -> bool {
+    if visible && (!asked || !should_show_prompt(waiting_requests)) {
         *strikes += 1;
         *strikes >= PROMPT_GUARD_STRIKES
     } else {
@@ -1284,8 +1303,11 @@ fn start_prompt_guard(app: &AppHandle) {
             let Some(w) = app.get_webview_window(PROMPT_LABEL) else { strikes = 0; tries = 0; continue };
             let visible = w.is_visible().unwrap_or(false);
             let waiting = pending().lock().unwrap_or_else(|e| e.into_inner()).len();
-            if prompt_guard_step(visible, waiting, &mut strikes) {
-                crate::window_log::log("autofill prompt was on screen without a request: hiding it");
+            let asked = SHOW_ASKED.load(Ordering::Acquire);
+            if prompt_guard_step(visible, asked, waiting, &mut strikes) {
+                crate::window_log::log(&format!(
+                    "autofill prompt was on screen when it shouldn't be (asked to show={asked}, {waiting} request(s) waiting): hiding it"
+                ));
                 strikes = 0;
                 hide_prompt(&app, false);
             }
@@ -2039,12 +2061,15 @@ mod tests {
     #[test]
     fn prompt_guard_hides_only_a_window_nobody_asked_for() {
         let mut n = 0;
-        assert!(!prompt_guard_step(true, 0, &mut n)); // first look: may be a normal hide in progress
-        assert!(prompt_guard_step(true, 0, &mut n)); // still up with nobody waiting
+        assert!(!prompt_guard_step(true, true, 0, &mut n)); // first look: may be a normal hide in progress
+        assert!(prompt_guard_step(true, true, 0, &mut n)); // still up with nobody waiting
         n = 1;
-        assert!(!prompt_guard_step(true, 2, &mut n)); // a request waits: leave it
+        assert!(!prompt_guard_step(true, true, 2, &mut n)); // shown for a waiting request: leave it
         assert_eq!(n, 0);
-        assert!(!prompt_guard_step(false, 0, &mut n)); // hidden: nothing to do
+        assert!(!prompt_guard_step(false, false, 0, &mut n)); // hidden: nothing to do
+        // On screen although never asked for (a blank box), even with a request waiting.
+        assert!(!prompt_guard_step(true, false, 1, &mut n));
+        assert!(prompt_guard_step(true, false, 1, &mut n));
     }
 
     #[test]

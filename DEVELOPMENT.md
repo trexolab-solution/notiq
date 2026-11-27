@@ -66,7 +66,6 @@ Spins up a Docker container (defined in `docker/Dockerfile.linux`) that produces
 | Markdown rendering | [react-markdown](https://github.com/remarkjs/react-markdown) + remark-gfm + rehype-highlight + rehype-katex |
 | Diagrams | [Mermaid](https://mermaid.js.org/) |
 | Whiteboard | [Excalidraw](https://excalidraw.com/) |
-| Knowledge graph | [3d-force-graph](https://github.com/vasturiano/3d-force-graph) (via [react-kapsule](https://github.com/vasturiano/react-kapsule)) + Three.js |
 | Terminal | [xterm.js](https://xtermjs.org/) + portable-pty (Rust) for local shells, [russh](https://github.com/warp-tech/russh) for built-in SSH |
 | AI | [Ollama](https://ollama.com/) Cloud + Local and [OpenRouter](https://openrouter.ai/) (OpenAI-compatible) via Rust `reqwest` |
 | Secret storage | OS keychain via [keyring](https://crates.io/crates/keyring) (Rust) |
@@ -88,14 +87,13 @@ notiq/
 │   ├── components/
 │   │   ├── ai/                   # AI chat panel + onboarding wizard
 │   │   ├── editor/               # Monaco editor, preview, toolbar, split view
-│   │   ├── graph/                # 3D force-directed knowledge graph
 │   │   ├── layout/               # Sidebar, TabBar, StatusBar, titlebar, menus
 │   │   ├── whiteboard/           # Excalidraw canvas integration
 │   │   ├── sticky-note/          # Sticky note window + sticky notes list
 │   │   ├── terminal/             # Embedded xterm.js terminal (multi-session)
 │   │   └── ui/                   # Reusable components (Button, Modal, Toast, etc.)
 │   ├── store/                    # Zustand store (tabs, prefs, sticky notes)
-│   ├── lib/                      # Utilities (file I/O, session, themes, graph, PDF)
+│   ├── lib/                      # Utilities (file I/O, session, themes, PDF)
 │   │   └── ai/                   # AI client, prompts, actions, inline completions
 │   ├── hooks/                    # React hooks (shortcuts, session, scroll sync)
 │   ├── types/                    # TypeScript type definitions
@@ -131,11 +129,11 @@ notiq/
 ┌────────────────────────▼─────────────────────────────────┐
 │                   React 18 Frontend                      │
 │                                                          │
-│  ┌─────────┐  ┌──────────────┐  ┌────────────────────┐  │
-│  │ TabBar  │  │   Editor     │  │  Knowledge Graph   │  │
-│  │ (dnd-   │  │  (Monaco +   │  │  (3D force-graph)  │  │
-│  │  kit)   │  │   Preview)   │  │                    │  │
-│  └─────────┘  └──────────────┘  └────────────────────┘  │
+│  ┌─────────┐  ┌──────────────┐                          │
+│  │ TabBar  │  │   Editor     │                          │
+│  │ (dnd-   │  │  (Monaco +   │                          │
+│  │  kit)   │  │   Preview)   │                          │
+│  └─────────┘  └──────────────┘                          │
 │  ┌─────────┐  ┌──────────────┐  ┌────────────────────┐  │
 │  │Sidebar  │  │  Whiteboard  │  │     Terminal       │  │
 │  │+ Themes │  │ (Excalidraw) │  │    (xterm.js)      │  │
@@ -144,7 +142,7 @@ notiq/
 │              ┌──────────▼──────────┐                     │
 │              │   Zustand Store     │                     │
 │              │  tabs · theme ·     │                     │
-│              │  prefs · graph      │                     │
+│              │  prefs              │                     │
 │              └──────────┬──────────┘                     │
 │                         │                                │
 │              ┌──────────▼──────────┐                     │
@@ -157,7 +155,7 @@ notiq/
 **Key design decisions:**
 
 - **Debounced persistence** — content changes are batched (300ms) before writing to IndexedDB to avoid excessive writes
-- **Lazy-loaded views** — Whiteboard, Knowledge Graph, and Terminal are code-split and loaded on demand
+- **Lazy-loaded views** — Whiteboard and Terminal are code-split and loaded on demand
 - **Session hydration before render** — the window stays hidden until IndexedDB restores the previous session, preventing visual flash
 - **Single instance** — Tauri enforces one running instance; opening a file externally sends it to the existing window
 - **Vault sync is encrypted client-side** — the vault is sealed on the PC before the Rust sync module uploads it to Drive's app-data folder; Google never sees plaintext

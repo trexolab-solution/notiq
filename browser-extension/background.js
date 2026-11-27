@@ -1192,8 +1192,8 @@ chrome.runtime.onMessage.addListener((msg, sender, send) => {
   return true;
 });
 // ---------- passkeys (experimental) ----------
-// Off by default; the popup's "Save and use passkeys with Notiq (experimental)" turns it on and asks for the
-// optional host access that scripting.registerContentScripts needs (content_scripts matches alone are not enough;
+// On by default; the popup's "Save and use passkeys with Notiq (experimental)" turns it off. It needs the
+// host access that scripting.registerContentScripts needs (content_scripts matches alone are not enough;
 // turning the switch off gives it back). Only with both are passkey-page.js (MAIN world: wraps navigator.credentials) and passkey-bridge.js (isolated world) registered,
 // for https pages and http://localhost, at document_start in every frame. Requests from the bridge are checked
 // here: the setting is still on, the tab is active, the frame is the top page or a same-origin subframe (all
@@ -1210,7 +1210,7 @@ const PASSKEY_MAX_MESSAGE = 40 * 1024;
 const passkeysInFlight = new Set();
 
 async function passkeysOn() {
-  try { return (await chrome.storage.local.get({ [PASSKEY_SETTING]: false }))[PASSKEY_SETTING] === true; } catch { return false; }
+  try { return (await chrome.storage.local.get({ [PASSKEY_SETTING]: true }))[PASSKEY_SETTING] === true; } catch { return false; }
 }
 
 // Registers or removes the two page scripts to match the setting (serialized: settings can flip quickly).
@@ -1219,7 +1219,7 @@ function syncPasskeyScripts() {
   passkeySync = passkeySync.then(async () => {
     const S = chrome.scripting;
     if (!S || typeof S.registerContentScripts !== "function") return;
-    // Registered scripts need host access (optional_host_permissions, asked for when the switch is turned on).
+    // Registered scripts need host access (the manifest asks for it; a browser may let the user withhold it).
     let granted = false;
     try { granted = await chrome.permissions.contains({ origins: PASSKEY_MATCHES }); } catch { granted = false; }
     const on = granted && await passkeysOn();

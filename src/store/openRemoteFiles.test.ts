@@ -23,7 +23,7 @@ const st = () => useAppStore.getState();
 const web = { path: "C:/v/web.nqv", auth: "key" as const, title: "web" };
 
 beforeEach(() => {
-  useAppStore.setState({ tabs: [], activeTabId: null, activeView: "graph" });
+  useAppStore.setState({ tabs: [], activeTabId: null });
   saved.length = 0;
 });
 
@@ -36,7 +36,6 @@ describe("openRemoteFiles", () => {
     expect(files[0]).toMatchObject({ title: "Files · web", remote: { path: web.path, auth: "key" }, content: "", isDirty: false });
     expect(files[0].filePath).toBeUndefined();
     expect(st().activeTabId).toBe(files[0].id);
-    expect(st().activeView).toBe("editor");
   });
 
   it("focuses the tab it already has for that server and sign-in, but opens another for a different one", () => {

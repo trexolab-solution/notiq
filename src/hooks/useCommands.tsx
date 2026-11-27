@@ -8,9 +8,10 @@ import type { Command } from "../components/ui/CommandPalette";
 import { useAppStore } from "../store";
 import { useVaultStore } from "../store/vaultStore";
 import { createVaultEntry, NEW_ENTRY_OPTIONS } from "../lib/vaultCreate";
-import type { Tab, AppView, ThemeId } from "../types";
+import type { Tab, ThemeId } from "../types";
 import { THEMES } from "../lib/themes";
 import { getActiveEditor } from "../lib/activeEditor";
+import { aiBlockedFor } from "../lib/ai/access";
 import { aiContinue, aiSummarize, aiFixGrammar, aiGenerateTitle } from "../lib/ai/actions";
 import { SECTION_LABELS, SECTION_ORDER, type SectionId } from "../lib/settingsIndex";
 import { buildSyncCommands } from "../lib/syncCommands";
@@ -25,7 +26,6 @@ interface UseCommandsDeps {
   aiEnabled: boolean;
   addTab: (overrides?: Partial<Tab>) => void;
   setActiveTab: (id: string) => void;
-  setActiveView: (view: AppView) => void;
   handleNewWhiteboard: () => void;
   handleOpenMultiple: () => Promise<void>;
   handleOpenFolder: () => Promise<void>;
@@ -45,7 +45,7 @@ interface UseCommandsDeps {
 export function useCommands(deps: UseCommandsDeps): () => Command[] {
   const {
     tabs, activeTabId, aiEnabled,
-    addTab, setActiveTab, setActiveView,
+    addTab, setActiveTab,
     handleNewWhiteboard, handleOpenMultiple, handleOpenFolder,
     saveTabToFile, setTheme, toggleAiChat, onOpenSettings, openSettings, onOpenSearch,
   } = deps;
@@ -62,7 +62,7 @@ export function useCommands(deps: UseCommandsDeps): () => Command[] {
         hint: t.filePath ? t.filePath.replace(/\\/g, "/").split("/").slice(-2).join("/") : undefined,
         trailing: t.id === activeTabId ? "current" : undefined,
         icon: t.kind === "settings" ? <SettingsIcon size={14} /> : t.kind === "files" ? <FolderOpen size={14} /> : <FileIcon size={14} />,
-        run: () => { setActiveView("editor"); setActiveTab(t.id); },
+        run: () => setActiveTab(t.id),
       });
     }
 
@@ -74,8 +74,6 @@ export function useCommands(deps: UseCommandsDeps): () => Command[] {
       { id: "act:open", label: "Open File(s)", group: "Actions", icon: <FolderOpen size={14} />, trailing: "Ctrl+O", run: handleOpenMultiple },
       { id: "act:open-folder", label: "Open Folder", group: "Actions", icon: <FolderOpen size={14} />, run: handleOpenFolder },
       { id: "act:save", label: "Save", group: "Actions", icon: <Save size={14} />, trailing: "Ctrl+S", run: () => { if (activeTabId) saveTabToFile(activeTabId); } },
-      { id: "act:graph", label: "Knowledge Graph", group: "Actions", icon: <NetworkIcon size={14} />, run: () => setActiveView("graph") },
-      { id: "act:editor", label: "Editor View", group: "Actions", icon: <FileIcon size={14} />, run: () => setActiveView("editor") },
       { id: "act:chat", label: "Toggle AI Chat", group: "Actions", icon: <ChatIcon size={14} />, run: toggleAiChat },
       ...NEW_ENTRY_OPTIONS.map((o) => ({
         id: `vault:new-${o.kind}`, label: `Vault: New ${o.label}`, group: "Vault", icon: <LockIcon size={14} />,
@@ -106,7 +104,7 @@ export function useCommands(deps: UseCommandsDeps): () => Command[] {
     }
 
     // AI actions (only when an editor exists + AI is on)
-    if (aiEnabled && getActiveEditor()) {
+    if (aiEnabled && getActiveEditor() && !aiBlockedFor(getActiveEditor()?.getModel())) {
       cmds.push(
         { id: "ai:continue", label: "AI: Continue Writing", group: "AI", icon: <PenLine size={14} />, run: () => { const e = getActiveEditor(); if (e) void aiContinue(e); } },
         { id: "ai:summarize", label: "AI: Summarize Note", group: "AI", icon: <FileIcon size={14} />, run: () => { const e = getActiveEditor(); if (e) void aiSummarize(e); } },
@@ -127,5 +125,5 @@ export function useCommands(deps: UseCommandsDeps): () => Command[] {
     }
 
     return cmds;
-  }, [tabs, activeTabId, aiEnabled, addTab, setActiveTab, setActiveView, handleNewWhiteboard, handleOpenMultiple, handleOpenFolder, saveTabToFile, setTheme, toggleAiChat, onOpenSettings, openSettings, onOpenSearch]);
+  }, [tabs, activeTabId, aiEnabled, addTab, setActiveTab, handleNewWhiteboard, handleOpenMultiple, handleOpenFolder, saveTabToFile, setTheme, toggleAiChat, onOpenSettings, openSettings, onOpenSearch]);
 }

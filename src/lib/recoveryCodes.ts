@@ -16,21 +16,26 @@ const MAX_CODE_LEN = 128;
 export const emptyCodes = (title = ""): CodesEntry => ({ v: 1, kind: "codes", title, service: "", codes: [], notes: "" });
 export const serializeCodes = (e: CodesEntry): string => JSON.stringify(e);
 
+/** Tolerant parse of a stored code list: anything that isn't a list becomes []; blanks dropped, count capped. */
+export function parseCodeList(v: unknown): RecoveryCode[] {
+  const codes: RecoveryCode[] = [];
+  if (!Array.isArray(v)) return codes;
+  for (const c of v as unknown[]) {
+    // Tolerate a plain string list as well as {code, used} objects.
+    const raw: unknown = typeof c === "string" ? c : c && typeof c === "object" ? (c as RecoveryCode).code : "";
+    const code = typeof raw === "string" ? raw.trim() : "";
+    if (!code) continue;
+    codes.push({ code: code.slice(0, MAX_CODE_LEN), used: typeof c === "object" && (c as RecoveryCode).used === true });
+    if (codes.length >= MAX_CODES) break;
+  }
+  return codes;
+}
+
 export function parseCodes(raw: string): CodesEntry {
   try {
     const o = JSON.parse(raw) as Partial<CodesEntry>;
     const s = (v: unknown) => (typeof v === "string" ? v : "");
-    const codes: RecoveryCode[] = [];
-    if (Array.isArray(o.codes)) {
-      for (const c of o.codes as unknown[]) {
-        // Tolerate a plain string list as well as {code, used} objects.
-        const code = typeof c === "string" ? c : c && typeof c === "object" ? s((c as RecoveryCode).code) : "";
-        if (!code.trim()) continue;
-        codes.push({ code: code.trim().slice(0, MAX_CODE_LEN), used: typeof c === "object" && (c as RecoveryCode).used === true });
-        if (codes.length >= MAX_CODES) break;
-      }
-    }
-    return { v: 1, kind: "codes", title: s(o.title), service: s(o.service), codes, notes: s(o.notes) };
+    return { v: 1, kind: "codes", title: s(o.title), service: s(o.service), codes: parseCodeList(o.codes), notes: s(o.notes) };
   } catch {
     return emptyCodes();
   }

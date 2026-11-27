@@ -5,7 +5,7 @@
 <h1 align="center">Notiq</h1>
 
 <p align="center">
-  A fast, local-first Markdown editor with an encrypted vault, a whiteboard and a knowledge graph.<br/>
+  A fast, local-first Markdown editor with an encrypted vault and a whiteboard.<br/>
   No accounts. No telemetry. Everything stays on your computer.
 </p>
 
@@ -38,7 +38,7 @@ Notiq is a desktop app for notes, secrets and servers that you want to keep on y
 | **Vault Sync** | Optional. Use one vault on all your PCs, end-to-end encrypted through your own Google Drive. Off until you turn it on. |
 | **Browser autofill** | A browser extension fills logins and passkeys; every request is approved in Notiq. |
 | **SSH terminal and file manager** | Built-in SSH client, nothing to install. Open a saved server in a terminal, or in a file manager over SFTP: browse, edit files, drag and drop, folders, Trash, reconnect. |
-| **Whiteboard and graph** | An Excalidraw canvas beside your notes, and a knowledge graph of your `[[links]]`. |
+| **Whiteboard** | An Excalidraw canvas beside your notes. |
 | **Terminal, sticky notes, command palette** | A shell under your notes, sticky notes that float above other windows, and `Ctrl+Shift+P` for everything. |
 | **AI, only if you want it** | Off by default. Run it locally with Ollama, or use Ollama Cloud or OpenRouter with your own key. |
 

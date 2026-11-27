@@ -1,20 +1,19 @@
 import { ClipboardPaste, Download, Eye, EyeOff, FilePlus, FileX, FolderPlus, FolderUp, Pencil, Scissors, ShieldCheck, SquareArrowOutUpRight, Trash2, Upload } from "lucide-react";
 import { RowIconButton } from "../../vault/ListEditor";
 import { ViewSwitcher } from "../ViewSwitcher";
-import type { FilesView, GridSize } from "../../../lib/filesPrefs";
+import type { FilesView } from "../../../lib/filesPrefs";
 import type { RemoteEntry } from "../../../lib/sftp";
 
 /** The "File actions" toolbar: upload / download, new, cut / paste, rename / permissions / delete, and view options. */
 export function RemoteActionsToolbar({
-  picked, pickedFiles, trashOn, showHidden, view, gridSize, onUpload, onUploadFolder, onDownload, onNewFolder, onNewFile,
-  onCut, onPaste, onRename, onPermissions, onDelete, onToggleHidden, onView, onSize, onPopOut,
+  picked, pickedFiles, trashOn, showHidden, view, onUpload, onUploadFolder, onDownload, onNewFolder, onNewFile,
+  onCut, onPaste, onRename, onPermissions, onDelete, onToggleHidden, onView, onPopOut,
 }: {
   picked: RemoteEntry[];
   pickedFiles: RemoteEntry[];
   trashOn: boolean;
   showHidden: boolean;
   view: FilesView;
-  gridSize: GridSize;
   onUpload: () => void;
   onUploadFolder: () => void;
   onDownload: () => void;
@@ -27,7 +26,6 @@ export function RemoteActionsToolbar({
   onDelete: () => void;
   onToggleHidden: () => void;
   onView: (v: FilesView) => void;
-  onSize: (v: GridSize) => void;
   onPopOut?: () => void;
 }) {
   return (
@@ -53,7 +51,7 @@ export function RemoteActionsToolbar({
       <span className="w-px h-5 mx-1.5 bg-[var(--color-border)] max-lg:ml-auto" aria-hidden />
       <RowIconButton label={showHidden ? "Hide dot files" : "Show dot files"} icon={showHidden ? <Eye size={15} /> : <EyeOff size={15} />}
                      pressed={showHidden} onClick={onToggleHidden} />
-      <ViewSwitcher view={view} size={gridSize} onView={onView} onSize={onSize} />
+      <ViewSwitcher view={view} onView={onView} />
       {onPopOut && <RowIconButton label="Open in new window" icon={<SquareArrowOutUpRight size={15} />} onClick={onPopOut} />}
     </div>
   );

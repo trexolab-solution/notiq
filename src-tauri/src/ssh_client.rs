@@ -41,6 +41,19 @@ pub enum Cmd {
 /// Where the session's output goes (the terminal).
 pub trait Sink: Send + Sync {
     fn out(&self, data: &[u8]);
+
+    /// A host Notiq hasn't trusted yet. `true` means the user has already approved exactly this key elsewhere
+    /// (the file manager's prompt); otherwise the question is asked in the terminal.
+    fn approve_host(&self, _host: &UnknownHost) -> bool { false }
+}
+
+/// What the user is shown before trusting a server for the first time.
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct UnknownHost {
+    pub host: String,
+    pub port: u16,
+    pub alg: String,
+    pub fp: String,
 }
 
 fn say(sink: &dyn Sink, text: &str) {
@@ -265,6 +278,10 @@ impl client::Handler for Hk {
                 Ok(false)
             }
             Known::Unknown => {
+                if sink.approve_host(&UnknownHost { host: self.host.clone(), port: self.port, alg: alg.clone(), fp: fp.clone() }) {
+                    self.known.remember(&self.host, self.port, &alg, &fp)?;
+                    return Ok(true);
+                }
                 say(&*sink, &format!(
                     "The authenticity of host '{}' (port {}) can't be established.\r\n{alg} key fingerprint is {fp}.\r\nAre you sure you want to continue connecting (yes/no)? ",
                     self.host, self.port));

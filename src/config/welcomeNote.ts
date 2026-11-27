@@ -61,7 +61,7 @@ ${shot("ssh", "An SSH server item with its command and Open in terminal button")
 - **Browser autofill** — a browser extension fills logins and passkeys; every request is approved in Notiq.
 - **Vault Sync** — optional. Use one vault on all your PCs, end-to-end encrypted through your own Google Drive.
 - **Share items and backups** — send chosen items to someone as a password-protected file with rules (expiry, number of imports), or keep a backup file.
-- **Whiteboard and graph** — an Excalidraw canvas beside your notes (\`Ctrl+3\`) and a knowledge graph of your links.
+- **Whiteboard** — an Excalidraw canvas beside your notes (\`Ctrl+3\`).
 - **Terminal, sticky notes and command palette** — a shell under your notes, notes that float above other windows, and \`Ctrl+Shift+P\` for every command.
 - **AI, only if you want it** — off by default. Run it locally with Ollama, or use Ollama Cloud or OpenRouter with your own key.
 

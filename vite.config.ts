@@ -18,13 +18,6 @@ export default defineConfig(async () => ({
 
   clearScreen: false,
 
-  optimizeDeps: {
-    include: ["3d-force-graph", "react-kapsule", "three"],
-    // The umbrella react-force-graph imports 3d-force-graph-vr which calls
-    // AFRAME.registerComponent at module load — crashes without A-Frame runtime.
-    exclude: ["react-force-graph"],
-  },
-
   server: {
     port: 1420,
     strictPort: true,

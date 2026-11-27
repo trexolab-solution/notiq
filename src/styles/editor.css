@@ -647,27 +647,6 @@
   padding: 0 1px;
 }
 
-/* ── React Flow overrides ─────────────────────────────────────────────────── */
-
-/* Knowledge Graph — reset all RF defaults (nodes are fully custom) */
-.kg-flow .react-flow__node {
-  padding: 0 !important;
-  border: none !important;
-  background: transparent !important;
-  border-radius: 0 !important;
-  box-shadow: none !important;
-  font-size: unset !important;
-}
-.kg-flow .react-flow__handle {
-  width: 6px !important;
-  height: 6px !important;
-  border-radius: 50% !important;
-  background: transparent !important;
-  border: none !important;
-  opacity: 0 !important;
-  pointer-events: none !important;
-}
-
 /* Whiteboard — reset RF node wrapper, show handles on hover/select */
 .wb-flow .react-flow__node {
   padding: 0 !important;

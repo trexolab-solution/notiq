@@ -15,11 +15,12 @@ export const GeneralSection = React.memo(function GeneralSection() {
   // so we read it asynchronously on mount and reflect changes via enable/disable.
   const [autostart, setAutostart] = useState<boolean>(false);
   const [busy,      setBusy]      = useState<boolean>(false);
+  const [loaded,    setLoaded]    = useState<boolean>(false);
 
   useEffect(() => {
     let cancelled = false;
     isEnabled()
-      .then((v) => { if (!cancelled) setAutostart(v); })
+      .then((v) => { if (!cancelled) { setAutostart(v); setLoaded(true); } })
       .catch(() => { /* dev / portable build — ignore */ });
     return () => { cancelled = true; };
   }, []);
@@ -44,8 +45,8 @@ export const GeneralSection = React.memo(function GeneralSection() {
   return (
     <div className="settings-section-body">
       <SettingsGroup id="general.startup" title="Startup">
-        {/* Off is the OS default, so "on" counts as modified. */}
-        <SettingRow {...m("general.startup.launch")} modified={autostart} onReset={() => handleAutostartToggle(false)}>
+        {/* Notiq turns this on at first run, so "off" counts as modified. Not known until read, nor in a dev build. */}
+        <SettingRow {...m("general.startup.launch")} modified={loaded && !autostart && !import.meta.env.DEV} onReset={() => handleAutostartToggle(true)}>
           <Toggle value={autostart} onChange={handleAutostartToggle} aria-label="Launch at sign-in" />
         </SettingRow>
       </SettingsGroup>

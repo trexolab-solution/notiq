@@ -2,7 +2,9 @@ import type { Tab } from "../../types";
 import { isVaultPath } from "../../lib/vault";
 import { scrubMonacoModels } from "../../lib/vaultMemory";
 import { cleanupTabTemp } from "../../lib/attachments";
-import { debounceContentPersist, debounceGraphRebuild, makeTab } from "./helpers";
+import { setCodeDraft } from "../../lib/codeDrafts";
+import { forgetEntryTab } from "../../lib/entryUi";
+import { debounceContentPersist, makeTab } from "./helpers";
 import type { SliceContext } from "./context";
 import type { AppState } from "./state";
 
@@ -23,7 +25,6 @@ export function createTabsSlice({ set, get, persist, updateTab }: SliceContext):
       const { defaultEditorMode } = get();
       const tab = makeTab({ editorMode: defaultEditorMode, ...overrides });
       set((s) => ({ tabs: [...s.tabs, tab], activeTabId: tab.id, sessionReady: true }));
-      debounceGraphRebuild(() => get().rebuildGraph());
       persist();
     },
 
@@ -33,6 +34,8 @@ export function createTabsSlice({ set, get, persist, updateTab }: SliceContext):
       // Pinned tabs cannot be closed — unpin first
       if (target.isPinned) return;
       if (target.kind === "settings") set({ settingsTarget: null });
+      setCodeDraft(id, "");
+      forgetEntryTab(id);
       // Clean up whiteboard-specific localStorage when a whiteboard tab is closed
       if (target.kind === "whiteboard") {
         try { localStorage.removeItem(`smart-note:wb-${id}`); } catch { /* ignore */ }
@@ -52,7 +55,6 @@ export function createTabsSlice({ set, get, persist, updateTab }: SliceContext):
         }
         return { tabs, activeTabId };
       });
-      debounceGraphRebuild(() => get().rebuildGraph());
       persist();
     },
 
@@ -77,14 +79,12 @@ export function createTabsSlice({ set, get, persist, updateTab }: SliceContext):
 
       updateTab(id, changes);
       debounceContentPersist(persist);
-      debounceGraphRebuild(() => get().rebuildGraph());
     },
 
     updateTabTitle(id, title) {
       const kind = get().tabs.find((t) => t.id === id)?.kind;
       if (kind === "settings" || kind === "files") return; // not renameable
       updateTab(id, { title, isPreview: false, updatedAt: Date.now() });
-      debounceGraphRebuild(() => get().rebuildGraph());
       persist();
     },
 

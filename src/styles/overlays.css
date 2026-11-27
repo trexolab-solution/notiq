@@ -133,31 +133,6 @@
   animation: vl-fade-in 0.2s ease-out;
 }
 
-/* Full-area background SVG / canvas skeleton */
-.vl-bg {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  pointer-events: none;
-}
-
-/* Graph skeleton nodes pulse */
-.vl-graph-node {
-  fill: var(--color-primary);
-  animation: vl-pulse 2.4s ease-in-out infinite;
-}
-.vl-graph-node:nth-child(odd)  { animation-delay: 0s; }
-.vl-graph-node:nth-child(even) { animation-delay: 0.8s; }
-
-/* Graph skeleton edges */
-.vl-graph-edge {
-  stroke: var(--color-border);
-  stroke-width: 0.8;
-  fill: none;
-  animation: vl-pulse-slow 2.4s ease-in-out infinite;
-}
-
 /* Whiteboard dot-grid background */
 .vl-wb-grid {
   position: absolute;

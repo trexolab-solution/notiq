@@ -4,6 +4,9 @@ import { isVaultPath, vaultRename, vaultWriteFile, vaultErrorMessage } from "../
 import { sweepUnusedVaultImages } from "../../lib/vaultImageSweep";
 import { entryTitleOf, isStructuredExt, withEntryTitle } from "../../lib/entryName";
 import { planEntryRename } from "../../lib/entrySync";
+import { applyCodeDraft, getCodeDraft, hasCodeDraft, setCodeDraft } from "../../lib/codeDrafts";
+import { MAX_CODES } from "../../lib/recoveryCodes";
+import { setEntryEditing } from "../../lib/entryUi";
 import { migrateTempToSaveDir } from "../../lib/attachments";
 import { toast } from "../../lib/toast";
 import { useVaultStore } from "../vaultStore";
@@ -49,12 +52,24 @@ export function createSaveTab({ get, persist, updateTab }: Omit<SliceContext, "s
     updateTab(tab.id, {
       vaultExt: ext,
       attachments,
-      ...(untouched ? { content, isDirty: false } : {}),
+      ...(untouched ? { content, isDirty: hasCodeDraft(tab.id) } : {}),
       updatedAt: Date.now(),
     });
-    get().rebuildGraph();
+    // Saved with nothing left over: the form goes back to view mode.
+    if (untouched && !hasCodeDraft(tab.id)) setEntryEditing(tab.id, false);
     persist();
     return true;
+  };
+
+  /** Adds recovery codes still waiting in the entry's box to the entry, and returns the tab to save. */
+  const withPendingCodes = (tab: Tab, ext: string): Tab => {
+    if (!hasCodeDraft(tab.id)) return tab;
+    const cur = get().tabs.find((t) => t.id === tab.id) ?? tab;
+    const r = applyCodeDraft(ext, cur.content, getCodeDraft(tab.id));
+    setCodeDraft(tab.id, r.leftover.join("\n"));
+    if (r.leftover.length) toast.warning(`${r.leftover.length} code(s) weren't saved: an entry holds at most ${MAX_CODES}`);
+    if (r.content !== cur.content) updateTab(tab.id, { content: r.content });
+    return { ...cur, content: r.content };
   };
 
   /** Shared save implementation — `forcePickPath` forces a Save-As dialog. */
@@ -87,7 +102,9 @@ export function createSaveTab({ get, persist, updateTab }: Omit<SliceContext, "s
     if (isVaultPath(path)) {
       if (!(await useVaultStore.getState().ensureUnlocked())) return false;
       vaultExt = vaultExt ?? "md";
-      if (isStructuredExt(vaultExt)) return saveStructuredEntry(tab, path, vaultExt, migratedAttachments);
+      if (isStructuredExt(vaultExt)) {
+        return saveStructuredEntry(withPendingCodes(tab, vaultExt), path, vaultExt, migratedAttachments);
+      }
       try {
         await vaultWriteFile(path, tab.content, vaultExt);
       } catch (e) {
@@ -108,7 +125,6 @@ export function createSaveTab({ get, persist, updateTab }: Omit<SliceContext, "s
       updatedAt: Date.now(),
       attachments: migratedAttachments,
     });
-    get().rebuildGraph();
     persist();
     return true;
   };

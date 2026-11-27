@@ -1,7 +1,6 @@
 export type EditorMode = "markdown" | "preview" | "split";
 /** "settings" is the singleton Settings editor tab (no file, never dirty, no content). */
 export type TabKind    = "note" | "whiteboard" | "settings" | "files";
-export type AppView    = "editor" | "graph";
 
 export type AutoClosingBrackets  = "always" | "beforeWhitespace" | "never";
 export type RenderWhitespace     = "none" | "boundary" | "selection" | "trailing" | "all";
@@ -84,23 +83,6 @@ export interface Tab {
   transient?: boolean;
   /** `files` tab: which saved SSH entry it browses and how it signs in (no secrets; the backend reads them). Never persisted. */
   remote?: { path: string; auth: "key" | "password" };
-}
-
-export interface GraphNode {
-  id: string;
-  name: string;
-  tabId?: string;
-  val?: number;
-}
-
-export interface GraphLink {
-  source: string;
-  target: string;
-}
-
-export interface GraphData {
-  nodes: GraphNode[];
-  links: GraphLink[];
 }
 
 export interface SessionData {

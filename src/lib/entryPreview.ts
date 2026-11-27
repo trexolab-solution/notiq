@@ -1,6 +1,6 @@
 import { LOGIN_EXT, parseLogin } from "./loginEntry";
 import { parseSecret, SECRET_KINDS } from "./secretEntry";
-import { CODES_EXT, parseCodes } from "./recoveryCodes";
+import { CODES_EXT, parseCodes, type RecoveryCode } from "./recoveryCodes";
 import type { CustomField } from "./customFields";
 import { parseKeyFiles } from "./sshKeyImport";
 
@@ -9,6 +9,11 @@ export interface PreviewRow { label: string; value: string; secret: boolean }
 
 const customRows = (c: CustomField[] | undefined): PreviewRow[] =>
   (c ?? []).map((f) => ({ label: f.label || "Custom field", value: f.value, secret: f.secret }));
+
+const codeRows = (codes: RecoveryCode[], label: string): PreviewRow[] => [
+  { label: `${label} (${codes.filter((c) => !c.used).length} of ${codes.length} unused)`,
+    value: codes.map((c) => (c.used ? `${c.code} (used)` : c.code)).join("\n"), secret: true },
+];
 
 /** Turns stored entry content into labelled rows (empty values dropped). Unknown types show the raw text. */
 export function previewRows(ext: string, content: string): PreviewRow[] {
@@ -22,6 +27,7 @@ export function previewRows(ext: string, content: string): PreviewRow[] {
       { label: "Username", value: e.username, secret: false },
       { label: "Password", value: e.password, secret: true },
       { label: "2-step secret", value: e.totp, secret: true },
+      ...codeRows(e.recovery ?? [], "Recovery codes"),
       { label: "Notes", value: e.notes, secret: false },
       ...customRows(e.custom),
     ];
@@ -30,8 +36,7 @@ export function previewRows(ext: string, content: string): PreviewRow[] {
     rows = [
       { label: "Name", value: e.title, secret: false },
       { label: "Service", value: e.service, secret: false },
-      { label: `Codes (${e.codes.filter((c) => !c.used).length} of ${e.codes.length} unused)`,
-        value: e.codes.map((c) => (c.used ? `${c.code} (used)` : c.code)).join("\n"), secret: true },
+      ...codeRows(e.codes, "Codes"),
       { label: "Notes", value: e.notes, secret: false },
     ];
   } else if (SECRET_KINDS[ext]) {

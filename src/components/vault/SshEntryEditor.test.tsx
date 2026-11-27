@@ -41,6 +41,7 @@ vi.mock("../../lib/toast", () => ({
 const { SshEntryEditor } = await import("./SshEntryEditor");
 const { useAppStore } = await import("../../store");
 const { useVaultStore } = await import("../../store/vaultStore");
+const { setEntryEditing, useEntryUi } = await import("../../lib/entryUi");
 const { clearDropTargets, dropAt } = await import("../../lib/dropTargets");
 const { VAULT_HIDE_SECRETS_EVENT } = await import("../../hooks/useAutoHide");
 type Tab = import("../../types").Tab;
@@ -69,6 +70,8 @@ function Host() {
 }
 
 async function render(content = OLD) {
+  useEntryUi.setState({ editing: {}, sections: {} });
+  setEntryEditing("t1", true);
   useAppStore.setState({ tabs: [makeTab(content)], activeTabId: "t1" });
   await act(async () => { root.render(<Host />); });
   await flush();
@@ -174,9 +177,22 @@ describe("SshEntryEditor", () => {
   it("keeps the replaced key when a new private key is imported", async () => {
     await render(JSON.stringify({ v: 1, kind: "ssh", title: "x", fields: { privateKey: "-----BEGIN RSA PRIVATE KEY-----\nMIIE\n-----END RSA PRIVATE KEY-----" } }));
     dialogOpen.mockResolvedValue("C:/keys/id_ed25519");
+    // With a key saved, Generate and Import are closed until the replacement is confirmed by typing.
+    expect(byText("Import files")).toBeUndefined();
+    expect(byText("Generate key")).toBeUndefined();
+    await click(byText("Replace key"));
+    const confirm = () => byText("Continue") as HTMLButtonElement;
+    expect(confirm().disabled).toBe(true);
+    await act(async () => {
+      const word = q<HTMLInputElement>("#confirm-word")!;
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(word, "REPLACE");
+      word.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await click(confirm());
     await click(byText("Import files"));
     expect(priv().value).toBe(ED25519_PRIV);
     expect(q("[data-key-files]")!.textContent).toContain("Previous private key");
+    expect(byText("Replace key")).toBeTruthy(); // closed again after one replacement
   });
 
   it("removes a listed file with Undo", async () => {

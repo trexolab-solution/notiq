@@ -5,6 +5,7 @@ import type { ContextMenuItem } from "../ui/ContextMenu";
 import { useAutoHide } from "../../hooks/useAutoHide";
 import { CopyIconButton } from "./CopyIconButton";
 import { Section } from "./EntryParts";
+import { useEntryReadOnly } from "./entryContext";
 import {
   AddRowButton, liftedRowClass, listBoxClass, listRowHoverClass, moveTo, reinsert, RowActions,
   rowButtonClass, RowDragHandle, RowIconButton, RowIconSpacer, RowMenuButton, SortableRows, useAnnouncer, useFieldError,
@@ -34,6 +35,7 @@ function FieldRow({ id, field, index, count, error, lifted, sortDescribedBy, onS
   lifted: boolean; sortDescribedBy: string; onSortKeyDown: (e: React.KeyboardEvent) => void;
   onChange: (f: CustomField) => void; onToggleSecret: () => void; onRemove: () => void; onEnterLast: () => void;
 }) {
+  const readOnly = useEntryReadOnly();
   const [show, setShow] = useState(false);
   useAutoHide(show, setShow);
   // A missing name is only flagged after the user has left the row's inputs once; duplicates show at once.
@@ -56,13 +58,15 @@ function FieldRow({ id, field, index, count, error, lifted, sortDescribedBy, onS
     <li data-list-row {...sortable.rowProps}
         className={`group flex items-start gap-1 pl-1 pr-2 py-2 ${listRowHoverClass} ${lifted || sortable.isDragging ? liftedRowClass : ""}`}>
       <div className="h-8 flex items-center">
-        <RowDragHandle label={`Reorder ${name}`} lifted={lifted} describedBy={sortDescribedBy}
-                       onKeyDown={onSortKeyDown} handleProps={sortable.handleProps} />
+        {readOnly ? <RowIconSpacer /> : (
+          <RowDragHandle label={`Reorder ${name}`} lifted={lifted} describedBy={sortDescribedBy}
+                         onKeyDown={onSortKeyDown} handleProps={sortable.handleProps} />
+        )}
       </div>
       {/* Name and value side by side, so a list of fields reads like a table. */}
       <div className="flex-1 min-w-0 grid grid-cols-1 @md:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] gap-2 items-start">
         <div className="min-w-0">
-          <Input data-row-focus aria-label={`Field name ${index + 1}`} value={field.label}
+          <Input data-row-focus readOnly={readOnly} aria-label={`Field name ${index + 1}`} value={field.label}
                  placeholder="Name" maxLength={MAX_CUSTOM_LABEL} spellCheck={false} autoComplete="off"
                  {...nameErr.inputProps} className={nameErr.errorClass}
                  onBlur={() => setTouched(true)}
@@ -81,12 +85,12 @@ function FieldRow({ id, field, index, count, error, lifted, sortDescribedBy, onS
               <Lock size={12} aria-hidden />
             </span>
           )}
-          <Input data-field-value aria-label={`Value of ${name}`} value={field.value} placeholder="Value" autoComplete="off"
+          <Input data-field-value readOnly={readOnly} aria-label={`Value of ${name}`} value={field.value} placeholder="Value" autoComplete="off"
                  spellCheck={false} type={field.secret && !show ? "password" : "text"}
                  className={`min-w-0 ${field.secret ? "font-mono !pl-7" : ""}`}
                  onBlur={() => setTouched(true)}
                  onChange={(e) => onChange({ ...field, value: e.target.value })}
-                 onKeyDown={(e) => { if (e.key === "Enter" && last) { e.preventDefault(); onEnterLast(); } }} />
+                 onKeyDown={(e) => { if (e.key === "Enter" && last && !readOnly) { e.preventDefault(); onEnterLast(); } }} />
         </div>
       </div>
       <RowActions className="h-8">
@@ -95,7 +99,7 @@ function FieldRow({ id, field, index, count, error, lifted, sortDescribedBy, onS
                          icon={show ? <EyeOff size={13} /> : <Eye size={13} />} onClick={() => setShow((v) => !v)} />
         ) : <RowIconSpacer />}
         <CopyIconButton value={field.value} label={`value of ${name}`} className={rowButtonClass} />
-        <RowMenuButton data-row-menu label={`More actions for ${name}`} menuLabel={`Actions for ${name}`} items={menu} />
+        {!readOnly && <RowMenuButton data-row-menu label={`More actions for ${name}`} menuLabel={`Actions for ${name}`} items={menu} />}
       </RowActions>
     </li>
   );
@@ -103,6 +107,7 @@ function FieldRow({ id, field, index, count, error, lifted, sortDescribedBy, onS
 
 /** "Custom fields" section: named values, each plain text or hidden (masked, auto-hidden), in the user's order. */
 export function CustomFieldsEditor({ value, onChange }: { value: CustomField[]; onChange: (next: CustomField[]) => void }) {
+  const readOnly = useEntryReadOnly();
   const { rootRef, focusAfter } = useListFocus();
   const { announce, region } = useAnnouncer();
   const undo = useUndoToast();
@@ -152,12 +157,12 @@ export function CustomFieldsEditor({ value, onChange }: { value: CustomField[]; 
 
   return (
     <Section title={value.length ? `Custom fields · ${value.length}` : "Custom fields"}
-             hint={value.length ? "Hidden values are masked and re-hide themselves; drag a row to reorder." : undefined}>
+             hint={value.length && !readOnly ? "Hidden values are masked and re-hide themselves; drag a row to reorder." : undefined}>
       <div ref={rootRef} className="flex flex-col gap-2">
         {region}
         {sort.instructions}
         {value.length === 0 ? (
-          <p className="text-xs text-[var(--color-text-muted)]">Keep anything else this entry needs: a customer ID, an account number, a security PIN. Hide the ones that are secret.</p>
+          <p className="text-xs text-[var(--color-text-muted)]">{readOnly ? "No custom fields." : "Keep anything else this entry needs: a customer ID, an account number, a security PIN. Hide the ones that are secret."}</p>
         ) : (
           <SortableRows sort={sort}>
             <ul aria-label="Custom fields" className={listBoxClass}>
@@ -173,9 +178,11 @@ export function CustomFieldsEditor({ value, onChange }: { value: CustomField[]; 
             </ul>
           </SortableRows>
         )}
-        <AddRowButton block atLimit={full} limitText={`Up to ${MAX_CUSTOM_FIELDS} custom fields`} onAdd={add}>
-          Add field
-        </AddRowButton>
+        {!readOnly && (
+          <AddRowButton block atLimit={full} limitText={`Up to ${MAX_CUSTOM_FIELDS} custom fields`} onAdd={add}>
+            Add field
+          </AddRowButton>
+        )}
       </div>
     </Section>
   );

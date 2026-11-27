@@ -6,6 +6,7 @@ import { Input } from "../ui/Input";
 import {
   AddRowButton, listBoxClass, listRowHoverClass, reinsert, RowActions, RowIconButton, useAnnouncer, useFieldError, useLatest, useListFocus, useUndoToast,
 } from "./ListEditor";
+import { useEntryReadOnly } from "./entryContext";
 import { extraUrlError, hostOf, MAX_LOGIN_URLS, type LoginEntry } from "../../lib/loginEntry";
 
 /**
@@ -13,6 +14,7 @@ import { extraUrlError, hostOf, MAX_LOGIN_URLS, type LoginEntry } from "../../li
  * Rows can be opened or removed (with Undo); new sites go through an inline, validated add box.
  */
 export function LoginSitesEditor({ entry, onChange }: { entry: LoginEntry; onChange: (urls: string[]) => void }) {
+  const readOnly = useEntryReadOnly();
   const [draft, setDraft] = useState("");
   const [err, setErr] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
@@ -71,8 +73,10 @@ export function LoginSitesEditor({ entry, onChange }: { entry: LoginEntry; onCha
                       <RowIconButton data-row-focus label={`Open ${host}`} icon={<ExternalLink size={13} />}
                                      onClick={() => { void openUrl(`https://${host}`); }} />
                     )}
-                    <RowIconButton danger data-row-focus={host ? undefined : ""} label={`Remove website ${u}`}
-                                   tooltip="Remove website" icon={<X size={13} />} onClick={() => remove(i)} />
+                    {!readOnly && (
+                      <RowIconButton danger data-row-focus={host ? undefined : ""} label={`Remove website ${u}`}
+                                     tooltip="Remove website" icon={<X size={13} />} onClick={() => remove(i)} />
+                    )}
                   </RowActions>
                 </li>
               );
@@ -80,7 +84,7 @@ export function LoginSitesEditor({ entry, onChange }: { entry: LoginEntry; onCha
           </ul>
         </>
       )}
-      {adding ? (
+      {readOnly ? null : adding ? (
         <div>
           <div className="flex flex-wrap items-center gap-1.5">
             <Input aria-label="New website for this login" value={draft} autoFocus spellCheck={false}

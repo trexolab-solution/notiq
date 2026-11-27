@@ -1,14 +1,27 @@
-import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { ChevronRight, CircleCheck, Eye, EyeOff, History, TriangleAlert, type LucideIcon } from "lucide-react";
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { ChevronRight, CircleCheck, Eye, EyeOff, History, Pencil, TriangleAlert, X, type LucideIcon } from "lucide-react";
 import { Button } from "../ui/Button";
 import { Tooltip } from "../ui/Tooltip";
 import { EntrySaveButton } from "./EntrySaveButton";
+import { EntryContext, useEntryContext, useEntryReadOnly } from "./entryContext";
+import { ConfirmDialog } from "../ui/ConfirmDialog";
+import { useAppStore } from "../../store";
+import { setEntryEditing, setEntrySection, useEntryEditing, useEntryUi } from "../../lib/entryUi";
+import { setCodeDraft } from "../../lib/codeDrafts";
+import { vaultErrorMessage, vaultReadFile } from "../../lib/vault";
+import { toast } from "../../lib/toast";
 import { HistoryPanel } from "./HistoryPanel";
 import { SyncChangeBanner, type CompareRequest } from "./SyncChangeBanner";
 import type { Tab } from "../../types";
 import { clipboardClearLabel, getClipboardClearSeconds } from "../../lib/vaultPrefs";
 
 /** Shared building blocks for the structured vault entry editors. */
+
+function useLatestRef<T>(value: T) {
+  const ref = useRef(value);
+  ref.current = value;
+  return ref;
+}
 
 export const fieldLabel = "block text-xs mb-1 text-[var(--color-text-muted)]";
 export const textArea = "w-full rounded-md px-2.5 py-2 text-sm bg-[var(--color-bg-tertiary)] border border-[var(--color-border)] outline-none focus:border-[var(--color-primary)] focus-visible:ring-2 focus-visible:ring-[var(--color-primary)]/40";
@@ -50,13 +63,16 @@ export function EntryLayout({ tab, children }: { tab: Tab; children: React.React
   const toggle = () => { setCompareReq(null); setOpenFor((id) => (id === tab.id ? null : tab.id)); };
   const compare = (req: CompareRequest) => { setCompareReq({ tabId: tab.id, req }); setOpenFor(tab.id); };
   const close = () => { setOpenFor(null); setCompareReq(null); };
+  const readOnly = !useEntryEditing(tab);
 
   return (
+    <EntryContext.Provider value={{ tabId: tab.id, path: tab.filePath, readOnly }}>
     <HistoryToggle.Provider value={{ open, toggle, scrolled, compare }}>
       <div ref={rootRef} data-tour="editor" className="relative flex-1 min-h-0 flex bg-[var(--color-editor-bg)]">
         {/* `data-entry-drop`: the area files can be dropped on to attach them (AttachmentsPanel), and the
             positioned box its drop highlight is drawn over. */}
-        <div data-entry-drop="" className="relative flex-1 min-w-0 flex flex-col">
+        <div data-entry-drop="" data-entry-mode={readOnly ? "view" : "edit"}
+             className={`relative flex-1 min-w-0 flex flex-col ${readOnly ? viewModeFields : ""}`}>
           {/* `@container`: the parts below size themselves by this area's width (it shrinks when History is open
               or the tab is narrow), not the window's. */}
           <div className="@container flex-1 min-h-0 overflow-y-auto"
@@ -68,6 +84,63 @@ export function EntryLayout({ tab, children }: { tab: Tab; children: React.React
         )}
       </div>
     </HistoryToggle.Provider>
+    </EntryContext.Provider>
+  );
+}
+
+/** In view mode the fields read as values, not boxes to type in: no fill, and no example text posing as a value. */
+const viewModeFields = "[&_input[readonly]]:!bg-transparent [&_textarea[readonly]]:!bg-transparent [&_input[readonly]]:cursor-default [&_textarea[readonly]]:cursor-default [&_input[readonly]::placeholder]:text-transparent [&_textarea[readonly]::placeholder]:text-transparent";
+
+/** View mode: "Edit". Edit mode: "Cancel" (which asks before dropping unsaved changes) and "Save". */
+function EntryModeButtons({ tab }: { tab: Tab }) {
+  const editing = useEntryEditing(tab);
+  const [confirming, setConfirming] = useState(false);
+
+  const discard = async () => {
+    setConfirming(false);
+    if (!tab.filePath) return;
+    try {
+      const file = await vaultReadFile(tab.filePath);
+      setCodeDraft(tab.id, "");
+      useAppStore.getState().reloadTabFromDisk(tab.id, file.content);
+      useAppStore.getState().markTabClean(tab.id);
+      setEntryEditing(tab.id, false);
+    } catch (e) {
+      toast.error(`Couldn't discard the changes: ${vaultErrorMessage(e)}`);
+    }
+  };
+
+  if (!editing) {
+    return (
+      <Tooltip content="Unlock this item's fields for changes">
+        <Button size="sm" variant="primary" icon={<Pencil size={13} />} className="shrink-0"
+                onClick={() => { useAppStore.getState().makeTabPermanent(tab.id); setEntryEditing(tab.id, true); }}>
+          Edit
+        </Button>
+      </Tooltip>
+    );
+  }
+  return (
+    <>
+      <Tooltip content={tab.isDirty ? "Discard unsaved changes" : "Stop editing"}>
+        <Button size="sm" icon={<X size={13} />} className="shrink-0" disabled={!tab.filePath}
+                onClick={() => { if (tab.isDirty) setConfirming(true); else setEntryEditing(tab.id, false); }}>
+          Cancel
+        </Button>
+      </Tooltip>
+      <EntrySaveButton tab={tab} />
+      {confirming && (
+        <ConfirmDialog
+          title="Discard changes?"
+          message="The item goes back to its last saved version. Changes you haven't saved are lost."
+          confirmLabel="Discard changes"
+          cancelLabel="Keep editing"
+          danger
+          onConfirm={() => { void discard(); }}
+          onCancel={() => setConfirming(false)}
+        />
+      )}
+    </>
   );
 }
 
@@ -102,7 +175,7 @@ export function EntryHeader({ icon: Icon, title, tab, badge }: {
             Unsaved changes
           </span>
         )}
-        <EntrySaveButton tab={tab} />
+        <EntryModeButtons tab={tab} />
         <Tooltip content="Earlier saved versions of this entry">
           <Button size="sm" icon={<History size={13} />} disabled={!tab.filePath || !history}
                   aria-label="History" aria-pressed={history?.open ?? false} onClick={history?.toggle}
@@ -263,7 +336,16 @@ export function SectionedForm({ header, panels, banner, side, footer }: {
   footer?: React.ReactNode;
 }) {
   const [shellRef, wide] = useWide(900);
-  const [picked, setPicked] = useState(panels[0]?.id ?? "");
+  // Inside an entry the shown section is remembered, so it is still there after a visit to another tab.
+  const entry = useEntryContext();
+  const [local, setLocal] = useState(panels[0]?.id ?? "");
+  const remembered = useEntryUi((s) => (entry ? s.sections[entry.tabId] ?? (entry.path ? s.sections[entry.path] : undefined) : undefined));
+  const picked = entry ? remembered ?? panels[0]?.id ?? "" : local;
+  const entryRef = useLatestRef(entry);
+  const setPicked = useCallback((id: string) => {
+    const e = entryRef.current;
+    if (e) setEntrySection(e.tabId, e.path, id); else setLocal(id);
+  }, [entryRef]);
   // A section that went away (the list changes with the entry's kind) falls back to the first one.
   const current = panels.some((p) => p.id === picked) ? picked : panels[0]?.id ?? "";
   useEffect(() => {
@@ -272,7 +354,7 @@ export function SectionedForm({ header, panels, banner, side, footer }: {
     const on = (e: Event) => { const id = (e as CustomEvent<string>).detail; if (id) setPicked(id); };
     el.addEventListener(SHOW_PANEL, on);
     return () => el.removeEventListener(SHOW_PANEL, on);
-  }, [shellRef]);
+  }, [shellRef, setPicked]);
   const nav = panels.map(({ id, label, badge }) => ({ id, label, badge }));
   const sideBox = side?.(wide) ?? null;
   return (
@@ -430,9 +512,10 @@ export const clearHint = (secs: number) =>
   secs > 0 ? `Copied values are cleared from the clipboard after ${clipboardClearLabel(secs)}.` : "Copied values stay on the clipboard.";
 
 export function SaveHint() {
+  const readOnly = useEntryReadOnly();
   return (
     <p className="text-xs text-[var(--color-text-muted)]">
-      Changes are stored in the vault when you press Save (Ctrl+S), and the item takes this Name. {clearHint(getClipboardClearSeconds())}
+      {readOnly ? "You are viewing this item. Press Edit to change it." : "Changes are stored in the vault when you press Save (Ctrl+S), and the item takes this Name."} {clearHint(getClipboardClearSeconds())}
     </p>
   );
 }

@@ -191,7 +191,7 @@ and, when the page has a password field, **Fill password**; its options are reme
     icon there again.
   - **No password warning on these sites:** the sites you answered "It's OK, I trust this site" on; × turns the
     warning back on there.
-- **Experimental**: **Passkeys** (Beta, off by default): save and use passkeys with Notiq; see
+- **Experimental**: **Passkeys** (Beta, on by default): save and use passkeys with Notiq; see
   [Passkeys (experimental)](#passkeys-experimental).
 
 All three lists are kept in `chrome.storage.local` (`neverSave`, `hiddenSites`, `reuseTrusted`; lower-case hosts,
@@ -212,8 +212,8 @@ default dark or light colours, following your system setting.
   storage, never on disk) a just-submitted login for at most 90 seconds while the save offer is open.
 - `activeTab`, `scripting` — the toolbar button fills the tab you clicked it on.
 - `contextMenus` — the **Notiq** entry in the right-click menu of editable fields (Firefox: `menus`, same API).
-- Optional host access to `https://*/*` and `http://localhost/*` — asked for only when you turn on **Save and use
-  passkeys with Notiq (experimental)**, and given back when you turn it off. The browser needs it to register the
+- Host access to `https://*/*` and `http://localhost/*` — for **Save and use
+  passkeys with Notiq (experimental)**. The browser needs it to register the
   passkey page scripts (`scripting.registerContentScripts`); it covers the same sites the content script already
   runs on.
 - **Content script on all `https://` sites (plus `http://localhost` / `127.0.0.1`)** — this is what makes the browser
@@ -333,8 +333,8 @@ default dark or light colours, following your system setting.
   unreachable the cached theme is kept.
 
 ## Passkeys (experimental)
-Off by default. Turn on **Save and use passkeys with Notiq (experimental)** in the popup (the browser asks for the
-optional host access above), then reload open pages. Passkeys are then saved in, and used from, your Notiq vault:
+On by default; **Save and use passkeys with Notiq (experimental)** in the popup turns it off. Reload open pages
+after changing it. Passkeys are then saved in, and used from, your Notiq vault:
 
 - **Creating a passkey** (`navigator.credentials.create`) on a site: Notiq asks **Save a passkey for github.com?**,
   with the account name and a choice of the site's saved login to keep it on (the one with the same user name is

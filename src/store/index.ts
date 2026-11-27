@@ -11,7 +11,7 @@ import { createVaultSlice } from "./app/vaultSlice";
 import { createAppearanceSlice } from "./app/appearanceSlice";
 
 export type { AppState } from "./app/state";
-export { flushPendingPersist, flushPendingGraphRebuild } from "./app/helpers";
+export { flushPendingPersist } from "./app/helpers";
 
 // ─── store ──────────────────────────────────────────────────────────────────
 // The store is split into slices under ./app; each gets set/get plus the shared helpers below.

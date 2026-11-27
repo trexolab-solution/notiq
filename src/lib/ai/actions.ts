@@ -6,7 +6,8 @@ import { mermaidFenceAt, allMermaidFences, type MermaidFence } from "./context";
 import { aiActivity } from "./activity";
 import { validateMermaid } from "./mermaid";
 import { toast } from "../toast";
-import { isVaultPath, AI_BLOCKED_FOR_VAULT_MSG } from "../vault";
+import { AI_BLOCKED_FOR_VAULT_MSG } from "../vault";
+import { aiBlockedFor, tabOfModel } from "./access";
 import * as P from "./prompts";
 
 type Editor = monacoNs.editor.ICodeEditor;
@@ -16,13 +17,12 @@ const AI_SETTINGS_HINT = { source: "AI", actions: [{ label: "Open Settings", onC
 
 const MAX_NOTE_CHARS = 8000; // keep requests inside free-tier-friendly sizes
 
-/** Guard: AI on + model picked. Shows a hint toast otherwise. */
-function ready(): boolean {
+/** Guard: AI on, model picked, and this editor's text may be read. Shows a hint toast otherwise. */
+function ready(editor: Editor): boolean {
   const s = useAppStore.getState();
   if (!s.aiEnabled) { toast.warning("AI is off — turn it on in Settings → AI", AI_SETTINGS_HINT); return false; }
   if (!s.aiModel) { toast.warning("Pick a model in Settings → AI", AI_SETTINGS_HINT); return false; }
-  const active = s.tabs.find((t) => t.id === s.activeTabId);
-  if (isVaultPath(active?.filePath)) { toast.warning(AI_BLOCKED_FOR_VAULT_MSG); return false; }
+  if (aiBlockedFor(editor.getModel())) { toast.warning(AI_BLOCKED_FOR_VAULT_MSG); return false; }
   return true;
 }
 
@@ -92,6 +92,13 @@ function endPositionAfter(start: monacoNs.IPosition, text: string): monacoNs.IPo
   return { lineNumber: start.lineNumber + lines.length - 1, column: lines[lines.length - 1].length + 1 };
 }
 
+/** The editor still shows the text a request was made for. An answer for another note is dropped, never written. */
+function stillOn(editor: Editor, model: monacoNs.editor.ITextModel): boolean {
+  if (editor.getModel() === model) return true;
+  toast.info("You switched to another note, so the AI answer was dropped");
+  return false;
+}
+
 /**
  * Stream a completion into the editor at `startOffset`, replacing `initialText`
  * (the originally-selected text) and then the growing output each tick. The span
@@ -115,9 +122,14 @@ async function streamReplace(
   let written = "";
   let errored: unknown = null;
   let streaming = false;
+  let moved = false;
+  let stop = () => {};
 
   aiActivity.start();
   const apply = (full: string) => {
+    // The editor is reused between tabs: once it shows another note, nothing more is written.
+    if (moved) return;
+    if (!stillOn(editor, model)) { moved = true; stop(); return; }
     const endPos = endPositionAfter(startPos, prev);
     editor.executeEdits(source, [{
       range: { startLineNumber: startPos.lineNumber, startColumn: startPos.column, endLineNumber: endPos.lineNumber, endColumn: endPos.column },
@@ -138,6 +150,7 @@ async function streamReplace(
     },
   });
   const unregister = aiActivity.registerCanceler(handle.cancel);
+  stop = handle.cancel;
 
   try {
     await handle.done;
@@ -157,7 +170,7 @@ async function streamReplace(
 
   const clean = stripCodeFences(written);
   if (clean !== written) apply(clean);
-  return { text: clean, startOffset };
+  return moved ? null : { text: clean, startOffset };
 }
 
 /** Stream a fresh insertion at `startPos` (no initial text to replace). */
@@ -221,7 +234,7 @@ function showReviewRetry(
 
 // ── Continue writing (streamed) ─────────────────────────────────────────────────
 export async function aiContinue(editor: Editor): Promise<void> {
-  if (!ready()) return;
+  if (!ready(editor)) return;
   const model = editor.getModel();
   const pos = editor.getPosition();
   if (!model || !pos) return;
@@ -241,7 +254,7 @@ export async function aiContinue(editor: Editor): Promise<void> {
 
 // ── Summarize (selection or whole note → appended summary) ─────────────────────
 export async function aiSummarize(editor: Editor): Promise<void> {
-  if (!ready()) return;
+  if (!ready(editor)) return;
   const model = editor.getModel();
   if (!model) return;
   const sel = selectionText(editor);
@@ -254,7 +267,7 @@ export async function aiSummarize(editor: Editor): Promise<void> {
       { maxTokens: 400, temperature: 0.3 },
     ),
   );
-  if (!out) return;
+  if (!out || !stillOn(editor, model)) return;
   const summary = `\n\n## Summary\n\n${stripCodeFences(out).trim()}\n`;
   const end = model.getFullModelRange();
   editor.executeEdits("ai-summary", [
@@ -275,7 +288,7 @@ export async function aiCustomEdit(
   instruction: string,
   mode: CustomEditMode = "replace",
 ): Promise<void> {
-  if (!ready()) return;
+  if (!ready(editor)) return;
   const model = editor.getModel();
   if (!model) return;
   const text = model.getValueInRange(range);
@@ -311,7 +324,7 @@ export async function aiCustomEdit(
 
 // ── Improve / rewrite (selection → replace, streamed + review) ──────────────────
 export async function aiImprove(editor: Editor): Promise<void> {
-  if (!ready()) return;
+  if (!ready(editor)) return;
   const sel = selectionText(editor);
   if (!sel || !sel.text.trim()) { toast.warning("Select some text to improve"); return; }
   const source = sel.text.slice(0, MAX_NOTE_CHARS);
@@ -328,7 +341,7 @@ export async function aiImprove(editor: Editor): Promise<void> {
 
 // ── Fix grammar (selection or whole note → replace, streamed + review) ──────────
 export async function aiFixGrammar(editor: Editor): Promise<void> {
-  if (!ready()) return;
+  if (!ready(editor)) return;
   const model = editor.getModel();
   if (!model) return;
   const sel = selectionText(editor);
@@ -349,7 +362,7 @@ export async function aiFixGrammar(editor: Editor): Promise<void> {
 
 // ── Generate title → updates the active tab's title ────────────────────────────
 export async function aiGenerateTitle(editor: Editor): Promise<void> {
-  if (!ready()) return;
+  if (!ready(editor)) return;
   const model = editor.getModel();
   if (!model) return;
   const content = model.getValue().slice(0, MAX_NOTE_CHARS);
@@ -363,16 +376,18 @@ export async function aiGenerateTitle(editor: Editor): Promise<void> {
   );
   if (!out) return;
   const title = stripCodeFences(out).replace(/^["'#\s]+|["'\s]+$/g, "").split("\n")[0].slice(0, 80);
+  // The tab the text came from, not whichever is active by now.
   const { activeTabId, updateTabTitle } = useAppStore.getState();
-  if (title && activeTabId) {
-    updateTabTitle(activeTabId, title);
+  const target = tabOfModel(model)?.id ?? activeTabId;
+  if (title && target && !aiBlockedFor(model)) {
+    updateTabTitle(target, title);
     toast.success(`Title: ${title}`);
   }
 }
 
 // ── Fix Mermaid (validate with mermaid.parse, retry up to 3x) ───────────────────
 export async function aiFixMermaid(editor: Editor): Promise<void> {
-  if (!ready()) return;
+  if (!ready(editor)) return;
   const model = editor.getModel();
   const pos = editor.getPosition();
   if (!model || !pos) return;
@@ -422,7 +437,7 @@ export async function aiFixMermaid(editor: Editor): Promise<void> {
     }
     throw new Error("parse|Couldn't produce valid Mermaid after a few tries");
   });
-  if (!fixed) return;
+  if (!fixed || !stillOn(editor, model)) return;
 
   const first = fence.startLine + 1;
   const last = Math.max(first, fence.endLine - 1);

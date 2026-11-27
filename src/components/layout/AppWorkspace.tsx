@@ -1,6 +1,5 @@
 import { lazy, Suspense, useEffect } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { Network } from "lucide-react";
 
 import { Sidebar } from "./Sidebar";
 import { TabBar } from "./TabBar";
@@ -16,14 +15,11 @@ import { useAppStore } from "../../store";
 import { isFilesTab } from "../../lib/tabKinds";
 import { openRemoteFilesWindow } from "../../lib/remoteFilesWindow";
 
-import type { Tab, AppView } from "../../types";
+import type { Tab } from "../../types";
 import type { UseTerminalPanelResult } from "../../hooks/useTerminalPanel";
 
 const TerminalPanel = lazy(() =>
   import("../terminal/TerminalPanel").then((m) => ({ default: m.TerminalPanel }))
-);
-const KnowledgeGraph = lazy(() =>
-  import("../graph/KnowledgeGraph").then((m) => ({ default: m.KnowledgeGraph }))
 );
 const Whiteboard = lazy(() =>
   import("../whiteboard/Whiteboard").then((m) => ({ default: m.Whiteboard }))
@@ -36,13 +32,10 @@ const AIChatPanel = lazy(() =>
 );
 
 interface Props {
-  activeView:          AppView;
-  onViewChange:        (v: AppView) => void;
   onNewWhiteboard:     () => void;
   requestClose:       (id: string) => void;
   activeTab:           Tab | undefined;
   onLinkedWhiteboard:  () => void;
-  graphMounted:        boolean;
   term:                UseTerminalPanelResult;
   aiChatMounted:       boolean;
   aiChatOpen:          boolean;
@@ -52,14 +45,13 @@ interface Props {
 }
 
 /**
- * The app's main workspace: sidebar, tab bar, the editor/whiteboard/graph
- * views, the terminal panel, and the docked AI chat panel. Extracted from
+ * The app's main workspace: sidebar, tab bar, the editor / whiteboard, the terminal panel, and the docked AI chat panel. Extracted from
  * App — purely presentational, all state lives in App and is threaded
  * through as props.
  */
 export function AppWorkspace({
-  activeView, onViewChange, onNewWhiteboard, requestClose,
-  activeTab, onLinkedWhiteboard, graphMounted, term,
+  onNewWhiteboard, requestClose,
+  activeTab, onLinkedWhiteboard, term,
   aiChatMounted, aiChatOpen, aiChatWidth, onAiChatResizeStart, onCloseAiChat,
 }: Props) {
   const filesTabs = useAppStore(useShallow((s) => s.tabs.filter(isFilesTab)));
@@ -75,11 +67,7 @@ export function AppWorkspace({
   }, []);
   return (
     <div className="app-body">
-      <Sidebar
-        activeView={activeView}
-        onViewChange={onViewChange}
-        onNewWhiteboard={onNewWhiteboard}
-      />
+      <Sidebar onNewWhiteboard={onNewWhiteboard} />
 
       <div className="app-content-column">
 
@@ -87,45 +75,37 @@ export function AppWorkspace({
         <div className="tab-bar-row">
           <TabBar onCloseTab={requestClose} />
 
-          {activeView === "editor" && activeTab?.kind === "note" && (
+          {activeTab?.kind === "note" && (
             <NoteActions tab={activeTab} onLinkedWhiteboard={onLinkedWhiteboard} />
           )}
 
-          {activeView === "editor" && activeTab?.kind === "whiteboard" && (
+          {activeTab?.kind === "whiteboard" && (
             <WhiteboardActions tab={activeTab} />
-          )}
-
-          {activeView === "graph" && (
-            <div className="tab-bar-view-label">
-              <Network size={13} strokeWidth={1.8} /><span>Knowledge Graph</span>
-            </div>
           )}
         </div>
 
         {/* ── Main + terminal row (flex direction follows terminal layout) ── */}
         <div className={`app-main-row ${term.layout}`}>
           <main className="app-main">
-            {activeView === "editor" && (
-              activeTab?.kind === "whiteboard" ? (
-                <ErrorBoundary>
-                  <Suspense fallback={<ViewLoader view="whiteboard" />}>
-                    <Whiteboard tabId={activeTab.id} linkedNoteId={activeTab.linkedNoteId} />
-                  </Suspense>
-                </ErrorBoundary>
-              ) : activeTab?.kind === "settings" ? (
-                <ErrorBoundary>
-                  <Suspense fallback={<div className="settings-page" aria-busy="true" />}>
-                    <SettingsPage tabId={activeTab.id} />
-                  </Suspense>
-                </ErrorBoundary>
-              ) : activeTab?.kind === "files" ? null : (
-                <EditorContainer />
-              )
+            {activeTab?.kind === "whiteboard" ? (
+              <ErrorBoundary>
+                <Suspense fallback={<ViewLoader />}>
+                  <Whiteboard tabId={activeTab.id} linkedNoteId={activeTab.linkedNoteId} />
+                </Suspense>
+              </ErrorBoundary>
+            ) : activeTab?.kind === "settings" ? (
+              <ErrorBoundary>
+                <Suspense fallback={<div className="settings-page" aria-busy="true" />}>
+                  <SettingsPage tabId={activeTab.id} />
+                </Suspense>
+              </ErrorBoundary>
+            ) : activeTab?.kind === "files" ? null : (
+              <EditorContainer />
             )}
 
             {/* Remote file managers stay mounted while another tab is shown, so the connection and the folder survive a switch. */}
             {filesTabs.map((t) => {
-              const shown = activeView === "editor" && activeTab?.id === t.id;
+              const shown = activeTab?.id === t.id;
               const title = t.title.replace(/^Files · /, "");
               return (
                 <div key={t.id} className="flex-1 min-h-0 min-w-0" style={{ display: shown ? "block" : "none" }}>
@@ -139,19 +119,6 @@ export function AppWorkspace({
                 </div>
               );
             })}
-
-            {graphMounted && (
-              <div
-                className="app-graph-layer"
-                style={{ display: activeView === "graph" ? "flex" : "none" }}
-              >
-                <ErrorBoundary>
-                  <Suspense fallback={activeView === "graph" ? <ViewLoader view="graph" /> : null}>
-                    <KnowledgeGraph />
-                  </Suspense>
-                </ErrorBoundary>
-              </div>
-            )}
           </main>
 
           {/* ── Terminal panel ────────────────────────────────────────── */}

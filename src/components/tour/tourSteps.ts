@@ -25,7 +25,7 @@ export const TOUR_STEPS: TourStep[] = [
   {
     selector: '[data-tour="nav-rail"]',
     title: "Navigation",
-    body: "Switch between the Editor, the Knowledge Graph of your linked notes, and the Whiteboard from this rail.",
+    body: "Open the Whiteboard, the Secure Vault and Settings from this rail.",
     placement: "right",
   },
   {

@@ -3,7 +3,7 @@ import { isVaultPath } from "../../lib/vault";
 import { scrubMonacoModels } from "../../lib/vaultMemory";
 import { planVaultOpen } from "../../lib/vaultTabs";
 import { useVaultStore } from "../vaultStore";
-import { debounceGraphRebuild, makeTab } from "./helpers";
+import { makeTab } from "./helpers";
 import type { SliceContext } from "./context";
 import type { AppState } from "./state";
 
@@ -65,7 +65,6 @@ export function createFileSlice({ set, get, persist, updateTab, saveTabImpl }: S
         tabs:        [...s.tabs, ...newTabs],
         activeTabId: focusId ?? newTabs[newTabs.length - 1].id,
       }));
-      debounceGraphRebuild(() => get().rebuildGraph());
       persist();
       // Vault already unlocked this session → decrypt the newly opened tabs now.
       if (newTabs.some((t) => t.vaultLocked) && useVaultStore.getState().unlocked) {
@@ -98,7 +97,6 @@ export function createFileSlice({ set, get, persist, updateTab, saveTabImpl }: S
       } else {
         set((s) => ({ tabs: [...s.tabs, tab], activeTabId: tab.id, sessionReady: true }));
       }
-      debounceGraphRebuild(() => get().rebuildGraph());
       persist();
       if (useVaultStore.getState().unlocked) void get().unlockVaultTabs();
     },
@@ -115,7 +113,6 @@ export function createFileSlice({ set, get, persist, updateTab, saveTabImpl }: S
       // External edit picked up by the file watcher — adopt disk content and
       // keep the tab clean (it now matches what's on disk, like Notepad++).
       updateTab(id, { content, isDirty: false, updatedAt: Date.now() });
-      debounceGraphRebuild(() => get().rebuildGraph());
       persist();
     },
   };

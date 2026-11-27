@@ -531,21 +531,6 @@
   border-left: 1px solid var(--color-border);
 }
 
-/* View label (e.g. Knowledge Graph) pinned to the right */
-.tab-bar-view-label {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  padding: 0 14px;
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--color-text-muted);
-  flex-shrink: 0;
-  border-left: 1px solid var(--color-border);
-  user-select: none;
-  letter-spacing: 0.01em;
-}
-
 /* ── Header Actions (right side) — kept for backward-compat selectors ──────── */
 .header-actions {
   display: flex;
@@ -768,14 +753,6 @@
   top: 0;
   bottom: 0;
   cursor: ew-resize;
-}
-
-/* Graph layer — always flex-column, hidden with display:none when inactive */
-.app-graph-layer {
-  flex: 1;
-  min-height: 0;
-  flex-direction: column;
-  overflow: hidden;
 }
 
 /* ══════════════════════════════════════════════════════════════════════════════

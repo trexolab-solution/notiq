@@ -1,5 +1,5 @@
 import type {
-  Tab, ThemeId, EditorMode, GraphData, AppView,
+  Tab, ThemeId, EditorMode, 
   AutoClosingBrackets, RenderWhitespace, RenderLineHighlight,
   EditorCursorStyle, EditorCursorBlinking, TerminalCursorStyle, TerminalLayout,
   AIProvider, AITriggerMode,
@@ -160,19 +160,12 @@ export interface AppState {
   /** Reset every editor + terminal preference back to its default value. */
   resetPreferences: () => void;
 
-  // graph
-  graphData: GraphData;
-  rebuildGraph: () => void;
-
-  // view
-  activeView: AppView;
-  setActiveView: (view: AppView) => void;
-  /** Text to find and reveal in the editor when jumping here (from the graph or
-   *  global search). `line` (1-based) disambiguates when the text occurs more
+  /** Text to find and reveal in the editor when jumping here (from global
+   *  search). `line` (1-based) disambiguates when the text occurs more
    *  than once — the editor reveals the match on that line instead of the first. */
   pendingJump: { tabId: string; searchText: string; line?: number } | null;
   clearPendingJump: () => void;
-  /** Switch to editor, activate tab, force split mode, all in one commit. */
+  /** Activate the tab, force split mode, all in one commit. */
   navigateToNote: (tabId: string, searchText?: string, line?: number) => void;
 
   // session

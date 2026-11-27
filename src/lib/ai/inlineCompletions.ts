@@ -1,13 +1,27 @@
 import type * as monacoNs from "monaco-editor";
 import { useAppStore } from "../../store";
-import { isVaultPath } from "../vault";
+import { aiBlockedFor, tabOfModel } from "./access";
 import { aiComplete, cleanCompletion, ensureMermaidBlock, stripCodeFences } from "./client";
 import { buildAutocompleteMessages, buildDiagramMessages, detectDiagramIntent, fixMermaidSystem } from "./prompts";
 import { buildContext, lineMode } from "./context";
 import { aiActivity } from "./activity";
 import { validateMermaid } from "./mermaid";
+import { mapAiError } from "./errors";
+import { toast } from "../toast";
 
 let registered = false;
+/** The last autocomplete failure shown: autocomplete runs on every pause, so each problem is said once. */
+let reported = "";
+
+/** A failed suggestion is otherwise invisible ("autocomplete does nothing"). */
+function reportOnce(error: unknown): void {
+  const message = mapAiError(error);
+  if (message === reported) return;
+  reported = message;
+  toast.warning(`AI autocomplete: ${message}`, {
+    source: "AI", actions: [{ label: "Open Settings", onClick: () => useAppStore.getState().openSettings("ai") }],
+  });
+}
 
 /**
  * Register the AI inline-completions (ghost-text) provider exactly once for the
@@ -24,7 +38,7 @@ export function ensureInlineProvider(monaco: typeof monacoNs): void {
       const empty = { items: [] };
       if (!s.aiEnabled || !s.aiAutocompleteEnabled || !s.aiModel) return empty;
       // Vault notes never leave the device — no autocomplete requests for them.
-      if (isVaultPath(s.tabs.find((t) => t.id === s.activeTabId)?.filePath)) return empty;
+      if (aiBlockedFor(model)) return empty;
 
       const isExplicit =
         context.triggerKind === monaco.languages.InlineCompletionTriggerKind.Explicit;
@@ -37,12 +51,17 @@ export function ensureInlineProvider(monaco: typeof monacoNs): void {
         if (cancelled || token.isCancellationRequested) return empty;
       }
 
+      // Again after the wait: the tab on screen, or what this text belongs to, may have changed meanwhile.
+      if (aiBlockedFor(model)) return empty;
+
       const ctx = buildContext(model, position, s.aiContextLines);
       if (!ctx.prefix.trim() && !ctx.suffix.trim()) return empty;
 
       // Note title gives the model topic awareness for better continuations.
-      const activeTab = useAppStore.getState().tabs.find((t) => t.id === useAppStore.getState().activeTabId);
-      const noteTitle = activeTab && activeTab.title !== "Untitled" ? activeTab.title : undefined;
+      // The title of the tab this text belongs to, never of whichever tab is on screen now.
+      const now = useAppStore.getState();
+      const ownTab = tabOfModel(model) ?? now.tabs.find((t) => t.id === now.activeTabId);
+      const noteTitle = ownTab && ownTab.title !== "Untitled" ? ownTab.title : undefined;
 
       // ── Diagram intent: user asked for a visual/chart → emit a whole ```mermaid
       // block (the app renders Mermaid, so we always answer in Mermaid). Detected
@@ -80,7 +99,7 @@ export function ensureInlineProvider(monaco: typeof monacoNs): void {
             }
             return b;
           });
-        } catch { block = null; }
+        } catch (e) { block = null; if (!token.isCancellationRequested) reportOnce(e); }
         if (block == null || token.isCancellationRequested) return empty;
         // Separate the block from preceding text with a blank line when needed.
         const lead = ctx.lineBefore.trim() !== "" ? "\n\n" : "";
@@ -105,13 +124,14 @@ export function ensureInlineProvider(monaco: typeof monacoNs): void {
             aiComplete([{ role: "system", content: system }, { role: "user", content: user }],
               { maxTokens, temperature: ctx.fenceLang || ctx.inMermaid ? 0.15 : 0.3 }),
           );
-        } catch { out = null; }
+        } catch (e) { out = null; if (!token.isCancellationRequested) reportOnce(e); }
         if (out == null || token.isCancellationRequested) return empty;
 
         insertText = cleanCompletion(out, ctx.prefix, ctx.suffix, flags);
       }
 
       if (!insertText) return empty;
+      reported = ""; // it works again: a later failure is news
 
       return {
         items: [

@@ -7,6 +7,7 @@ import { isMarkdownLike } from "../lib/language";
 import { getEditorFromTarget } from "../lib/activeEditor";
 import { aiContinue, aiSummarize, aiFixGrammar, aiGenerateTitle, aiFixMermaid } from "../lib/ai/actions";
 import { mermaidFenceAt } from "../lib/ai/context";
+import { aiBlockedFor } from "../lib/ai/access";
 import { classifyContextTarget } from "../lib/contextMenu/target";
 import { buildEditorMenu, buildPreviewMenu, buildTabStripMenu, buildVaultLockedMenu } from "../lib/contextMenu/items";
 import { buildTextFieldMenu, textFieldAt } from "../lib/contextMenu/textField";
@@ -120,7 +121,7 @@ function editorItems(ed: MonacoEditor.ICodeEditor, e: MouseEvent, c: Ctx): Conte
   return buildEditorMenu(
     {
       ...monacoEditState(ed),
-      aiEnabled: c.aiEnabled,
+      aiEnabled: c.aiEnabled && !aiBlockedFor(model),
       isMarkdownNote: activeTab?.kind === "note" && isMarkdownLike(activeTab.filePath),
       inMermaid: !!(model && pos && mermaidFenceAt(model, pos)),
     },

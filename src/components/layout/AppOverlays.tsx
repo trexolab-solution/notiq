@@ -15,7 +15,7 @@ import { VaultDestinationDialog } from "../vault/VaultDestinationDialog";
 import { LegacyVaultImport } from "../vault/LegacyVaultImport";
 
 import type { CtxMenuState } from "../../hooks/useGlobalContextMenu";
-import type { Tab, AppView } from "../../types";
+import type { Tab } from "../../types";
 import type { FileEntry } from "../../lib/fileOps";
 import { unsavedCloseText } from "../../lib/closeGuard";
 
@@ -48,8 +48,6 @@ interface Props {
   fileSelection:         { files: FileEntry[]; folderPath?: string } | null;
   setFileSelection:      (sel: { files: FileEntry[]; folderPath?: string } | null) => void;
   openFilesAsTabs:       (files: FileEntry[]) => void;
-  setGraphMounted:       (mounted: boolean) => void;
-  setActiveView:         (view: AppView) => void;
 
   pendingTab:            Tab | null;
   handleSaveAndClose:    () => Promise<void>;
@@ -73,7 +71,7 @@ export function AppOverlays({
   showTour, setShowTour,
   showPalette, setShowPalette, buildCommands, queryCommands,
   showSearch, setShowSearch, tabs, navigateToNote,
-  fileSelection, setFileSelection, openFilesAsTabs, setGraphMounted, setActiveView,
+  fileSelection, setFileSelection, openFilesAsTabs,
   pendingTab, handleSaveAndClose, handleDiscardAndClose, handleCancelClose,
   dragOver,
 }: Props) {
@@ -114,11 +112,6 @@ export function AppOverlays({
           onConfirm={(selected) => {
             setFileSelection(null);
             openFilesAsTabs(selected);
-            // Auto-switch to graph view so the user sees the knowledge graph populate
-            if (selected.length >= 2) {
-              setGraphMounted(true);
-              setActiveView("graph");
-            }
           }}
           onCancel={() => setFileSelection(null)}
         />

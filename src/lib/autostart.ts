@@ -8,9 +8,9 @@ import { enable, disable, isEnabled } from "@tauri-apps/plugin-autostart";
 const FIRST_RUN_KEY = "autostart:firstRunDone";
 
 /**
- * On the very first launch of an installed build, enable auto-start so the
- * app comes back automatically on the next sign-in. Subsequent launches are
- * no-ops; the user can still toggle the setting from the Settings → General
+ * Launch at sign-in is on by default: the first launch of an installed build
+ * enables it. Once that has worked, later launches are no-ops (a failed try is
+ * repeated next time); the user can still toggle the setting from the Settings → General
  * panel.
  */
 export async function bootstrapAutostart(): Promise<void> {
@@ -19,12 +19,10 @@ export async function bootstrapAutostart(): Promise<void> {
   if (localStorage.getItem(FIRST_RUN_KEY)) return;
   try {
     await enable();
+    localStorage.setItem(FIRST_RUN_KEY, "1");
   } catch (err) {
-    // Auto-start may legitimately fail in dev / portable builds — log and
-    // mark the bootstrap done so we don't keep retrying every reload.
     console.warn("autostart: enable on first run failed", err);
   }
-  localStorage.setItem(FIRST_RUN_KEY, "1");
 }
 
 export { enable, disable, isEnabled };

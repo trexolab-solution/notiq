@@ -11,7 +11,7 @@ export const isFilesTab = (t: KindOnly): boolean => t?.kind === "files";
 
 /**
  * A tab that holds user content (a note or a whiteboard): it can be saved, linked, searched, counted,
- * graphed and sent to AI as context. The Settings and remote-files tabs are not content tabs.
+ * searched and sent to AI as context. The Settings and remote-files tabs are not content tabs.
  */
 export const isContentTab = (t: KindOnly): boolean => !!t && t.kind !== "settings" && t.kind !== "files";
 

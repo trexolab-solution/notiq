@@ -9,7 +9,6 @@ import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
 import { DropHighlight, useDropTarget } from "../ui/DropZone";
 import { RemoteFileTable } from "./RemoteFileTable";
 import { RemoteFileGrid } from "./RemoteFileGrid";
-import { stepSize } from "./ViewSwitcher";
 import { RemoteFileViewer } from "./RemoteFileViewer";
 import { PermissionsDialog } from "./PermissionsDialog";
 import { PropertiesDialog } from "./PropertiesDialog";
@@ -349,7 +348,10 @@ export function RemoteFilesPanel({ target, active = true, onPopOut }: {
   const dropping = useDropTarget({ id: `remote-files-${target.path}-${target.auth}`, element: () => rootEl.current, enabled: ready && active, onDrop: (p) => void upload(p) });
 
   const onKey = (e: React.KeyboardEvent) => {
-    if ((e.target as HTMLElement).closest("input, textarea")) return;
+    // These are the file list's shortcuts. With a file open over the list they are the editor's keys: Monaco types
+    // into a plain div, so Enter, paste or Delete must not reach the (still selected) file.
+    if (viewing) return;
+    if ((e.target as HTMLElement).closest('input, textarea, [contenteditable="true"], [role="dialog"], [role="alertdialog"]')) return;
     if (e.key === "Delete" && picked.length) { e.preventDefault(); if (e.shiftKey) askDeleteForever(picked); else askDelete(picked); }
     else if (e.altKey && e.key === "Enter" && picked.length) { e.preventDefault(); setPrompt({ kind: "props", items: picked.map((x) => ({ path: joinRemote(pathRef.current, x.name), entry: x })) }); }
     else if (e.key === "F2" && picked.length === 1) { e.preventDefault(); setPrompt({ kind: "rename", entry: picked[0] }); }
@@ -376,7 +378,7 @@ export function RemoteFilesPanel({ target, active = true, onPopOut }: {
       <div ref={rootEl} className="relative flex flex-col h-full min-h-0 bg-[var(--color-bg)] outline-none" tabIndex={-1}
            data-remote-drop="" data-testid="remote-files" aria-label={`Files on ${title}`} onKeyDown={onKey}>
             {phase === "connecting" && <ConnectingNote server={target.title} />}
-            {phase === "failed" && <ConnectFailed failure={failure} onRetry={() => void connect()} />}
+            {phase === "failed" && <ConnectFailed failure={failure} onRetry={(trust) => void connect(trust)} />}
             {ready && (
               <DndContext sensors={sensors} collisionDetection={pointerWithin} onDragStart={onDragStart} onDragEnd={onDragEnd} onDragCancel={() => setDragNames(null)}>
                 <ConnectionBanner link={link} onReconnect={() => void reconnect()} />
@@ -385,7 +387,7 @@ export function RemoteFilesPanel({ target, active = true, onPopOut }: {
                                filter={filter} onFilter={setFilter} onFilterEscape={() => rootEl.current?.focus()}
                                showTrash={showTrash} onToggleTrash={() => setShowTrash((v) => !v)} trashCount={trashCount} />
 
-                <RemoteActionsToolbar picked={picked} pickedFiles={pickedFiles} trashOn={trashOn} showHidden={showHidden} view={view} gridSize={gridSize}
+                <RemoteActionsToolbar picked={picked} pickedFiles={pickedFiles} trashOn={trashOn} showHidden={showHidden} view={view}
                                       onUpload={() => void chooseUpload()} onUploadFolder={() => void chooseUploadFolder()}
                                       onDownload={() => void download(pickedFiles)}
                                       onNewFolder={() => setPrompt({ kind: "folder" })} onNewFile={() => setPrompt({ kind: "file" })}
@@ -393,10 +395,10 @@ export function RemoteFilesPanel({ target, active = true, onPopOut }: {
                                       onRename={() => setPrompt({ kind: "rename", entry: picked[0] })}
                                       onPermissions={() => setPrompt({ kind: "perms", entry: picked[0] })}
                                       onDelete={() => askDelete(picked)} onToggleHidden={() => setShowHidden((v) => !v)}
-                                      onView={setView} onSize={setGridSize} onPopOut={onPopOut} />
+                                      onView={setView} onPopOut={onPopOut} />
 
                 {view === "grid" ? (
-                  <RemoteFileGrid entries={shown} dir={path} selected={selected} sort={sort} onSort={sortBy} size={gridSize} onZoom={(d) => setGridSize(stepSize(gridSize, d))} onOpen={openEntry} onMenu={openMenu} onMarquee={marquee} dragNames={dragNames}
+                  <RemoteFileGrid entries={shown} dir={path} selected={selected} sort={sort} onSort={sortBy} size={gridSize} onSize={setGridSize} onOpen={openEntry} onMenu={openMenu} onMarquee={marquee} dragNames={dragNames}
                                   onSelect={(n, m) => (n === "" ? setSelected(new Set()) : select(n, m))} empty={emptyText} />
                 ) : (
                   <RemoteFileTable entries={shown} dir={path} selected={selected} sort={sort} onSort={sortBy} onSelect={select} onOpen={openEntry} onMenu={openMenu} onMarquee={marquee} dragNames={dragNames}

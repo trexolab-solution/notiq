@@ -45,6 +45,7 @@ const { AttachmentsPanel, FOLDER_ERROR, REMOVE_UNDO_MS } = await import("./Attac
 const { EntryLayout } = await import("./EntryParts");
 const { useAppStore } = await import("../../store");
 const { useVaultStore } = await import("../../store/vaultStore");
+const { setEntryEditing } = await import("../../lib/entryUi");
 const { clearDropTargets, dragLeave, dragMove, dropAt } = await import("../../lib/dropTargets");
 type Tab = import("../../types").Tab;
 
@@ -62,6 +63,7 @@ const live = () => document.querySelector('[role="status"][aria-live="polite"]')
 
 async function render(files: Att[] = []) {
   stored = files;
+  setEntryEditing(tab.id, true);
   await act(async () => { root.render(<EntryLayout tab={tab}><AttachmentsPanel tab={tab} /></EntryLayout>); });
   await flush(); // the section starts unfolded
 }
@@ -102,11 +104,26 @@ describe("Attachments section", () => {
   });
 });
 
+describe("View mode", () => {
+  it("keeps open and save a copy, without browse or remove, and ignores drops", async () => {
+    stored = [{ id: "a", name: "scan.png", mime: "image/png", size: MB, added: 0 }];
+    setEntryEditing(tab.id, false);
+    await act(async () => { root.render(<EntryLayout tab={tab}><AttachmentsPanel tab={tab} /></EntryLayout>); });
+    await flush();
+    expect(btn("Open scan.png")).toBeTruthy();
+    expect(btn("Save scan.png as")).toBeTruthy();
+    expect(btn("Remove scan.png")).toBeNull();
+    expect(btn("Browse for files to attach")).toBeNull();
+    await act(async () => { expect(dropAt(["C:/x.txt"], { x: 10, y: 10 }, 1)).toBe(false); });
+    expect(attachAdd).not.toHaveBeenCalled();
+  });
+});
+
 describe("Attachments list", () => {
   it("explains how to add files when empty", async () => {
     await render();
-    expect(document.querySelector("[data-empty]")?.textContent).toContain("Drop files here or Add file");
-    expect(byText("Add file")).toBeTruthy();
+    expect(document.querySelector("[data-empty]")?.textContent).toContain("Drag & drop files here, or browse");
+    expect(btn("Browse for files to attach")).toBeTruthy();
     const group = document.querySelector('[role="group"]')!;
     expect(document.getElementById(group.getAttribute("aria-describedby")!)?.textContent).toMatch(/drop files/i);
   });
@@ -132,7 +149,7 @@ describe("Adding", () => {
     await render();
     dialogOpen.mockResolvedValue(["C:/docs/ok.txt", "C:/docs/huge.pdf"]);
     fsStat.mockImplementation(async (p: string) => ({ size: p.includes("huge") ? 6 * MB : 3, isDirectory: false }));
-    await click(byText("Add file"));
+    await click(btn("Browse for files to attach")!);
     await flush();
     expect(attachAdd).toHaveBeenCalledTimes(1);
     expect(attachAdd).toHaveBeenCalledWith(PATH, "ok.txt");

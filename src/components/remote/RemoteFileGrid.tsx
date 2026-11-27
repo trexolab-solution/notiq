@@ -6,6 +6,7 @@ import { formatBytes } from "../../lib/vaultBackup";
 import { imageMime, type RemoteEntry, type SortKey, type SortState } from "../../lib/sftp";
 import { GRID_ITEM_PX, type GridSize } from "../../lib/filesPrefs";
 import { useEntryDnd } from "./useEntryDnd";
+import { GridSizeControl, stepSize } from "./ViewSwitcher";
 import { marqueeStyle, useMarquee } from "./useMarquee";
 
 export type FileIcon = "folder" | "image" | "text" | "code" | "archive" | "audio" | "video" | "file";
@@ -28,7 +29,7 @@ export function fileIconFor(e: Pick<RemoteEntry, "name" | "kind">): FileIcon {
 }
 
 const GLYPH = { image: FileImage, text: FileText, code: FileCode, archive: FileArchive, audio: FileAudio, video: FileVideo, file: File } as const;
-const ICON_PX: Record<GridSize, number> = { small: 30, medium: 42, large: 60 };
+const ICON_PX: Record<GridSize, number> = { xsmall: 24, small: 30, medium: 42, large: 60, xlarge: 88 };
 
 function Glyph({ e, size }: { e: RemoteEntry; size: number }) {
   const kind = fileIconFor(e);
@@ -48,8 +49,8 @@ interface Props {
   sort: SortState;
   onSort: (key: SortKey) => void;
   size: GridSize;
-  /** Ctrl + mouse wheel over the grid: `1` bigger items, `-1` smaller. */
-  onZoom: (dir: 1 | -1) => void;
+  /** A new item size, from the control above the grid or Ctrl + mouse wheel over it. */
+  onSize: (size: GridSize) => void;
   onSelect: (name: string, mode: "single" | "toggle" | "range") => void;
   onOpen: (entry: RemoteEntry) => void;
   onMenu: (entry: RemoteEntry | null, x: number, y: number) => void;
@@ -65,6 +66,7 @@ function GridItem({ e, dir, on, dim, size, icon, onSelect, onOpen, onMenu }: {
   onSelect: Props["onSelect"]; onOpen: Props["onOpen"]; onMenu: Props["onMenu"];
 }) {
   const dnd = useEntryDnd(e, dir);
+  const compact = size === "xsmall" || size === "small";
   return (
     <div ref={dnd.setRef} role="row" aria-selected={on} tabIndex={-1} data-name={e.name} {...dnd.listeners}
          onClick={(ev) => { ev.stopPropagation(); onSelect(e.name, ev.shiftKey ? "range" : ev.ctrlKey || ev.metaKey ? "toggle" : "single"); }}
@@ -76,21 +78,21 @@ function GridItem({ e, dir, on, dim, size, icon, onSelect, onOpen, onMenu }: {
       <span role="gridcell" className={e.kind === "dir" ? "text-[var(--color-primary)]" : "text-[var(--color-text-muted)]"}>
         <Glyph e={e} size={icon} />
       </span>
-      <span className={`w-full break-words text-[var(--color-text)] ${size === "small" ? "text-[11px] line-clamp-2" : "text-xs line-clamp-2"}`}>{e.name}</span>
-      {size !== "small" && e.kind !== "dir" && <span className="text-[10px] tabular-nums text-[var(--color-text-muted)]">{formatBytes(e.size)}</span>}
+      <span className={`w-full break-words text-[var(--color-text)] line-clamp-2 ${compact ? "text-[11px]" : "text-xs"}`}>{e.name}</span>
+      {!compact && e.kind !== "dir" && <span className="text-[10px] tabular-nums text-[var(--color-text-muted)]">{formatBytes(e.size)}</span>}
     </div>
   );
 }
 
 /** The folder as a grid of icons (same selection, open and right-click behaviour as the list). */
-export function RemoteFileGrid({ entries, dir, selected, sort, onSort, size, onZoom, onSelect, onOpen, onMenu, onMarquee, dragNames, empty }: Props) {
+export function RemoteFileGrid({ entries, dir, selected, sort, onSort, size, onSize, onSelect, onOpen, onMenu, onMarquee, dragNames, empty }: Props) {
   const icon = ICON_PX[size];
   const scroller = useRef<HTMLDivElement>(null);
   const selectedRef = useRef(selected);
   selectedRef.current = selected;
   const band = useMarquee(scroller, () => selectedRef.current, onMarquee);
-  const zoom = useRef(onZoom);
-  zoom.current = onZoom;
+  const zoom = useRef((_dir: 1 | -1) => {});
+  zoom.current = (dir) => onSize(stepSize(size, dir));
   // A native, non-passive listener: React's onWheel can't stop the page itself from zooming.
   useEffect(() => {
     const el = scroller.current;
@@ -105,7 +107,7 @@ export function RemoteFileGrid({ entries, dir, selected, sort, onSort, size, onZ
   }, []);
   return (
     <div role="grid" aria-label="Remote files" aria-multiselectable className="flex flex-col min-h-0 flex-1">
-      <div className="flex items-center gap-1 h-7 px-3 shrink-0 text-[11px] font-medium uppercase tracking-wide text-[var(--color-text-muted)] border-b border-[var(--color-border)]">
+      <div className="flex items-center gap-1 h-8 px-3 shrink-0 text-[11px] font-medium uppercase tracking-wide text-[var(--color-text-muted)] border-b border-[var(--color-border)]">
         <span className="mr-1">Sort</span>
         {SORTS.map((s) => {
           const active = sort.key === s.key;
@@ -116,6 +118,8 @@ export function RemoteFileGrid({ entries, dir, selected, sort, onSort, size, onZ
             </button>
           );
         })}
+        <span className="flex-1" />
+        <GridSizeControl size={size} onSize={onSize} />
       </div>
       <div ref={scroller} className="relative flex-1 min-h-0 overflow-y-auto p-3" data-remote-rows="" data-remote-grid=""
            onContextMenu={(ev) => { ev.preventDefault(); onMenu(null, ev.clientX, ev.clientY); }}

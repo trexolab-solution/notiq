@@ -15,6 +15,8 @@ import { cardBrand, cardNumberHint, digitsOnly, expiryError, formatCardNumber, f
 import { wifiQrText } from "../../lib/wifiEntry";
 import { copySecret } from "../../lib/secureCopy";
 import type { Tab } from "../../types";
+import { useEntryReadOnly } from "./entryContext";
+import { setEntryEditing, useEntryEditing } from "../../lib/entryUi";
 import { Tooltip } from "../ui/Tooltip";
 
 /** Applies a field's typing aid (`format`) and length cap. */
@@ -38,6 +40,7 @@ function Field({ kind, def, value, onChange, hideLabel }: {
   /** The section heading already says what the field is (a lone "Notes" field under a "Notes" section). */
   hideLabel?: boolean;
 }) {
+  const readOnly = useEntryReadOnly();
   const [show, setShow] = useState(false);
   useAutoHide(show, setShow);
   const id = `se-${def.key}`;
@@ -45,7 +48,7 @@ function Field({ kind, def, value, onChange, hideLabel }: {
   if (def.type === "checkbox") {
     return (
       <label className="flex items-center gap-2 text-sm cursor-pointer select-none" htmlFor={id}>
-        <input id={id} type="checkbox" checked={isChecked(value)} onChange={(e) => onChange(e.target.checked ? "true" : "")}
+        <input id={id} type="checkbox" checked={isChecked(value)} disabled={readOnly} onChange={(e) => onChange(e.target.checked ? "true" : "")}
                className="accent-[var(--color-primary)] w-3.5 h-3.5" />
         {def.label}
       </label>
@@ -56,7 +59,7 @@ function Field({ kind, def, value, onChange, hideLabel }: {
     return (
       <div>
         <span className={fieldLabel} id={`${id}-label`}>{def.label}</span>
-        <Select aria-label={def.label} value={value || opts[0] || ""} onChange={onChange}
+        <Select aria-label={def.label} disabled={readOnly} value={value || opts[0] || ""} onChange={onChange}
                 options={opts.map((o) => ({ value: o, label: o }))} />
       </div>
     );
@@ -82,12 +85,12 @@ function Field({ kind, def, value, onChange, hideLabel }: {
         </>
       ) : undefined}>
         {multi ? (
-          <textarea id={id} rows={def.type === "multiline-secret" ? 6 : 4} value={value} placeholder={def.placeholder}
+          <textarea id={id} readOnly={readOnly} rows={def.type === "multiline-secret" ? 6 : 4} value={value} placeholder={def.placeholder}
                     onChange={(e) => onChange(cleanValue(def, e.target.value))} spellCheck={false} autoComplete="off"
                     className={`${textArea} ${secret ? "font-mono" : ""}`}
                     style={secret && !show ? ({ WebkitTextSecurity: "disc" } as React.CSSProperties) : undefined} />
         ) : (
-          <Input id={id} type={secret && !show ? "password" : def.inputType ?? "text"} value={value} placeholder={def.placeholder}
+          <Input id={id} readOnly={readOnly} type={secret && !show ? "password" : def.inputType ?? "text"} value={value} placeholder={def.placeholder}
                  onChange={(e) => onChange(cleanValue(def, e.target.value))} spellCheck={false} autoComplete="off"
                  inputMode={def.format ? "numeric" : undefined} aria-invalid={msg?.error || undefined}
                  className={`${secret || def.format ? "font-mono" : ""} ${msg?.error ? "!border-[var(--color-danger)]" : ""}`} />
@@ -116,7 +119,8 @@ const hiddenField = (e: SecretEntry, key: string) => e.kind === "wifi" && key ==
 export function SecretEntryEditor({ tab, kind }: { tab: Tab; kind: string }) {
   const def = SECRET_KINDS[kind];
   const entry = useMemo(() => parseSecret(kind, tab.content), [kind, tab.content]);
-  useFocusNameOnCreate(tab.filePath, "se-title");
+  useFocusNameOnCreate(tab.filePath, "se-title", () => setEntryEditing(tab.id, true));
+  const readOnly = !useEntryEditing(tab);
   if (!def) return null;
   const save = (next: SecretEntry) => useAppStore.getState().updateTabContent(tab.id, serializeSecret(next));
   const Icon = ICONS[kind] ?? KeyRound;
@@ -134,7 +138,7 @@ export function SecretEntryEditor({ tab, kind }: { tab: Tab; kind: string }) {
   const nameField = (
     <div>
       <label className={fieldLabel} htmlFor="se-title">Name</label>
-      <Input id="se-title" value={entry.title} onChange={(e) => save({ ...entry, title: e.target.value })}
+      <Input id="se-title" readOnly={readOnly} value={entry.title} onChange={(e) => save({ ...entry, title: e.target.value })}
              placeholder={NAME_PLACEHOLDER[kind]} />
     </div>
   );

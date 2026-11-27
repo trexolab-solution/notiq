@@ -3,6 +3,7 @@ import { CircleCheck, FileArchive, FileUp, Lock, PackageOpen, TriangleAlert } fr
 import { Dialog, DialogBody, DialogButton, DialogFooter } from "../ui/Dialog";
 import { PasswordInput } from "../ui/PasswordInput";
 import { Button } from "../ui/Button";
+import { FileDropPrompt, fileDropBox } from "../ui/FileDropPrompt";
 import { Spinner } from "../ui/Loading";
 import { Stepper, useStepFocus } from "../ui/Stepper";
 import { ShareItemList } from "./ShareItemList";
@@ -131,7 +132,7 @@ export function ImportSharedDialog({ onClose, initialPath }: { onClose: () => vo
 
   const fileStep = (
     <>
-      <DropZone id="import-shared-file" modal enabled={!busy && !checking} onDrop={(p) => void onDrop(p)}
+      <DropZone className={fileDropBox} id="import-shared-file" modal enabled={!busy && !checking} onDrop={(p) => void onDrop(p)}
                 hoverLabel="Drop to import this share file" hoverIcon={<FileUp size={14} />}>
         {path ? (
           <div className="flex items-start gap-3 p-4" data-file-card="">
@@ -160,15 +161,11 @@ export function ImportSharedDialog({ onClose, initialPath }: { onClose: () => vo
             </div>
           </div>
         ) : (
-          <div className="flex flex-col items-center gap-2 px-4 py-8 text-center">
-            <span aria-hidden className="inline-flex h-11 w-11 items-center justify-center rounded-full bg-[var(--color-primary)]/12 text-[var(--color-primary)]"><FileUp size={20} /></span>
-            <p className="text-sm font-medium">Drop a <code>.{BACKUP_EXT}</code> share file here</p>
-            <p className="text-xs text-[var(--color-text-muted)]">or</p>
-            <Button variant="primary" className="whitespace-nowrap" data-step-focus="" onClick={() => void choose()}>Choose file…</Button>
-          </div>
+          <FileDropPrompt what={<>a <code>.{BACKUP_EXT}</code> share file</>}
+                          hint={'A file someone made with "Share items". Nothing changes until you confirm.'}
+                          buttonProps={{ "data-step-focus": "", "aria-label": "Browse for a file", onClick: () => void choose() }} />
         )}
       </DropZone>
-      <p className="mt-3 text-xs text-[var(--color-text-muted)]">A file someone made with "Share items". Nothing changes until you confirm.</p>
     </>
   );
 

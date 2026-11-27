@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
-  Code2, Columns2, Eye, FileDown, FilePlus, Files, FileText, FolderOpen,
-  MoreHorizontal, Network, PenTool, Save, SaveAll, Settings,
+  Code2, Columns2, Eye, FileDown, FilePlus, Files, FolderOpen,
+  MoreHorizontal, PenTool, Save, SaveAll, Settings,
 } from "lucide-react";
 import { useAppStore } from "../../store";
 import { exportToPDF } from "../../lib/pdfExport";
@@ -15,8 +15,6 @@ interface Props {
   onOpenMultiple:  () => void;
   onOpenFolder:    () => void;
   onOpenSettings:  () => void;
-  onShowGraph:     () => void;
-  onShowEditor:    () => void;
   requestClose:    (id: string) => void;
 }
 
@@ -24,11 +22,10 @@ type MenuName = "file" | "view";
 
 export function TitlebarMenuBar({
   onNewWhiteboard, onOpenMultiple, onOpenFolder, onOpenSettings,
-  onShowGraph, onShowEditor, requestClose,
+  requestClose,
 }: Props) {
   const tabs                = useAppStore((s) => s.tabs);
   const activeTabId         = useAppStore((s) => s.activeTabId);
-  const activeView          = useAppStore((s) => s.activeView);
   const addTab              = useAppStore((s) => s.addTab);
   const saveTabToFile       = useAppStore((s) => s.saveTabToFile);
   const saveTabToFileAs     = useAppStore((s) => s.saveTabToFileAs);
@@ -94,8 +91,6 @@ export function TitlebarMenuBar({
 
   const viewItems: ContextMenuItem[] = [
     { type: "label", label: "Workspace" },
-    { type: "item", label: "Editor",          icon: <FileText size={13} />,                       disabled: activeView === "editor", onClick: onShowEditor },
-    { type: "item", label: "Knowledge Graph", icon: <Network  size={13} />,                       disabled: activeView === "graph",  onClick: onShowGraph  },
     { type: "item", label: "Whiteboard",      icon: <PenTool  size={13} />,                                                          onClick: onNewWhiteboard },
     ...(isMd ? [
       { type: "separator" as const },

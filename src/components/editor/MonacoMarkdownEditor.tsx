@@ -4,7 +4,8 @@ import Editor, { type OnMount, type OnChange } from "@monaco-editor/react";
 import * as monaco from "monaco-editor";
 import { useAppStore } from "../../store";
 import { useMonacoEditorPreferences } from "../../store/selectors";
-import { buildDynamicOptions, STATIC_EDITOR_OPTIONS } from "../../lib/monacoOptions";
+import { buildDynamicOptions, STATIC_EDITOR_OPTIONS, suggestionOptions } from "../../lib/monacoOptions";
+import { aiTypesAlong, isVaultTab } from "../../lib/ai/access";
 import { useScrollSync } from "../../hooks/useScrollSync";
 import { registerEditor, unregisterEditor } from "../../lib/activeEditor";
 import { ensureInlineProvider } from "../../lib/ai/inlineCompletions";
@@ -60,6 +61,8 @@ export const MonacoMarkdownEditor = React.memo(
       const clearPendingJump   = useAppStore((s) => s.clearPendingJump);
 
       const prefs = useMonacoEditorPreferences();
+      // AI never suggests on a vault note, so there the editor's own suggestions are on.
+      const aiSuggests = useAppStore((s) => aiTypesAlong(s) && !isVaultTab(s.tabs.find((t) => t.id === tabId)));
       const { editorFontSize, setEditorFontSize } = prefs;
 
       const editorRef    = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
@@ -220,7 +223,7 @@ export const MonacoMarkdownEditor = React.memo(
             if (max <= 0) return;
             const ratio = e.scrollTop / max;
             reportScroll(ratio);
-            // Debounce-persist scroll ratio so graph navigation + app restart can restore it
+            // Debounce-persist scroll ratio so an app restart can restore it
             if (scrollSaveTimerRef.current) clearTimeout(scrollSaveTimerRef.current);
             scrollSaveTimerRef.current = setTimeout(() => {
               updateTabScrollRef.current(currentTabIdRef.current, ratio);
@@ -402,8 +405,8 @@ export const MonacoMarkdownEditor = React.memo(
 
       // Sync all editor options from store or prop changes
       useEffect(() => {
-        editorRef.current?.updateOptions(buildDynamicOptions(prefs));
-      }, [prefs]);
+        editorRef.current?.updateOptions({ ...buildDynamicOptions(prefs), ...suggestionOptions(aiSuggests) });
+      }, [prefs, aiSuggests]);
 
       // Re-detect active formats when the tab switches (content has changed but
       // the cursor position event may not fire until the user moves the cursor)
@@ -419,7 +422,7 @@ export const MonacoMarkdownEditor = React.memo(
       // Restore scroll + cursor when this tab becomes active.
       //  • Same session: replay the saved Monaco view-state (exact scroll + cursor).
       //  • After app restart (no view-state yet): fall back to the persisted ratio.
-      // Skip when a pending graph-jump will position the editor instead.
+      // Skip when a pending jump will position the editor instead.
       useEffect(() => {
         if (useAppStore.getState().pendingJump?.tabId === tabId) return;
 
@@ -453,7 +456,7 @@ export const MonacoMarkdownEditor = React.memo(
         return () => cancelAnimationFrame(raf);
       }, [tabId]);
 
-      // Jump to the node name text when navigating here from the knowledge graph
+      // Jump to the node name text when jumping here from search
       useEffect(() => {
         if (!pendingJump || pendingJump.tabId !== tabId) return;
         let raf: number;
@@ -472,7 +475,7 @@ export const MonacoMarkdownEditor = React.memo(
           );
           if (matches.length > 0) {
             // When a specific line is requested (global search), reveal the match
-            // on that line; otherwise (graph jump) fall back to the first match.
+            // on that line; otherwise fall back to the first match.
             const wantLine = pendingJump.line;
             const chosen =
               wantLine != null
@@ -518,6 +521,7 @@ export const MonacoMarkdownEditor = React.memo(
             options={{
               ...STATIC_EDITOR_OPTIONS,
               ...buildDynamicOptions(prefs),
+              ...suggestionOptions(aiSuggests),
             }}
           />
         </div>

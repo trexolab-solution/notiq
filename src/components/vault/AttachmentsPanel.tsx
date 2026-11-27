@@ -4,10 +4,14 @@ import { Download, Eye, Paperclip, Trash2, TriangleAlert, X } from "lucide-react
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { readFile, stat } from "@tauri-apps/plugin-fs";
 import { ConfirmDialog } from "../ui/ConfirmDialog";
+import { Tooltip } from "../ui/Tooltip";
+import { FileDropPrompt } from "../ui/FileDropPrompt";
 import { Spinner } from "../ui/Loading";
 import { CollapsibleSection } from "./EntryParts";
+import { useEntryReadOnly } from "./entryContext";
+import { setEntryEditing } from "../../lib/entryUi";
 import { AttachmentIcon, AttachmentPreview } from "./AttachmentPreview";
-import { AddRowButton, RowActions, RowIconButton, useAnnouncer, useLatest, useListFocus, useUndoToast } from "./ListEditor";
+import { RowActions, RowIconButton, useAnnouncer, useLatest, useListFocus, useUndoToast } from "./ListEditor";
 import { useAppStore } from "../../store";
 import { useVaultStore } from "../../store/vaultStore";
 import { toast } from "../../lib/toast";
@@ -40,7 +44,10 @@ async function ensureSaved(tabId: string): Promise<string | null> {
   const st = useAppStore.getState();
   const cur = st.tabs.find((t) => t.id === tabId);
   if (!cur || !isVaultPath(cur.filePath)) return null;
-  if (cur.isDirty && !(await st.saveTabToFile(tabId))) return null;
+  if (cur.isDirty) {
+    if (!(await st.saveTabToFile(tabId))) return null;
+    setEntryEditing(tabId, true); // this save is a step of attaching, not the end of editing
+  }
   // Saving can rename the entry to its Name, so read the path again.
   return useAppStore.getState().tabs.find((t) => t.id === tabId)?.filePath ?? null;
 }
@@ -62,7 +69,7 @@ export function entryDisplayName(tab: Pick<Tab, "content" | "title">): string {
 
 /**
  * Collapsible "Attachments (n)" section for a structured vault entry. Files are stored encrypted in the
- * vault. Files can be added with the Add button or dropped from the OS anywhere on the entry form.
+ * vault. Files can be added with "browse" or dropped from the OS anywhere on the entry form (in Edit mode).
  * Keyed by tab so pending removals and Undo never carry over to another entry.
  */
 export function AttachmentsPanel({ tab, defaultOpen = true }: { tab: Tab; /** Whether the section starts unfolded (it does by default). */ defaultOpen?: boolean }) {
@@ -70,6 +77,7 @@ export function AttachmentsPanel({ tab, defaultOpen = true }: { tab: Tab; /** Wh
 }
 
 function AttachmentsPanelInner({ tab, defaultOpen }: { tab: Tab; defaultOpen: boolean }) {
+  const readOnly = useEntryReadOnly();
   const path = tab.filePath;
   const name = entryDisplayName(tab);
   const [open_, setOpen] = useState(defaultOpen);
@@ -94,7 +102,7 @@ function AttachmentsPanelInner({ tab, defaultOpen }: { tab: Tab; defaultOpen: bo
   const undoToast = useUndoToast();
   const unlocked = useVaultStore((s) => s.unlocked);
   const active = useAppStore((s) => s.activeTabId === tab.id);
-  const canDrop = unlocked && active && !tab.vaultLocked && isVaultPath(path);
+  const canDrop = !readOnly && unlocked && active && !tab.vaultLocked && isVaultPath(path);
 
   const reload = useCallback(async (): Promise<VaultAttachment[]> => {
     const p = pathOf(tab.id);
@@ -287,22 +295,21 @@ function AttachmentsPanelInner({ tab, defaultOpen }: { tab: Tab; defaultOpen: bo
   const n = visible.length;
   const entryBytes = visible.reduce((s, a) => s + a.size, 0);
   const full = n >= VAULT_ATTACH_MAX_PER_NOTE;
+  const limitText = `An entry can have at most ${VAULT_ATTACH_MAX_PER_NOTE} attachments. Remove one to add another.`;
   const showDrop = hover && canDrop && dropHost;
 
   return (
     <div ref={sectionRef} data-attachments="">
       <CollapsibleSection id={`att-${tab.id}`} title={`Attachments (${n})`}
-                          summary={n ? formatBytes(entryBytes) : "Drop files here to keep them encrypted with this entry"}
+                          summary={n ? formatBytes(entryBytes) : readOnly ? "No attachments" : "Drop files here to keep them encrypted with this entry"}
                           open={open_} onToggle={() => setOpen((v) => !v)}>
-        <div ref={rootRef} role="group" aria-label={`Attachments of ${name}`} aria-describedby={hintId} aria-busy={busy || undefined}
+        <div ref={rootRef} role="group" aria-label={`Attachments of ${name}`} aria-describedby={readOnly ? undefined : hintId} aria-busy={busy || undefined}
              className="flex flex-col gap-2">
-          {n === 0 && jobs.length === 0 && (
+          {readOnly && n === 0 && jobs.length === 0 && (
             <div data-empty="" className="flex flex-col items-center gap-1 rounded-md border border-dashed border-[var(--color-border)] px-4 py-5 text-center">
               <Paperclip size={18} aria-hidden className="text-[var(--color-text-muted)]" />
-              <p className="text-sm text-[var(--color-text)]">Drop files here or Add file</p>
-              <p className="text-[11px] text-[var(--color-text-muted)]">
-                A scan, key file or document. It's stored encrypted inside the vault with this entry.
-              </p>
+              <p className="text-sm text-[var(--color-text)]">No attachments</p>
+              <p className="text-[11px] text-[var(--color-text-muted)]">Press Edit to add a file.</p>
             </div>
           )}
 
@@ -329,8 +336,10 @@ function AttachmentsPanelInner({ tab, defaultOpen }: { tab: Tab; defaultOpen: bo
                       )}
                       <RowIconButton data-row-focus={canOpen ? undefined : ""} label={`Save ${a.name} as`} tooltip="Save a copy to disk"
                                      icon={<Download size={13} />} onClick={() => requestExport(a)} />
-                      <RowIconButton danger label={`Remove ${a.name}`} tooltip="Remove attachment"
-                                     icon={<Trash2 size={13} />} onClick={() => remove(a, i)} />
+                      {!readOnly && (
+                        <RowIconButton danger label={`Remove ${a.name}`} tooltip="Remove attachment"
+                                       icon={<Trash2 size={13} />} onClick={() => remove(a, i)} />
+                      )}
                     </RowActions>
                   </li>
                 );
@@ -367,20 +376,28 @@ function AttachmentsPanelInner({ tab, defaultOpen }: { tab: Tab; defaultOpen: bo
             </ul>
           )}
 
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-            <AddRowButton onAdd={() => { void pick(); }} atLimit={full} tooltip="Choose files to attach"
-                          limitText={`An entry can have at most ${VAULT_ATTACH_MAX_PER_NOTE} attachments. Remove one to add another.`}>
-              {busy ? "Adding…" : "Add file"}
-            </AddRowButton>
-            <span className="text-[11px] text-[var(--color-text-muted)]">
-              {n}/{VAULT_ATTACH_MAX_PER_NOTE} files · {formatBytes(entryBytes)}
-              {vaultUsed !== null && ` · ${formatBytes(vaultUsed)} of ${formatBytes(VAULT_ATTACH_MAX_TOTAL)} used in the vault`}
-              {` · up to ${formatBytes(VAULT_ATTACH_MAX_BYTES)} each`}
-            </span>
+          {!readOnly && (<>
+          {/* One box for both ways in: drop files on it, or use "browse". */}
+          <div data-empty={n === 0 && jobs.length === 0 ? "" : undefined}
+               className="rounded-md border border-dashed border-[var(--color-border)] bg-[var(--color-bg-tertiary)]/40">
+            <Tooltip content={full ? limitText : undefined}>
+              <div>
+                <FileDropPrompt what="files" compact={n > 0} browseText={busy ? "adding…" : "browse"}
+                                hint={n === 0 ? "A scan, key file or document. It's stored encrypted inside the vault with this entry." : undefined}
+                                buttonProps={{ "data-list-add": "", "aria-label": "Browse for files to attach", "aria-disabled": full || undefined,
+                                               onClick: () => { if (!full) void pick(); } }} />
+              </div>
+            </Tooltip>
           </div>
+          <span className="text-[11px] text-[var(--color-text-muted)]">
+            {n}/{VAULT_ATTACH_MAX_PER_NOTE} files · {formatBytes(entryBytes)}
+            {vaultUsed !== null && ` · ${formatBytes(vaultUsed)} of ${formatBytes(VAULT_ATTACH_MAX_TOTAL)} used in the vault`}
+            {` · up to ${formatBytes(VAULT_ATTACH_MAX_BYTES)} each`}
+          </span>
           <p id={hintId} className="text-[11px] text-[var(--color-text-muted)]">
             You can also drop files from your computer anywhere on this entry. {ATTACHMENTS_SYNC_NOTE}
           </p>
+          </>)}
         </div>
       </CollapsibleSection>
       {region}

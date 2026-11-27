@@ -2,6 +2,7 @@ import { useState } from "react";
 import { FingerprintPattern, X } from "lucide-react";
 import { ConfirmDialog } from "../ui/ConfirmDialog";
 import { RowIconButton, useAnnouncer, useListFocus } from "./ListEditor";
+import { useEntryReadOnly } from "./entryContext";
 import { passkeyLabel, withoutPasskey, type StoredPasskey } from "../../lib/passkeyEntry";
 
 const fmtDate = (ms: number) => (ms > 0 ? new Date(ms).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" }) : "");
@@ -12,6 +13,7 @@ const fmtDate = (ms: number) => (ms > 0 ? new Date(ms).toLocaleDateString(undefi
  * site's account settings.
  */
 export function PasskeysList({ value, onChange }: { value: StoredPasskey[]; onChange: (next: StoredPasskey[]) => void }) {
+  const readOnly = useEntryReadOnly();
   const [doomed, setDoomed] = useState<StoredPasskey | null>(null);
   const { rootRef, focusAfter } = useListFocus();
   const { announce, region } = useAnnouncer();
@@ -32,8 +34,10 @@ export function PasskeysList({ value, onChange }: { value: StoredPasskey[]; onCh
                 {[passkeyLabel(p), fmtDate(p.created) && `added ${fmtDate(p.created)}`].filter(Boolean).join(" · ")}
               </span>
             </span>
-            <RowIconButton danger label={`Delete the passkey for ${passkeyLabel(p)} on ${p.rpId}`} tooltip="Delete this passkey"
-                           icon={<X size={13} />} onClick={() => setDoomed(p)} />
+            {!readOnly && (
+              <RowIconButton danger label={`Delete the passkey for ${passkeyLabel(p)} on ${p.rpId}`} tooltip="Delete this passkey"
+                             icon={<X size={13} />} onClick={() => setDoomed(p)} />
+            )}
           </li>
         ))}
       </ul>

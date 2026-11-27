@@ -27,6 +27,11 @@ export function mapAiError(raw: unknown): string {
 
   if (head === "network") return "Couldn't reach the AI server — check your internet or that Ollama is running.";
   if (head === "parse") return "The AI response wasn't in the expected format.";
+  if (head === "empty") {
+    return body === "length"
+      ? "The model used its whole reply on thinking and wrote nothing. Pick another model in Settings → AI."
+      : "The model sent back an empty answer. Try again, or pick another model in Settings → AI.";
+  }
 
   switch (Number(head)) {
     case 401:

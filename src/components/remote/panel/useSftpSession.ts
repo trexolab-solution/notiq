@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "../../../lib/toast";
 import type { SshTarget } from "../../../lib/sshConnect";
-import { isConnectionError, sftpClose, sftpErrorMessage, sftpList, sftpOpen, sftpTrashList, type RemoteEntry } from "../../../lib/sftp";
+import { isConnectionError, sftpClose, sftpErrorMessage, sftpList, sftpOpen, sftpTrashList, type RemoteEntry, type UnknownHost } from "../../../lib/sftp";
 import { newSessionId, type Link, type Phase } from "./types";
 
 /**
@@ -52,12 +52,12 @@ export function useSftpSession(target: SshTarget, active: boolean) {
     }
   }, []);
 
-  const connect = useCallback(async () => {
+  const connect = useCallback(async (trust: UnknownHost | null = null) => {
     const session = newSessionId();
     sid.current = session;
     setPhase("connecting"); setFailure("");
     try {
-      const o = await sftpOpen(session, targetRef.current.path, targetRef.current.auth);
+      const o = await sftpOpen(session, targetRef.current.path, targetRef.current.auth, trust);
       if (session !== sid.current) { void sftpClose(session); return; }
       setTitle(o.title || targetRef.current.title);
       setPhase("ready");

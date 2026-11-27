@@ -886,8 +886,8 @@ try {
   await sleep(300);
   const popInfo = await evalIn(pop2, `({ ver: document.getElementById("version").textContent, sw: [...document.querySelectorAll('input[type=checkbox]:not([id^=gen])')].map((i) => i.getAttribute("role") + ":" + i.id + ":" + i.checked),
     status: document.getElementById("status").dataset.state, bg: getComputedStyle(document.body).backgroundColor })`);
-  check("popup: version footer, role=switch toggles incl. 'Suggest on field focus', 'Hide Notiq on this site' and the experimental passkeys (off), status dot",
-    popInfo.ver === "Notiq Autofill v0.8.2" && popInfo.sw.join() === "switch:siteHide:false,switch:showIcon:true,switch:suggestOnFocus:false,switch:offerSave:true,switch:passkeys:false" &&
+  check("popup: version footer, role=switch toggles incl. 'Suggest on field focus', 'Hide Notiq on this site' and the experimental passkeys (on), status dot",
+    popInfo.ver === "Notiq Autofill v0.8.2" && popInfo.sw.join() === "switch:siteHide:false,switch:showIcon:true,switch:suggestOnFocus:false,switch:offerSave:true,switch:passkeys:true" &&
     ["on", "off"].includes(popInfo.status) && popInfo.bg === "rgb(46, 52, 64)", JSON.stringify(popInfo));
   await evalIn(pop2, `document.getElementById("suggestOnFocus").click(), true`);
   check("popup toggle writes suggestOnFocus", await waitFor(async () => (await local()).suggestOnFocus === true, 1500));

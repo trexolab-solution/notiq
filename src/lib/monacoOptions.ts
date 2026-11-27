@@ -49,6 +49,18 @@ export function buildDynamicOptions(p: EditorPrefs): editor.IStandaloneEditorCon
   };
 }
 
+/**
+ * The editor's own suggestions, or room for AI's. While AI suggests as you type, the native pop-up and word matching
+ * stay off (Monaco hides ghost text whenever its suggest list has a highlighted item); otherwise they are on. Words
+ * come from the open document only, never from other tabs, so a vault note's words can't show up elsewhere.
+ * Trigger characters (".") and Ctrl+Space work either way.
+ */
+export function suggestionOptions(aiTypesAlong: boolean): editor.IStandaloneEditorConstructionOptions {
+  return aiTypesAlong
+    ? { quickSuggestions: false, wordBasedSuggestions: "off" }
+    : { quickSuggestions: { other: true, comments: false, strings: false }, wordBasedSuggestions: "currentDocument" };
+}
+
 /** Static Monaco options that never change across preference updates. */
 export const STATIC_EDITOR_OPTIONS: editor.IStandaloneEditorConstructionOptions = {
   fontLigatures: true,
@@ -79,17 +91,6 @@ export const STATIC_EDITOR_OPTIONS: editor.IStandaloneEditorConstructionOptions 
     highlightActiveBracketPair: true,
   },
   inlineSuggest: { enabled: true },
-  // Native auto-popup ("quick suggestions" on every keystroke, plus dumb
-  // word-matching across all open documents) constantly out-competes the AI
-  // ghost-text suggestion for attention — Monaco's own conflict resolution
-  // hides inline suggestions whenever the native suggest widget has a
-  // highlighted item, which it almost always does the moment either of these
-  // fires. VS Code made the same call (1.121+, no more auto-popup-on-letters
-  // by default) for the same reason. Trigger-character suggestions (e.g. "."
-  // in JS/TS/JSON/CSS/HTML, which have real Monaco language workers) still
-  // work via `suggestOnTriggerCharacters` and manual Ctrl+Space.
-  quickSuggestions: false,
-  wordBasedSuggestions: "off",
   suggestOnTriggerCharacters: true,
   acceptSuggestionOnEnter: "smart",
   tabCompletion: "on",

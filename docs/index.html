@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Notiq: Markdown Editor with Encrypted Vault | Offline, Open Source</title>
-<meta name="description" content="Free, open-source desktop Markdown editor with a whiteboard, knowledge graph and an encrypted vault for passwords and SSH keys. No account, no telemetry.">
+<meta name="description" content="Free, open-source desktop Markdown editor with a whiteboard and an encrypted vault for passwords and SSH keys. No account, no telemetry.">
 <meta name="robots" content="index,follow,max-image-preview:large">
 <meta name="author" content="TrexoLab">
 <meta name="keywords" content="markdown editor, password manager, encrypted vault, offline password manager, SSH key manager, SFTP file manager, WebDAV file sharing, TOTP authenticator, local-first notes, open source, Windows, Linux">
@@ -16,7 +16,7 @@
 <meta property="og:site_name" content="Notiq">
 <meta property="og:url" content="https://trexolab-solution.github.io/notiq/">
 <meta property="og:title" content="Notiq: Markdown editor with an encrypted vault">
-<meta property="og:description" content="A fast Markdown editor, whiteboard and knowledge graph for your desktop. Passwords, SSH keys and private notes are sealed in one encrypted file on your machine. Optional sync to your own Google Drive is encrypted first.">
+<meta property="og:description" content="A fast Markdown editor and whiteboard for your desktop. Passwords, SSH keys and private notes are sealed in one encrypted file on your machine. Optional sync to your own Google Drive is encrypted first.">
 <meta property="og:image" content="https://trexolab-solution.github.io/notiq/og.png">
 <meta property="og:image:type" content="image/png">
 <meta property="og:image:width" content="1200">
@@ -25,7 +25,7 @@
 <meta property="og:locale" content="en_US">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="Notiq: Markdown editor with an encrypted vault">
-<meta name="twitter:description" content="Offline, open-source Markdown editor with a whiteboard, knowledge graph and an encrypted vault for passwords and SSH keys.">
+<meta name="twitter:description" content="Offline, open-source Markdown editor with a whiteboard and an encrypted vault for passwords and SSH keys.">
 <meta name="twitter:image" content="https://trexolab-solution.github.io/notiq/og.png">
 <meta name="twitter:image:alt" content="Notiq desktop Markdown editor with its encrypted Secure Vault">
 <meta name="color-scheme" content="dark light">
@@ -38,7 +38,7 @@
       "@type": "SoftwareApplication",
       "@id": "https://trexolab-solution.github.io/notiq/#app",
       "name": "Notiq",
-      "description": "Local-first desktop Markdown editor with a whiteboard, knowledge graph, embedded terminal and an encrypted vault for passwords, SSH keys and private notes.",
+      "description": "Local-first desktop Markdown editor with a whiteboard, embedded terminal and an encrypted vault for passwords, SSH keys and private notes.",
       "url": "https://trexolab-solution.github.io/notiq/",
       "image": "https://trexolab-solution.github.io/notiq/og.png",
       "screenshot": "https://trexolab-solution.github.io/notiq/og.png",
@@ -61,7 +61,7 @@
       ],
       "featureList": [
         "Markdown editor with live preview and split view",
-        "Whiteboard and knowledge graph",
+        "Whiteboard",
         "Encrypted vault for passwords, SSH keys, cards and private notes",
         "Built-in SSH terminal and SFTP file manager for saved servers, with compress and extract",
         "WebDAV sharing: open a folder of your computer on your phone over Wi-Fi",
@@ -126,7 +126,7 @@
                 "name": "Does Notiq work offline?",
                 "acceptedAnswer": {
                     "@type": "Answer",
-                    "text": "Yes. Notiq is local-first: the editor, whiteboard, knowledge graph and vault all work without an internet connection. Network access is only used for the features you turn on, such as vault sync, update checks or AI."
+                    "text": "Yes. Notiq is local-first: the editor, whiteboard and vault all work without an internet connection. Network access is only used for the features you turn on, such as vault sync, update checks or AI."
                 }
             },
             {
@@ -224,7 +224,6 @@
     <symbol id="i-plus" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5v14"/></symbol>
     <symbol id="i-pencil" viewBox="0 0 24 24"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/></symbol>
     <symbol id="i-sparkles" viewBox="0 0 24 24"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/></symbol>
-    <symbol id="i-graph" viewBox="0 0 24 24"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.59 13.51 6.83 3.98"/><path d="m15.41 6.51-6.82 3.98"/></symbol>
     <symbol id="i-sticky" viewBox="0 0 24 24"><path d="M16 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8Z"/><path d="M15 3v4a2 2 0 0 0 2 2h4"/></symbol>
     <symbol id="i-palette" viewBox="0 0 24 24"><circle cx="13.5" cy="6.5" r=".5" fill="currentColor"/><circle cx="17.5" cy="10.5" r=".5" fill="currentColor"/><circle cx="8.5" cy="7.5" r=".5" fill="currentColor"/><circle cx="6.5" cy="12.5" r=".5" fill="currentColor"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"/></symbol>
     <symbol id="i-cmd" viewBox="0 0 24 24"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="M6 8h.01"/><path d="M10 8h.01"/><path d="M14 8h.01"/><path d="M18 8h.01"/><path d="M8 12h.01"/><path d="M12 12h.01"/><path d="M16 12h.01"/><path d="M7 16h10"/></symbol>
@@ -280,7 +279,7 @@
     <div class="hero-copy">
       <p class="eyebrow"><span class="eyebrow-dot" aria-hidden="true"></span>Open-source Markdown editor with an encrypted vault</p>
       <h1 id="hero-title">Your notes and secrets, kept on your own machine.</h1>
-      <p class="lead">Notiq is a fast desktop Markdown editor, whiteboard and knowledge graph. Passwords, SSH keys and private notes go into a Secure Vault: one encrypted file on your computer. It leaves your PC only if you turn on sync, and then only encrypted.</p>
+      <p class="lead">Notiq is a fast desktop Markdown editor and whiteboard. Passwords, SSH keys and private notes go into a Secure Vault: one encrypted file on your computer. It leaves your PC only if you turn on sync, and then only encrypted.</p>
       <div class="cta">
         <a class="btn btn-gold btn-lg" id="heroDownload" href="https://github.com/trexolab-solution/notiq/releases/latest"><svg class="i"><use href="#i-download"/></svg><span id="heroDownloadLabel">Download Notiq</span></a>
         <a class="btn btn-line btn-lg" href="https://github.com/trexolab-solution/notiq"><svg class="i"><use href="#i-github"/></svg>View source</a>
@@ -297,7 +296,7 @@
       <figure class="win hero-win" id="heroWin" aria-label="Animated preview: a note is written in Notiq, shown as rendered Markdown, then locked into the encrypted vault file.">
         <div class="win-bar" aria-hidden="true">
           <span class="win-brand"><img src="logo.png" alt="" width="14" height="14">Notiq</span>
-          <span class="win-modes"><span class="is-on">Notes</span><span>Whiteboard</span><span>Graph</span></span>
+          <span class="win-modes"><span class="is-on">Notes</span><span>Whiteboard</span></span>
           <span class="win-ctl"><svg class="i"><use href="#i-minus"/></svg><svg class="i"><use href="#i-square"/></svg><svg class="i"><use href="#i-x"/></svg></span>
         </div>
         <div class="win-body hero-body" aria-hidden="true">
@@ -863,7 +862,7 @@ f2 6e 0d 84 b7 19 c5 2a 70 eb 4f 13 9a d8 66 05
       <li><svg class="i" aria-hidden="true"><use href="#i-timer"/></svg><div><h3>Locks itself</h3><p>Auto-lock after inactivity, lock when the window closes, and a panic lock on <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>L</kbd>.</p></div></li>
       <li><svg class="i" aria-hidden="true"><use href="#i-copy"/></svg><div><h3>Clipboard cleared</h3><p>Anything you copy from the vault is wiped from the clipboard after the time you choose: 15 s, 30 s (default), 1 min, 2 min or Never.</p></div></li>
       <li><svg class="i" aria-hidden="true"><use href="#i-shield"/></svg><div><h3>Keys wiped from memory</h3><p>When the vault locks, the decrypted key material is zeroized rather than left for the garbage collector.</p></div></li>
-      <li><svg class="i" aria-hidden="true"><use href="#i-sparkles"/></svg><div><h3>Kept apart from everything else</h3><p>Vault items never appear in search, the knowledge graph or the AI assistant. AI is never given vault content.</p></div></li>
+      <li><svg class="i" aria-hidden="true"><use href="#i-sparkles"/></svg><div><h3>Kept apart from everything else</h3><p>Vault items never appear in search or the AI assistant. AI is never given vault content.</p></div></li>
       <li><svg class="i" aria-hidden="true"><use href="#i-cloud-off"/></svg><div><h3>Nothing leaves unencrypted</h3><p>No account system and no telemetry. Your vault leaves this PC only if you turn on Vault Sync, and then only encrypted, to your own Google Drive.</p></div></li>
     </ul>
     <div class="honest">
@@ -877,14 +876,10 @@ f2 6e 0d 84 b7 19 c5 2a 70 eb 4f 13 9a d8 66 05
 <section class="band band-alt" id="more" aria-labelledby="more-title">
   <div class="container">
     <div class="section-head">
-      <h2 id="more-title">Whiteboard, graph, terminal and AI in the same window</h2>
-      <p>Sketch beside a note, follow its links, run a command under it or ask the assistant about it, without leaving the app or your disk.</p>
+      <h2 id="more-title">Whiteboard, terminal and AI in the same window</h2>
+      <p>Sketch beside a note, run a command under it or ask the assistant about it, without leaving the app or your disk.</p>
     </div>
     <div class="bento">
-      <article class="tile t-graph">
-        <div class="tile-copy"><h3><svg class="i" aria-hidden="true"><use href="#i-graph"/></svg>Knowledge graph</h3><p>Every <code>[[link]]</code> becomes an edge. Hover a note to see what it touches.</p></div>
-        <div class="graph" id="graphDemo" aria-hidden="true"><svg viewBox="0 0 760 300" id="graphSvg"><g class="g-edges"></g><g class="g-nodes"></g></svg></div>
-      </article>
       <article class="tile t-board">
         <div class="tile-copy"><h3><svg class="i" aria-hidden="true"><use href="#i-pencil"/></svg>Whiteboard</h3><p>An Excalidraw canvas beside your notes, saved with the tab.</p></div>
         <div class="board" id="boardDemo" aria-hidden="true">
@@ -932,7 +927,7 @@ nothing to commit, working tree clean
     <details class="faq-item"><summary>Is Notiq free and open source?</summary><p>Yes. Notiq is free and open source under the MIT license. There is no account to create and no telemetry. The source code is on GitHub.</p></details>
     <details class="faq-item"><summary>Where is my vault stored?</summary><p>In one encrypted file, vault.nqdb, on your own computer. Nothing leaves your machine unless you turn on the optional Vault Sync with your own Google Drive, and then only the encrypted file is uploaded.</p></details>
     <details class="faq-item"><summary>How is the vault encrypted?</summary><p>Your master password is stretched with Argon2id (64 MiB, 3 passes) into a key that wraps a random 256-bit vault key. The database is sealed with XChaCha20-Poly1305 using a fresh random nonce on every save.</p></details>
-    <details class="faq-item"><summary>Does Notiq work offline?</summary><p>Yes. Notiq is local-first: the editor, whiteboard, knowledge graph and vault all work without an internet connection. Network access is only used for the features you turn on, such as vault sync, update checks or AI.</p></details>
+    <details class="faq-item"><summary>Does Notiq work offline?</summary><p>Yes. Notiq is local-first: the editor, whiteboard and vault all work without an internet connection. Network access is only used for the features you turn on, such as vault sync, update checks or AI.</p></details>
     <details class="faq-item"><summary>Which systems does Notiq run on?</summary><p>Windows (.exe and .msi installers) and Linux (AppImage, .deb and .rpm). There is no macOS installer yet; macOS can be built from source.</p></details>
     <details class="faq-item"><summary>Can Notiq fill my passwords in the browser?</summary><p>Yes. The Notiq Autofill extension for Chrome, Edge, Brave and Firefox fills and saves logins with your vault. Every fill and every save is approved inside Notiq, and passwords never leave your computer.</p></details>
     <details class="faq-item"><summary>Can I import passwords from another password manager?</summary><p>Yes. You can import logins from Chrome, Edge, Brave, Bitwarden or KeePass CSV files, or any CSV with a column mapping, with a preview and duplicate handling.</p></details>

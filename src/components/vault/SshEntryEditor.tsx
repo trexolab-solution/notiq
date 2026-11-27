@@ -1,5 +1,5 @@
-import { useCallback, useMemo, useRef, useState } from "react";
-import { ArrowDownToLine, CircleCheck, FilePlus2, FileUp, FolderOpen, KeyRound, ShieldCheck, SquareTerminal, Terminal, Trash2, TriangleAlert } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ArrowDownToLine, CircleCheck, FilePlus2, FileUp, FolderOpen, KeyRound, RefreshCw, ShieldCheck, SquareTerminal, Terminal, Trash2, TriangleAlert } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { readTextFile, stat } from "@tauri-apps/plugin-fs";
 import { Button } from "../ui/Button";
@@ -17,6 +17,8 @@ import { EntryHeader, EntryLayout, FieldRow as Row, fieldLabel, RevealButton, Sa
 import { reinsert, RowIconButton, useAnnouncer, useListFocus, useUndoToast } from "./ListEditor";
 import { ImportErrors, KeyFactsRow, KeyFileList, KeyViewerDialog, useKeyFacts, type ImportError } from "./SshKeyParts";
 import { GenerateKeyDialog } from "./GenerateKeyDialog";
+import { TypeToConfirmDialog } from "./TypeToConfirmDialog";
+import { setEntryEditing, useEntryEditing } from "../../lib/entryUi";
 import { SshAuthChoiceDialog } from "../terminal/SshAuthChoiceDialog";
 import { requestSshSession } from "../../lib/sshTerminalRequest";
 import { openRemoteFiles } from "../../lib/remoteFiles";
@@ -106,7 +108,8 @@ type SignInMode = "password" | "key" | "both";
 
 function SshEntryEditorInner({ tab }: { tab: Tab }) {
   const entry = useMemo(() => parseSecret("ssh", tab.content), [tab.content]);
-  useFocusNameOnCreate(tab.filePath, "ssh-title");
+  useFocusNameOnCreate(tab.filePath, "ssh-title", () => setEntryEditing(tab.id, true));
+  const readOnly = !useEntryEditing(tab);
   const f = entry.fields;
   const files = useMemo(() => parseKeyFiles(f.keyFiles), [f.keyFiles]);
 
@@ -119,7 +122,9 @@ function SshEntryEditorInner({ tab }: { tab: Tab }) {
   /** Which sign-in method(s) the Sign in section shows. */
   // Follows what is saved (one method: that one, otherwise Both) until the user picks one themselves.
   const [picked, setMode] = useState<SignInMode | null>(null);
-  const mode: SignInMode = picked ?? (sshMethods(f).length === 1 ? sshMethods(f)[0] : "both");
+  // Viewing shows what is saved; choosing which methods to fill in is part of editing.
+  const savedMode: SignInMode = sshMethods(f).length === 1 ? sshMethods(f)[0] : "both";
+  const mode: SignInMode = readOnly ? savedMode : picked ?? savedMode;
   const [pref, setPref] = useState<AuthPreference>(() => getAuthPreference(tab.filePath));
   const [viewing, setViewing] = useState<KeyFile | null>(null);
   // A viewed private key closes like any other revealed secret (timer, blur, session lock).
@@ -130,6 +135,10 @@ function SshEntryEditorInner({ tab }: { tab: Tab }) {
   const [errors, setErrors] = useState<ImportError[]>([]);
   const [importing, setImporting] = useState(false);
   const [generating, setGenerating] = useState(false);
+  /** With a private key saved, Generate and Import stay closed until the replacement is confirmed. */
+  const [askReplace, setAskReplace] = useState(false);
+  const [replaceOk, setReplaceOk] = useState(false);
+  useEffect(() => { if (readOnly) { setReplaceOk(false); setAskReplace(false); setGenerating(false); } }, [readOnly]);
   /** Which sign-in method to ask about, and where the server then opens (null = not asking). */
   const [choosing, setChoosing] = useState<"terminal" | "files" | null>(null);
   const busy = useRef(false);
@@ -182,6 +191,7 @@ function SshEntryEditorInner({ tab }: { tab: Tab }) {
       const fields: Record<string, string> = { privateKey: r.privateKey, publicKey: r.publicKey, keyFiles: serializeKeyFiles(r.files) };
       if (r.toPrivate || r.toPublic) { fields.auth = "key"; setMode((m) => (m === "key" ? "key" : "both")); }
       save({ ...cur, fields: { ...cur.fields, ...fields } });
+      if (r.toPrivate) setReplaceOk(false); // one confirmation, one replacement
       const failText = failed.length ? ` ${failed.length} file${failed.length === 1 ? "" : "s"} couldn't be imported.` : "";
       announce(importSummary(r) + failText);
       if (r.toPrivate || r.toPublic || r.added.length) toast.success(r.toPrivate && !r.toPublic && !r.added.length ? "Private key imported" : "Key files imported");
@@ -226,6 +236,7 @@ function SshEntryEditorInner({ tab }: { tab: Tab }) {
     patch(applyGeneratedKey(currentEntry(tab).fields, gen, passphrase));
     setMode((m) => (m === "key" ? "key" : "both"));
     setGenerating(false);
+    setReplaceOk(false);
     setShowKey(false);
     announce("New key generated. Copy the public key to the server's authorized_keys.");
     toast.success("Key generated. Copy the public key below to the server's authorized_keys.");
@@ -288,7 +299,9 @@ function SshEntryEditorInner({ tab }: { tab: Tab }) {
   const KeyIcon = key.state === "ok" ? ShieldCheck : key.state === "encrypted" ? KeyRound : TriangleAlert;
   const pubHasText = !!f.publicKey?.trim();
   const pubBad = pubHasText && pubState !== "public";
-  const canDrop = unlocked && active && !tab.vaultLocked;
+  const canDrop = !readOnly && unlocked && active && !tab.vaultLocked;
+  const hasKey = !!f.privateKey?.trim();
+  const keyToolsLocked = hasKey && !replaceOk;
 
   // ── Layout: sections one at a time (a rail beside the form when it is wide, tabs above it when it is not) ──
 
@@ -330,20 +343,20 @@ function SshEntryEditorInner({ tab }: { tab: Tab }) {
         <Section title="Connection">
           <div>
             <label className={fieldLabel} htmlFor="ssh-title">Name</label>
-            <Input id="ssh-title" value={entry.title} placeholder="e.g. Production VPS"
+            <Input id="ssh-title" readOnly={readOnly} value={entry.title} placeholder="e.g. Production VPS"
                    onChange={(e) => save({ ...currentEntry(tab), title: e.target.value })} />
           </div>
           {/* Wraps: on a narrow form the port drops under the host instead of squeezing it. */}
           <div className="flex flex-wrap gap-x-3 gap-y-4">
             <div className="flex-[1_1_14rem] min-w-0">
               <Row htmlFor="ssh-host" text="Host or IP" actions={<CopyIconButton value={f.host ?? ""} label="host" />}>
-                <Input id="ssh-host" value={f.host ?? ""} placeholder="server.example.com" spellCheck={false} autoComplete="off"
+                <Input id="ssh-host" readOnly={readOnly} value={f.host ?? ""} placeholder="server.example.com" spellCheck={false} autoComplete="off"
                        onChange={(e) => setField("host", e.target.value.trim())} />
               </Row>
             </div>
             <div className="flex-[0_0_148px] max-w-full">
               <Row htmlFor="ssh-port" text="Port" actions={<CopyIconButton value={f.port ?? ""} label="port" />}>
-                <Input id="ssh-port" value={f.port ?? ""} placeholder="22" inputMode="numeric" spellCheck={false}
+                <Input id="ssh-port" readOnly={readOnly} value={f.port ?? ""} placeholder="22" inputMode="numeric" spellCheck={false}
                        aria-invalid={!!portErr} className={portErr ? "!border-[var(--color-danger)]" : ""}
                        onChange={(e) => setField("port", e.target.value.replace(/\D/g, "").slice(0, 5))} />
               </Row>
@@ -352,7 +365,7 @@ function SshEntryEditorInner({ tab }: { tab: Tab }) {
           {portErr && <p className="text-xs -mt-2 text-[var(--color-danger)]">{portErr}</p>}
 
           <Row htmlFor="ssh-user" text="Username" actions={<CopyIconButton value={f.username ?? ""} label="username" />}>
-            <Input id="ssh-user" value={f.username ?? ""} placeholder="root" spellCheck={false} autoComplete="off"
+            <Input id="ssh-user" readOnly={readOnly} value={f.username ?? ""} placeholder="root" spellCheck={false} autoComplete="off"
                    onChange={(e) => setField("username", e.target.value.trim())} />
           </Row>
 
@@ -360,9 +373,11 @@ function SshEntryEditorInner({ tab }: { tab: Tab }) {
           </>) },
           { id: "signin", label: "Sign in", content: (<>
         <Section title="Sign in"
-                 hint="Save a password, a private key, or both. With both saved, Notiq asks which one to use when you open the server in the terminal.">
-          <Segmented label="Sign-in method" value={mode} onChange={setMode}
-                     options={[{ value: "password", label: "Password" }, { value: "key", label: "SSH key" }, { value: "both", label: "Both" }]} />
+                 hint={readOnly ? "What is saved for signing in to this server." : "Save a password, a private key, or both. With both saved, Notiq asks which one to use when you open the server in the terminal."}>
+          {!readOnly && (
+            <Segmented label="Sign-in method" value={mode} onChange={setMode}
+                       options={[{ value: "password", label: "Password" }, { value: "key", label: "SSH key" }, { value: "both", label: "Both" }]} />
+          )}
           {hiddenNote && <p className="text-xs text-[var(--color-text-muted)]" data-hidden-note="">{hiddenNote}</p>}
           {mode !== "key" && (
             <SubGroup title="Password" hint="Used when you sign in with a password.">
@@ -371,7 +386,7 @@ function SshEntryEditorInner({ tab }: { tab: Tab }) {
                      <RevealButton shown={showPass} onToggle={() => setShowPass((v) => !v)} name="password" />
                      <CopyIconButton value={f.password ?? ""} label="password" />
                    </>}>
-                <Input id="ssh-pass" type={showPass ? "text" : "password"} value={f.password ?? ""}
+                <Input id="ssh-pass" readOnly={readOnly} type={showPass ? "text" : "password"} value={f.password ?? ""}
                        autoComplete="off" spellCheck={false} className="font-mono"
                        onChange={(e) => setField("password", e.target.value)} />
               </Row>
@@ -379,46 +394,65 @@ function SshEntryEditorInner({ tab }: { tab: Tab }) {
 
           )}
           {mode !== "password" && (
-            <SubGroup title="SSH key pair" hint="Paste a key, import the files, or generate a new pair.">
+            <SubGroup title="SSH key pair" hint={readOnly || keyToolsLocked ? undefined : "Paste a key, import the files, or generate a new pair."}>
               <div ref={rootRef} className="flex flex-col gap-4">
-                <DropZone id={`ssh-keys-${tab.id}`} enabled={canDrop} onDrop={(p) => { void importPaths(p); }}
-                          hoverLabel={importing ? "Still importing…" : "Drop to import key files"} hoverIcon={<ArrowDownToLine size={14} />}>
-                  <div className="flex flex-col gap-1.5 px-3 py-2.5">
-                    <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-                    <FileUp size={18} aria-hidden className="shrink-0 text-[var(--color-text-muted)]" />
-                    <p className="flex-[1_1_8rem] min-w-0 text-sm">Drop key files here</p>
-                    <Button size="sm" icon={<FilePlus2 size={12} />} disabled={!canDrop || importing}
-                            className="shrink-0 border border-[var(--color-border)] bg-[var(--color-bg-secondary)] !text-[var(--color-text)]" onClick={() => setGenerating(true)}>
-                      Generate key…
-                    </Button>
-                    <Button size="sm" icon={<FileUp size={12} />} loading={importing} loadingText="Importing…"
-                            aria-describedby="ssh-import-hint" className="shrink-0 border border-[var(--color-border)] bg-[var(--color-bg-secondary)] !text-[var(--color-text)]" onClick={() => { void pick(); }}>
-                      Import files…
-                    </Button>
+                {!readOnly && (keyToolsLocked ? (
+                  <DropZone id={`ssh-keys-${tab.id}`} enabled={canDrop} hoverLabel="Choose Replace key first" hoverIcon={<KeyRound size={14} />} className="!border-solid !border"
+                            onDrop={() => toast.info("A key is already saved. Choose Replace key first.")}>
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2.5">
+                      <ShieldCheck size={18} aria-hidden className="shrink-0 text-[var(--color-success)]" />
+                      <p className="flex-[1_1_10rem] min-w-0 text-sm">A private key is saved</p>
+                      <Button size="sm" icon={<RefreshCw size={12} />} disabled={!canDrop || importing} onClick={() => setAskReplace(true)}
+                              className="shrink-0 border border-[var(--color-border)] bg-[var(--color-bg-secondary)] !text-[var(--color-text)]">
+                        Replace key…
+                      </Button>
                     </div>
-                    <p id="ssh-import-hint" className="text-[11px] pl-[30px] text-[var(--color-text-muted)]">
-                      e.g. id_ed25519 and id_ed25519.pub. Each key goes to its field below; any other file is kept in a list.
-                    </p>
-                  </div>
-                </DropZone>
+                  </DropZone>
+                ) : (
+                    <DropZone id={`ssh-keys-${tab.id}`} enabled={canDrop} onDrop={(p) => { void importPaths(p); }}
+                              hoverLabel={importing ? "Still importing…" : "Drop to import key files"} hoverIcon={<ArrowDownToLine size={14} />}>
+                      <div className="flex flex-col gap-1.5 px-3 py-2.5">
+                        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+                        <FileUp size={18} aria-hidden className="shrink-0 text-[var(--color-text-muted)]" />
+                        <p className="flex-[1_1_8rem] min-w-0 text-sm">Drop key files here</p>
+                        <Button size="sm" icon={<FilePlus2 size={12} />} disabled={!canDrop || importing}
+                                className="shrink-0 border border-[var(--color-border)] bg-[var(--color-bg-secondary)] !text-[var(--color-text)]" onClick={() => setGenerating(true)}>
+                          Generate key…
+                        </Button>
+                        <Button size="sm" icon={<FileUp size={12} />} loading={importing} loadingText="Importing…"
+                                aria-describedby="ssh-import-hint" className="shrink-0 border border-[var(--color-border)] bg-[var(--color-bg-secondary)] !text-[var(--color-text)]" onClick={() => { void pick(); }}>
+                          Import files…
+                        </Button>
+                        {replaceOk && hasKey && (
+                          <Button size="sm" className="shrink-0" onClick={() => setReplaceOk(false)}>Keep current key</Button>
+                        )}
+                        </div>
+                        <p id="ssh-import-hint" className="text-[11px] pl-[30px] text-[var(--color-text-muted)]">
+                          e.g. id_ed25519 and id_ed25519.pub. Each key goes to its field below; any other file is kept in a list.
+                        </p>
+                      </div>
+                    </DropZone>
+                ))}
                 <ImportErrors errors={errors} onDismiss={(k) => setErrors((es) => es.filter((e) => e.key !== k))} />
 
                 <KeyField id="ssh-key" text="Private key"
                           actions={<>
                             <RevealButton shown={showKey} onToggle={() => setShowKey((v) => !v)} name="private key" />
                             <CopyIconButton value={normalizeKey(f.privateKey ?? "")} label="private key" />
-                            <RowIconButton danger label="Clear private key" tooltip="Clear private key" icon={<Trash2 size={13} />}
-                                           disabled={!f.privateKey?.trim()} onClick={() => setConfirmClear(true)} />
+                            {!readOnly && (
+                              <RowIconButton danger label="Clear private key" tooltip="Clear private key" icon={<Trash2 size={13} />}
+                                             disabled={!f.privateKey?.trim()} onClick={() => setConfirmClear(true)} />
+                            )}
                           </>}
                           footer={<>
                             <StatusLine tone={keyTone} icon={key.state === "empty" ? undefined : KeyIcon}
-                                        action={key.state === "public"
+                                        action={!readOnly && key.state === "public"
                                           ? <Button size="sm" onClick={moveToPublic}>Move to Public key</Button> : undefined}>
-                              {key.state === "empty" ? "Paste a private key or import the file" : key.label}
+                              {key.state === "empty" ? (readOnly ? "No private key saved" : "Paste a private key or import the file") : key.label}
                             </StatusLine>
                             {priv.facts && priv.facts.side === "private" && <KeyFactsRow compact facts={priv.facts} fingerprint={priv.fingerprint} name="Private key" />}
                           </>}>
-                  <textarea id="ssh-key" rows={6} value={f.privateKey ?? ""} spellCheck={false} autoComplete="off"
+                  <textarea id="ssh-key" readOnly={readOnly} rows={6} value={f.privateKey ?? ""} spellCheck={false} autoComplete="off"
                             placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"
                             aria-describedby="ssh-key-mask"
                             onChange={(e) => setField("privateKey", e.target.value)}
@@ -435,7 +469,7 @@ function SshEntryEditorInner({ tab }: { tab: Tab }) {
                          <RevealButton shown={showPhrase} onToggle={() => setShowPhrase((v) => !v)} name="passphrase" />
                          <CopyIconButton value={f.passphrase ?? ""} label="passphrase" />
                        </>}>
-                    <Input id="ssh-phrase" type={showPhrase ? "text" : "password"} value={f.passphrase ?? ""}
+                    <Input id="ssh-phrase" readOnly={readOnly} type={showPhrase ? "text" : "password"} value={f.passphrase ?? ""}
                            autoComplete="off" spellCheck={false} className="font-mono"
                            onChange={(e) => setField("passphrase", e.target.value)} />
                   </Row>
@@ -455,7 +489,7 @@ function SshEntryEditorInner({ tab }: { tab: Tab }) {
                             ) : null}
                             {pub.facts && pub.facts.side === "public" && <KeyFactsRow facts={pub.facts} fingerprint={pub.fingerprint} name="Public key" />}
                           </>)}>
-                  <textarea id="ssh-pub" rows={3} value={f.publicKey ?? ""} spellCheck={false} autoComplete="off"
+                  <textarea id="ssh-pub" readOnly={readOnly} rows={3} value={f.publicKey ?? ""} spellCheck={false} autoComplete="off"
                             placeholder="ssh-ed25519 AAAA… user@host"
                             onChange={(e) => setField("publicKey", e.target.value)}
                             className={`${textArea} font-mono text-xs leading-relaxed resize-y break-all`} />
@@ -496,17 +530,17 @@ function SshEntryEditorInner({ tab }: { tab: Tab }) {
           { id: "advanced", label: "Advanced", content: (<>
         <Section title="Advanced" hint="Jump host, host fingerprint, notes">
           <Row htmlFor="ssh-jump" text="Jump host" hint="· optional" actions={<CopyIconButton value={f.jump ?? ""} label="jump host" />}>
-            <Input id="ssh-jump" value={f.jump ?? ""} placeholder="user@bastion.example.com" spellCheck={false} autoComplete="off"
+            <Input id="ssh-jump" readOnly={readOnly} value={f.jump ?? ""} placeholder="user@bastion.example.com" spellCheck={false} autoComplete="off"
                    onChange={(e) => setField("jump", e.target.value.trim())} />
           </Row>
           <Row htmlFor="ssh-fp" text="Host key fingerprint" hint="· optional"
                actions={<CopyIconButton value={f.fingerprint ?? ""} label="fingerprint" />}>
-            <Input id="ssh-fp" value={f.fingerprint ?? ""} placeholder="SHA256:…" spellCheck={false} autoComplete="off" className="font-mono"
+            <Input id="ssh-fp" readOnly={readOnly} value={f.fingerprint ?? ""} placeholder="SHA256:…" spellCheck={false} autoComplete="off" className="font-mono"
                    onChange={(e) => setField("fingerprint", e.target.value.trim())} />
           </Row>
           <div>
             <label className={fieldLabel} htmlFor="ssh-notes">Notes</label>
-            <textarea id="ssh-notes" rows={4} value={f.notes ?? ""} className={textArea}
+            <textarea id="ssh-notes" readOnly={readOnly} rows={4} value={f.notes ?? ""} className={textArea}
                       onChange={(e) => setField("notes", e.target.value)} />
           </div>
         </Section>
@@ -523,6 +557,15 @@ function SshEntryEditorInner({ tab }: { tab: Tab }) {
           entryKey={tab.filePath}
           onPick={(m) => startServer(choosing, m)}
           onClose={() => setChoosing(null)}
+        />
+      )}
+      {askReplace && (
+        <TypeToConfirmDialog
+          title="Replace the saved SSH key?"
+          message={`Servers that trust the current key of “${currentEntry(tab).title.trim() || sshLabel(f) || "this server"}” will refuse a new one until you add its public key to their authorized_keys. Keep another way to sign in until you have done that.`}
+          confirmLabel="Continue"
+          onConfirm={() => { setAskReplace(false); setReplaceOk(true); announce("You can now generate or import a new key."); }}
+          onClose={() => setAskReplace(false)}
         />
       )}
       {generating && (

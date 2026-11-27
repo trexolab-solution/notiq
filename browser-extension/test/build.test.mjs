@@ -59,11 +59,11 @@ test("validate rejects a build without the passkey scripts (registered at run ti
     assert.throws(() => validateBuild(manifest, files, manifest.version), new RegExp(f.replace(".", "\\.")));
   }
 });
-test("passkeys: the only optional permission is host access for the content script's own sites", () => {
-  assert.deepEqual(manifest.optional_host_permissions, ["https://*/*", "http://localhost/*"]);
-  assert.equal("host_permissions" in manifest, false, "no host access is granted up front");
+test("passkeys (on by default): host access is only for the content script's own sites", () => {
+  assert.deepEqual(manifest.host_permissions, ["https://*/*", "http://localhost/*"]);
+  assert.equal("optional_host_permissions" in manifest, false);
   const cs = new Set(manifest.content_scripts[0].matches);
-  for (const o of manifest.optional_host_permissions) assert.ok(cs.has(o), o);
+  for (const o of manifest.host_permissions) assert.ok(cs.has(o), o);
 });
 test("content scripts load shared.js, fillkit.js and identity.js before content.js", () => {
   assert.deepEqual(manifest.content_scripts[0].js, ["shared.js", "fillkit.js", "identity.js", "content.js"]);
@@ -75,7 +75,6 @@ test("validate rejects a build without identity.js (the background loads it)", (
 });
 test("permissions: only contextMenus added since 0.4.0 (the right-click menu)", () => {
   assert.deepEqual([...manifest.permissions].sort(), ["activeTab", "contextMenus", "nativeMessaging", "scripting", "storage"]);
-  assert.equal("host_permissions" in manifest, false);
   assert.equal("web_accessible_resources" in manifest, false);
 });
 test("crc32 known value", () => assert.equal(crc32(Buffer.from("123456789")), 0xcbf43926));

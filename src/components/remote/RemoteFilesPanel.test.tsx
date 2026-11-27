@@ -162,7 +162,72 @@ describe("RemoteFilesPanel", () => {
     expect(names()).toEqual(["projects", "notes.txt"]);
   });
 
+  it("asks about a server that isn't trusted yet, and signs in with exactly the approved key", async () => {
+    const key = { host: "srv.example.com", port: 22, alg: "ssh-ed25519", fp: "SHA256:abc123" };
+    const refuse = async (cmd: string) => {
+      if (cmd === "sftp_open") throw `unknown_host:${JSON.stringify(key)}`;
+      return undefined;
+    };
+    invoke.mockImplementation(refuse);
+    await show();
+    expect(document.body.textContent).toContain("Trust this server?");
+    expect(document.body.textContent).toContain("SHA256:abc123");
+    expect(document.body.textContent).toContain("ssh_host_ed25519_key.pub");
+    expect(document.body.textContent).not.toContain("unknown_host");
+    // Nothing is trusted until the button is pressed.
+    expect(invoke.mock.calls.filter((c) => c[0] === "sftp_open").every((c) => (c[1] as { trust: unknown }).trust === null)).toBe(true);
+
+    await click(button("Don't trust"));
+    expect(document.body.textContent).toContain("nothing was sent to it");
+    await click(button("Try again"));
+    await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+    expect(document.body.textContent).toContain("Trust this server?");
+
+    fakeServer();
+    await click(button("Trust and connect"));
+    await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+    expect(invoke).toHaveBeenCalledWith("sftp_open", expect.objectContaining({ trust: key }));
+    expect(names()).toEqual(["projects", "notes.txt"]);
+  });
+
+  it("leaves every key to the editor while a file is open", async () => {
+    fakeServer();
+    await show();
+    const row = [...document.querySelectorAll<HTMLElement>("[data-testid='remote-files'] *")].find((e) => e.children.length === 0 && e.textContent === "notes.txt")!;
+    await act(async () => { row.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+    await act(async () => { row.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })); await new Promise((r) => setTimeout(r, 0)); });
+    const viewer = document.querySelector<HTMLElement>('[aria-label="Viewing notes.txt"]')!;
+    expect(viewer).toBeTruthy();
+    // What Monaco types into: not an input or a textarea.
+    const surface = document.createElement("div");
+    viewer.appendChild(surface);
+    const calls = invoke.mock.calls.length;
+    for (const init of [{ key: "Enter" }, { key: "v", ctrlKey: true }, { key: "a", ctrlKey: true }, { key: "x", ctrlKey: true }, { key: "Delete" }, { key: "Backspace" }, { key: "F2" }]) {
+      const ev = new KeyboardEvent("keydown", { ...init, bubbles: true, cancelable: true });
+      await act(async () => { surface.dispatchEvent(ev); });
+      expect(ev.defaultPrevented, JSON.stringify(init)).toBe(false);
+    }
+    expect(invoke.mock.calls.length).toBe(calls);
+  });
+
+  it("clears the filter with its own button, which shows only while there is text", async () => {
+    fakeServer();
+    await show();
+    const box = () => document.querySelector<HTMLInputElement>('input[aria-label="Filter files"]')!;
+    expect(button("Clear filter")).toBeFalsy();
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(box(), "notes");
+      box().dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(names()).toEqual(["notes.txt"]);
+    await click(button("Clear filter"));
+    expect(box().value).toBe("");
+    expect(names()).toEqual(["projects", "notes.txt"]);
+    expect(document.activeElement).toBe(box());
+  });
+
   it("closes the connection when the panel goes away", async () => {
+
     fakeServer();
     await show();
     await act(async () => root.unmount());
@@ -263,7 +328,8 @@ describe("RemoteFilesPanel", () => {
     expect(names()).toEqual(["projects", "notes.txt"]);
     expect(JSON.parse(localStorage.getItem("pref:filesPrefs")!)).toMatchObject({ view: "grid", gridSize: "medium" });
     // The size control appears with the grid and is remembered too.
-    await click(document.querySelector<HTMLElement>("[aria-label='Grid item size'] [aria-label='Large items']")!);
+    expect(document.querySelector("[aria-label='Grid item size'] input[type='range']")?.getAttribute("aria-valuetext")).toBe("Medium");
+    await click(button("Bigger icons"));
     expect(JSON.parse(localStorage.getItem("pref:filesPrefs")!).gridSize).toBe("large");
     expect((document.querySelector("[data-remote-grid] .grid") as HTMLElement).style.gridTemplateColumns).toContain("172px");
     // Ctrl + wheel over the grid steps the size down again.

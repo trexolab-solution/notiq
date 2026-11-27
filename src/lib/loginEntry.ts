@@ -1,6 +1,7 @@
 import { DEFAULT_PW_OPTIONS, generateWithOptions } from "./passwordGen";
 import { parseCustomFields, type CustomField } from "./customFields";
 import { parsePasskeys, type StoredPasskey } from "./passkeyEntry";
+import { parseCodeList, type RecoveryCode } from "./recoveryCodes";
 /** A structured login stored in the vault (file type `login`). */
 export interface LoginEntry {
   v: 1;
@@ -19,6 +20,8 @@ export interface LoginEntry {
   custom?: CustomField[];
   /** Passkeys saved through the browser extension (experimental). Only present when there is at least one. */
   passkeys?: StoredPasskey[];
+  /** The account's backup codes. Only present when there is at least one. */
+  recovery?: RecoveryCode[];
 }
 
 export const LOGIN_EXT = "login";
@@ -36,9 +39,10 @@ export function parseLogin(raw: string): LoginEntry {
     const s = (v: unknown) => (typeof v === "string" ? v : "");
     const urls = Array.isArray(o.urls) ? o.urls.filter((u): u is string => typeof u === "string" && u.trim() !== "").slice(0, 20) : [];
     const passkeys = parsePasskeys(o.passkeys);
+    const recovery = parseCodeList(o.recovery);
     return { v: 1, kind: "login", title: s(o.title), url: s(o.url), urls, username: s(o.username),
              password: s(o.password), totp: s(o.totp), notes: s(o.notes), custom: parseCustomFields(o.custom),
-             ...(passkeys.length ? { passkeys } : {}) };
+             ...(passkeys.length ? { passkeys } : {}), ...(recovery.length ? { recovery } : {}) };
   } catch {
     return emptyLogin();
   }

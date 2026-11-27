@@ -4,6 +4,7 @@ import { TotpRing } from "../ui/TotpRing";
 import { useAutoHide } from "../../hooks/useAutoHide";
 import { CopyIconButton } from "./CopyIconButton";
 import { FieldRow, RevealButton, Section } from "./EntryParts";
+import { useEntryReadOnly } from "./entryContext";
 import { secretFromOtpauth, totpCode, totpRemaining } from "../../lib/loginEntry";
 
 const PERIOD = 30;
@@ -18,6 +19,7 @@ const group = (c: string) => `${c.slice(0, 3)} ${c.slice(3)}`;
  * key, the live code with a countdown ring. The key stays in the login; only the code is derived here.
  */
 export function TotpPanel({ secret, onChange }: { secret: string; onChange: (secret: string) => void }) {
+  const readOnly = useEntryReadOnly();
   const [show, setShow] = useState(false);
   useAutoHide(show, setShow);
   const [code, setCode] = useState<string | null>(null);
@@ -47,7 +49,7 @@ export function TotpPanel({ secret, onChange }: { secret: string; onChange: (sec
                   <CopyIconButton value={secret} label="setup key" />
                 </>}
                 error={has && !code ? "That doesn't look like a valid setup key." : null}>
-        <Input id="le-totp" type={show ? "text" : "password"} value={secret} onChange={(e) => onChange(secretFromOtpauth(e.target.value) ?? e.target.value)}
+        <Input id="le-totp" readOnly={readOnly} type={show ? "text" : "password"} value={secret} onChange={(e) => onChange(secretFromOtpauth(e.target.value) ?? e.target.value)}
                placeholder="Base32 key, e.g. JBSW Y3DP EHPK 3PXP" autoComplete="off" spellCheck={false} className="font-mono" />
       </FieldRow>
 

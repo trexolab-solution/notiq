@@ -444,9 +444,6 @@ export function FileSelectionModal({ files, folderPath, onConfirm, onCancel }: F
               : <>
                   <span style={{ color: "var(--color-primary)", fontWeight: 600 }}>{selected.size}</span>
                   {" "}file{selected.size !== 1 ? "s" : ""} ready
-                  {selected.size >= 2 && (
-                    <span style={{ opacity: 0.6 }}>{" "}· graph view will open</span>
-                  )}
                 </>
             }
           </div>

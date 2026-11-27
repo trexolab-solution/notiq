@@ -1,8 +1,9 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Dices, SlidersHorizontal } from "lucide-react";
 import { Button } from "../ui/Button";
 import { Tooltip } from "../ui/Tooltip";
-import { ConfirmDialog } from "../ui/ConfirmDialog";
+import { TypeToConfirmDialog } from "./TypeToConfirmDialog";
 import { useClickOutside } from "../../hooks/useClickOutside";
 import { useEscapeKey } from "../../hooks/useEscapeKey";
 import { generateWithOptions, type PwOptions } from "../../lib/passwordGen";
@@ -15,7 +16,7 @@ const POPUP_W = 288;
  * "Generate" for a password field. By default it opens a small popup to pick what the
  * password contains; ticking "Remember my choice" makes later clicks generate instantly,
  * and a ⚙ button (plus Settings → Vault) brings the options back.
- * When the field already holds a password (`current`), replacing it is confirmed first.
+ * When the field already holds a password (`current`), replacing it takes a typed confirmation.
  */
 export function GeneratePasswordButton({ onGenerate, current, compact }: {
   onGenerate: (password: string) => void;
@@ -41,17 +42,28 @@ export function GeneratePasswordButton({ onGenerate, current, compact }: {
     return () => window.removeEventListener(PW_PREFS_EVENT, sync);
   }, []);
 
+  // Beside the button, inside the window: below it, else above it, else pinned to the top (the popup then
+  // scrolls inside itself). Follows the button when the form scrolls or the window is resized.
   useLayoutEffect(() => {
-    if (!open || !trigger.current) { setPos(null); return; }
-    const r = trigger.current.getBoundingClientRect();
-    const M = 8;
-    const left = Math.max(M, Math.min(r.right - POPUP_W, window.innerWidth - POPUP_W - M));
-    const below = r.bottom + 6;
-    const h = popup.current?.offsetHeight ?? 300;
-    setPos({ left, top: below + h > window.innerHeight - M ? Math.max(M, r.top - h - 6) : below });
+    if (!open) { setPos(null); return; }
+    const place = () => {
+      if (!trigger.current) return;
+      const r = trigger.current.getBoundingClientRect();
+      const M = 8;
+      const left = Math.max(M, Math.min(r.right - POPUP_W, window.innerWidth - POPUP_W - M));
+      const h = Math.min(popup.current?.scrollHeight ?? 300, window.innerHeight - 2 * M);
+      const below = r.bottom + 6;
+      const above = r.top - h - 6;
+      const top = below + h <= window.innerHeight - M ? below : above >= M ? above : Math.max(M, window.innerHeight - h - M);
+      setPos({ left, top });
+    };
+    place();
+    window.addEventListener("resize", place);
+    window.addEventListener("scroll", place, true);
+    return () => { window.removeEventListener("resize", place); window.removeEventListener("scroll", place, true); };
   }, [open]);
 
-  useClickOutside(wrap, () => setOpen(false), open);
+  useClickOutside([wrap, popup], () => setOpen(false), open);
   useEscapeKey(() => setOpen(false), open);
 
   const openPopup = () => { setOpts(getPwOptions()); setRemember(!getPwAsk()); setOpen(true); };
@@ -90,13 +102,15 @@ export function GeneratePasswordButton({ onGenerate, current, compact }: {
         )}
       </div>
 
-      {open && (
+      {/* In the body: inside the form, a transformed or container-query parent would turn the popup's "fixed"
+          position into one relative to that parent, putting it far off and making the form scroll. */}
+      {open && createPortal(
         <div
           ref={popup}
           role="dialog"
           aria-label="Password generator options"
           className="pw-pop"
-          style={pos ? { left: pos.left, top: pos.top, width: POPUP_W } : { visibility: "hidden", width: POPUP_W }}
+          style={{ width: POPUP_W, maxHeight: "calc(100vh - 16px)", overflowY: "auto", ...(pos ?? { left: 0, top: 0, visibility: "hidden" }) }}
         >
           <div className="pw-pop-title">Password options</div>
           <PasswordOptionsForm value={opts} onChange={setOpts} />
@@ -114,18 +128,17 @@ export function GeneratePasswordButton({ onGenerate, current, compact }: {
             <Button size="sm" onClick={() => setOpen(false)}>Cancel</Button>
             <Button size="sm" variant="primary" icon={<Dices size={12} />} onClick={confirm} autoFocus>Generate</Button>
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
 
       {pending && (
-        <ConfirmDialog
-          title="Replace the password?"
-          message="This entry already has a password. Generating a new one replaces it."
-          detail="Change the password on the website too. The old one stays in this entry's History once you save."
+        <TypeToConfirmDialog
+          title="Replace the saved password?"
+          message="This entry already has a password. After replacing it, change it on the website too, or you won't be able to sign in. The old one stays in this entry's History once you save."
           confirmLabel="Replace password"
-          danger
           onConfirm={() => { onGenerate(generateWithOptions(pending)); setPending(null); }}
-          onCancel={() => setPending(null)}
+          onClose={() => setPending(null)}
         />
       )}
     </div>

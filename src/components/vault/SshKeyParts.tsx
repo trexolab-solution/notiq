@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { ArrowUpFromLine, Copy, Eye, FileKey2, FileText, KeyRound, Trash2, TriangleAlert, X } from "lucide-react";
 import { Dialog, DialogBody, DialogButton, DialogFooter } from "../ui/Dialog";
 import { CopyIconButton } from "./CopyIconButton";
+import { useEntryReadOnly } from "./entryContext";
 import { RowActions, RowIconButton } from "./ListEditor";
 import { copySecret } from "../../lib/secureCopy";
 import { formatBytes } from "../../lib/vaultBackup";
@@ -60,6 +61,7 @@ export function KeyFileList({ files, onView, onUse, onRemove }: {
   onUse: (f: KeyFile, as: "private" | "public") => void;
   onRemove: (f: KeyFile, index: number) => void;
 }) {
+  const readOnly = useEntryReadOnly();
   return (
     <ul aria-label="Other key files" className="flex flex-col rounded-md border border-[var(--color-border)] divide-y divide-[var(--color-border)]">
       {files.map((f, i) => {
@@ -79,13 +81,15 @@ export function KeyFileList({ files, onView, onUse, onRemove }: {
             <RowActions>
               <RowIconButton data-row-focus="" label={`View ${f.name}`} tooltip="View contents" icon={<Eye size={13} />}
                              onClick={() => onView(f)} />
-              {role !== "other" && (
+              {!readOnly && role !== "other" && (
                 <RowIconButton label={`Use ${f.name} as the ${role} key`} tooltip={`Use as the ${role} key`}
                                icon={<ArrowUpFromLine size={13} />} onClick={() => onUse(f, role)} />
               )}
               <CopyIconButton value={f.value} label={f.name} className="!p-0 h-7 w-7 justify-center" />
-              <RowIconButton danger label={`Remove ${f.name}`} tooltip="Remove file" icon={<Trash2 size={13} />}
-                             onClick={() => onRemove(f, i)} />
+              {!readOnly && (
+                <RowIconButton danger label={`Remove ${f.name}`} tooltip="Remove file" icon={<Trash2 size={13} />}
+                               onClick={() => onRemove(f, i)} />
+              )}
             </RowActions>
           </li>
         );

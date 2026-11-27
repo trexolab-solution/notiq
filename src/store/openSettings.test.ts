@@ -22,7 +22,7 @@ const { useAppStore } = await import("./index");
 const st = () => useAppStore.getState();
 
 beforeEach(() => {
-  useAppStore.setState({ tabs: [], activeTabId: null, settingsTarget: null, activeView: "editor" });
+  useAppStore.setState({ tabs: [], activeTabId: null, settingsTarget: null });
   saved.length = 0;
 });
 
@@ -38,15 +38,13 @@ describe("openSettings", () => {
     expect(st().settingsTarget).toBeNull(); // no section → no deep link
   });
 
-  it("is a singleton: a second call re-activates the existing tab and switches back to the editor view", () => {
+  it("is a singleton: a second call re-activates the existing tab and shows it", () => {
     st().openSettings();
     const id = st().activeTabId;
     st().addTab({ title: "Other" });
-    st().setActiveView("graph");
     st().openSettings();
     expect(st().tabs.filter((t) => t.kind === "settings")).toHaveLength(1);
     expect(st().activeTabId).toBe(id);
-    expect(st().activeView).toBe("editor");
   });
 
   it("records a deep-link target with a fresh nonce on every request", () => {
@@ -83,13 +81,6 @@ describe("openSettings", () => {
     expect(t.content).toBe("");
     expect(t.isDirty).toBe(false);
     await expect(st().saveTabToFile(id)).resolves.toBe(false);
-  });
-
-  it("is excluded from the knowledge graph", () => {
-    st().addTab({ title: "Note" });
-    st().openSettings();
-    st().rebuildGraph();
-    expect(st().graphData.nodes.map((n) => n.name)).toEqual(["Note"]);
   });
 });
 

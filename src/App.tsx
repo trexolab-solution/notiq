@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { aiProblem } from "./lib/ai/verify";
 
 import { useSession }              from "./hooks/useSession";
 import { useCloseTab }             from "./hooks/useCloseTab";
@@ -40,7 +41,6 @@ export default function App() {
   const [aiChatOpen,    setAiChatOpen]    = useState(false);
   const [aiChatMounted, setAiChatMounted] = useState(false); // stays true after first open
   const [fileSelection, setFileSelection] = useState<{ files: FileEntry[]; folderPath?: string } | null>(null);
-  const [graphMounted,  setGraphMounted]  = useState(false);
 
   // Terminal panel — all state, drag/resize, window-clamp, and keyboard shortcuts.
   const term = useTerminalPanel();
@@ -53,8 +53,6 @@ export default function App() {
   const addTab          = useAppStore((s) => s.addTab);
   const setActiveTab    = useAppStore((s) => s.setActiveTab);
   const openFilesAsTabs = useAppStore((s) => s.openFilesAsTabs);
-  const activeView      = useAppStore((s) => s.activeView);
-  const setActiveView   = useAppStore((s) => s.setActiveView);
   const aiEnabled       = useAppStore((s) => s.aiEnabled);
   const aiOnboarded     = useAppStore((s) => s.aiOnboarded);
   const setAiEnabled    = useAppStore((s) => s.setAiEnabled);
@@ -64,11 +62,21 @@ export default function App() {
   const openSettings    = useAppStore((s) => s.openSettings);
 
   // Header ✨ button: not set up → onboarding; set up → quick enable/disable toggle.
+  // Switching on is checked first: "enabled" must not be followed by "your key is invalid".
+  const checkingAi = useRef(false);
   const handleAIClick = useCallback(() => {
     if (!aiOnboarded) { setShowAIOnboarding(true); return; }
-    const next = !aiEnabled;
-    setAiEnabled(next);
-    toast.info(next ? "AI assistance enabled" : "AI assistance disabled");
+    if (aiEnabled) { setAiEnabled(false); toast.info("AI assistance disabled"); return; }
+    if (checkingAi.current) return;
+    checkingAi.current = true;
+    const waiting = toast.info("Checking AI…", 60000);
+    void aiProblem().then((problem) => {
+      toast.remove(waiting);
+      if (!problem) { setAiEnabled(true); toast.success("AI assistance enabled"); return; }
+      toast.warning(`AI stays off: ${problem}`, {
+        source: "AI", actions: [{ label: "Open Settings", onClick: () => useAppStore.getState().openSettings("ai") }],
+      });
+    }).finally(() => { checkingAi.current = false; });
   }, [aiOnboarded, aiEnabled, setAiEnabled]);
 
   // Settings is a tab: every entry point goes through the store's `openSettings`.
@@ -97,11 +105,6 @@ export default function App() {
   const themeId = useAppStore((s) => s.themeId);
   useEffect(() => { publishAutofillTheme(themeId); }, [themeId]);
 
-  // Mount graph lazily on first tab (moved from render to effect to avoid setState during render)
-  useEffect(() => {
-    if (!graphMounted && tabs.length > 0) setGraphMounted(true);
-  }, [graphMounted, tabs.length]);
-
   // Startup effects: autostart bootstrap, background update check, first-run
   // tour / What's New note, opening a file passed via file-association / CLI
   // arg, OS drag-and-drop, and the command-palette/search/tour event bridge.
@@ -118,11 +121,10 @@ export default function App() {
 
   // Whiteboard helpers
   const handleNewWhiteboard = useCallback(() => {
-    setActiveView("editor");
     const existing = tabs.find((t) => t.kind === "whiteboard" && !t.linkedNoteId);
     if (existing) { setActiveTab(existing.id); return; }
     addTab({ kind: "whiteboard", title: "Whiteboard" });
-  }, [tabs, addTab, setActiveTab, setActiveView]);
+  }, [tabs, addTab, setActiveTab]);
 
   const handleLinkedWhiteboard = useCallback(() => {
     if (!activeTabId || activeTab?.kind !== "note") return;
@@ -148,7 +150,7 @@ export default function App() {
   // ── Command palette ─────────────────────────────────────────────────────────
   const buildCommands = useCommands({
     tabs, activeTabId, aiEnabled,
-    addTab, setActiveTab, setActiveView,
+    addTab, setActiveTab,
     handleNewWhiteboard, handleOpenMultiple, handleOpenFolder,
     saveTabToFile, setTheme, toggleAiChat,
     onOpenSettings: handleOpenSettings,
@@ -181,10 +183,7 @@ export default function App() {
         onOpenMultiple={handleOpenMultiple}
         onOpenFolder={handleOpenFolder}
         onOpenSettings={handleOpenSettings}
-        onShowGraph={() => setActiveView("graph")}
-        onShowEditor={() => setActiveView("editor")}
         requestClose={requestClose}
-        activeView={activeView}
         activeTab={activeTab}
         isMdNote={isMdNote}
         aiOnboarded={aiOnboarded}
@@ -196,13 +195,10 @@ export default function App() {
       />
 
       <AppWorkspace
-        activeView={activeView}
-        onViewChange={setActiveView}
         onNewWhiteboard={handleNewWhiteboard}
         requestClose={requestClose}
         activeTab={activeTab}
         onLinkedWhiteboard={handleLinkedWhiteboard}
-        graphMounted={graphMounted}
         term={term}
         aiChatMounted={aiChatMounted}
         aiChatOpen={aiChatOpen}
@@ -236,8 +232,6 @@ export default function App() {
         fileSelection={fileSelection}
         setFileSelection={setFileSelection}
         openFilesAsTabs={openFilesAsTabs}
-        setGraphMounted={setGraphMounted}
-        setActiveView={setActiveView}
         pendingTab={pendingTab}
         handleSaveAndClose={handleSaveAndClose}
         handleDiscardAndClose={handleDiscardAndClose}

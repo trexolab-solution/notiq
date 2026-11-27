@@ -4,6 +4,7 @@ import { Dialog, DialogBody, DialogButton, DialogFooter } from "../ui/Dialog";
 import { Input } from "../ui/Input";
 import { PasswordInput } from "../ui/PasswordInput";
 import { Button } from "../ui/Button";
+import { FileDropPrompt, fileDropBox } from "../ui/FileDropPrompt";
 import { Spinner } from "../ui/Loading";
 import { Stepper, useStepFocus } from "../ui/Stepper";
 import { RadioCards } from "../ui/RadioCards";
@@ -178,7 +179,7 @@ export function RestoreBackupDialog({ onClose, initialPath }: { onClose: () => v
 
   const fileStep = (
     <>
-      <DropZone id="restore-backup-file" modal enabled={!busy && !w.checking} onDrop={(p) => void onDrop(p)}
+      <DropZone className={fileDropBox} id="restore-backup-file" modal enabled={!busy && !w.checking} onDrop={(p) => void onDrop(p)}
                 hoverLabel={`Drop to restore from this backup`} hoverIcon={<FileUp size={14} />}>
         {w.path ? (
           <div className="flex items-start gap-3 p-4" data-file-card="">
@@ -212,16 +213,9 @@ export function RestoreBackupDialog({ onClose, initialPath }: { onClose: () => v
             </div>
           </div>
         ) : (
-          <div className="flex flex-col items-center text-center gap-2 px-4 py-8">
-            <span aria-hidden className="inline-flex items-center justify-center w-11 h-11 rounded-full bg-[var(--color-primary)]/12 text-[var(--color-primary)]">
-              <FileUp size={20} />
-            </span>
-            <p className="text-sm font-medium">Drop a <code>.{BACKUP_EXT}</code> file here</p>
-            <p className="text-xs text-[var(--color-text-muted)]">or</p>
-            <Button variant="primary" className="whitespace-nowrap" data-step-focus="" onClick={() => void choose()}>
-              Choose file…
-            </Button>
-          </div>
+          <FileDropPrompt what={<>a <code>.{BACKUP_EXT}</code> backup file</>}
+                          hint={'Use a backup exported from Notiq. It is checked first; nothing changes until you confirm.'}
+                          buttonProps={{ "data-step-focus": "", "aria-label": "Browse for a file", onClick: () => void choose() }} />
         )}
       </DropZone>
       {w.dropError && (
@@ -229,9 +223,6 @@ export function RestoreBackupDialog({ onClose, initialPath }: { onClose: () => v
           <TriangleAlert size={13} className="shrink-0 mt-px" aria-hidden />{w.dropError}
         </p>
       )}
-      <p className="mt-3 text-xs text-[var(--color-text-muted)]">
-        Use a backup exported from Notiq. It is checked first; nothing changes until you confirm.
-      </p>
     </>
   );
 

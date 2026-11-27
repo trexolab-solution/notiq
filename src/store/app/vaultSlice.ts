@@ -2,6 +2,8 @@ import { readFile } from "@tauri-apps/plugin-fs";
 import { bytesToBase64, isVaultPath, extFromPath, vaultAttachAdd, vaultLock, vaultReadFile, vaultWriteFile, vaultErrorMessage, vaultFileExists } from "../../lib/vault";
 import { attachmentLimitError, vaultAttachmentsUsed } from "../../lib/attachmentLimits";
 import { migrateLocalImages } from "../../lib/vaultImageMigrate";
+import { clearAllCodeDrafts, setCodeDraft } from "../../lib/codeDrafts";
+import { endAllEntryEditing, forgetEntryTab } from "../../lib/entryUi";
 import { dirname, isAbsolute, joinPath } from "../../lib/pathUtils";
 import { flushVaultPendingOps } from "../../lib/vaultPendingOps";
 import { pickVaultDestination } from "../../lib/vaultDest";
@@ -10,7 +12,7 @@ import { isSameOrUnder, remapPath } from "../../lib/vaultTree";
 import { ensureVaultDir } from "../../lib/vaultDir";
 import { toast } from "../../lib/toast";
 import { useVaultStore } from "../vaultStore";
-import { debounceGraphRebuild, titleFromPath } from "./helpers";
+import { titleFromPath } from "./helpers";
 import type { SliceContext } from "./context";
 import type { AppState } from "./state";
 
@@ -97,7 +99,6 @@ export function createVaultSlice({ set, get, persist, updateTab, saveTabImpl }: 
         toast.error(`Couldn't lock note: ${vaultErrorMessage(e)}`);
         return { ok: false };
       }
-      get().rebuildGraph();
       persist();
       return { ok: true, plainPath };
     },
@@ -121,7 +122,6 @@ export function createVaultSlice({ set, get, persist, updateTab, saveTabImpl }: 
           toast.error(`Couldn't open "${t.title}": ${vaultErrorMessage(e)}`);
         }
       }
-      debounceGraphRebuild(() => get().rebuildGraph());
       persist();
     },
 
@@ -155,13 +155,14 @@ export function createVaultSlice({ set, get, persist, updateTab, saveTabImpl }: 
         return false;
       }
       useVaultStore.getState().setUnlocked(false);
+      clearAllCodeDrafts();
+      endAllEntryEditing();
       const vaultTabIds = get().tabs.filter((t) => isVaultPath(t.filePath)).map((t) => t.id);
       set((s) => ({
         tabs: s.tabs.map((t) =>
           isVaultPath(t.filePath) ? { ...t, content: "", isDirty: false, vaultLocked: true } : t,
         ),
       }));
-      get().rebuildGraph();
       persist();
       // After React has swapped the editor for the lock screen, purge cached plaintext.
       setTimeout(() => void scrubMonacoModels(vaultTabIds), 100);
@@ -179,7 +180,6 @@ export function createVaultSlice({ set, get, persist, updateTab, saveTabImpl }: 
         }),
       }));
       if (!hit) return;
-      debounceGraphRebuild(() => get().rebuildGraph());
       persist();
     },
 
@@ -188,6 +188,7 @@ export function createVaultSlice({ set, get, persist, updateTab, saveTabImpl }: 
         .filter((t) => t.filePath && isVaultPath(t.filePath) && isSameOrUnder(t.filePath, path))
         .map((t) => t.id);
       if (ids.length === 0) return;
+      ids.forEach((id) => { setCodeDraft(id, ""); forgetEntryTab(id); });
       const gone = new Set(ids);
       set((s) => {
         const tabs = s.tabs.filter((t) => !gone.has(t.id));
@@ -199,7 +200,6 @@ export function createVaultSlice({ set, get, persist, updateTab, saveTabImpl }: 
         return { tabs, activeTabId };
       });
       setTimeout(() => void scrubMonacoModels(ids), 100);
-      debounceGraphRebuild(() => get().rebuildGraph());
       persist();
     },
   };

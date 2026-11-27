@@ -5,7 +5,9 @@ import { listen } from "@tauri-apps/api/event";
 import Editor, { type OnMount } from "@monaco-editor/react";
 import * as monaco from "monaco-editor";
 import { applyTheme } from "../../lib/themes";
-import { STATIC_EDITOR_OPTIONS } from "../../lib/monacoOptions"
+import { STATIC_EDITOR_OPTIONS, suggestionOptions } from "../../lib/monacoOptions"
+import { aiTypesAlong } from "../../lib/ai/access"
+import { useAppStore } from "../../store"
 import { useStickyNotesStore } from "../../store/stickyNoteStore";
 import { registerEditor, unregisterEditor } from "../../lib/activeEditor";
 import { ensureInlineProvider } from "../../lib/ai/inlineCompletions";
@@ -140,6 +142,7 @@ export default function StickyNoteApp() {
 
   // Disposer for the AI shimmer loader widget (cleaned up on unmount).
   const detachAiLoaderRef = useRef<(() => void) | null>(null);
+  const aiSuggests = useAppStore(aiTypesAlong);
 
   // Mount editor: disable F1/command palette, register for context menu, AI autocomplete
   const handleEditorMount: OnMount = useCallback((editor) => {
@@ -231,6 +234,7 @@ export default function StickyNoteApp() {
           theme={monacoTheme}
           options={{
             ...STATIC_EDITOR_OPTIONS,
+            ...suggestionOptions(aiSuggests),
             fontSize,
             lineHeight: Math.round(fontSize * 1.7),
             wordWrap: "on",

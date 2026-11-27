@@ -34,7 +34,26 @@ export function isConnectionError(message: string): boolean {
   return /connection|disconnect|\bclosed\b|broken pipe|\beof\b|reset by|timed out|timeout/i.test(message);
 }
 
-export const sftpOpen = (id: number, path: string, auth: string) => invoke<OpenedSftp>("sftp_open", { id, path, auth });
+/** A server Notiq hasn't trusted yet: what the user checks before approving its key. */
+export interface UnknownHost { host: string; port: number; alg: string; fp: string }
+
+const UNKNOWN_HOST = "unknown_host:";
+
+/** The untrusted key in a failed `sftpOpen`, or null when it failed for another reason. */
+export function parseUnknownHost(message: string): UnknownHost | null {
+  if (!message.startsWith(UNKNOWN_HOST)) return null;
+  try {
+    const o = JSON.parse(message.slice(UNKNOWN_HOST.length)) as Partial<UnknownHost>;
+    return typeof o.host === "string" && typeof o.port === "number" && typeof o.alg === "string" && typeof o.fp === "string"
+      ? { host: o.host, port: o.port, alg: o.alg, fp: o.fp } : null;
+  } catch {
+    return null;
+  }
+}
+
+/** `trust` is the key the user just approved; the backend accepts only an exact match, and never a changed key. */
+export const sftpOpen = (id: number, path: string, auth: string, trust: UnknownHost | null = null) =>
+  invoke<OpenedSftp>("sftp_open", { id, path, auth, trust });
 export const sftpClose = (id: number) => invoke<void>("sftp_close", { id });
 export const sftpList = (id: number, path: string) => invoke<RemoteListing>("sftp_list", { id, path });
 export const sftpMkdir = (id: number, path: string) => invoke<void>("sftp_mkdir", { id, path });
