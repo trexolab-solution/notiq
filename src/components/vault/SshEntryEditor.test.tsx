@@ -6,6 +6,7 @@ import { ED25519_PRIV, ED25519_PUB, RSA_PUB } from "../../lib/__fixtures__/sshKe
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn(async () => null) }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: () => Promise.resolve(() => {}) }));
+vi.mock("@tauri-apps/api/window", () => ({ getCurrentWindow: () => ({ isVisible: async () => true }) }));
 
 const dialogOpen = vi.fn();
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: (...a: unknown[]) => dialogOpen(...a), save: vi.fn(), ask: vi.fn() }));

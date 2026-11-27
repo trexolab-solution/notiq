@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Activity, Cpu, HardDrive, MemoryStick, PlugZap, RefreshCw, ServerOff, TriangleAlert, Unplug } from "lucide-react";
 import { Button } from "../ui/Button";
 import { Section } from "./EntryParts";
@@ -32,7 +33,9 @@ export const AUTO_DELAY_MS = 600;
  * can get the address blocked by the server), or the user pressed Disconnect. For this run of the app.
  */
 const heldPaths = new Set<string>();
-export const clearHeldOverviews = (): void => heldPaths.clear();
+export const clearHeldOverviews = (): void => { heldPaths.clear(); pendingOpens.clear(); };
+/** Sign-ins still under way, also those whose panel has gone: no second one is started beside them. */
+const pendingOpens = new Map<string, Promise<void>>();
 
 type Phase =
   | { kind: "idle" }
@@ -318,8 +321,15 @@ export function ServerOverview({ tab, name, fields, pref }: { tab: Tab; name: st
     const id = newSessionId();
     sid.current = id;
     setPhase({ kind: "connecting" });
+    const attempt = overviewOpen(id, path, auth, trust);
+    const settled = attempt.then(() => {}, (e) => {
+      // Counted even when the panel has gone by now. (An unknown host key is not a failed sign-in: nothing was sent.)
+      if (!parseUnknownHost(sftpErrorMessage(e))) heldPaths.add(path);
+    });
+    pendingOpens.set(path, settled);
+    void settled.then(() => { if (pendingOpens.get(path) === settled) pendingOpens.delete(path); });
     try {
-      await overviewOpen(id, path, auth, trust);
+      await attempt;
       if (sid.current !== id) { void overviewClose(id).catch(() => {}); return; }
       heldPaths.delete(path);
       setPhase({ kind: "live" });
@@ -406,12 +416,19 @@ export function ServerOverview({ tab, name, fields, pref }: { tab: Tab; name: st
     const path = pathRef.current;
     if (!canRun || !path || !autoRef.current || inTray.current || sid.current || heldPaths.has(path)) return;
     setPending(true);
-    const t = setTimeout(() => {
+    let gone = false;
+    const run = async () => {
+      await pendingOpens.get(path);
+      // Asked of the window itself: a panel mounted while Notiq sits in the tray was never told it is hidden.
+      const onScreen = await getCurrentWindow().isVisible().catch(() => false);
+      if (gone) return;
       setPending(false);
+      if (!onScreen) { inTray.current = true; return; } // the focus coming back tries again
       const auth = autoRef.current;
       if (auth && !inTray.current && !sid.current && !heldPaths.has(path)) void connect(auth);
-    }, AUTO_DELAY_MS);
-    return () => { clearTimeout(t); setPending(false); };
+    };
+    const t = setTimeout(() => { void run(); }, AUTO_DELAY_MS);
+    return () => { gone = true; clearTimeout(t); setPending(false); };
   }, [canRun, tab.filePath, wake, connect]);
 
   const live = phase.kind === "live";

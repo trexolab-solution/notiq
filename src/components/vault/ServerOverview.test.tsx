@@ -7,6 +7,8 @@ import { ED25519_PRIV } from "../../lib/__fixtures__/sshKeys";
 const invoke = vi.fn();
 vi.mock("@tauri-apps/api/core", () => ({ invoke: (...a: unknown[]) => invoke(...a) }));
 const hiddenHandlers: (() => void)[] = [];
+let windowOnScreen = true;
+vi.mock("@tauri-apps/api/window", () => ({ getCurrentWindow: () => ({ isVisible: async () => windowOnScreen }) }));
 vi.mock("@tauri-apps/api/event", () => ({
   listen: async (name: string, cb: () => void) => { if (name === "vault-window-hidden") hiddenHandlers.push(cb); return () => {}; },
 }));
@@ -70,6 +72,7 @@ beforeEach(() => {
   vi.useFakeTimers();
   invoke.mockReset();
   clearHeldOverviews();
+  windowOnScreen = true;
   localStorage.clear();
   backend();
   fields = PASSWORD_ONLY;
@@ -153,6 +156,36 @@ describe("ServerOverview", () => {
     expect(calls("server_overview_open")).toHaveLength(2);
     await click(byText("Connect"));
     expect(calls("server_overview_open")).toHaveLength(3);
+  });
+
+  it("remembers a sign-in that failed after you left, and starts no second one beside it", async () => {
+    let fail: (e: string) => void = () => {};
+    invoke.mockImplementation(async (cmd: string) => (cmd === "server_overview_open"
+      ? new Promise<void>((_, reject) => { fail = reject; }) : null));
+    await render();
+    await flush(AUTO_DELAY_MS);
+    await act(async () => { useAppStore.setState({ activeTabId: "other" }); });
+    await act(async () => { useAppStore.setState({ activeTabId: "t1" }); });
+    await flush(AUTO_DELAY_MS * 3);
+    expect(calls("server_overview_open")).toHaveLength(1);
+    await act(async () => { fail("Permission denied (password) for root."); });
+    await flush(AUTO_DELAY_MS * 3);
+    await act(async () => { useAppStore.setState({ activeTabId: "other" }); });
+    await act(async () => { useAppStore.setState({ activeTabId: "t1" }); });
+    await flush(AUTO_DELAY_MS * 3);
+    expect(calls("server_overview_open")).toHaveLength(1);
+    expect(byText("Connect")).toBeTruthy();
+  });
+
+  it("doesn't connect by itself while the window is not on screen, even if the page isn't told", async () => {
+    windowOnScreen = false;
+    await render();
+    await flush(AUTO_DELAY_MS * 5);
+    expect(calls("server_overview_open")).toHaveLength(0);
+    windowOnScreen = true;
+    await act(async () => { window.dispatchEvent(new Event("focus")); });
+    await flush(AUTO_DELAY_MS);
+    expect(calls("server_overview_open")).toHaveLength(1);
   });
 
   it("keeps the server's details behind the i button, in a popover that Escape closes", async () => {

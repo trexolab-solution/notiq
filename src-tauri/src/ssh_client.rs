@@ -266,7 +266,8 @@ impl client::Handler for Hk {
                     "HOST KEY DOES NOT MATCH the fingerprint saved with this server.\r\nSaved:  {}\r\nServer: {fp}\r\nConnection refused.", norm_fp(p)));
                 return Ok(false);
             }
-            let _ = self.known.remember(&self.host, self.port, &alg, &fp);
+            // Trust for this entry only. Written to the shared list, an entry made by someone else could replace the
+            // key trusted for a real server (or put one there first), and other entries would then accept it.
             return Ok(true);
         }
         match self.known.check(&self.host, self.port, &fp) {
@@ -822,6 +823,27 @@ mod tests {
         let (sink, _tx, h) = spawn_run(bad, known);
         assert!(finish(h).await.is_err());
         assert!(sink.text().contains("DOES NOT MATCH"));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn an_entrys_fingerprint_never_changes_the_shared_trusted_keys() {
+        let fx = start_server("pw1", None).await;
+        let (known, dir) = temp_known();
+        for before in [None, Some("SHA256:the-real-server")] {
+            if let Some(fp) = before { known.remember("127.0.0.1", fx.port, "ssh-ed25519", fp).unwrap(); }
+            let mut c = password_connect(fx.port, "pw1");
+            c.pinned_fp = Some(fx.host_fp.clone());
+            let (sink, tx, h) = spawn_run(c, known.clone());
+            sink.wait_for("welcome").await;
+            type_line(&tx, "exit");
+            finish(h).await.unwrap();
+            let after = known.check("127.0.0.1", fx.port, &fx.host_fp);
+            match before {
+                None => assert!(matches!(after, Known::Unknown)),
+                Some(fp) => assert!(matches!(after, Known::Changed(ref old) if old == fp)),
+            }
+        }
         let _ = std::fs::remove_dir_all(dir);
     }
 
