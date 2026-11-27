@@ -13,34 +13,39 @@ import { APP_VERSION } from "./app";
  */
 export const WHATS_NEW = `# What's New in Notiq ${APP_VERSION}
 
-Vault items are easier to read and edit, and .nqb files now open in the right place.
+Safer editing in the vault, a live monitor for your servers, and new themes.
 
-## 🧩 Vault items, section by section
+## 📊 Server monitor
 
-- **One section at a time:** SSH servers, logins, cards, Wi-Fi, identities and recovery codes open as sections (Connection, Sign in, Details, Attachments…) in a list beside the form, or as tabs when the tab is narrow.
-- **SSH sign-in:** choose Password, SSH key or Both, pick what to use when both are saved, and see at a glance whether the server is ready to connect.
-- **Cleaner fields:** copy, show, open and generate buttons sit inside the field, Attachments start open, and **Unsaved changes** shows next to Save.
+- A saved SSH entry now shows its Linux server's **CPU, memory, swap and disks** with live graphs. The **i** button has the host name, system, kernel, uptime and processor.
+- It **signs in by itself** while it is in view, with the sign-in method you used last. After a failed sign-in or **Disconnect** it waits for you. A new server's key is only trusted when you say so.
 
-## 📦 Share files and backups
+## 🔐 Vault
 
-- Double-clicking a .nqb file opens **Import** for a share file and **Restore** for a backup. Before, a share file was refused.
-- The Unlock window now shows above Import and Restore instead of hiding behind them.
+- A saved item opens **read-only**: press **Edit** to change it. Notiq remembers the section you were on.
+- **Recovery codes now live inside the login**, which fixes codes that said they were saved but weren't. Update Notiq on all your computers: an older version drops these codes when it saves that login.
+- Replacing a saved password or SSH key asks you to type a confirmation.
+- The backup reminder has a new look and can **connect Google Drive**; Vault Sync settings show your Drive storage.
 
-## 🖼️ Images
+## 🎨 Themes
 
-- Locking a note into the vault now takes its images with it, encrypted with the note, instead of leaving broken links.
+- Five new themes: GitHub Light, Paper, Catppuccin Latte, Everforest and Graphite.
 
-## 👋 Welcome
+## 🤖 AI
 
-- The first-run welcome note now shows what Notiq can do, with screenshots and links. Replay the tour in Settings → General.
+- Editor suggestions and actions now work with "thinking" models. Setup has a new design and checks that the model really answers.
+- With AI off, the editor's own suggestions work. AI never reads the vault.
 
-## 🔑 Passkeys are on by default
+## 🌐 Browser autofill
 
-- The browser extension now offers to save and use passkeys with Notiq unless you turn it off in its popup. It still asks you every time.
+- **Passkeys are on by default.** Notiq still asks you every time.
+- Fixed a blank window that could appear on top of other apps.
 
 ## 🔧 Other
 
-- The storage folder is chosen in Settings → Vault only; the sidebar no longer has a shortcut for it.
+- Server files: trust a new server from a window in the app, set the icon size, clear the filter in one click; paste and Enter work in the file editor.
+- The knowledge graph was removed. Wiki links still work.
+- Security fixes: locking the vault clears unsaved secrets and closes monitor connections.
 
 ---
 
