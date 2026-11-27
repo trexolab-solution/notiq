@@ -22,6 +22,7 @@ import { reviewActions } from "../../../lib/syncMarkers";
 import { SYNC_INDEX } from "./syncIndex";
 import { deviceDisplayName } from "../../../lib/syncSurfaces";
 import { RestoreFromDateRow } from "./SyncHistoryRow";
+import { DriveStorageBlock } from "./DriveStorageBlock";
 
 /** Search words for a row: its index keywords plus the index description (row descriptions are live text). */
 const k = (id: string): string[] => {
@@ -236,6 +237,8 @@ export function SyncSection() {
         </SettingRow>
       )}
 
+      {/* Keyed by account: another account never shows the previous one's numbers. */}
+      {connected && <DriveStorageBlock key={status.account ?? ""} status={status} />}
       {connected && <DeviceNameRow status={status} />}
       {connected && <DevicesBlock status={status} />}
       {connected && exists && <RestoreFromDateRow />}

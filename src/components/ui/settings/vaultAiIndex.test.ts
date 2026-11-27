@@ -31,6 +31,7 @@ const VAULT_FILES = [
   "components/ui/settings/AutofillIncognitoRow.tsx",
   "components/ui/settings/SyncSection.tsx",
   "components/ui/settings/SyncHistoryRow.tsx",
+  "components/ui/settings/DriveStorageBlock.tsx",
   "components/vault/BackupSection.tsx",
 ];
 const FILES_FILES = ["components/ui/settings/FileManagerSettings.tsx"];

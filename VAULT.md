@@ -70,6 +70,7 @@ Optional and **off until you turn it on**. It keeps one vault in step across you
 - **Master password changes:** the new password works on every PC. If two PCs change it at about the same time, the later change wins.
 - **Pause / Resume:** *Pause* stops syncing on this PC; *Resume sync* starts again. If your vault is no longer in Google Drive, Notiq asks before uploading it again.
 - **Attachments sync too:** up to 5 MB per file, 25 MB per vault and 20 files per item.
+- **Drive storage:** while connected, **Settings → Vault → Sync** shows how much of your Google storage is used and free, with a warning from 85% and a stronger one from 95%. Google shares this storage with Gmail and Photos; work or school accounts with pooled storage report the organization's totals. It uses the same `drive.appdata` permission (Drive's `about.get`), so Google asks for nothing new.
 - **Disconnect any time:** your data stays in your Drive until you delete it (Google Drive → Settings → Manage apps).
 - **For developers:** the Google client ID and secret are read at build time from the `NOTIQ_GOOGLE_CLIENT_ID` and `NOTIQ_GOOGLE_CLIENT_SECRET` environment variables (see `src-tauri/src/sync/gdrive.rs` and the release workflow). A build without them hides the *Connect Google Drive* option. Never commit real values.
 

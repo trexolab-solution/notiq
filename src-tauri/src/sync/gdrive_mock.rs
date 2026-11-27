@@ -395,6 +395,12 @@ fn handle(st: &Arc<Mutex<MockState>>, base: &str, req: &Req) -> Option<Resp> {
         return Some(err_resp(401, "authError"));
     }
 
+    // about.get
+    if req.method == "GET" && p == "/about" {
+        assert_eq!(req.query.get("fields").map(String::as_str), Some("storageQuota"));
+        return Some(json_resp(200, json!({"storageQuota": {"limit": "1000", "usage": "400", "usageInDrive": "300", "usageInDriveTrash": "20"}})));
+    }
+
     // files.list
     if req.method == "GET" && p == "/files" {
         assert_eq!(req.query.get("spaces").map(String::as_str), Some("appDataFolder"));
@@ -610,6 +616,29 @@ fn transient_errors_are_retried_with_backoff() {
         let rl = r#"{"error":{"code":403,"errors":[{"reason":"userRateLimitExceeded"}]}}"#;
         m.inject("GET", "/files/", Canned::status(403).body(rl));
         assert_eq!(p.get("a").await.unwrap(), b"1");
+    });
+}
+
+#[test]
+fn storage_quota_uses_the_shared_auth_and_retry_handling() {
+    block_on(async {
+        let m = MockDrive::start().await;
+        let (p, _) = m.provider(true);
+        let want = StorageQuota { limit: Some(1000), usage: 400, usage_in_drive: 300, usage_in_drive_trash: 20 };
+        assert_eq!(p.storage_quota().await.unwrap(), want);
+        // Expired access token: one refresh, then the same answer. A 503 is retried.
+        m.st().access_token = "rotated".into();
+        m.inject("GET", "/about", Canned::status(503));
+        assert_eq!(p.storage_quota().await.unwrap(), want);
+        assert_eq!(m.st().count("POST /token"), 2);
+        let denied = r#"{"error":{"code":403,"errors":[{"reason":"insufficientPermissions"}]}}"#;
+        m.inject("GET", "/about", Canned::status(403).body(denied));
+        assert_eq!(p.storage_quota().await, Err(ProviderError::Auth));
+        // Not signed in: nothing reaches Drive.
+        let (out, _) = m.provider(false);
+        let before = m.st().count("GET /about");
+        assert_eq!(out.storage_quota().await, Err(ProviderError::Auth));
+        assert_eq!(m.st().count("GET /about"), before);
     });
 }
 

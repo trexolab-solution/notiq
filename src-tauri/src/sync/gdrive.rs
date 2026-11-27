@@ -68,6 +68,7 @@ pub struct Endpoints {
     pub revoke: String,
     pub files: String,
     pub upload: String,
+    pub about: String,
 }
 
 impl Endpoints {
@@ -78,6 +79,7 @@ impl Endpoints {
             revoke: "https://oauth2.googleapis.com/revoke".into(),
             files: "https://www.googleapis.com/drive/v3/files".into(),
             upload: "https://www.googleapis.com/upload/drive/v3/files".into(),
+            about: "https://www.googleapis.com/drive/v3/about".into(),
         }
     }
 
@@ -90,6 +92,7 @@ impl Endpoints {
             revoke: format!("{base}/revoke"),
             files: format!("{base}/files"),
             upload: format!("{base}/upload"),
+            about: format!("{base}/about"),
         }
     }
 
@@ -402,6 +405,35 @@ pub fn parse_file(v: &Value) -> Option<DriveFile> {
         size: int_field(&v["size"]).unwrap_or(0),
         version: int_field(&v["version"]).unwrap_or(0),
         modified_ms: v["modifiedTime"].as_str().and_then(parse_rfc3339_ms),
+    })
+}
+
+/// The account's storage, from `about.get` (bytes). This is all that reaches the webview.
+#[derive(Serialize, Debug, Clone, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct StorageQuota {
+    /// `None`: Google reports no limit (unlimited storage).
+    pub limit: Option<u64>,
+    /// Used across all Google services that share this storage.
+    pub usage: u64,
+    pub usage_in_drive: u64,
+    pub usage_in_drive_trash: u64,
+}
+
+/// An `about.get?fields=storageQuota` reply. A missing `limit` means unlimited; an unreadable one is an error.
+pub fn parse_storage_quota(body: &str) -> Result<StorageQuota, ProviderError> {
+    let bad = || ProviderError::Other("Unexpected reply from Google Drive".into());
+    let v: Value = serde_json::from_str(body).map_err(|_| bad())?;
+    let q = &v["storageQuota"];
+    let limit = match q.get("limit") {
+        None | Some(Value::Null) => None,
+        Some(l) => Some(int_field(l).ok_or_else(bad)?),
+    };
+    Ok(StorageQuota {
+        limit,
+        usage: int_field(&q["usage"]).ok_or_else(bad)?,
+        usage_in_drive: int_field(&q["usageInDrive"]).unwrap_or(0),
+        usage_in_drive_trash: int_field(&q["usageInDriveTrash"]).unwrap_or(0),
     })
 }
 
@@ -852,6 +884,14 @@ impl GoogleDriveProvider {
             .ok_or_else(|| ProviderError::Other("Unexpected reply from Google Drive".into()))
     }
 
+    /// The signed-in account's storage. `about.get` accepts the `drive.appdata` scope.
+    pub async fn storage_quota(&self) -> Result<StorageQuota, ProviderError> {
+        let resp = self
+            .execute(|c, t| c.get(&self.cfg.endpoints.about).query(&[("fields", "storageQuota")]).bearer_auth(t), is_success)
+            .await?;
+        parse_storage_quota(&Self::body_text(resp).await?)
+    }
+
     /// Every file in the app folder matching `q` (all pages).
     async fn list_files(&self, q: &str) -> Result<Vec<DriveFile>, ProviderError> {
         let fields = format!("nextPageToken,files({FILE_FIELDS})");
@@ -1265,6 +1305,26 @@ mod tests {
         assert_eq!((files[1].size, files[1].version, files[1].modified_ms), (3, 2, None));
         assert_eq!(parse_file_list(r#"{"files":[]}"#).unwrap().1, None);
         assert!(parse_file_list("not json").is_err());
+    }
+
+    #[test]
+    fn storage_quota_parsing() {
+        // Drive encodes int64 as strings.
+        let body = r#"{"storageQuota":{"limit":"16106127360","usage":"5368709120","usageInDrive":"1073741824","usageInDriveTrash":"1024"}}"#;
+        assert_eq!(
+            parse_storage_quota(body).unwrap(),
+            StorageQuota { limit: Some(16_106_127_360), usage: 5_368_709_120, usage_in_drive: 1_073_741_824, usage_in_drive_trash: 1024 }
+        );
+        // Unlimited storage: no `limit`.
+        let q = parse_storage_quota(r#"{"storageQuota":{"usage":"10"}}"#).unwrap();
+        assert_eq!(q, StorageQuota { limit: None, usage: 10, usage_in_drive: 0, usage_in_drive_trash: 0 });
+        assert_eq!(
+            serde_json::to_value(&q).unwrap(),
+            json!({"limit": null, "usage": 10, "usageInDrive": 0, "usageInDriveTrash": 0})
+        );
+        for bad in ["not json", "{}", r#"{"storageQuota":{}}"#, r#"{"storageQuota":{"limit":"5"}}"#, r#"{"storageQuota":{"limit":"lots","usage":"1"}}"#] {
+            assert!(parse_storage_quota(bad).is_err(), "{bad}");
+        }
     }
 
     #[test]
