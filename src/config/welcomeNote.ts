@@ -78,7 +78,7 @@ ${shot("ssh", "An SSH server item with its command and Open in terminal button")
 | \`Ctrl+P\` | Export PDF |
 | \`Ctrl+,\` | Settings |
 
-Make it yours in **Settings**: 13 themes, fonts, word wrap, default view and more. To see the guided tour again, go to **Settings → General → Welcome tour**.
+Make it yours in **Settings**: 18 themes, fonts, word wrap, default view and more. To see the guided tour again, go to **Settings → General → Welcome tour**.
 
 ## Learn more
 

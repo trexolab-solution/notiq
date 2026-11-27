@@ -1,6 +1,6 @@
 /* ═══════════════════════════════════════════════════
    Notiq theme palette
-   13 premium themes · clean contrast · readable
+   18 premium themes · clean contrast · readable
 ═══════════════════════════════════════════════════ */
 
 /* ── Dark (default) ────────────────────────────── */
@@ -249,6 +249,101 @@
   --color-danger:       #E46876;
   --color-editor-bg:    #1F1F28;
   --color-editor-text:  #DCD7BA;
+}
+
+/* ── GitHub Light ──────────────────────────── */
+[data-theme="github-light"] {
+  --color-bg:           #ffffff;
+  --color-bg-secondary: #f6f8fa;
+  --color-bg-tertiary:  #eaeef2;
+  --color-border:       #d0d7de;
+  --color-text:         #1f2328;
+  --color-text-muted:   #57606a;
+  --color-primary:      #0969da;
+  --color-primary-hover:#0757b5;
+  --color-on-primary:   #ffffff;
+  --color-accent:       #7c45d6;
+  --color-success:      #176f2c;
+  --color-warning:      #8a5c00;
+  --color-danger:       #c4202b;
+  --color-editor-bg:    #ffffff;
+  --color-editor-text:  #1f2328;
+}
+
+/* ── Paper ─────────────────────────────────── */
+[data-theme="paper"] {
+  --color-bg:           #fbf8f1;
+  --color-bg-secondary: #f3eee3;
+  --color-bg-tertiary:  #eae3d4;
+  --color-border:       #d8cfbc;
+  --color-text:         #2f2a22;
+  --color-text-muted:   #5f5646;
+  --color-primary:      #1d6a72;
+  --color-primary-hover:#155259;
+  --color-on-primary:   #ffffff;
+  --color-accent:       #8a4b2a;
+  --color-success:      #3f6b1f;
+  --color-warning:      #835500;
+  --color-danger:       #ab2a21;
+  --color-editor-bg:    #fdfbf6;
+  --color-editor-text:  #2f2a22;
+}
+
+/* ── Catppuccin Latte ──────────────────────── */
+[data-theme="catppuccin-latte"] {
+  --color-bg:           #eff1f5;
+  --color-bg-secondary: #e6e9ef;
+  --color-bg-tertiary:  #dce0e8;
+  --color-border:       #bcc0cc;
+  --color-text:         #4c4f69;
+  --color-text-muted:   #555970;
+  --color-primary:      #7a2fe0;
+  --color-primary-hover:#6821c9;
+  --color-on-primary:   #ffffff;
+  --color-accent:       #1a56c4;
+  --color-success:      #2a6b1e;
+  --color-warning:      #8a5000;
+  --color-danger:       #b80d32;
+  --color-editor-bg:    #eff1f5;
+  --color-editor-text:  #4c4f69;
+}
+
+/* ── Everforest ────────────────────────────── */
+[data-theme="everforest"] {
+  --color-bg:           #2d353b;
+  --color-bg-secondary: #343f44;
+  --color-bg-tertiary:  #3d484d;
+  --color-border:       #4f585e;
+  --color-text:         #d3c6aa;
+  --color-text-muted:   #afbab1;
+  --color-primary:      #a7c080;
+  --color-primary-hover:#b8d092;
+  --color-on-primary:   #1e2326;
+  --color-accent:       #7fbbb3;
+  --color-success:      #8ccf9d;
+  --color-warning:      #dbbc7f;
+  --color-danger:       #f29b9d;
+  --color-editor-bg:    #2d353b;
+  --color-editor-text:  #d3c6aa;
+}
+
+/* ── Graphite ──────────────────────────────── */
+[data-theme="graphite"] {
+  --color-bg:           #161618;
+  --color-bg-secondary: #1e1e21;
+  --color-bg-tertiary:  #2a2a2f;
+  --color-border:       #38383f;
+  --color-text:         #e6e6e9;
+  --color-text-muted:   #a4a4ad;
+  --color-primary:      #7eaaff;
+  --color-primary-hover:#9dbfff;
+  --color-on-primary:   #0d1220;
+  --color-accent:       #5fd4c4;
+  --color-success:      #5ecf87;
+  --color-warning:      #e6b455;
+  --color-danger:       #f4747a;
+  --color-editor-bg:    #161618;
+  --color-editor-text:  #e6e6e9;
 }
 
 /* ── AI status chip (floating "thinking" indicator, editor bottom-right) ─────

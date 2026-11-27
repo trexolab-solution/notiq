@@ -4,7 +4,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
 import Editor, { type OnMount } from "@monaco-editor/react";
 import * as monaco from "monaco-editor";
-import { applyTheme } from "../../lib/themes";
+import { applyTheme, isLightTheme } from "../../lib/themes";
 import { STATIC_EDITOR_OPTIONS, suggestionOptions } from "../../lib/monacoOptions"
 import { aiTypesAlong, allowAiFor } from "../../lib/ai/access"
 import { useAppStore } from "../../store"
@@ -18,10 +18,6 @@ import { ContextMenu } from "../ui/ContextMenu";
 import { buildEditItems } from "../../lib/contextMenu/items";
 import { monacoEditActions, monacoEditState } from "../../lib/contextMenu/monacoActions";
 import { useWindowContextMenu } from "../../hooks/useWindowContextMenu";
-
-const DARK_THEMES = new Set([
-  "dark", "one-dark", "nord", "dracula", "catppuccin", "tokyo-night", "rose-pine",
-]);
 
 /** Returns true if a hex color is perceptually light. */
 function isLightColor(hex: string): boolean {
@@ -207,12 +203,11 @@ export default function StickyNoteApp() {
     ? buildEditItems(monacoEditState(editorRef.current), monacoEditActions(editorRef.current))
     : [];
 
-  const isDark = DARK_THEMES.has(themeId);
   // When a custom bg color is set, pick Monaco theme by its brightness;
   // otherwise follow the app theme.
   const monacoTheme = bgColor
     ? (isLightColor(bgColor) ? "vs" : "vs-dark")
-    : (isDark ? "vs-dark" : "vs");
+    : (isLightTheme(themeId) ? "vs" : "vs-dark");
 
   const shellStyle: React.CSSProperties = {
     opacity: focused ? 1 : unfocusedOpacity,

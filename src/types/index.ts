@@ -18,7 +18,8 @@ export type ThemeId =
   | "one-dark" | "nord" | "dracula"
   | "catppuccin" | "tokyo-night" | "rose-pine"
   | "gruvbox" | "solarized-dark" | "github-dark"
-  | "monokai" | "kanagawa";
+  | "monokai" | "kanagawa"
+  | "github-light" | "paper" | "catppuccin-latte" | "everforest" | "graphite";
 
 export interface TerminalAnsiColors {
   black: string; red: string; green: string; yellow: string;
@@ -30,6 +31,7 @@ export interface TerminalAnsiColors {
 export interface Theme {
   id: ThemeId;
   label: string;
+  mode: "dark" | "light";
   colors: {
     bg: string;
     bgSecondary: string;

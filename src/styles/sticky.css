@@ -659,7 +659,7 @@ html.is-sticky-note #root {
   border: none;
   border-radius: 6px;
   background: var(--color-primary);
-  color: #fff;
+  color: var(--color-on-primary);
   font-size: 11.5px;
   font-weight: 600;
   cursor: pointer;

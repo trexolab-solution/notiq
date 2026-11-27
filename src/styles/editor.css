@@ -484,7 +484,7 @@
   height: 28px;
   border-radius: 50%;
   background: var(--color-primary);
-  color: #fff;
+  color: var(--color-on-primary);
   font-size: 13px;
   font-weight: 700;
   display: flex;

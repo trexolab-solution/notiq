@@ -3,6 +3,7 @@ import { Excalidraw } from "@excalidraw/excalidraw";
 import "@excalidraw/excalidraw/index.css";
 import { ArrowLeft, FileText, Plus } from "lucide-react";
 import { useAppStore } from "../../store";
+import { isLightTheme } from "../../lib/themes";
 
 // ── Branding suppression ──────────────────────────────────────────────────────
 const HIDE_BRANDING_CSS = `
@@ -68,7 +69,7 @@ export function Whiteboard({ tabId, linkedNoteId }: WhiteboardProps) {
   const setActiveTab = useAppStore((s) => s.setActiveTab);
   const addTab       = useAppStore((s) => s.addTab);
 
-  const excalidrawTheme = themeId === "light" ? ("light" as const) : ("dark" as const);
+  const excalidrawTheme = isLightTheme(themeId) ? ("light" as const) : ("dark" as const);
 
   // Loaded once on first render — stable ref prevents Excalidraw from re-initialising
   const initialData = useRef(loadState(tabId));
