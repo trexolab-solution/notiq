@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Cloud, Download, X } from "lucide-react";
+import { Cloud, Download, ShieldAlert, X } from "lucide-react";
 import { Tooltip } from "../ui/Tooltip";
 import { Button } from "../ui/Button";
 import { BusyIcon } from "../ui/Loading";
@@ -42,8 +42,9 @@ export function BackupReminder() {
   const canConnect = syncCommandAvailability(sync, { exists, unlocked }).connect;
 
   const last = readReminderInput().lastBackup;
+  const title = reason === "never" ? "Vault not backed up" : "Backup is out of date";
   const text = reason === "never"
-    ? "You haven't backed up your vault. It only exists on this computer."
+    ? "It's only on this computer."
     : `Your last vault backup was ${last ? describeAge(last, Date.now()) : "a while ago"}.`;
 
   const backUp = async () => {
@@ -59,40 +60,53 @@ export function BackupReminder() {
     }
   };
 
+  // The card follows the sidebar's width (a container query): narrow, the actions are full width, one under the
+  // other; with room, they sit in a row under the text at their own size.
+  const wide = "w-full justify-center !py-1.5 font-medium @md:w-auto @md:!px-3";
+  const outlined = "border border-[var(--color-border)] !text-[var(--color-text)] hover:border-[var(--color-primary)]";
+
   return (
     <div
       role="status"
       data-testid="backup-reminder"
-      className="mx-2 my-1.5 p-2 rounded-md text-xs border border-[var(--color-border)] bg-[var(--color-bg-tertiary)] text-[var(--color-text)]"
+      className="@container mx-2 my-2 flex flex-col gap-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] p-3 text-[var(--color-text)] shadow-sm"
     >
-      <div className="flex items-start gap-2">
-        <span className="flex-1">{text}</span>
+      <div className="flex items-start gap-2.5">
+        <span aria-hidden className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-[color-mix(in_srgb,var(--color-warning)_16%,transparent)] text-[var(--color-warning)]">
+          <ShieldAlert size={16} />
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="text-xs font-semibold leading-snug">{title}</p>
+          <p className="mt-0.5 text-[11px] leading-snug text-[var(--color-text-muted)]">{text}</p>
+        </div>
         <Tooltip content="Remind me in 7 days">
           <button
             type="button" aria-label="Remind me in 7 days"
-            className="shrink-0 cursor-pointer text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
+            className="-mr-1 -mt-1 flex h-6 w-6 shrink-0 items-center justify-center rounded cursor-pointer text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text)]"
             onClick={() => snoozeBackupReminder()}
           >
-            <X size={12} />
+            <X size={13} />
           </button>
         </Tooltip>
       </div>
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 mt-2">
+      {/* In a row, they start where the text does (the icon's width plus the gap). */}
+      <div className="flex flex-col gap-1.5 @md:flex-row @md:flex-wrap @md:items-center @md:gap-2 @md:pl-[2.625rem]">
         {canConnect && (
-          <Button size="sm" variant="primary" icon={<Cloud size={12} aria-hidden />} onClick={() => requestSyncSetup()}>
+          <Button size="sm" variant="primary" className={wide} icon={<Cloud size={13} aria-hidden />} onClick={() => requestSyncSetup()}>
             Connect Google Drive
           </Button>
         )}
-        <button
-          type="button" disabled={busy} aria-busy={busy || undefined}
-          className="inline-flex items-center gap-1 font-semibold cursor-pointer text-[var(--color-primary)] hover:underline disabled:opacity-50"
-          onClick={() => void backUp()}
+        {/* The only action, so the main one, where Drive isn't on offer. */}
+        <Button
+          size="sm" variant={canConnect ? "ghost" : "primary"} className={canConnect ? `${wide} ${outlined}` : wide}
+          disabled={busy} aria-busy={busy || undefined} onClick={() => void backUp()}
+          icon={<BusyIcon icon={Download} busy={busy} size={13} />}
         >
-          <BusyIcon icon={Download} busy={busy} size={11} /> {busy ? "Backing up…" : "Back up now"}
-        </button>
+          {busy ? "Backing up…" : "Back up now"}
+        </Button>
         <button
           type="button"
-          className="ml-auto cursor-pointer text-[var(--color-text-muted)] hover:text-[var(--color-text)] underline"
+          className="mt-0.5 self-center @md:mt-0 @md:ml-auto cursor-pointer rounded px-1.5 text-[11px] text-[var(--color-text-muted)] underline-offset-2 hover:text-[var(--color-text)] hover:underline"
           onClick={() => setBackupReminderDisabled(true)}
         >
           Don't remind me
