@@ -33,7 +33,7 @@ Notiq is a desktop app for notes, secrets and servers that you want to keep on y
 
 | | |
 |---|---|
-| **Markdown editor** | Monaco with Source, Preview and Split views. Tables, task lists, Mermaid, LaTeX and `[[wiki links]]`. Tabs, 13 themes, plain `.md` files on your disk. |
+| **Markdown editor** | Monaco with Source, Preview and Split views. Tables, task lists, Mermaid, LaTeX and `[[wiki links]]`. Tabs, 18 themes, plain `.md` files on your disk. |
 | **Secure Vault** | Passwords, SSH keys, cards, Wi-Fi, identities, 2-step codes and private notes in one encrypted file, behind a master password and a recovery key. |
 | **Vault Sync** | Optional. Use one vault on all your PCs, end-to-end encrypted through your own Google Drive. Off until you turn it on. |
 | **Browser autofill** | A browser extension fills logins and passkeys; every request is approved in Notiq. |

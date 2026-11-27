@@ -63,7 +63,7 @@
   --tip-border: color-mix(in srgb, var(--color-border) 80%, var(--color-text) 20%);
   --tip-shadow: 0 2px 8px rgba(0, 0, 0, 0.36);
 }
-[data-theme="light"] {
+[data-theme-mode="light"] {
   --tip-bg: var(--color-bg);
   --tip-shadow: 0 2px 8px rgba(15, 23, 42, 0.16);
 }

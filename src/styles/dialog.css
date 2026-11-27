@@ -9,7 +9,7 @@
   --dlg-radius: 10px;
   --dlg-pad-x: 18px;
 }
-[data-theme="light"] {
+[data-theme-mode="light"] {
   --dlg-scrim: rgba(15, 23, 42, 0.32);
   --dlg-shadow: 0 16px 40px rgba(15, 23, 42, 0.18), 0 2px 8px rgba(15, 23, 42, 0.1);
 }

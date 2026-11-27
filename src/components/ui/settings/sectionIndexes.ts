@@ -116,7 +116,7 @@ const a = make("appearance");
 export const APPEARANCE_INDEX: SettingMeta[] = [
   a("appearance.theme.color-theme", "Theme", "Color theme",
     "Colors for the whole app: editor, sidebar, terminal and dialogs.",
-    ["theme", "dark", "light", "dark mode", "light mode", "colors", "palette", "nord", "dracula", "solarized", "monokai", "catppuccin", "gruvbox"]),
+    ["theme", "dark", "light", "dark mode", "light mode", "colors", "palette", "nord", "dracula", "solarized", "monokai", "catppuccin", "gruvbox", "github", "paper", "latte", "everforest", "graphite"]),
 ];
 
 // ── Shortcuts ────────────────────────────────────────────────────────────────

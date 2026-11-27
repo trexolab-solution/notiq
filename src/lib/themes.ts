@@ -6,6 +6,7 @@ export const THEMES: Record<ThemeId, Theme> = {
   dark: {
     id: "dark",
     label: "Dark",
+    mode: "dark",
     colors: {
       bg: "#0f172a", bgSecondary: "#1e293b", bgTertiary: "#334155",
       border: "#334155", text: "#e2e8f0", textMuted: "#8290a3",
@@ -23,6 +24,7 @@ export const THEMES: Record<ThemeId, Theme> = {
   light: {
     id: "light",
     label: "Light",
+    mode: "light",
     colors: {
       bg: "#f8fafc", bgSecondary: "#f1f5f9", bgTertiary: "#e2e8f0",
       border: "#cbd5e1", text: "#1e293b", textMuted: "#617188",
@@ -40,6 +42,7 @@ export const THEMES: Record<ThemeId, Theme> = {
   "one-dark": {
     id: "one-dark",
     label: "One Dark Pro",
+    mode: "dark",
     colors: {
       bg: "#282c34", bgSecondary: "#21252b", bgTertiary: "#3a3f4b",
       border: "#3e4451", text: "#abb2bf", textMuted: "#8d94a1",
@@ -57,6 +60,7 @@ export const THEMES: Record<ThemeId, Theme> = {
   nord: {
     id: "nord",
     label: "Nord",
+    mode: "dark",
     colors: {
       bg: "#2e3440", bgSecondary: "#3b4252", bgTertiary: "#434c5e",
       border: "#4c566a", text: "#eceff4", textMuted: "#a6aebc",
@@ -74,6 +78,7 @@ export const THEMES: Record<ThemeId, Theme> = {
   dracula: {
     id: "dracula",
     label: "Dracula",
+    mode: "dark",
     colors: {
       bg: "#282a36", bgSecondary: "#313244", bgTertiary: "#44475a",
       border: "#6272a4", text: "#f8f8f2", textMuted: "#8b9cc8",
@@ -91,6 +96,7 @@ export const THEMES: Record<ThemeId, Theme> = {
   catppuccin: {
     id: "catppuccin",
     label: "Catppuccin Mocha",
+    mode: "dark",
     colors: {
       bg: "#1e1e2e", bgSecondary: "#181825", bgTertiary: "#313244",
       border: "#45475a", text: "#cdd6f4", textMuted: "#81869e",
@@ -108,6 +114,7 @@ export const THEMES: Record<ThemeId, Theme> = {
   "tokyo-night": {
     id: "tokyo-night",
     label: "Tokyo Night",
+    mode: "dark",
     colors: {
       bg: "#1a1b26", bgSecondary: "#16161e", bgTertiary: "#24283b",
       border: "#3b4261", text: "#c0caf5", textMuted: "#7881ac",
@@ -125,6 +132,7 @@ export const THEMES: Record<ThemeId, Theme> = {
   "rose-pine": {
     id: "rose-pine",
     label: "Rose Pine",
+    mode: "dark",
     colors: {
       bg: "#191724", bgSecondary: "#1f1d2e", bgTertiary: "#26233a",
       border: "#403d52", text: "#e0def4", textMuted: "#87849e",
@@ -140,11 +148,10 @@ export const THEMES: Record<ThemeId, Theme> = {
     },
   },
 
-  // ── New themes ──────────────────────────────────────────────────────────
-
   gruvbox: {
     id: "gruvbox",
     label: "Gruvbox Dark",
+    mode: "dark",
     colors: {
       bg: "#282828", bgSecondary: "#3c3836", bgTertiary: "#504945",
       border: "#665c54", text: "#ebdbb2", textMuted: "#afa089",
@@ -162,6 +169,7 @@ export const THEMES: Record<ThemeId, Theme> = {
   "solarized-dark": {
     id: "solarized-dark",
     label: "Solarized Dark",
+    mode: "dark",
     colors: {
       bg: "#002b36", bgSecondary: "#073642", bgTertiary: "#094655",
       border: "#586e75", text: "#839496", textMuted: "#839496",
@@ -179,6 +187,7 @@ export const THEMES: Record<ThemeId, Theme> = {
   "github-dark": {
     id: "github-dark",
     label: "GitHub Dark",
+    mode: "dark",
     colors: {
       bg: "#24292e", bgSecondary: "#1f2428", bgTertiary: "#2f363d",
       border: "#1b1f23", text: "#e1e4e8", textMuted: "#959da5",
@@ -196,6 +205,7 @@ export const THEMES: Record<ThemeId, Theme> = {
   monokai: {
     id: "monokai",
     label: "Monokai Pro",
+    mode: "dark",
     colors: {
       bg: "#2d2a2e", bgSecondary: "#221f22", bgTertiary: "#403e41",
       border: "#5b595c", text: "#fcfcfa", textMuted: "#939293",
@@ -213,6 +223,7 @@ export const THEMES: Record<ThemeId, Theme> = {
   kanagawa: {
     id: "kanagawa",
     label: "Kanagawa",
+    mode: "dark",
     colors: {
       bg: "#1F1F28", bgSecondary: "#2A2A37", bgTertiary: "#363646",
       border: "#54546D", text: "#DCD7BA", textMuted: "#949283",
@@ -227,8 +238,106 @@ export const THEMES: Record<ThemeId, Theme> = {
       brightBlue: "#7FB4CA", brightMagenta: "#938AA9", brightCyan: "#7AA89F", brightWhite: "#DCD7BA",
     },
   },
+  "github-light": {
+    id: "github-light",
+    label: "GitHub Light",
+    mode: "light",
+    colors: {
+      bg: "#ffffff", bgSecondary: "#f6f8fa", bgTertiary: "#eaeef2",
+      border: "#d0d7de", text: "#1f2328", textMuted: "#57606a",
+      primary: "#0969da", primaryHover: "#0757b5", onPrimary: "#ffffff", accent: "#7c45d6",
+      success: "#176f2c", warning: "#8a5c00", danger: "#c4202b",
+      editorBg: "#ffffff", editorText: "#1f2328",
+    },
+    ansi: {
+      black: "#24292f", red: "#cf222e", green: "#116329", yellow: "#7d4e00",
+      blue: "#0969da", magenta: "#8250df", cyan: "#1b7c83", white: "#6e7781",
+      brightBlack: "#57606a", brightRed: "#a40e26", brightGreen: "#1a7f37", brightYellow: "#9a6700",
+      brightBlue: "#1b7ce6", brightMagenta: "#8250df", brightCyan: "#1b7c83", brightWhite: "#57606a",
+    },
+  },
+  paper: {
+    id: "paper",
+    label: "Paper",
+    mode: "light",
+    colors: {
+      bg: "#fbf8f1", bgSecondary: "#f3eee3", bgTertiary: "#eae3d4",
+      border: "#d8cfbc", text: "#2f2a22", textMuted: "#5f5646",
+      primary: "#1d6a72", primaryHover: "#155259", onPrimary: "#ffffff", accent: "#8a4b2a",
+      success: "#3f6b1f", warning: "#835500", danger: "#ab2a21",
+      editorBg: "#fdfbf6", editorText: "#2f2a22",
+    },
+    ansi: {
+      black: "#2f2a22", red: "#ab2a21", green: "#3f6b1f", yellow: "#835500",
+      blue: "#285a8f", magenta: "#7d3f78", cyan: "#1d6a72", white: "#756b59",
+      brightBlack: "#5f5646", brightRed: "#c0362c", brightGreen: "#4d7f28", brightYellow: "#956300",
+      brightBlue: "#346fab", brightMagenta: "#94508e", brightCyan: "#23808a", brightWhite: "#5f5646",
+    },
+  },
+  "catppuccin-latte": {
+    id: "catppuccin-latte",
+    label: "Catppuccin Latte",
+    mode: "light",
+    colors: {
+      bg: "#eff1f5", bgSecondary: "#e6e9ef", bgTertiary: "#dce0e8",
+      border: "#bcc0cc", text: "#4c4f69", textMuted: "#555970",
+      primary: "#7a2fe0", primaryHover: "#6821c9", onPrimary: "#ffffff", accent: "#1a56c4",
+      success: "#2a6b1e", warning: "#8a5000", danger: "#b80d32",
+      editorBg: "#eff1f5", editorText: "#4c4f69",
+    },
+    ansi: {
+      black: "#4c4f69", red: "#c20f36", green: "#34801f", yellow: "#96600a",
+      blue: "#1e66f5", magenta: "#8839ef", cyan: "#137a80", white: "#6c6f85",
+      brightBlack: "#5c5f77", brightRed: "#d20f39", brightGreen: "#3a8a24", brightYellow: "#a5690c",
+      brightBlue: "#2a6ef5", brightMagenta: "#9a4fd0", brightCyan: "#15848b", brightWhite: "#5c5f77",
+    },
+  },
+  everforest: {
+    id: "everforest",
+    label: "Everforest",
+    mode: "dark",
+    colors: {
+      bg: "#2d353b", bgSecondary: "#343f44", bgTertiary: "#3d484d",
+      border: "#4f585e", text: "#d3c6aa", textMuted: "#afbab1",
+      primary: "#a7c080", primaryHover: "#b8d092", onPrimary: "#1e2326", accent: "#7fbbb3",
+      success: "#8ccf9d", warning: "#dbbc7f", danger: "#f29b9d",
+      editorBg: "#2d353b", editorText: "#d3c6aa",
+    },
+    ansi: {
+      black: "#475258", red: "#e67e80", green: "#a7c080", yellow: "#dbbc7f",
+      blue: "#7fbbb3", magenta: "#d699b6", cyan: "#83c092", white: "#d3c6aa",
+      brightBlack: "#859289", brightRed: "#f29b9d", brightGreen: "#b8d092", brightYellow: "#e8cc93",
+      brightBlue: "#95cfc7", brightMagenta: "#e4aec8", brightCyan: "#98d3a6", brightWhite: "#e6dcc2",
+    },
+  },
+  graphite: {
+    id: "graphite",
+    label: "Graphite",
+    mode: "dark",
+    colors: {
+      bg: "#161618", bgSecondary: "#1e1e21", bgTertiary: "#2a2a2f",
+      border: "#38383f", text: "#e6e6e9", textMuted: "#a4a4ad",
+      primary: "#7eaaff", primaryHover: "#9dbfff", onPrimary: "#0d1220", accent: "#5fd4c4",
+      success: "#5ecf87", warning: "#e6b455", danger: "#f4747a",
+      editorBg: "#161618", editorText: "#e6e6e9",
+    },
+    ansi: {
+      black: "#2a2a2f", red: "#f4747a", green: "#5ecf87", yellow: "#e6b455",
+      blue: "#7eaaff", magenta: "#c39af2", cyan: "#5fd4c4", white: "#d4d4d8",
+      brightBlack: "#71717a", brightRed: "#ff969b", brightGreen: "#86dfa6", brightYellow: "#f2ca7c",
+      brightBlue: "#a6c4ff", brightMagenta: "#d6b8f8", brightCyan: "#8ce4d7", brightWhite: "#fafafa",
+    },
+  },
 };
 
+/** True for themes with a light background. Unknown ids count as dark (the default theme). */
+export function isLightTheme(id: string): boolean {
+  return (THEMES as Record<string, Theme | undefined>)[id]?.mode === "light";
+}
+
 export function applyTheme(id: ThemeId): void {
-  document.documentElement.setAttribute("data-theme", id);
+  const root = document.documentElement;
+  root.setAttribute("data-theme", id);
+  // Light-only CSS keys off this, so it covers every light theme.
+  root.setAttribute("data-theme-mode", isLightTheme(id) ? "light" : "dark");
 }

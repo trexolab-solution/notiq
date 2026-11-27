@@ -94,7 +94,7 @@
 .ai-sel-toolbar__mode:hover { color: var(--color-text); }
 .ai-sel-toolbar__mode.is-active {
   background: var(--color-primary);
-  color: #fff;
+  color: var(--color-on-primary);
 }
 
 /* ══════════════════════════════════════════════════════════════════════════════
@@ -299,7 +299,7 @@
 }
 .ai-chat__msg--user .ai-chat__bubble {
   background: var(--color-primary);
-  color: #fff;
+  color: var(--color-on-primary);
   border-bottom-right-radius: 4px;
 }
 .ai-chat__msg--assistant .ai-chat__bubble {
@@ -650,7 +650,7 @@
   border: none;
   border-radius: 8px;
   background: var(--color-primary);
-  color: #fff;
+  color: var(--color-on-primary);
   cursor: pointer;
   transition: opacity 0.1s, background 0.1s, transform 0.08s;
 }

@@ -3,6 +3,7 @@ import React, { useCallback, useEffect, useImperativeHandle, useRef, useState } 
 import Editor, { type OnMount, type OnChange } from "@monaco-editor/react";
 import * as monaco from "monaco-editor";
 import { useAppStore } from "../../store";
+import { isLightTheme } from "../../lib/themes";
 import { useMonacoEditorPreferences } from "../../store/selectors";
 import { buildDynamicOptions, STATIC_EDITOR_OPTIONS, suggestionOptions } from "../../lib/monacoOptions";
 import { aiTypesAlong, isVaultTab } from "../../lib/ai/access";
@@ -37,7 +38,7 @@ export interface MonacoEditorHandle {
 
 // Map app theme to Monaco's built-in themes
 function getMonacoTheme(themeId: string): string {
-  return themeId === "light" ? "vs" : "vs-dark";
+  return isLightTheme(themeId) ? "vs" : "vs-dark";
 }
 
 const MIN_FONT = 8;
