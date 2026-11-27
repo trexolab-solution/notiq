@@ -340,7 +340,7 @@ describe("SshEntryEditor layout", () => {
     expect(side.textContent).toContain("ssh root@srv.example.com");
     expect(q("[data-form-bar]")).toBeNull();
     expect(document.querySelectorAll('button[aria-label="Open in terminal"]')).toHaveLength(1);
-    expect([...q("[data-section-nav=rail]")!.querySelectorAll("button")].map((b) => b.textContent)).toEqual(["Connection", "Sign in", "Custom fields", "Advanced", "Attachments"]);
+    expect([...q("[data-section-nav=rail]")!.querySelectorAll("button")].map((b) => b.textContent)).toEqual(["Connection", "Sign in", "Server overview", "Custom fields", "Advanced", "Attachments"]);
     expect(q("[data-section-nav=tabs]")).toBeNull();
     expect(q("[data-status-banner]")!.textContent).toBe("Ready to connect");
   });

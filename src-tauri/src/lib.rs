@@ -17,6 +17,8 @@ mod ssh_keygen; // 0.9.9 generate an SSH key in the entry form
 #[cfg(desktop)]
 mod sftp_client; // 0.10.0 remote file manager over SFTP (built in)
 #[cfg(desktop)]
+mod server_overview; // server overview (CPU, memory, disks) in the SSH entry form
+#[cfg(desktop)]
 mod webdav_tls; // 0.14.0 self-signed certificate for HTTPS WebDAV sharing
 #[cfg(desktop)]
 mod remote_archive; // 0.14.0 compress / extract on the SFTP server (zip, unzip, tar over SSH)
@@ -768,6 +770,7 @@ pub fn run() {
         builder
             .manage(term::AppTerminal::new())
             .manage(sftp_client::SftpState::default())
+            .manage(server_overview::OverviewState::default())
             .manage(webdav_share::WebdavState::default())
             .plugin(
                 tauri_plugin_window_state::Builder::default()
@@ -833,6 +836,9 @@ pub fn run() {
         sftp_client::sftp_trash_empty,
         clipboard_files::clipboard_files,
         sftp_client::sftp_write,
+        server_overview::server_overview_open,
+        server_overview::server_overview_poll,
+        server_overview::server_overview_close,
         term::terminal_write,
         term::terminal_resize,
         term::terminal_kill,

@@ -354,6 +354,16 @@ fn nice(e: impl std::fmt::Display) -> String {
     }
 }
 
+/// Signs in for `c` with nobody to answer questions, trusting `approved` (and remembering it) only if that is exactly
+/// what an untrusted host presents; a changed key is always refused. Fails with [`UNKNOWN_HOST`] + the key as JSON
+/// when the user has to approve the server first. Shared by the file manager and the server overview.
+pub(crate) async fn sign_in(c: &Connect, known: &KnownHosts, approved: Option<UnknownHost>) -> Result<(Conn, Option<Conn>), String> {
+    let notes = Arc::new(Notes { approved, ..Default::default() });
+    let sink: Arc<dyn Sink> = notes.clone();
+    let prompter = unattended(sink.clone());
+    establish(c, known, &prompter, &sink).await.map_err(|e| notes.failure(e))
+}
+
 /// [`open_approved`] with no approval.
 #[cfg(test)]
 pub async fn open(c: Connect, known: KnownHosts) -> Result<Sftp, String> {
@@ -362,10 +372,7 @@ pub async fn open(c: Connect, known: KnownHosts) -> Result<Sftp, String> {
 
 /// Signs in for `c` and starts SFTP, trusting `approved` (and remembering it) if that is exactly what an untrusted host presents.
 pub async fn open_approved(c: Connect, known: KnownHosts, approved: Option<UnknownHost>) -> Result<Sftp, String> {
-    let notes = Arc::new(Notes { approved, ..Default::default() });
-    let sink: Arc<dyn Sink> = notes.clone();
-    let prompter = unattended(sink.clone());
-    let (conn, jump) = establish(&c, &known, &prompter, &sink).await.map_err(|e| notes.failure(e))?;
+    let (conn, jump) = sign_in(&c, &known, approved).await?;
     let ch = conn.channel_open_session().await.map_err(|e| format!("Couldn't open a session: {e}"))?;
     ch.request_subsystem(true, "sftp").await.map_err(|_| "SFTP isn't enabled on this server, so the file manager can't open it.".to_string())?;
     let sftp = SftpSession::new(ch.into_stream()).await.map_err(|e| format!("The server's SFTP service didn't start: {}", nice(e)))?;

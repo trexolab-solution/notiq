@@ -13,6 +13,7 @@ import { useAutoHide } from "../../hooks/useAutoHide";
 import { CopyIconButton } from "./CopyIconButton";
 import { CustomFieldsEditor } from "./CustomFieldsEditor";
 import { AttachmentsPanel } from "./AttachmentsPanel";
+import { ServerOverview } from "./ServerOverview";
 import { EntryHeader, EntryLayout, FieldRow as Row, fieldLabel, RevealButton, SaveHint, Section, SectionedForm, Segmented, StatusBanner, SubGroup, textArea } from "./EntryParts";
 import { reinsert, RowIconButton, useAnnouncer, useListFocus, useUndoToast } from "./ListEditor";
 import { ImportErrors, KeyFactsRow, KeyFileList, KeyViewerDialog, useKeyFacts, type ImportError } from "./SshKeyParts";
@@ -528,6 +529,8 @@ function SshEntryEditorInner({ tab }: { tab: Tab }) {
           )}
         </Section>
           </>) },
+          { id: "overview", label: "Server overview",
+            content: <ServerOverview tab={tab} name={entry.title.trim()} fields={f} pref={pref} /> },
           { id: "fields", label: "Custom fields", badge: entry.custom.length,
             content: <CustomFieldsEditor value={entry.custom} onChange={(custom) => save({ ...currentEntry(tab), custom })} /> },
           { id: "advanced", label: "Advanced", content: (<>

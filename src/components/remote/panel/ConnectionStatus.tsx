@@ -14,8 +14,9 @@ export function ConnectingNote({ server }: { server: string }) {
 const hostKeyFile = (alg: string) =>
   `/etc/ssh/ssh_host_${alg.includes("ed25519") ? "ed25519" : alg.startsWith("ecdsa") ? "ecdsa" : "rsa"}_key.pub`;
 
-/** First connection to a server: its key's fingerprint, and the user's decision whether to trust it. */
-function TrustHost({ host, onTrust, onDecline }: { host: UnknownHost; onTrust: () => void; onDecline: () => void }) {
+/** First connection to a server: its key's fingerprint, and the user's decision whether to trust it. Also used by the
+ *  server overview in the SSH entry form. */
+export function TrustHost({ host, onTrust, onDecline }: { host: UnknownHost; onTrust: () => void; onDecline: () => void }) {
   const check = `ssh-keygen -lf ${hostKeyFile(host.alg)}`;
   const box = "flex items-center gap-2 rounded-md border border-[var(--color-border)] bg-[var(--color-bg-tertiary)] pl-3 pr-1 py-1";
   return (
