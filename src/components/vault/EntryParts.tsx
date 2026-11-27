@@ -3,6 +3,7 @@ import { ChevronRight, CircleCheck, Eye, EyeOff, History, Pencil, TriangleAlert,
 import { Button } from "../ui/Button";
 import { Tooltip } from "../ui/Tooltip";
 import { EntrySaveButton } from "./EntrySaveButton";
+import { DockedPanel } from "./DockedPanel";
 import { EntryContext, useEntryContext, useEntryReadOnly } from "./entryContext";
 import { ConfirmDialog } from "../ui/ConfirmDialog";
 import { useAppStore } from "../../store";
@@ -209,6 +210,21 @@ export function useWide(min: number): [React.RefObject<HTMLDivElement>, boolean]
   return [ref, wide];
 }
 
+/** Whether the element `ref` already points at is at least `min` px wide, followed live. */
+function useIsAtLeast(ref: React.RefObject<HTMLElement>, min: number): boolean {
+  const [is, setIs] = useState(false);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const read = () => setIs(el.clientWidth >= min);
+    read();
+    const obs = new ResizeObserver(read);
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, [ref, min]);
+  return is;
+}
+
 /** The form column every structured editor uses: one rhythm (24px between sections) and one width. */
 export const formColumn = "max-w-xl mx-auto px-4 @md:px-6 py-6 @md:py-8 flex flex-col gap-6 text-[var(--color-text)]";
 
@@ -318,7 +334,15 @@ export function revealField(id: string): HTMLElement | null {
 export interface FormPanel extends NavItem {
   /** The section's content: one or more `Section` cards. */
   content: React.ReactNode;
+  /**
+   * When the form is very wide, this panel leaves the sections and stays in the column on the right, in view
+   * beside whichever section is open. Narrower, it is a section like the others.
+   */
+  dock?: boolean;
 }
+
+/** From this width there is room for a docked panel beside the form. */
+export const DOCK_WIDTH = 1100;
 
 /**
  * The frame of a structured entry editor that is split into sections: one section is shown at a time, picked from
@@ -336,6 +360,12 @@ export function SectionedForm({ header, panels, banner, side, footer }: {
   footer?: React.ReactNode;
 }) {
   const [shellRef, wide] = useWide(900);
+  const docked = panels.find((p) => p.dock);
+  const roomy = useIsAtLeast(shellRef, DOCK_WIDTH) && !!docked;
+  /** Where the docked panel goes now: the column on the right, or its place among the sections. */
+  const [sideSlot, setSideSlot] = useState<HTMLElement | null>(null);
+  const [sectionSlot, setSectionSlot] = useState<HTMLElement | null>(null);
+  const sections = roomy ? panels.filter((p) => !p.dock) : panels;
   // Inside an entry the shown section is remembered, so it is still there after a visit to another tab.
   const entry = useEntryContext();
   const [local, setLocal] = useState(panels[0]?.id ?? "");
@@ -347,7 +377,7 @@ export function SectionedForm({ header, panels, banner, side, footer }: {
     if (e) setEntrySection(e.tabId, e.path, id); else setLocal(id);
   }, [entryRef]);
   // A section that went away (the list changes with the entry's kind) falls back to the first one.
-  const current = panels.some((p) => p.id === picked) ? picked : panels[0]?.id ?? "";
+  const current = sections.some((p) => p.id === picked) ? picked : sections[0]?.id ?? "";
   useEffect(() => {
     const el = shellRef.current;
     if (!el) return;
@@ -355,14 +385,14 @@ export function SectionedForm({ header, panels, banner, side, footer }: {
     el.addEventListener(SHOW_PANEL, on);
     return () => el.removeEventListener(SHOW_PANEL, on);
   }, [shellRef, setPicked]);
-  const nav = panels.map(({ id, label, badge }) => ({ id, label, badge }));
+  const nav = sections.map(({ id, label, badge }) => ({ id, label, badge }));
   const sideBox = side?.(wide) ?? null;
   return (
     <div ref={shellRef} className="min-h-full">
-      <div className={wide ? "max-w-6xl mx-auto px-6 py-8 flex flex-col gap-6 text-[var(--color-text)]" : `${formColumn} min-h-full`}>
+      <div className={wide ? `${roomy ? "max-w-[96rem]" : "max-w-6xl"} mx-auto px-6 py-8 flex flex-col gap-6 text-[var(--color-text)]` : `${formColumn} min-h-full`}>
         {header}
         {!wide && <SectionNav items={nav} value={current} onChange={setPicked} vertical={false} />}
-        <div className={wide ? "flex items-start gap-8" : "contents"}>
+        <div className={wide ? `flex items-start ${roomy ? "gap-6" : "gap-8"}` : "contents"}>
           {wide && (
             <div className="sticky top-16 w-44 shrink-0">
               <SectionNav items={nav} value={current} onChange={setPicked} vertical />
@@ -370,17 +400,28 @@ export function SectionedForm({ header, panels, banner, side, footer }: {
           )}
           <div className={wide ? "flex-1 min-w-0 max-w-2xl flex flex-col gap-6" : "contents"}>
             {banner}
-            {panels.map((p) => (
+            {panels.map((p) => (p.dock ? (
+              roomy ? null : <div key={p.id} ref={setSectionSlot} data-panel={p.id} hidden={p.id !== current} />
+            ) : (
               <div key={p.id} data-panel={p.id} hidden={p.id !== current}><div className="flex flex-col gap-6">{p.content}</div></div>
-            ))}
+            )))}
             {footer}
           </div>
-          {wide && sideBox && <aside aria-label="Summary" className="sticky top-16 w-72 shrink-0 flex flex-col gap-4">{sideBox}</aside>}
+          {roomy ? (
+            // Scrolls on its own when it is taller than the window, so it stays beside the form.
+            <aside aria-label="Summary" className="sticky top-16 w-[24rem] shrink-0 flex flex-col gap-4 max-h-[calc(100vh-6rem)] overflow-y-auto">
+              {sideBox}
+              <div ref={setSideSlot} data-dock="" />
+            </aside>
+          ) : wide && sideBox && <aside aria-label="Summary" className="sticky top-16 w-72 shrink-0 flex flex-col gap-4">{sideBox}</aside>}
         </div>
         {!wide && sideBox && (
           <div data-form-bar="" className="sticky bottom-0 z-10 mt-auto -mx-4 @md:-mx-6 -mb-6 @md:-mb-8 px-4 @md:px-6 py-2.5 bg-[var(--color-editor-bg)] border-t border-[var(--color-border)]">
             {sideBox}
           </div>
+        )}
+        {docked && (
+          <DockedPanel key={docked.id} slot={roomy ? sideSlot : sectionSlot} place={roomy ? "side" : "section"}>{docked.content}</DockedPanel>
         )}
       </div>
     </div>

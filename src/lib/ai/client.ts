@@ -60,6 +60,8 @@ export async function aiComplete(messages: ChatMessage[], opts: CompleteOpts = {
   const provider = opts.provider ?? s.aiProvider;
   const model = opts.model ?? s.aiModel;
   if (!model) throw new Error("no-model");
+  // A follow-up (a repair pass) of something the user already cancelled sends nothing.
+  if (opts.requestId && cancelledRequests.has(opts.requestId)) throw "cancelled";
 
   const call = (p: AIProvider, m: string) => invoke<string>("ai_complete", {
     baseUrl: opts.baseUrl ?? baseUrlFor(p),
@@ -76,6 +78,7 @@ export async function aiComplete(messages: ChatMessage[], opts: CompleteOpts = {
     return await call(provider, model);
   } catch (err) {
     if (opts.noFallback) throw err;
+    if (opts.requestId && cancelledRequests.has(opts.requestId)) throw err;
     const fb = resolveFallback(provider);
     if (!fb || !isFallbackWorthyError(err)) throw err;
     opts.onFallback?.(fb);
@@ -83,8 +86,13 @@ export async function aiComplete(messages: ChatMessage[], opts: CompleteOpts = {
   }
 }
 
-/** The user moved on: the backend sends no further try for this request. */
+/** Requests the user cancelled (the latest few hundred), so nothing more is sent for them. */
+const cancelledRequests = new Set<string>();
+
+/** The user moved on: no further try is sent for this request, and no fallback gets its text. */
 export function cancelAiRequest(requestId: string): void {
+  if (cancelledRequests.size >= 200) cancelledRequests.clear();
+  cancelledRequests.add(requestId);
   void Promise.resolve(invoke("ai_cancel", { requestId })).catch(() => {});
 }
 

@@ -529,7 +529,7 @@ function SshEntryEditorInner({ tab }: { tab: Tab }) {
           )}
         </Section>
           </>) },
-          { id: "overview", label: "Server overview",
+          { id: "overview", label: "Server overview", dock: true,
             content: <ServerOverview tab={tab} name={entry.title.trim()} fields={f} pref={pref} /> },
           { id: "fields", label: "Custom fields", badge: entry.custom.length,
             content: <CustomFieldsEditor value={entry.custom} onChange={(custom) => save({ ...currentEntry(tab), custom })} /> },

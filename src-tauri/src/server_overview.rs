@@ -346,6 +346,17 @@ impl Monitor {
 
 // ── the commands ─────────────────────────────────────────────────────────────
 
+/// A monitor nobody polled for this long is closed (a window that went away without saying so).
+const IDLE: Duration = Duration::from_secs(120);
+/// How often the open monitors are looked over.
+const SWEEP_EVERY: Duration = Duration::from_secs(2);
+
+/// Whether a kept connection has to go. The backend decides this on its own: a web view that crashed, reloaded or
+/// closed can't say goodbye, and a lock must not leave a signed-in connection open.
+fn must_close(vault_unlocked: bool, window_open: bool, idle_for: Duration) -> bool {
+    !vault_unlocked || !window_open || idle_for >= IDLE
+}
+
 mod commands {
     use std::sync::{Arc, Mutex};
     use std::time::Instant;
@@ -354,15 +365,38 @@ mod commands {
 
     use super::*;
 
-    /// A monitor nobody polled for this long is closed (a window that went away without saying so).
-    const IDLE: Duration = Duration::from_secs(120);
     const CLOSED: &str = "The connection to the server was closed. Connect again to continue.";
 
     struct Slot { window: String, monitor: Arc<Monitor>, used: Instant }
 
     /// Open monitors by the ids the web view picked, each tied to the window that opened it.
     #[derive(Default)]
-    pub struct OverviewState { slots: Mutex<HashMap<u32, Slot>> }
+    pub struct OverviewState {
+        slots: Mutex<HashMap<u32, Slot>>,
+        /// The watcher that closes connections is running (only while there is something to watch).
+        watching: std::sync::atomic::AtomicBool,
+    }
+
+    /// Looks the open monitors over every few seconds until none is left: whichever way the vault locked, and
+    /// whatever happened to the window, the connection is closed.
+    fn watch(app: AppHandle) {
+        use std::sync::atomic::Ordering;
+        if app.state::<OverviewState>().watching.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        std::thread::spawn(move || loop {
+            std::thread::sleep(SWEEP_EVERY);
+            let unlocked = app.state::<crate::vault::VaultState>().is_unlocked();
+            let state = app.state::<OverviewState>();
+            let mut slots = state.slots();
+            slots.retain(|_, s| !must_close(unlocked, app.get_webview_window(&s.window).is_some(), s.used.elapsed()));
+            if slots.is_empty() {
+                // Cleared while the list is held, so a connection added right now starts a new watcher.
+                state.watching.store(false, Ordering::Release);
+                break;
+            }
+        });
+    }
 
     impl OverviewState {
         fn slots(&self) -> std::sync::MutexGuard<'_, HashMap<u32, Slot>> {
@@ -385,6 +419,8 @@ mod commands {
         let mut slots = state.slots();
         if slots.contains_key(&id) { return Err("That connection id is already in use.".into()); }
         slots.insert(id, Slot { window: webview.label().to_string(), monitor, used: Instant::now() });
+        drop(slots);
+        watch(app.clone());
         Ok(())
     }
 
@@ -424,6 +460,14 @@ mod tests {
 
     use crate::sftp_client::UNKNOWN_HOST;
     use crate::ssh_connect::Auth;
+
+    #[test]
+    fn a_connection_goes_when_the_vault_locks_its_window_goes_or_nobody_reads_it() {
+        assert!(!must_close(true, true, Duration::from_secs(5)));
+        assert!(must_close(false, true, Duration::ZERO), "locked");
+        assert!(must_close(true, false, Duration::ZERO), "window gone");
+        assert!(must_close(true, true, IDLE), "nobody polls it");
+    }
 
     // ── parsing ────────────────────────────────────────────────────────────
 

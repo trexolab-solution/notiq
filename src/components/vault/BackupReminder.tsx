@@ -1,11 +1,14 @@
 import { useEffect, useState } from "react";
-import { Download, X } from "lucide-react";
+import { Cloud, Download, X } from "lucide-react";
 import { Tooltip } from "../ui/Tooltip";
+import { Button } from "../ui/Button";
 import { BusyIcon } from "../ui/Loading";
 import { toast } from "../../lib/toast";
 import { useVaultStore } from "../../store/vaultStore";
 import { vaultErrorMessage } from "../../lib/vault";
 import { exportBackupWithDialog } from "../../lib/vaultBackup";
+import { useSyncStatus } from "../../lib/vaultSync";
+import { requestSyncSetup, syncCommandAvailability } from "../../lib/syncSurfaces";
 import {
   BACKUP_EVENT, backupReminderReason, noteVaultSeen, readReminderInput,
   setBackupReminderDisabled, snoozeBackupReminder, describeAge, type ReminderReason,
@@ -20,6 +23,7 @@ export function BackupReminder() {
   const unlocked = useVaultStore((s) => s.unlocked);
   const [reason, setReason] = useState<ReminderReason | null>(null);
   const [busy, setBusy] = useState(false);
+  const sync = useSyncStatus();
 
   useEffect(() => {
     const check = () => {
@@ -33,6 +37,9 @@ export function BackupReminder() {
   }, [exists]);
 
   if (!reason || !exists) return null;
+  // Syncing to Drive already keeps a copy elsewhere, so "only exists on this computer" would be wrong.
+  if (reason === "never" && sync?.provider && sync.enabled && sync.lastSyncedMs != null) return null;
+  const canConnect = syncCommandAvailability(sync, { exists, unlocked }).connect;
 
   const last = readReminderInput().lastBackup;
   const text = reason === "never"
@@ -70,7 +77,12 @@ export function BackupReminder() {
           </button>
         </Tooltip>
       </div>
-      <div className="flex items-center justify-between mt-1.5">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 mt-2">
+        {canConnect && (
+          <Button size="sm" variant="primary" icon={<Cloud size={12} aria-hidden />} onClick={() => requestSyncSetup()}>
+            Connect Google Drive
+          </Button>
+        )}
         <button
           type="button" disabled={busy} aria-busy={busy || undefined}
           className="inline-flex items-center gap-1 font-semibold cursor-pointer text-[var(--color-primary)] hover:underline disabled:opacity-50"
@@ -80,7 +92,7 @@ export function BackupReminder() {
         </button>
         <button
           type="button"
-          className="cursor-pointer text-[var(--color-text-muted)] hover:text-[var(--color-text)] underline"
+          className="ml-auto cursor-pointer text-[var(--color-text-muted)] hover:text-[var(--color-text)] underline"
           onClick={() => setBackupReminderDisabled(true)}
         >
           Don't remind me

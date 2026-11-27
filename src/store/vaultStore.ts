@@ -86,35 +86,53 @@ export function initVaultStateSync(self = "main"): () => void {
   };
 }
 
+/** Unsaved secrets held in memory: recovery codes waiting in their box, and forms left in Edit mode. */
+function forgetUnsaved(): void {
+  clearAllCodeDrafts();
+  endAllEntryEditing();
+}
+
+/** Asks the backend how the vault is. True when that is how it came out that it had locked (or is gone). */
+async function readStatus(set: (s: Partial<VaultUiState>) => void, get: () => VaultUiState): Promise<boolean> {
+  try {
+    await ensureVaultDir(); // tells the backend where vault.nqdb lives, before any vault command
+    const wasUnlocked = get().unlocked;
+    const s = await vaultStatus();
+    set({ exists: s.exists, unlocked: s.unlocked });
+    return wasUnlocked && !s.unlocked;
+  } catch (e) {
+    console.warn("vault: status failed", e);
+    return false;
+  }
+}
+
 export const useVaultStore = create<VaultUiState>((set, get) => ({
   exists: false,
   unlocked: false,
   dialog: null,
 
   async refresh() {
-    try {
-      await ensureVaultDir(); // tells the backend where vault.nqdb lives, before any vault command
-      const s = await vaultStatus();
-      set({ exists: s.exists, unlocked: s.unlocked });
-    } catch (e) {
-      console.warn("vault: status failed", e);
-    }
+    if (await readStatus(set, get)) forgetUnsaved();
   },
 
   setUnlocked(unlocked) {
     // Whichever way it locked (here, another window, the backend's auto-lock): unsaved secrets in memory go.
-    if (!unlocked) { clearAllCodeDrafts(); endAllEntryEditing(); }
+    if (!unlocked) forgetUnsaved();
     set(unlocked ? { unlocked, exists: true } : { unlocked });
   },
 
   setDialog(mode) { set({ dialog: mode }); },
 
   async ensureUnlocked() {
-    await get().refresh();
+    // A save may be what asks: unsaved input is kept while the user unlocks to go on, and dropped if they don't.
+    const foundLocked = await readStatus(set, get);
     const s = get();
     if (s.unlocked) return true;
     return new Promise<boolean>((resolve) => {
-      waiters.push(resolve);
+      waiters.push((ok) => {
+        if (!ok && foundLocked) forgetUnsaved();
+        resolve(ok);
+      });
       set({ dialog: s.exists ? "unlock" : "setup" });
     });
   },

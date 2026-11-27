@@ -21,6 +21,7 @@ import {
   ensureMermaidBlock,
   baseUrlFor,
   aiComplete,
+  cancelAiRequest,
   CLOUD_BASE,
   LOCAL_BASE,
   OPENROUTER_BASE,
@@ -31,6 +32,32 @@ describe("baseUrlFor", () => {
     expect(baseUrlFor("local")).toBe(LOCAL_BASE);
     expect(baseUrlFor("cloud")).toBe(CLOUD_BASE);
     expect(baseUrlFor("openrouter")).toBe(OPENROUTER_BASE);
+  });
+});
+
+describe("a cancelled request", () => {
+  afterEach(() => { storeState.aiFallbackProvider = "none"; storeState.aiFallbackModel = ""; vi.mocked(invoke).mockReset(); });
+
+  it("sends nothing for a follow-up that reuses its id", async () => {
+    vi.mocked(invoke).mockResolvedValue(undefined);
+    cancelAiRequest("r-2");
+    vi.mocked(invoke).mockClear();
+    await expect(aiComplete([{ role: "user", content: "diagram" }], { requestId: "r-2" })).rejects.toBe("cancelled");
+    expect(invoke).not.toHaveBeenCalled();
+  });
+
+  it("is not handed to the fallback provider when its first try fails afterwards", async () => {
+    storeState.aiFallbackProvider = "local";
+    storeState.aiFallbackModel = "other";
+    const sent: string[] = [];
+    vi.mocked(invoke).mockImplementation(async (cmd: string) => {
+      if (cmd !== "ai_complete") return undefined;
+      sent.push(cmd);
+      cancelAiRequest("r-1"); // the user typed on while the request was out
+      throw "429|slow down";
+    });
+    await expect(aiComplete([{ role: "user", content: "note text" }], { requestId: "r-1" })).rejects.toBe("429|slow down");
+    expect(sent).toHaveLength(1);
   });
 });
 

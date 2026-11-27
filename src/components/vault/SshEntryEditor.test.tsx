@@ -319,6 +319,67 @@ describe("SshEntryEditor", () => {
 });
 
 describe("SshEntryEditor layout", () => {
+  for (const from of ["narrow from the start", "narrowed from very wide"] as const) {
+    it(`${from}: leaving the overview section closes its connection and stops the reading`, async () => {
+      let width = from === "narrow from the start" ? 1000 : 1400;
+      const watchers: (() => void)[] = [];
+      vi.stubGlobal("ResizeObserver", class { constructor(cb: () => void) { watchers.push(cb); } observe() {} disconnect() {} unobserve() {} });
+      vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockImplementation(() => width);
+      const invoke = vi.mocked((await import("@tauri-apps/api/core")).invoke);
+      invoke.mockClear();
+      invoke.mockImplementation((async (cmd: string) => (cmd === "server_overview_poll"
+        ? { supported: true, system: "Linux", hostname: "web-01", disks: [], disksMore: 0 } : null)) as never);
+      const calls = (cmd: string) => invoke.mock.calls.filter((c) => c[0] === cmd).length;
+      const section = (name: string) => [...q("[data-section-nav]")!.querySelectorAll("button")].find((b) => b.textContent === name)!;
+      await render();
+      if (width === 1000) await click(section("Server overview"));
+      else { /* docked: already in view */ }
+      await act(async () => { await vi.advanceTimersByTimeAsync(700); }); // it connects by itself
+      expect(calls("server_overview_open")).toBe(1);
+      if (width === 1400) {
+        // Narrowing leaves the form on another section, so the overview is no longer in view.
+        width = 1000;
+        await act(async () => { watchers.forEach((w) => w()); });
+        await flush();
+      } else {
+        await click(section("Connection"));
+      }
+      expect(q('[data-panel="overview"]')!.hidden).toBe(true);
+      expect(calls("server_overview_close")).toBe(1);
+      const polls = calls("server_overview_poll");
+      await act(async () => { await vi.advanceTimersByTimeAsync(12_000); });
+      expect(calls("server_overview_poll")).toBe(polls);
+      invoke.mockImplementation((async () => null) as never);
+    });
+  }
+
+  it("very wide: the server overview stays in the right column, beside any section, and survives a resize", async () => {
+    let width = 1400;
+    const watchers: (() => void)[] = [];
+    vi.stubGlobal("ResizeObserver", class { constructor(cb: () => void) { watchers.push(cb); } observe() {} disconnect() {} unobserve() {} });
+    vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockImplementation(() => width);
+    await render();
+    const overview = () => q("[data-overview-skeleton], [data-overview-idle]")!.parentElement!;
+    const rail = () => [...q("[data-section-nav=rail]")!.querySelectorAll("button")].map((b) => b.textContent);
+    expect(q("aside [data-dock]")!.contains(overview())).toBe(true);
+    expect(rail()).not.toContain("Server overview");
+    expect(overview().closest("[hidden]")).toBeNull();
+    const node = overview();
+
+    // Narrower: it becomes a section again, as the same element (not mounted anew).
+    width = 1000;
+    await act(async () => { watchers.forEach((w) => w()); });
+    await flush();
+    expect(rail()).toContain("Server overview");
+    expect(q('[data-panel="overview"]')!.contains(overview())).toBe(true);
+    expect(overview()).toBe(node);
+
+    width = 1400;
+    await act(async () => { watchers.forEach((w) => w()); });
+    await flush();
+    expect(q("aside [data-dock]")!.contains(node)).toBe(true);
+  });
+
   const wideAt = async (width: number) => {
     vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} unobserve() {} });
     vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(width);
