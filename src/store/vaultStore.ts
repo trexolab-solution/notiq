@@ -2,6 +2,8 @@ import { create } from "zustand";
 import { listen } from "@tauri-apps/api/event";
 import { vaultStatus, VAULT_CHANGED_EVENT } from "../lib/vault";
 import { ensureVaultDir } from "../lib/vaultDir";
+import { clearAllCodeDrafts } from "../lib/codeDrafts";
+import { endAllEntryEditing } from "../lib/entryUi";
 
 export type VaultDialogMode = "setup" | "unlock" | "recover";
 
@@ -100,6 +102,8 @@ export const useVaultStore = create<VaultUiState>((set, get) => ({
   },
 
   setUnlocked(unlocked) {
+    // Whichever way it locked (here, another window, the backend's auto-lock): unsaved secrets in memory go.
+    if (!unlocked) { clearAllCodeDrafts(); endAllEntryEditing(); }
     set(unlocked ? { unlocked, exists: true } : { unlocked });
   },
 

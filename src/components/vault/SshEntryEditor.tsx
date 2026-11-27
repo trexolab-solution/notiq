@@ -138,7 +138,9 @@ function SshEntryEditorInner({ tab }: { tab: Tab }) {
   /** With a private key saved, Generate and Import stay closed until the replacement is confirmed. */
   const [askReplace, setAskReplace] = useState(false);
   const [replaceOk, setReplaceOk] = useState(false);
-  useEffect(() => { if (readOnly) { setReplaceOk(false); setAskReplace(false); setGenerating(false); } }, [readOnly]);
+  /** The key in the box is being typed or pasted now, into what was an empty field: nothing saved is at stake. */
+  const [authoring, setAuthoring] = useState(false);
+  useEffect(() => { if (readOnly) { setReplaceOk(false); setAskReplace(false); setGenerating(false); setAuthoring(false); } }, [readOnly]);
   /** Which sign-in method to ask about, and where the server then opens (null = not asking). */
   const [choosing, setChoosing] = useState<"terminal" | "files" | null>(null);
   const busy = useRef(false);
@@ -258,6 +260,7 @@ function SshEntryEditorInner({ tab }: { tab: Tab }) {
 
   /** Puts a listed file into its field; the field's old value takes the file's place in the list. */
   const promoteFile = (file: KeyFile, as: "private" | "public") => {
+    if (as === "private" && keyToolsLocked) { setAskReplace(true); return; }
     const cur = currentEntry(tab);
     const field = as === "private" ? "privateKey" : "publicKey";
     const old = cur.fields[field] ?? "";
@@ -301,7 +304,7 @@ function SshEntryEditorInner({ tab }: { tab: Tab }) {
   const pubBad = pubHasText && pubState !== "public";
   const canDrop = !readOnly && unlocked && active && !tab.vaultLocked;
   const hasKey = !!f.privateKey?.trim();
-  const keyToolsLocked = hasKey && !replaceOk;
+  const keyToolsLocked = hasKey && !replaceOk && !authoring;
 
   // ── Layout: sections one at a time (a rail beside the form when it is wide, tabs above it when it is not) ──
 
@@ -439,7 +442,7 @@ function SshEntryEditorInner({ tab }: { tab: Tab }) {
                           actions={<>
                             <RevealButton shown={showKey} onToggle={() => setShowKey((v) => !v)} name="private key" />
                             <CopyIconButton value={normalizeKey(f.privateKey ?? "")} label="private key" />
-                            {!readOnly && (
+                            {!readOnly && !keyToolsLocked && (
                               <RowIconButton danger label="Clear private key" tooltip="Clear private key" icon={<Trash2 size={13} />}
                                              disabled={!f.privateKey?.trim()} onClick={() => setConfirmClear(true)} />
                             )}
@@ -452,10 +455,10 @@ function SshEntryEditorInner({ tab }: { tab: Tab }) {
                             </StatusLine>
                             {priv.facts && priv.facts.side === "private" && <KeyFactsRow compact facts={priv.facts} fingerprint={priv.fingerprint} name="Private key" />}
                           </>}>
-                  <textarea id="ssh-key" readOnly={readOnly} rows={6} value={f.privateKey ?? ""} spellCheck={false} autoComplete="off"
+                  <textarea id="ssh-key" readOnly={readOnly || keyToolsLocked} rows={6} value={f.privateKey ?? ""} spellCheck={false} autoComplete="off"
                             placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"
                             aria-describedby="ssh-key-mask"
-                            onChange={(e) => setField("privateKey", e.target.value)}
+                            onChange={(e) => { if (!hasKey) setAuthoring(true); setField("privateKey", e.target.value); }}
                             className={`${textArea} font-mono text-xs leading-relaxed resize-y`}
                             data-masked={!showKey || undefined}
                             style={!showKey ? ({ WebkitTextSecurity: "disc" } as React.CSSProperties) : undefined} />

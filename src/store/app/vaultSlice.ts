@@ -2,8 +2,8 @@ import { readFile } from "@tauri-apps/plugin-fs";
 import { bytesToBase64, isVaultPath, extFromPath, vaultAttachAdd, vaultLock, vaultReadFile, vaultWriteFile, vaultErrorMessage, vaultFileExists } from "../../lib/vault";
 import { attachmentLimitError, vaultAttachmentsUsed } from "../../lib/attachmentLimits";
 import { migrateLocalImages } from "../../lib/vaultImageMigrate";
-import { clearAllCodeDrafts, setCodeDraft } from "../../lib/codeDrafts";
-import { endAllEntryEditing, forgetEntryTab } from "../../lib/entryUi";
+import { setCodeDraft } from "../../lib/codeDrafts";
+import { forgetEntryTab } from "../../lib/entryUi";
 import { dirname, isAbsolute, joinPath } from "../../lib/pathUtils";
 import { flushVaultPendingOps } from "../../lib/vaultPendingOps";
 import { pickVaultDestination } from "../../lib/vaultDest";
@@ -155,8 +155,6 @@ export function createVaultSlice({ set, get, persist, updateTab, saveTabImpl }: 
         return false;
       }
       useVaultStore.getState().setUnlocked(false);
-      clearAllCodeDrafts();
-      endAllEntryEditing();
       const vaultTabIds = get().tabs.filter((t) => isVaultPath(t.filePath)).map((t) => t.id);
       set((s) => ({
         tabs: s.tabs.map((t) =>

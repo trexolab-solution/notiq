@@ -6,7 +6,7 @@ import Editor, { type OnMount } from "@monaco-editor/react";
 import * as monaco from "monaco-editor";
 import { applyTheme } from "../../lib/themes";
 import { STATIC_EDITOR_OPTIONS, suggestionOptions } from "../../lib/monacoOptions"
-import { aiTypesAlong } from "../../lib/ai/access"
+import { aiTypesAlong, allowAiFor } from "../../lib/ai/access"
 import { useAppStore } from "../../store"
 import { useStickyNotesStore } from "../../store/stickyNoteStore";
 import { registerEditor, unregisterEditor } from "../../lib/activeEditor";
@@ -153,6 +153,9 @@ export default function StickyNoteApp() {
     // The provider reads live AI settings and is a no-op when AI/autocomplete is
     // off, so this is safe to attach unconditionally.
     ensureInlineProvider(monaco);
+    // AI reads only editors it is told about; a sticky note is one.
+    allowAiFor(editor.getModel());
+    editor.onDidChangeModel(() => allowAiFor(editor.getModel()));
     editor.addAction({
       id: "sticky.ai.trigger",
       label: "AI: Trigger Autocomplete",

@@ -2365,8 +2365,8 @@ mod popup_tests {
 
 // ─── Passkeys (experimental) ─────────────────────────────────────────────────
 //
-// `passkey_create` / `passkey_get` come from the extension's passkey bridge, which runs only when the user turned
-// on "Save and use passkeys with Notiq (experimental)" in the extension. The pure part (RP ID rule, client data
+// `passkey_create` / `passkey_get` come from the extension's passkey bridge, which runs while "Save and use
+// passkeys with Notiq (experimental)" is on in the extension (it is by default). The pure part (RP ID rule, client data
 // checks, keys, encodings) is `passkey.rs`. Here:
 // * The request is validated again (origin https / localhost, RP ID valid for the origin's host per the PSL,
 //   clientDataJSON built for that origin and ceremony). Nothing is shown for a bad request.

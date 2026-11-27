@@ -15,7 +15,7 @@ export async function aiProblem(): Promise<string | null> {
     return "Add your API key in Settings → AI.";
   }
   try {
-    await aiComplete([{ role: "user", content: "Reply with OK." }], { maxTokens: 5, temperature: 0 });
+    await aiComplete([{ role: "user", content: "Reply with OK." }], { maxTokens: 5, temperature: 0, noRetry: true });
     return null;
   } catch (e) {
     // It answered, just with nothing in five tokens: the connection and the key work.

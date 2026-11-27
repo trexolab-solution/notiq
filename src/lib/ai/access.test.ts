@@ -3,7 +3,7 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 const state = { tabs: [] as unknown[], activeTabId: "plain" as string | null };
 vi.mock("../../store", () => ({ useAppStore: { getState: () => state } }));
 
-const { aiBlockedFor, aiTypesAlong, isVaultTab, tabOfModel } = await import("./access");
+const { aiBlockedFor, aiTypesAlong, allowAiFor, isVaultTab, tabOfModel } = await import("./access");
 const { suggestionOptions } = await import("../monacoOptions");
 
 const plain = { id: "plain", title: "Note", filePath: "C:/n/a.md" };
@@ -27,10 +27,14 @@ describe("AI never reads the vault", () => {
     expect(tabOfModel(model("plain"))?.title).toBe("Note");
   });
 
-  it("falls back to the active tab for text that belongs to no tab", () => {
-    expect(aiBlockedFor(model("unknown"))).toBe(false);
-    state.activeTabId = "secret";
-    expect(aiBlockedFor(model("unknown"))).toBe(true);
+  it("keeps away from every editor that is not a tab, unless that one was allowed", () => {
+    const remoteFile = model("home/alice/.env"); // the file manager's editor, with an ordinary tab on screen
+    expect(aiBlockedFor(remoteFile)).toBe(true);
+    const sticky = model("sticky");
+    expect(aiBlockedFor(sticky)).toBe(true);
+    allowAiFor(sticky);
+    expect(aiBlockedFor(sticky)).toBe(false);
+    expect(aiBlockedFor(remoteFile)).toBe(true);
     expect(aiBlockedFor(null)).toBe(true);
   });
 });

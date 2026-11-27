@@ -21,6 +21,10 @@ export interface CompleteOpts {
   /** Skip the auth/quota fallback retry — used by Settings' "Test" so a masked
    *  fallback success can't hide a real failure of the provider being tested. */
   noFallback?: boolean;
+  /** Names the request so `cancelAiRequest` can stop the backend from trying it again. */
+  requestId?: string;
+  /** Send exactly one request, even if the answer comes back empty (a connection check). */
+  noRetry?: boolean;
   /** Fired once, right before a fallback retry is attempted. */
   onFallback?: (fallback: { provider: AIProvider; model: string }) => void;
 }
@@ -64,6 +68,8 @@ export async function aiComplete(messages: ChatMessage[], opts: CompleteOpts = {
     maxTokens: opts.maxTokens ?? 256,
     temperature: opts.temperature ?? 0.2,
     provider: p,
+    ...(opts.requestId ? { requestId: opts.requestId } : {}),
+    ...(opts.noRetry ? { noRetry: true } : {}),
   });
 
   try {
@@ -75,6 +81,11 @@ export async function aiComplete(messages: ChatMessage[], opts: CompleteOpts = {
     opts.onFallback?.(fb);
     return call(fb.provider, fb.model);
   }
+}
+
+/** The user moved on: the backend sends no further try for this request. */
+export function cancelAiRequest(requestId: string): void {
+  void Promise.resolve(invoke("ai_cancel", { requestId })).catch(() => {});
 }
 
 export interface StreamHandle {
@@ -109,7 +120,10 @@ export function aiCompleteStream(
   let unlisten: (() => void) | null = null;
   let resolveDone: (() => void) | null = null;
 
+  let currentId = "";
+  let finished = false;
   const cancel = () => {
+    if (!finished && !cancelled && currentId) cancelAiRequest(currentId);
     cancelled = true;
     if (unlisten) { unlisten(); unlisten = null; }
     // Settle the promise so awaiting callers (and their finally cleanup) proceed.
@@ -125,6 +139,7 @@ export function aiCompleteStream(
     // recurse exactly once into the configured fallback (isRetry guards that).
     const attempt = (provider: AIProvider, model: string, isRetry: boolean) => {
       const requestId = crypto.randomUUID();
+      currentId = requestId;
 
       const unlistenPromise = listen<{ request_id: string; token: string; is_final: boolean; finish_reason?: string }>(
         "ai-stream-token",
@@ -132,6 +147,7 @@ export function aiCompleteStream(
           if (cancelled || event.payload.request_id !== requestId) return;
           if (event.payload.is_final) {
             onComplete?.(event.payload.finish_reason);
+            finished = true;
             cancel();
             resolve();
           } else {
@@ -163,6 +179,7 @@ export function aiCompleteStream(
             return;
           }
         }
+        finished = true;
         cancel();
         reject(err);
       });

@@ -59,6 +59,7 @@ test("validate rejects a build without the passkey scripts (registered at run ti
     assert.throws(() => validateBuild(manifest, files, manifest.version), new RegExp(f.replace(".", "\\.")));
   }
 });
+// The owner chose passkeys on by default (2026-11-28), which makes this host access a required permission.
 test("passkeys (on by default): host access is only for the content script's own sites", () => {
   assert.deepEqual(manifest.host_permissions, ["https://*/*", "http://localhost/*"]);
   assert.equal("optional_host_permissions" in manifest, false);

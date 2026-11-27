@@ -61,6 +61,16 @@ const click = async (el: Element | null) => { expect(el).toBeTruthy(); await act
 const live = () => q('[data-ssh-live] [role="status"]')!.textContent ?? "";
 const stored = () => JSON.parse(useAppStore.getState().tabs[0].content) as { title: string; fields: Record<string, string>; custom: unknown[] };
 const priv = () => q<HTMLTextAreaElement>("#ssh-key")!;
+/** Opens the saved key for changes: "Replace key…", then the typed confirmation. */
+async function unlockKey() {
+  await click(byText("Replace key"));
+  await act(async () => {
+    const word = q<HTMLInputElement>("#confirm-word")!;
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(word, "REPLACE");
+    word.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await click(byText("Continue"));
+}
 const pub = () => q<HTMLTextAreaElement>("#ssh-pub")!;
 
 /** Re-renders with the tab as the store holds it, like EditorContainer does. */
@@ -240,8 +250,18 @@ describe("SshEntryEditor", () => {
     expect(q('[aria-label="Public key details"]')!.textContent).toContain("SHA256:OPf/VexZlelQ627I9gnHnamVBIJOPkKMTHBqMokS3PA");
   });
 
+  it("keeps a saved private key shut until the replacement is confirmed: no clear, no typing", async () => {
+    await render();
+    expect(btn("Clear private key")).toBeNull();
+    expect(priv().readOnly).toBe(true);
+    await unlockKey();
+    expect(priv().readOnly).toBe(false);
+    expect(btn("Clear private key")).toBeTruthy();
+  });
+
   it("asks before clearing the private key and can undo it", async () => {
     await render();
+    await unlockKey();
     await click(btn("Clear private key"));
     await click(byText("Clear key"));
     expect(priv().value).toBe("");

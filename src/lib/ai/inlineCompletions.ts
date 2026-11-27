@@ -1,7 +1,7 @@
 import type * as monacoNs from "monaco-editor";
 import { useAppStore } from "../../store";
 import { aiBlockedFor, tabOfModel } from "./access";
-import { aiComplete, cleanCompletion, ensureMermaidBlock, stripCodeFences } from "./client";
+import { aiComplete, cancelAiRequest, cleanCompletion, ensureMermaidBlock, stripCodeFences } from "./client";
 import { buildAutocompleteMessages, buildDiagramMessages, detectDiagramIntent, fixMermaidSystem } from "./prompts";
 import { buildContext, lineMode } from "./context";
 import { aiActivity } from "./activity";
@@ -72,6 +72,10 @@ export function ensureInlineProvider(monaco: typeof monacoNs): void {
         (ctx.atLineEnd || ctx.atLineStart) &&
         detectDiagramIntent(intentLine);
 
+      // Typing on cancels the suggestion; the backend must not pay for another try of it.
+      const requestId = crypto.randomUUID();
+      token.onCancellationRequested(() => cancelAiRequest(requestId));
+
       let insertText: string;
 
       if (diagramMode) {
@@ -81,7 +85,7 @@ export function ensureInlineProvider(monaco: typeof monacoNs): void {
           block = await trackCancellable(token, async () => {
             const raw = await aiComplete(
               [{ role: "system", content: system }, { role: "user", content: user }],
-              { maxTokens: 700, temperature: 0.2 },
+              { maxTokens: 700, temperature: 0.2, requestId },
             );
             let b = ensureMermaidBlock(raw);
             // Validate; on a parse error, do one repair pass so we never insert a
@@ -93,7 +97,7 @@ export function ensureInlineProvider(monaco: typeof monacoNs): void {
                   { role: "system", content: fixMermaidSystem() },
                   { role: "user", content: `Mermaid code:\n${stripCodeFences(b)}\n\nParser error:\n${err}\n\nReturn corrected Mermaid only (no fences).` },
                 ],
-                { maxTokens: 700, temperature: 0.1 },
+                { maxTokens: 700, temperature: 0.1, requestId },
               );
               b = ensureMermaidBlock(fixRaw);
             }
@@ -122,7 +126,7 @@ export function ensureInlineProvider(monaco: typeof monacoNs): void {
         try {
           out = await trackCancellable(token, () =>
             aiComplete([{ role: "system", content: system }, { role: "user", content: user }],
-              { maxTokens, temperature: ctx.fenceLang || ctx.inMermaid ? 0.15 : 0.3 }),
+              { maxTokens, temperature: ctx.fenceLang || ctx.inMermaid ? 0.15 : 0.3, requestId }),
           );
         } catch (e) { out = null; if (!token.isCancellationRequested) reportOnce(e); }
         if (out == null || token.isCancellationRequested) return empty;

@@ -4,6 +4,8 @@
 // webview and there are no CORS issues talking to https://ollama.com. The key is
 // stored securely using the OS keyring.
 //
+use std::collections::{HashMap, HashSet};
+use std::sync::{LazyLock, Mutex};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
@@ -132,10 +134,10 @@ fn validate_base_url(base_url: &str) -> Result<String, String> {
 /// Best-effort: fetch Ollama's native `/api/tags` (richer than the OpenAI-compat
 /// `/v1/models`) and return a name → context_length map. Never fails the caller —
 /// any error/shape mismatch just yields an empty map.
-async fn fetch_ollama_context_lengths(client: &reqwest::Client, base_url: &str) -> std::collections::HashMap<String, u64> {
+async fn fetch_ollama_context_lengths(client: &reqwest::Client, base_url: &str) -> HashMap<String, u64> {
     let root = base_url.trim_end_matches('/').trim_end_matches("/v1");
     let url = format!("{}/api/tags", root);
-    let mut out = std::collections::HashMap::new();
+    let mut out = HashMap::new();
 
     let Ok(resp) = client.get(&url).send().await else { return out };
     let Ok(text) = resp.text().await else { return out };
@@ -178,7 +180,7 @@ pub async fn ai_list_models(_app: AppHandle, base_url: String, provider: String)
     let ollama_ctx = if provider == "local" {
         fetch_ollama_context_lengths(&client, &validated).await
     } else {
-        std::collections::HashMap::new()
+        HashMap::new()
     };
 
     let mut models = Vec::new();
@@ -224,6 +226,87 @@ fn attempts(provider: &str, max_tokens: u32) -> Vec<Attempt> {
         Attempt { max_tokens: max_tokens + THINKING_HEADROOM, no_thinking: false },
     ]
 }
+
+/// What earlier short requests showed about a model, so the second try isn't paid for again and again.
+#[derive(Default, Clone, Copy, Debug)]
+struct ModelMemory {
+    /// It only answered with room to think: start there.
+    needs_room: bool,
+    /// Short requests in a row that stayed empty even with room.
+    empty_runs: u8,
+}
+
+/// After this many requests in a row that stayed empty both ways, only one try is made until one succeeds.
+const GIVE_UP_RETRYING: u8 = 2;
+
+/// The tries for one request, given what is known about the model. Whenever only one try is made, it is the one
+/// most likely to work and never the one with the thinking switch alone: a model that must think refuses that
+/// switch, and with no second try the request could then never succeed.
+fn plan(provider: &str, max_tokens: u32, retry: bool, memory: ModelMemory) -> Vec<Attempt> {
+    let all = attempts(provider, max_tokens);
+    if all.len() < 2 {
+        return all;
+    }
+    if !retry {
+        // A connection check: exactly one request, as asked.
+        return vec![Attempt { max_tokens, no_thinking: false }];
+    }
+    if memory.needs_room || memory.empty_runs >= GIVE_UP_RETRYING {
+        return vec![all[1]];
+    }
+    all
+}
+
+/// Requests smaller than this (connection checks and tests ask for a handful of tokens) teach nothing about a model.
+const SMALLEST_LESSON: u32 = 30;
+
+impl ModelMemory {
+    /// Learns from a finished short request. `with_room`: the answer needed more tokens than were asked for.
+    fn learn(&mut self, answered: bool, with_room: bool) {
+        if answered {
+            self.empty_runs = 0;
+            self.needs_room |= with_room;
+        } else {
+            self.empty_runs = self.empty_runs.saturating_add(1);
+        }
+    }
+}
+
+static MODELS: LazyLock<Mutex<HashMap<String, ModelMemory>>> = LazyLock::new(Default::default);
+static CANCELLED: LazyLock<Mutex<HashSet<String>>> = LazyLock::new(Default::default);
+/// A cancel can arrive after its request ended; the list is emptied rather than left to grow.
+const CANCEL_LIMIT: usize = 200;
+
+fn memory_of(key: &str) -> ModelMemory {
+    MODELS.lock().unwrap_or_else(|e| e.into_inner()).get(key).copied().unwrap_or_default()
+}
+
+fn remember(key: String, answered: bool, with_room: bool) {
+    MODELS.lock().unwrap_or_else(|e| e.into_inner()).entry(key).or_default().learn(answered, with_room);
+}
+
+fn is_cancelled(id: Option<&str>) -> bool {
+    id.is_some_and(|id| CANCELLED.lock().unwrap_or_else(|e| e.into_inner()).contains(id))
+}
+
+fn forget_cancel(id: Option<&str>) {
+    if let Some(id) = id {
+        CANCELLED.lock().unwrap_or_else(|e| e.into_inner()).remove(id);
+    }
+}
+
+/// The user moved on: no further try is sent for this request.
+#[tauri::command]
+pub fn ai_cancel(request_id: String) {
+    let mut list = CANCELLED.lock().unwrap_or_else(|e| e.into_inner());
+    if list.len() >= CANCEL_LIMIT {
+        list.clear();
+    }
+    list.insert(request_id);
+}
+
+/// What a request says when it was cancelled before its next try.
+const WAS_CANCELLED: &str = "cancelled";
 
 /// What one completion request is made of.
 struct Request<'a> {
@@ -283,10 +366,13 @@ fn empty_answer(finish: Option<&str>) -> String {
     format!("empty|{}", finish.unwrap_or(""))
 }
 
-async fn complete(client: &reqwest::Client, request: &Request<'_>, plan: &[Attempt]) -> Result<String, String> {
+async fn complete(client: &reqwest::Client, request: &Request<'_>, plan: &[Attempt], cancelled: &(dyn Fn() -> bool + Sync)) -> Result<String, String> {
     let mut failure = empty_answer(None);
     for (i, a) in plan.iter().copied().enumerate() {
         let more = i + 1 < plan.len();
+        if i > 0 && cancelled() {
+            return Err(WAS_CANCELLED.into());
+        }
         let resp = match request.send(client, a, false).await {
             Ok(r) => r,
             Err(e) if more && refused_no_thinking(a, &e) => continue,
@@ -360,10 +446,14 @@ async fn complete_stream(
     request: &Request<'_>,
     plan: &[Attempt],
     on_token: &mut (dyn FnMut(&str) + Send),
+    cancelled: &(dyn Fn() -> bool + Sync),
 ) -> Result<Option<String>, String> {
     let mut failure = empty_answer(None);
     for (i, a) in plan.iter().copied().enumerate() {
         let more = i + 1 < plan.len();
+        if i > 0 && cancelled() {
+            return Err(WAS_CANCELLED.into());
+        }
         let resp = match request.send(client, a, true).await {
             Ok(r) => r,
             Err(e) if more && refused_no_thinking(a, &e) => continue,
@@ -387,6 +477,8 @@ pub async fn ai_complete(
     max_tokens: u32,
     temperature: f32,
     provider: String,
+    request_id: Option<String>,
+    no_retry: Option<bool>,
 ) -> Result<String, String> {
     let request = Request {
         url: format!("{}/chat/completions", validate_base_url(&base_url)?),
@@ -395,7 +487,27 @@ pub async fn ai_complete(
         messages: &messages,
         temperature,
     };
-    complete(&http_client()?, &request, &attempts(&provider, max_tokens)).await
+    let key = format!("{provider}|{model}");
+    let retry = !no_retry.unwrap_or(false);
+    let tries = plan(&provider, max_tokens, retry, memory_of(&key));
+    let id = request_id.as_deref();
+    // Which try is running, counted by the cancel check that precedes every try after the first.
+    let later = std::sync::atomic::AtomicBool::new(false);
+    let result = complete(&http_client()?, &request, &tries, &|| {
+        later.store(true, std::sync::atomic::Ordering::Relaxed);
+        is_cancelled(id)
+    })
+    .await;
+    forget_cancel(id);
+    if retry && (SMALLEST_LESSON..ROOMY_BUDGET).contains(&max_tokens) {
+        let roomy = later.load(std::sync::atomic::Ordering::Relaxed) || tries[0].max_tokens > max_tokens;
+        match &result {
+            Ok(_) => remember(key, true, roomy),
+            Err(e) if e.starts_with("empty|") => remember(key, false, roomy),
+            Err(_) => {}
+        }
+    }
+    result
 }
 
 #[tauri::command]
@@ -420,7 +532,11 @@ pub async fn ai_complete_stream(
         app.emit("ai-stream-token", StreamPayload { request_id: request_id.clone(), token, is_final, finish_reason }).ok();
     };
     let mut on_token = |token: &str| emit(token.to_string(), false, None);
-    let finish = complete_stream(&http_client()?, &request, &attempts(&provider, max_tokens), &mut on_token).await?;
+    let tries = plan(&provider, max_tokens, true, memory_of(&format!("{provider}|{model}")));
+    let id = request_id.clone();
+    let result = complete_stream(&http_client()?, &request, &tries, &mut on_token, &|| is_cancelled(Some(&id))).await;
+    forget_cancel(Some(&id));
+    let finish = result?;
     emit(String::new(), true, finish);
     Ok(())
 }
@@ -480,9 +596,40 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_cancelled_request_is_not_asked_again() {
+        let (url, seen) = server(vec![(200, answer("", "length")), (200, answer("late", "stop"))]).await;
+        let out = complete(&client(), &request(url, &[]), &attempts("openrouter", 60), &|| true).await;
+        assert_eq!(out, Err("cancelled".into()));
+        assert_eq!(seen.lock().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn what_a_model_showed_decides_the_next_tries() {
+        let mut m = ModelMemory::default();
+        assert_eq!(plan("local", 60, true, m).len(), 2);
+        assert_eq!(plan("local", 60, false, m).len(), 1, "a connection check is one request");
+        assert_eq!(plan("openrouter", 5, false, m), vec![Attempt { max_tokens: 5, no_thinking: false }], "a check never sends the switch alone");
+        // It needed room once: from now on one request, with room.
+        m.learn(true, true);
+        assert_eq!(plan("local", 60, true, m), vec![Attempt { max_tokens: 2108, no_thinking: false }]);
+        // Empty twice in a row: no more second tries, until something comes back.
+        let mut stuck = ModelMemory::default();
+        stuck.learn(false, true);
+        stuck.learn(false, true);
+        // The one try kept is the roomy one without the switch, so it can still succeed.
+        assert_eq!(plan("openrouter", 60, true, stuck), vec![Attempt { max_tokens: 2108, no_thinking: false }]);
+        // A model known to need room is not sent back to the small budget by two empty answers.
+        m.learn(false, true);
+        m.learn(false, true);
+        assert_eq!(plan("local", 60, true, m), vec![Attempt { max_tokens: 2108, no_thinking: false }]);
+        stuck.learn(true, false);
+        assert_eq!(plan("local", 60, true, stuck).len(), 2);
+    }
+
+    #[tokio::test]
     async fn an_empty_answer_is_asked_again_with_more_tokens() {
         let (url, seen) = server(vec![(200, answer("", "length")), (200, answer("Summary", "stop"))]).await;
-        let out = complete(&client(), &request(url, &[]), &attempts("openrouter", 30)).await;
+        let out = complete(&client(), &request(url, &[]), &attempts("openrouter", 30), &|| false).await;
         assert_eq!(out.as_deref(), Ok("Summary"));
         let seen = seen.lock().unwrap();
         assert_eq!(seen[0]["reasoning"]["effort"], "none");
@@ -493,21 +640,21 @@ mod tests {
     #[tokio::test]
     async fn a_model_that_must_think_is_asked_without_the_switch_and_a_good_first_answer_is_kept() {
         let (url, seen) = server(vec![(400, "reasoning is mandatory".into()), (200, answer("ok", "stop"))]).await;
-        assert_eq!(complete(&client(), &request(url, &[]), &attempts("openrouter", 60)).await.as_deref(), Ok("ok"));
+        assert_eq!(complete(&client(), &request(url, &[]), &attempts("openrouter", 60), &|| false).await.as_deref(), Ok("ok"));
         assert_eq!(seen.lock().unwrap().len(), 2);
         let (url, seen) = server(vec![(200, answer("first", "stop"))]).await;
-        assert_eq!(complete(&client(), &request(url, &[]), &attempts("openrouter", 60)).await.as_deref(), Ok("first"));
+        assert_eq!(complete(&client(), &request(url, &[]), &attempts("openrouter", 60), &|| false).await.as_deref(), Ok("first"));
         assert_eq!(seen.lock().unwrap().len(), 1);
     }
 
     #[tokio::test]
     async fn failures_are_reported_instead_of_an_empty_answer() {
         let (url, _) = server(vec![(200, answer("", "length")), (200, answer("  ", "length"))]).await;
-        assert_eq!(complete(&client(), &request(url, &[]), &attempts("local", 60)).await, Err("empty|length".into()));
+        assert_eq!(complete(&client(), &request(url, &[]), &attempts("local", 60), &|| false).await, Err("empty|length".into()));
         let (url, _) = server(vec![(429, "slow down".into())]).await;
-        assert_eq!(complete(&client(), &request(url, &[]), &attempts("openrouter", 60)).await, Err("429|slow down".into()));
+        assert_eq!(complete(&client(), &request(url, &[]), &attempts("openrouter", 60), &|| false).await, Err("429|slow down".into()));
         let (url, _) = server(vec![(200, r#"{"error":{"code":402,"message":"no credits"}}"#.into())]).await;
-        assert_eq!(complete(&client(), &request(url, &[]), &attempts("openrouter", 60)).await, Err("402|no credits".into()));
+        assert_eq!(complete(&client(), &request(url, &[]), &attempts("openrouter", 60), &|| false).await, Err("402|no credits".into()));
     }
 
     #[tokio::test]
@@ -516,11 +663,11 @@ mod tests {
         let text = ": PROCESSING\n\ndata: {\"choices\":[{\"delta\":{\"content\":\"Hi\"}}]}\n\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n";
         let (url, seen) = server(vec![(200, thought.into()), (200, text.into())]).await;
         let mut got = String::new();
-        let finish = complete_stream(&client(), &request(url, &[]), &attempts("openrouter", 100), &mut |t: &str| got.push_str(t)).await;
+        let finish = complete_stream(&client(), &request(url, &[]), &attempts("openrouter", 100), &mut |t: &str| got.push_str(t), &|| false).await;
         assert_eq!((got.as_str(), finish), ("Hi", Ok(Some("stop".into()))));
         assert_eq!(seen.lock().unwrap().len(), 2);
         let (url, _) = server(vec![(200, "data: {\"error\":{\"message\":\"upstream failed\"}}\n\n".into())]).await;
-        let out = complete_stream(&client(), &request(url, &[]), &attempts("openrouter", 100), &mut |_: &str| {}).await;
+        let out = complete_stream(&client(), &request(url, &[]), &attempts("openrouter", 100), &mut |_: &str| {}, &|| false).await;
         assert_eq!(out, Err("provider|upstream failed".into()));
     }
 

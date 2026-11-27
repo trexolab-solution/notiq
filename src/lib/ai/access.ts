@@ -18,13 +18,21 @@ export function tabOfModel(model: Model | null | undefined): Tab | undefined {
   return id ? useAppStore.getState().tabs.find((t) => t.id === id) : undefined;
 }
 
+/** Models that belong to no tab but that AI may read (the sticky note editor's). */
+const allowed = new WeakSet<object>();
+export function allowAiFor(model: object | null | undefined): void {
+  if (model) allowed.add(model);
+}
+
 /**
- * Whether AI must stay away from this text. Judged by the tab the text belongs to, not by the tab on screen (which
- * may have changed while a request waited); only text that belongs to no tab is judged by the active one.
+ * Whether AI must stay away from this text. A tab's text is judged by that tab, not by the one on screen (which may
+ * have changed while a request waited). Any other editor is off limits unless it was allowed by name: a server's
+ * file in the file manager (an `.env`, a key) must never be sent to an AI provider.
  */
 export function aiBlockedFor(model: Model | null | undefined): boolean {
-  const s = useAppStore.getState();
-  return isVaultTab(tabOfModel(model) ?? s.tabs.find((t) => t.id === s.activeTabId));
+  if (!model) return true;
+  const tab = tabOfModel(model);
+  return tab ? isVaultTab(tab) : !allowed.has(model);
 }
 
 /**

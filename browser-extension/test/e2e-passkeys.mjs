@@ -120,15 +120,9 @@ const NATIVE = {
     signature: Buffer.from("sig").toString("base64url"), userHandle: Buffer.from("tester@example.com").toString("base64url") },
 };
 
-// The temporary copy: optional host access made required (granted at load), tests and pages left out.
+// The temporary copy: the extension as shipped, tests and pages left out.
 const EXT_COPY = mkdtempSync(join(tmpdir(), "notiq-ext-pk-copy-"));
-cpSync(EXT, EXT_COPY, { recursive: true, filter: (src) => !/[\/](test|test-pages|store|dist)([\/]|$)/.test(src.slice(EXT.length)) });
-{
-  const m = JSON.parse(readFileSync(join(EXT, "manifest.json"), "utf8"));
-  m.host_permissions = m.optional_host_permissions;
-  delete m.optional_host_permissions;
-  writeFileSync(join(EXT_COPY, "manifest.json"), JSON.stringify(m, null, 2));
-}
+cpSync(EXT, EXT_COPY, { recursive: true, filter: (src) => !/[\\/](test|test-pages|store|dist)([\\/]|$)/.test(src.slice(EXT.length)) });
 const server = spawn("python", ["-m", "http.server", String(PORT), "--bind", "127.0.0.1", "--directory", EXT], { stdio: "ignore" });
 const profile = mkdtempSync(join(tmpdir(), "notiq-ext-pk-"));
 const chrome = spawn(findChrome(), [
@@ -163,12 +157,7 @@ try {
   await cdp("WebAuthn.addVirtualAuthenticator", { options: { protocol: "ctap2", transport: "usb", hasResidentKey: true,
     hasUserVerification: true, isUserVerified: true, automaticPresenceSimulation: true } }, page);
 
-  // ---- off by default: nothing registered, the page's API untouched ----
-  check("off by default: no passkey scripts registered", (await registered()).length === 0, JSON.stringify(await registered()));
-  await load();
-  check("off: navigator.credentials is the browser's own", (await P("String(CredentialsContainer.prototype.create)")).includes("[native code]"));
-
-  // ---- turn it on from the popup (a real click: the host access is requested from that gesture) ----
+  // ---- on by default: the scripts are registered without touching the popup ----
   const extId = new URL(swTarget.url).host;
   const { targetId: popTarget } = await cdp("Target.createTarget", { url: `chrome-extension://${extId}/popup.html` });
   const { sessionId: pop } = await cdp("Target.attachToTarget", { targetId: popTarget, flatten: true });
@@ -181,12 +170,11 @@ try {
     await sleep(800);
     await cdp("Target.activateTarget", { targetId });
   };
-  check("popup: the passkey switch is off by default", (await evalIn(pop, "document.getElementById('passkeys').checked")) === false);
-  await togglePasskeys();
-  check("popup: switching it on (host access present) stores the setting",
-    (await SW(`chrome.permissions.contains({ origins: ["https://*/*", "http://localhost/*"] })`)) === true
-      && (await SW("chrome.storage.local.get('passkeys')")).passkeys === true,
-    JSON.stringify([await evalIn(pop, "document.getElementById('passkeys').checked"), await SW("chrome.storage.local.get(null)"), await SW("chrome.permissions.getAll()")]));
+  check("popup: the passkey switch is on by default", (await evalIn(pop, "document.getElementById('passkeys').checked")) === true);
+  check("by default: host access is granted at load",
+    (await SW(`chrome.permissions.contains({ origins: ["https://*/*", "http://localhost/*"] })`)) === true);
+  // Opening the popup took the focus: WebAuthn needs the page to have it.
+  await cdp("Target.activateTarget", { targetId });
   let reg = [];
   for (let i = 0; i < 30 && reg.length < 2; i++) { await sleep(100); reg = await registered(); }
   const page_ = reg.find((s) => s.id === "notiq-passkey-page");
@@ -252,7 +240,7 @@ try {
   r = await result(10000);
   check("no user gesture: Notiq is not asked, the browser handles it", (await passkeyCalls()).length === 0 && r && r.id !== CRED, JSON.stringify(r));
 
-  // ---- switched off in the popup: setting and host access dropped, scripts removed ----
+  // ---- switched off in the popup: the setting is stored and the scripts removed ----
   await togglePasskeys();
   for (let i = 0; i < 30 && (await registered()).length; i++) await sleep(100);
   check("off again: setting cleared, scripts removed", (await registered()).length === 0

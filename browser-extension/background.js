@@ -1192,9 +1192,10 @@ chrome.runtime.onMessage.addListener((msg, sender, send) => {
   return true;
 });
 // ---------- passkeys (experimental) ----------
-// On by default; the popup's "Save and use passkeys with Notiq (experimental)" turns it off. It needs the
+// On by default; the popup's "Save and use passkeys with Notiq (experimental)" turns it off (the scripts are then
+// unregistered; the host access stays, as it is part of the manifest). It uses the
 // host access that scripting.registerContentScripts needs (content_scripts matches alone are not enough;
-// turning the switch off gives it back). Only with both are passkey-page.js (MAIN world: wraps navigator.credentials) and passkey-bridge.js (isolated world) registered,
+// the host access is part of the manifest). Only with both are passkey-page.js (MAIN world: wraps navigator.credentials) and passkey-bridge.js (isolated world) registered,
 // for https pages and http://localhost, at document_start in every frame. Requests from the bridge are checked
 // here: the setting is still on, the tab is active, the frame is the top page or a same-origin subframe (all
 // ancestors that origin), the origin is https (or http://localhost) on a domain, and the RP ID is that host or a

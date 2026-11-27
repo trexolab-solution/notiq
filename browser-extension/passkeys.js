@@ -3,8 +3,8 @@
 // Firefox build). No DOM, no network, no secrets: the private keys stay in the Notiq app.
 //
 // The page-side pieces are passkey-page.js (MAIN world: wraps navigator.credentials) and passkey-bridge.js
-// (isolated world: forwards to the background). Both are registered only while the user has turned on
-// "Save and use passkeys with Notiq (experimental)" in the popup.
+// (isolated world: forwards to the background). Both are registered while
+// "Save and use passkeys with Notiq (experimental)" in the popup is on (it is by default).
 (function (g) {
   "use strict";
   const S = g.NotiqShared;

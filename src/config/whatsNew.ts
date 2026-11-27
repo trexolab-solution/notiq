@@ -34,6 +34,10 @@ Vault items are easier to read and edit, and .nqb files now open in the right pl
 
 - The first-run welcome note now shows what Notiq can do, with screenshots and links. Replay the tour in Settings → General.
 
+## 🔑 Passkeys are on by default
+
+- The browser extension now offers to save and use passkeys with Notiq unless you turn it off in its popup. It still asks you every time.
+
 ## 🔧 Other
 
 - The storage folder is chosen in Settings → Vault only; the sidebar no longer has a shortcut for it.

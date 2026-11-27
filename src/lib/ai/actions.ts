@@ -1,6 +1,6 @@
 import type * as monacoNs from "monaco-editor";
 import { useAppStore } from "../../store";
-import { aiComplete, aiCompleteStream, stripCodeFences, type ChatMessage, type CompleteOpts } from "./client";
+import { aiComplete, cancelAiRequest, aiCompleteStream, stripCodeFences, type ChatMessage, type CompleteOpts } from "./client";
 import { mapAiError } from "./errors";
 import { mermaidFenceAt, allMermaidFences, type MermaidFence } from "./context";
 import { aiActivity } from "./activity";
@@ -26,7 +26,8 @@ function ready(editor: Editor): boolean {
   return true;
 }
 
-async function withLoading<T>(label: string, fn: () => Promise<T>): Promise<T | undefined> {
+async function withLoading<T>(label: string, fn: (requestId: string) => Promise<T>): Promise<T | undefined> {
+  const requestId = crypto.randomUUID();
   const id = toast.info(`${label}…`, 120000);
   aiActivity.start();
 
@@ -36,12 +37,12 @@ async function withLoading<T>(label: string, fn: () => Promise<T>): Promise<T | 
   let cancelled = false;
   let onCancel: () => void = () => {};
   const cancelPromise = new Promise<never>((_, reject) => {
-    onCancel = () => { cancelled = true; reject(new Error("cancelled")); };
+    onCancel = () => { cancelled = true; cancelAiRequest(requestId); reject(new Error("cancelled")); };
   });
   const unregister = aiActivity.registerCanceler(onCancel);
 
   try {
-    const r = await Promise.race([fn(), cancelPromise]);
+    const r = await Promise.race([fn(requestId), cancelPromise]);
     toast.remove(id); // transient "working…" notice: keep it out of the history
     return r as T;
   } catch (e) {
@@ -261,10 +262,10 @@ export async function aiSummarize(editor: Editor): Promise<void> {
   const source = (sel?.text ?? model.getValue()).slice(0, MAX_NOTE_CHARS);
   if (!source.trim()) { toast.warning("Nothing to summarize"); return; }
 
-  const out = await withLoading("Summarizing", () =>
+  const out = await withLoading("Summarizing", (requestId) =>
     aiComplete(
       [{ role: "system", content: P.summarizeSystem() }, { role: "user", content: source }],
-      { maxTokens: 400, temperature: 0.3 },
+      { maxTokens: 400, temperature: 0.3, requestId },
     ),
   );
   if (!out || !stillOn(editor, model)) return;
@@ -368,10 +369,10 @@ export async function aiGenerateTitle(editor: Editor): Promise<void> {
   const content = model.getValue().slice(0, MAX_NOTE_CHARS);
   if (!content.trim()) { toast.warning("Note is empty"); return; }
 
-  const out = await withLoading("Generating title", () =>
+  const out = await withLoading("Generating title", (requestId) =>
     aiComplete(
       [{ role: "system", content: P.generateTitleSystem() }, { role: "user", content }],
-      { maxTokens: 30, temperature: 0.4 },
+      { maxTokens: 30, temperature: 0.4, requestId },
     ),
   );
   if (!out) return;
@@ -417,7 +418,7 @@ export async function aiFixMermaid(editor: Editor): Promise<void> {
     return;
   }
 
-  const fixed = await withLoading("Fixing Mermaid", async () => {
+  const fixed = await withLoading("Fixing Mermaid", async (requestId) => {
     let current = fence.code;
     let lastErr: string | null = initialErr;
     for (let attempt = 0; attempt < 3; attempt++) {
@@ -427,7 +428,7 @@ export async function aiFixMermaid(editor: Editor): Promise<void> {
             { role: "system", content: P.fixMermaidSystem() },
             { role: "user", content: `Mermaid code:\n${current}\n\nParser error:\n${lastErr}\n\nReturn corrected Mermaid only.` },
           ],
-          { maxTokens: 600, temperature: 0.1 },
+          { maxTokens: 600, temperature: 0.1, requestId },
         ),
       );
       const verr = await validateMermaid(out);
