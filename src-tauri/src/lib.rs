@@ -927,6 +927,7 @@ pub fn run() {
         quick_search::vault_fingerprint,
         // 0.9.0 vault sync (P3)
         sync::commands::sync_status,
+        sync::commands::sync_storage_quota,
         sync::commands::sync_connect,
         sync::commands::sync_disconnect,
         sync::commands::sync_disconnect_and_remove_vault,
@@ -1047,6 +1048,7 @@ pub fn run() {
         quick_search::vault_fingerprint,
         // 0.9.0 vault sync (P3)
         sync::commands::sync_status,
+        sync::commands::sync_storage_quota,
         sync::commands::sync_connect,
         sync::commands::sync_disconnect,
         sync::commands::sync_disconnect_and_remove_vault,

@@ -658,6 +658,13 @@ pub async fn sync_connect(app: AppHandle) -> Result<SyncStatus, String> {
     Ok(status_of(&app))
 }
 
+/// The connected account's Google storage: numbers only. Fails without any request when not connected.
+#[tauri::command]
+pub async fn sync_storage_quota(app: AppHandle) -> Result<gdrive::StorageQuota, String> {
+    let drive = app.state::<SyncManager>().connected_drive(&app)?;
+    drive.storage_quota().await.map_err(|e| SyncError::Provider(e).message())
+}
+
 /// Signs out (revokes, clears the keychain) and turns sync off. Remote data is never deleted.
 #[tauri::command]
 pub async fn sync_disconnect(app: AppHandle) -> Result<(), String> {

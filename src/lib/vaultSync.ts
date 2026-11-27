@@ -60,6 +60,8 @@ export interface GuardChoiceResult { backupPath: string | null; result: SyncResu
 export interface RemoteVaultInfo { exists: boolean; sameVault: boolean | null }
 export interface AdoptResult { backupPath: string; imported: number; skipped: number; renamed: number }
 export type AdoptMode = "import" | "backupOnly";
+/** Bytes. `limit` is null when Google reports no limit (unlimited storage). */
+export interface StorageQuota { limit: number | null; usage: number; usageInDrive: number; usageInDriveTrash: number }
 
 // ── Error codes (a command rejects with EXACTLY one of these when the UI must branch) ──
 
@@ -123,6 +125,8 @@ export const syncDisable = () => invoke<void>("sync_disable");
 export const syncDevices = () => invoke<SyncDevice[]>("sync_devices");
 export const syncRemoveDevice = (id: string) => invoke<void>("sync_remove_device", { id });
 export const syncSetDeviceName = (name: string) => invoke<SyncStatus>("sync_set_device_name", { name });
+/** Google account storage (numbers only). Call only while connected. */
+export const syncStorageQuota = () => invoke<StorageQuota>("sync_storage_quota");
 
 export const DEVICE_NAME_MAX = 40;
 
