@@ -11,6 +11,7 @@ import { toast } from "../../lib/toast";
 import { getFilesPrefs } from "../../lib/filesPrefs";
 import { formatBytes } from "../../lib/vaultBackup";
 import { getLanguageFromPath } from "../../lib/language";
+import { isLightTheme } from "../../lib/themes";
 import {
   bytesFromBase64, decodeText, imageMime, isPdf, MAX_IMAGE_BYTES, MAX_PDF_BYTES, MAX_TEXT_BYTES, sftpErrorMessage, sftpRead, sftpWrite,
   SFTP_CHANGED, SFTP_TOO_BIG,
@@ -122,7 +123,7 @@ export function RemoteFileViewer({ session, path, name, onClose, onDownload, onS
     else if (e.key === "Escape" && !confirm) { e.stopPropagation(); close(); }
   };
 
-  const light = (() => { try { return localStorage.getItem("pref:theme") === "light"; } catch { return false; } })();
+  const light = (() => { try { return isLightTheme(localStorage.getItem("pref:theme") ?? ""); } catch { return false; } })();
 
   return (
     <div className="absolute inset-0 z-10 flex flex-col bg-[var(--color-bg)]" role="region" aria-label={`Viewing ${name}`} onKeyDown={onKey}>
