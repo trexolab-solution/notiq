@@ -20,6 +20,7 @@ const EXT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const PORT = 8765 + Math.floor(Math.random() * 500);
 const CDP_PORT = 9400 + Math.floor(Math.random() * 500);
 const PAGE = `http://localhost:${PORT}/test-pages/login.html`;
+const EXT_VERSION = JSON.parse(readFileSync(join(EXT, "manifest.json"), "utf8")).version;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function findChrome() {
@@ -241,8 +242,8 @@ try {
   ({ sessionId: sw } = await cdp("Target.attachToTarget", { targetId: swTarget.targetId, flatten: true }));
   await cdp("Runtime.enable", {}, sw);
   const manifest = await SW("chrome.runtime.getManifest()");
-  check("manifest version 0.8.2 with storage permission and all-frames content script (same-site gated)",
-    manifest.version === "0.8.2" && manifest.permissions.includes("storage") && manifest.content_scripts[0].all_frames === true &&
+  check("manifest version as in manifest.json, with storage permission and all-frames content script (same-site gated)",
+    manifest.version === EXT_VERSION && manifest.permissions.includes("storage") && manifest.content_scripts[0].all_frames === true &&
     typeof manifest.key === "string" && manifest.key.length > 100);
 
   const { targetId } = await cdp("Target.createTarget", { url: "about:blank" });
@@ -943,7 +944,7 @@ try {
   const popInfo = await evalIn(pop2, `({ ver: document.getElementById("version").textContent, sw: [...document.querySelectorAll('input[type=checkbox]:not([id^=gen])')].map((i) => i.getAttribute("role") + ":" + i.id + ":" + i.checked),
     status: document.getElementById("status").dataset.state, bg: getComputedStyle(document.body).backgroundColor })`);
   check("popup: version footer, role=switch toggles incl. 'Suggest on field focus', 'Hide Notiq on this site' and the experimental passkeys (on), status dot",
-    popInfo.ver === "Notiq Autofill v0.8.2" && popInfo.sw.join() === "switch:siteHide:false,switch:showIcon:true,switch:suggestOnFocus:false,switch:offerSave:true,switch:passkeys:true" &&
+    popInfo.ver === `Notiq Autofill v${EXT_VERSION}` && popInfo.sw.join() === "switch:siteHide:false,switch:showIcon:true,switch:suggestOnFocus:false,switch:offerSave:true,switch:passkeys:true" &&
     ["on", "off"].includes(popInfo.status) && popInfo.bg === "rgb(46, 52, 64)", JSON.stringify(popInfo));
   await evalIn(pop2, `document.getElementById("suggestOnFocus").click(), true`);
   check("popup toggle writes suggestOnFocus", await waitFor(async () => (await local()).suggestOnFocus === true, 1500));

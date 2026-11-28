@@ -13,39 +13,31 @@ import { APP_VERSION } from "./app";
  */
 export const WHATS_NEW = `# What's New in Notiq ${APP_VERSION}
 
-Safer editing in the vault, a live monitor for your servers, and new themes.
-
-## 📊 Server monitor
-
-- A saved SSH entry now shows its Linux server's **CPU, memory, swap and disks** with live graphs. The **i** button has the host name, system, kernel, uptime and processor.
-- It **signs in by itself** while it is in view, with the sign-in method you used last. After a failed sign-in or **Disconnect** it waits for you. A new server's key is only trusted when you say so.
-
-## 🔐 Vault
-
-- A saved item opens **read-only**: press **Edit** to change it. Notiq remembers the section you were on.
-- **Recovery codes now live inside the login**, which fixes codes that said they were saved but weren't. Update Notiq on all your computers: an older version drops these codes when it saves that login.
-- Replacing a saved password or SSH key asks you to type a confirmation.
-- The backup reminder has a new look and can **connect Google Drive**; Vault Sync settings show your Drive storage.
-
-## 🎨 Themes
-
-- Five new themes: GitHub Light, Paper, Catppuccin Latte, Everforest and Graphite.
-
-## 🤖 AI
-
-- Editor suggestions and actions now work with "thinking" models. Setup has a new design and checks that the model really answers.
-- With AI off, the editor's own suggestions work. AI never reads the vault.
+Smarter browser autofill, tidier vault forms and a server monitor that stays connected.
 
 ## 🌐 Browser autofill
 
-- **Passkeys are on by default.** Notiq still asks you every time.
-- Fixed a blank window that could appear on top of other apps.
+- Finds the email field on sign-in pages built without a form, such as **Google's**. A login needs a saved username to fill that step.
+- Tells **sign-up** forms from sign-ins. Their email field no longer offers a saved login.
+- A new **password card** suggests a strong password, with length and character settings.
+- A new icon in the field, sized to it and placed beside the page's own buttons.
 
-## 🔧 Other
+## 🔐 Vault
 
-- Server files: trust a new server from a window in the app, set the icon size, clear the filter in one click; paste and Enter work in the file editor.
-- The knowledge graph was removed. Wiki links still work.
-- Security fixes: locking the vault clears unsaved secrets and closes monitor connections.
+- Entry forms and lock screens have a cleaner design. In view mode, clicking a field no longer looks like editing.
+- **Attachments** take drag and drop and browse in view mode too. Removing a file needs Edit.
+- Screenshot protection can be turned **off for 5 to 20 minutes**; it comes back by itself.
+- A change aimed at the empty white box in screenshots after autofill with that protection off.
+- Fixed: the window's **X** button now locks the vault (when "Lock when the window is closed" is on), ends trusted sites and disconnects servers.
+
+## 🖥️ Servers
+
+- The server monitor **stays connected** when you switch tabs. It disconnects when you close the tab, lock the vault or hide Notiq. The Disconnect button is gone.
+- When a key and a password are both saved, choose "Always use my pick". The sidebar and Connect dialog now follow that choice.
+
+## 🎨 Look
+
+- One new scrollbar design across the app.
 
 ---
 
