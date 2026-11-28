@@ -14,13 +14,13 @@ export const CAPTURE_SHIELD_OPTIONS: { value: CaptureShieldMode; label: string }
   { value: "off", label: "Off" },
 ];
 
-/** "Hide for N minutes": hidden from capture for a while (whatever the saved mode), then the saved mode applies again. */
-export const HIDE_MINUTES = [5, 10, 30] as const;
+/** "Off for N minutes": not hidden from capture for a while, then the saved mode applies again. */
+export const OFF_MINUTES = [5, 10, 15, 20] as const;
 
-/** Select value of the "Hide for N minutes" entries. */
-export const hideValue = (minutes: number) => `hide:${minutes}`;
+/** Select value of the "Off for N minutes" entries. */
+export const offValue = (minutes: number) => `off:${minutes}`;
 /** Select value shown while such a period is running. */
-export const HIDING_VALUE = "hiding";
+export const PAUSED_VALUE = "paused";
 
 /** Narrows an unknown backend value to a mode (pure). */
 export function parseCaptureShield(v: unknown): CaptureShieldMode {
@@ -29,21 +29,21 @@ export function parseCaptureShield(v: unknown): CaptureShieldMode {
 
 export interface CaptureShieldStatus {
   mode: CaptureShieldMode;
-  /** End of a running "Hide for N minutes" period (ms since the epoch), or null. */
-  hiddenUntil: number | null;
+  /** End of a running "Off for N minutes" period (ms since the epoch), or null. */
+  offUntil: number | null;
 }
 
 /** Narrows the backend's status object (pure). */
 export function parseCaptureShieldStatus(v: unknown): CaptureShieldStatus {
-  const o = (v && typeof v === "object" ? v : {}) as { mode?: unknown; hiddenUntilMs?: unknown };
-  const until = typeof o.hiddenUntilMs === "number" && Number.isFinite(o.hiddenUntilMs) ? o.hiddenUntilMs : null;
-  return { mode: parseCaptureShield(o.mode), hiddenUntil: until };
+  const o = (v && typeof v === "object" ? v : {}) as { mode?: unknown; offUntilMs?: unknown };
+  const until = typeof o.offUntilMs === "number" && Number.isFinite(o.offUntilMs) ? o.offUntilMs : null;
+  return { mode: parseCaptureShield(o.mode), offUntil: until };
 }
 
-/** "Hidden · 7 min left" while such a period runs (rounded up, never below 1) (pure). */
-export function hidingLabel(hiddenUntil: number, now = Date.now()): string {
-  const min = Math.max(1, Math.ceil((hiddenUntil - now) / 60_000));
-  return `Hidden · ${min} min left`;
+/** "Off · 7 min left" while such a period runs (rounded up, never below 1) (pure). */
+export function pausedLabel(offUntil: number, now = Date.now()): string {
+  const min = Math.max(1, Math.ceil((offUntil - now) / 60_000));
+  return `Off · ${min} min left`;
 }
 
 export const captureShieldGet = async (): Promise<CaptureShieldMode> =>
@@ -51,4 +51,4 @@ export const captureShieldGet = async (): Promise<CaptureShieldMode> =>
 export const captureShieldStatus = async (): Promise<CaptureShieldStatus> =>
   parseCaptureShieldStatus(await invoke("capture_shield_status"));
 export const captureShieldSet = (mode: CaptureShieldMode) => invoke<void>("capture_shield_set", { mode });
-export const captureShieldHideFor = (minutes: number) => invoke<void>("capture_shield_hide_for", { minutes });
+export const captureShieldOffFor = (minutes: number) => invoke<void>("capture_shield_off_for", { minutes });

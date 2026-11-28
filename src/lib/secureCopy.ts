@@ -42,6 +42,9 @@ export async function copySecretTimed(text: string, label: string, opts?: { quie
   if (!opts?.quiet) toast.info(copiedMessage(label, clearSeconds));
   clearTimeout(timer);
   if (!native && clearAfterMs > 0) {
+    // In the autofill prompt this timer needs the window, which is otherwise closed once hidden.
+    // It only delays that close, so other windows lose nothing.
+    void Promise.resolve(invoke("autofill_prompt_keep", { ms: clearAfterMs + 1000 })).catch(() => {});
     timer = setTimeout(async () => {
       try {
         if ((await readText()) === text) await writeText("");

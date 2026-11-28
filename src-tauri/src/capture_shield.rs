@@ -8,9 +8,10 @@
 //! * Main + quick-search window: protected while the vault is unlocked (`WhileUnlocked`, default)
 //!   or always (`Always`). Autofill prompt: protected unless `Off`.
 //! * [`refresh`] re-applies everything; it runs on every lock/unlock and after a window is created.
-//! * "Hide for N minutes": a temporary `Always` on top of the saved mode (e.g. the saved mode is `Off`, but for
-//!   the next 10 minutes you share your screen and want Notiq hidden). It is stored as an end time (so it
-//!   survives a restart), ends by itself, and is cleared whenever a mode is chosen explicitly.
+//! * "Off for N minutes": a temporary `Off` on top of the saved mode, e.g. to show Notiq in a screen share.
+//!   It ends by itself and is cleared whenever a mode is chosen explicitly. It is never saved, so a restart
+//!   brings the protection back. Asked for while the saved mode is `Off`, the saved mode becomes the default,
+//!   so that there is protection to come back to.
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, AtomicU8, Ordering};
@@ -64,35 +65,38 @@ pub fn parse_mode(s: &str) -> Mode {
     serde_json::from_str::<Mode>(s.trim()).unwrap_or_default()
 }
 
-/// What is saved in `capture_shield.json`: the mode, and when a temporary "Hide for N minutes" period ends.
+/// What is saved in `capture_shield.json`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
 struct Config {
     #[serde(default)]
     mode: Mode,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    hide_until_ms: Option<u64>,
 }
 
 /// Tolerant parse of the saved file. The first versions stored just the mode as a JSON string, which still
-/// reads; anything unreadable means the defaults.
+/// reads; fields this version doesn't know are ignored; anything unreadable means the defaults.
 fn parse_config(s: &str) -> Config {
     let s = s.trim();
     serde_json::from_str::<Config>(s)
-        .or_else(|_| serde_json::from_str::<Mode>(s).map(|mode| Config { mode, hide_until_ms: None }))
+        .or_else(|_| serde_json::from_str::<Mode>(s).map(|mode| Config { mode }))
         .unwrap_or_default()
 }
 
-/// The mode that applies right now: a "Hide for N minutes" period that has not ended yet means `Always` (pure).
-pub fn effective_mode(saved: Mode, hide_until_ms: u64, now_ms: u64) -> Mode {
-    if hide_until_ms > now_ms { Mode::Always } else { saved }
+/// The mode that applies right now: an "Off for N minutes" period that has not ended yet means `Off` (pure).
+pub fn effective_mode(saved: Mode, off_until_ms: u64, now_ms: u64) -> Mode {
+    if off_until_ms > now_ms { Mode::Off } else { saved }
+}
+
+/// The saved mode to keep when a timed "Off" starts: one that protects again afterwards (pure).
+fn mode_after_pause(saved: Mode) -> Mode {
+    if saved == Mode::Off { Mode::default() } else { saved }
 }
 
 /// Longest period the UI may ask for.
-const MAX_HIDE_MINUTES: u32 = 240;
+const MAX_OFF_MINUTES: u32 = 20;
 
 static MODE: AtomicU8 = AtomicU8::new(0);
-/// End of the current "Hide for N minutes" period, in ms since the epoch; 0 = none.
-static HIDE_UNTIL: AtomicU64 = AtomicU64::new(0);
+/// End of the current "Off for N minutes" period, in ms since the epoch; 0 = none. Memory only.
+static OFF_UNTIL: AtomicU64 = AtomicU64::new(0);
 
 fn now_ms() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
@@ -100,24 +104,21 @@ fn now_ms() -> u64 {
 
 fn saved_mode() -> Mode { Mode::from_u8(MODE.load(Ordering::Acquire)) }
 
-fn mode() -> Mode { effective_mode(saved_mode(), HIDE_UNTIL.load(Ordering::Acquire), now_ms()) }
+fn mode() -> Mode { effective_mode(saved_mode(), OFF_UNTIL.load(Ordering::Acquire), now_ms()) }
 
 fn persist(app: &AppHandle) -> Result<(), String> {
-    let until = HIDE_UNTIL.load(Ordering::Acquire);
-    let cfg = Config { mode: saved_mode(), hide_until_ms: if until > now_ms() { Some(until) } else { None } };
-    let json = serde_json::to_string(&cfg).map_err(|e| e.to_string())?;
+    let json = serde_json::to_string(&Config { mode: saved_mode() }).map_err(|e| e.to_string())?;
     crate::vault::atomic_write(&config_path(app)?, json.as_bytes())
 }
 
 /// Ends the period by itself: waits (re-checking the wall clock, so a sleeping PC is handled) until `until`,
-/// then goes back to the saved mode, unless the user changed things in the meantime.
-fn watch_hide(app: AppHandle, until: u64) {
+/// then protects again, unless the user changed things in the meantime.
+fn watch_off(app: AppHandle, until: u64) {
     std::thread::spawn(move || {
-        while HIDE_UNTIL.load(Ordering::Acquire) == until && now_ms() < until {
+        while OFF_UNTIL.load(Ordering::Acquire) == until && now_ms() < until {
             std::thread::sleep(Duration::from_secs(2));
         }
-        if HIDE_UNTIL.compare_exchange(until, 0, Ordering::AcqRel, Ordering::Acquire).is_ok() {
-            let _ = persist(&app);
+        if OFF_UNTIL.compare_exchange(until, 0, Ordering::AcqRel, Ordering::Acquire).is_ok() {
             refresh(&app);
             let _ = tauri::Emitter::emit(&app, "capture-shield-changed", ());
         }
@@ -157,6 +158,11 @@ fn apply_to(app: &AppHandle, label: &str, protect: bool) {
     applied.push((label.to_string(), handle, protect));
 }
 
+/// Drops what is remembered about a window that was destroyed.
+pub fn forget(label: &str) {
+    APPLIED.lock().unwrap_or_else(|e| e.into_inner()).retain(|(l, _, _)| l != label);
+}
+
 /// Re-applies the display affinity of every window from the current mode and lock state.
 pub fn refresh(app: &AppHandle) {
     let m = mode();
@@ -175,51 +181,49 @@ pub fn start(app: &AppHandle) {
         .map(|s| parse_config(&s))
         .unwrap_or_default();
     MODE.store(cfg.mode.to_u8(), Ordering::Release);
-    let until = cfg.hide_until_ms.filter(|u| *u > now_ms()).unwrap_or(0);
-    HIDE_UNTIL.store(until, Ordering::Release);
     refresh(app);
-    if until > 0 { watch_hide(app.clone(), until); }
 }
 
-/// The saved mode (not the temporary "Hide for N minutes"; see `capture_shield_status`).
+/// The saved mode (not the temporary "Off for N minutes"; see `capture_shield_status`).
 #[tauri::command]
 pub fn capture_shield_get() -> Mode { saved_mode() }
 
-/// Saved mode plus the end of a running "Hide for N minutes" period (ms since the epoch), for the settings row.
+/// Saved mode plus the end of a running "Off for N minutes" period (ms since the epoch), for the settings row.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Status {
     mode: Mode,
-    hidden_until_ms: Option<u64>,
+    off_until_ms: Option<u64>,
 }
 
 #[tauri::command]
 pub fn capture_shield_status() -> Status {
-    let until = HIDE_UNTIL.load(Ordering::Acquire);
-    Status { mode: saved_mode(), hidden_until_ms: if until > now_ms() { Some(until) } else { None } }
+    let until = OFF_UNTIL.load(Ordering::Acquire);
+    Status { mode: saved_mode(), off_until_ms: if until > now_ms() { Some(until) } else { None } }
 }
 
-/// Choosing a mode explicitly also ends any "Hide for N minutes".
+/// Choosing a mode explicitly also ends any "Off for N minutes".
 #[tauri::command]
 pub fn capture_shield_set(app: AppHandle, mode: Mode) -> Result<(), String> {
     MODE.store(mode.to_u8(), Ordering::Release);
-    HIDE_UNTIL.store(0, Ordering::Release);
+    OFF_UNTIL.store(0, Ordering::Release);
     persist(&app)?;
     refresh(&app);
     Ok(())
 }
 
-/// Hides Notiq from capture for `minutes`, then the saved mode applies again (it is kept).
+/// Stops hiding Notiq from capture for `minutes`, then the saved mode applies again.
 #[tauri::command]
-pub fn capture_shield_hide_for(app: AppHandle, minutes: u32) -> Result<(), String> {
-    if minutes == 0 || minutes > MAX_HIDE_MINUTES {
-        return Err(format!("Choose between 1 and {MAX_HIDE_MINUTES} minutes"));
+pub fn capture_shield_off_for(app: AppHandle, minutes: u32) -> Result<(), String> {
+    if minutes == 0 || minutes > MAX_OFF_MINUTES {
+        return Err(format!("Choose between 1 and {MAX_OFF_MINUTES} minutes"));
     }
-    let until = now_ms() + u64::from(minutes) * 60_000;
-    HIDE_UNTIL.store(until, Ordering::Release);
+    MODE.store(mode_after_pause(saved_mode()).to_u8(), Ordering::Release);
     persist(&app)?;
+    let until = now_ms() + u64::from(minutes) * 60_000;
+    OFF_UNTIL.store(until, Ordering::Release);
     refresh(&app);
-    watch_hide(app, until);
+    watch_off(app, until);
     Ok(())
 }
 
@@ -272,20 +276,24 @@ mod tests {
     }
 
     #[test]
-    fn a_running_hide_period_means_always_and_an_ended_one_does_not() {
-        assert_eq!(effective_mode(Mode::Off, 2_000, 1_000), Mode::Always);
-        assert_eq!(effective_mode(Mode::Off, 1_000, 1_000), Mode::Off);
+    fn a_running_off_period_means_off_and_an_ended_one_does_not() {
+        assert_eq!(effective_mode(Mode::Always, 2_000, 1_000), Mode::Off);
+        assert_eq!(effective_mode(Mode::Always, 1_000, 1_000), Mode::Always);
         assert_eq!(effective_mode(Mode::WhileUnlocked, 0, 1_000), Mode::WhileUnlocked);
     }
 
     #[test]
-    fn config_reads_the_old_plain_mode_and_the_new_object() {
-        assert_eq!(parse_config("\"always\""), Config { mode: Mode::Always, hide_until_ms: None });
-        assert_eq!(
-            parse_config("{\"mode\":\"off\",\"hide_until_ms\":123}"),
-            Config { mode: Mode::Off, hide_until_ms: Some(123) }
-        );
-        assert_eq!(parse_config("{\"mode\":\"always\"}"), Config { mode: Mode::Always, hide_until_ms: None });
+    fn a_timed_off_always_has_protection_to_come_back_to() {
+        assert_eq!(mode_after_pause(Mode::Off), Mode::WhileUnlocked);
+        assert_eq!(mode_after_pause(Mode::Always), Mode::Always);
+        assert_eq!(mode_after_pause(Mode::WhileUnlocked), Mode::WhileUnlocked);
+    }
+
+    #[test]
+    fn config_reads_old_files_and_never_restores_a_timed_period() {
+        assert_eq!(parse_config(r#""always""#), Config { mode: Mode::Always });
+        assert_eq!(parse_config(r#"{"mode":"off","hide_until_ms":123}"#), Config { mode: Mode::Off });
+        assert_eq!(parse_config(r#"{"mode":"always"}"#), Config { mode: Mode::Always });
         assert_eq!(parse_config("garbage"), Config::default());
     }
 

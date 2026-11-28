@@ -14,22 +14,22 @@ describe("captureShield", () => {
   });
 });
 
-import { HIDING_VALUE, HIDE_MINUTES, parseCaptureShieldStatus, hideValue, hidingLabel } from "./captureShield";
+import { OFF_MINUTES, PAUSED_VALUE, offValue, parseCaptureShieldStatus, pausedLabel } from "./captureShield";
 
-describe("captureShield hide for N minutes", () => {
-  it("offers 5, 10 and 30 minutes", () => {
-    expect([...HIDE_MINUTES]).toEqual([5, 10, 30]);
-    expect(hideValue(10)).toBe("hide:10");
-    expect(HIDING_VALUE).toBe("hiding");
+describe("captureShield off for N minutes", () => {
+  it("offers 5, 10, 15 and 20 minutes", () => {
+    expect([...OFF_MINUTES]).toEqual([5, 10, 15, 20]);
+    expect(offValue(15)).toBe("off:15");
+    expect(PAUSED_VALUE).toBe("paused");
   });
   it("reads the backend status tolerantly", () => {
-    expect(parseCaptureShieldStatus({ mode: "always", hiddenUntilMs: 5000 })).toEqual({ mode: "always", hiddenUntil: 5000 });
-    expect(parseCaptureShieldStatus({ mode: "off" })).toEqual({ mode: "off", hiddenUntil: null });
-    expect(parseCaptureShieldStatus(null)).toEqual({ mode: DEFAULT_CAPTURE_SHIELD, hiddenUntil: null });
+    expect(parseCaptureShieldStatus({ mode: "always", offUntilMs: 5000 })).toEqual({ mode: "always", offUntil: 5000 });
+    expect(parseCaptureShieldStatus({ mode: "off" })).toEqual({ mode: "off", offUntil: null });
+    expect(parseCaptureShieldStatus(null)).toEqual({ mode: DEFAULT_CAPTURE_SHIELD, offUntil: null });
   });
   it("shows the minutes left, rounded up, at least 1", () => {
-    expect(hidingLabel(10 * 60_000, 0)).toBe("Hidden · 10 min left");
-    expect(hidingLabel(61_000, 0)).toBe("Hidden · 2 min left");
-    expect(hidingLabel(1_000, 0)).toBe("Hidden · 1 min left");
+    expect(pausedLabel(10 * 60_000, 0)).toBe("Off · 10 min left");
+    expect(pausedLabel(61_000, 0)).toBe("Off · 2 min left");
+    expect(pausedLabel(1_000, 0)).toBe("Off · 1 min left");
   });
 });

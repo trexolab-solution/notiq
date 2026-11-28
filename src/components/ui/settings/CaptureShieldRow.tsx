@@ -4,13 +4,13 @@ import { SettingRow } from "../SettingRow";
 import { Select } from "../Select";
 import { toast } from "../../../lib/toast";
 import {
-  CAPTURE_SHIELD_OPTIONS, DEFAULT_CAPTURE_SHIELD, HIDING_VALUE, HIDE_MINUTES, captureShieldHideFor, captureShieldSet,
-  captureShieldStatus, hideValue, hidingLabel, type CaptureShieldMode, type CaptureShieldStatus,
+  CAPTURE_SHIELD_OPTIONS, DEFAULT_CAPTURE_SHIELD, OFF_MINUTES, PAUSED_VALUE, captureShieldOffFor, captureShieldSet,
+  captureShieldStatus, offValue, pausedLabel, type CaptureShieldMode, type CaptureShieldStatus,
 } from "../../../lib/captureShield";
 
-const START: CaptureShieldStatus = { mode: DEFAULT_CAPTURE_SHIELD, hiddenUntil: null };
+const START: CaptureShieldStatus = { mode: DEFAULT_CAPTURE_SHIELD, offUntil: null };
 
-/** "Hide from screenshots and screen sharing" (row of the "Locking" group), with "Hide for N minutes". */
+/** "Hide from screenshots and screen sharing" (row of the "Locking" group), with "Off for N minutes". */
 export function CaptureShieldRow() {
   const [status, setStatus] = useState<CaptureShieldStatus>(START);
   const [now, setNow] = useState(() => Date.now());
@@ -24,36 +24,35 @@ export function CaptureShieldRow() {
     void listen("capture-shield-changed", reload).then((fn) => { off = fn; });
     return () => off?.();
   }, [reload]);
-  const hiding = status.hiddenUntil !== null && status.hiddenUntil > now;
+  const paused = status.offUntil !== null && status.offUntil > now;
   useEffect(() => {
-    if (!hiding) return;
+    if (!paused) return;
     const id = setInterval(() => setNow(Date.now()), 15_000);
     return () => clearInterval(id);
-  }, [hiding]);
+  }, [paused]);
   useEffect(() => {
-    if (status.hiddenUntil !== null && status.hiddenUntil <= now) reload(); // ended while the page was open
-  }, [status.hiddenUntil, now, reload]);
+    if (status.offUntil !== null && status.offUntil <= now) reload(); // ended while the page was open
+  }, [status.offUntil, now, reload]);
 
   const options = useMemo(() => [
     ...CAPTURE_SHIELD_OPTIONS,
-    ...HIDE_MINUTES.map((m) => ({ value: hideValue(m), label: `Hide for ${m} minutes` })),
-    ...(hiding ? [{ value: HIDING_VALUE, label: hidingLabel(status.hiddenUntil!, now) }] : []),
-  ], [hiding, status.hiddenUntil, now]);
+    ...OFF_MINUTES.map((m) => ({ value: offValue(m), label: `Off for ${m} minutes` })),
+    ...(paused ? [{ value: PAUSED_VALUE, label: pausedLabel(status.offUntil!, now) }] : []),
+  ], [paused, status.offUntil, now]);
 
   const failed = () => { toast.error("Could not change this setting"); reload(); };
   const change = (v: string) => {
-    if (v === HIDING_VALUE) return;
-    const minutes = HIDE_MINUTES.find((m) => hideValue(m) === v);
+    if (v === PAUSED_VALUE) return;
+    const minutes = OFF_MINUTES.find((m) => offValue(m) === v);
     if (minutes) {
       setNow(Date.now());
-      setStatus((s) => ({ ...s, hiddenUntil: Date.now() + minutes * 60_000 }));
-      captureShieldHideFor(minutes)
-        .then(() => toast.info(`Notiq is hidden from screenshots and screen sharing for ${minutes} minutes`))
+      captureShieldOffFor(minutes)
+        .then(() => { reload(); toast.info(`Screenshots and screen sharing can see Notiq for ${minutes} minutes`); })
         .catch(failed);
       return;
     }
     const mode = v as CaptureShieldMode;
-    setStatus({ mode, hiddenUntil: null });
+    setStatus({ mode, offUntil: null });
     captureShieldSet(mode).catch(failed);
   };
 
@@ -61,14 +60,14 @@ export function CaptureShieldRow() {
     <SettingRow
       id="vault.locking.capture-shield"
       label="Hide from screenshots and screen sharing"
-      description="Keeps Notiq out of screenshots, screen recordings and screen sharing. While it is on, your own screen share or recording shows a black window. “Hide for…” hides it for a while, then your saved choice applies again by itself."
-      keywords={["screenshot", "screen share", "screen recording", "capture", "privacy", "black window", "hide window", "teams", "zoom", "obs", "temporary", "minutes", "timer", "hide for"]}
-      modified={status.mode !== DEFAULT_CAPTURE_SHIELD || hiding}
+      description="Keeps Notiq out of screenshots, screen recordings and screen sharing. While it is on, your own screen share or recording shows a black window. “Off for…” turns this off for a while, for example to share your screen; then it comes back on by itself (also after a restart)."
+      keywords={["screenshot", "screen share", "screen recording", "capture", "privacy", "black window", "hide window", "teams", "zoom", "obs", "temporary", "minutes", "timer", "off for", "pause"]}
+      modified={status.mode !== DEFAULT_CAPTURE_SHIELD || paused}
       onReset={() => change(DEFAULT_CAPTURE_SHIELD)}
     >
       <Select
         aria-label="Hide from screenshots and screen sharing"
-        value={hiding ? HIDING_VALUE : status.mode}
+        value={paused ? PAUSED_VALUE : status.mode}
         onChange={change}
         options={options}
       />

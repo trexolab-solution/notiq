@@ -1045,9 +1045,11 @@ pub fn centered(area_pos: (i32, i32), area_size: (u32, u32), win: (u32, u32)) ->
 }
 
 /// Creates the prompt window (hidden) unless it exists, and waits until its page listens.
+/// Held while the prompt window is created or closed, so one never happens in the middle of the other.
+static PROMPT_WINDOW: Mutex<()> = Mutex::new(());
+
 fn ensure_prompt(app: &AppHandle) -> Result<(), String> {
-    static CREATING: Mutex<()> = Mutex::new(());
-    let _one_at_a_time = CREATING.lock().unwrap_or_else(|e| e.into_inner());
+    let _one_at_a_time = PROMPT_WINDOW.lock().unwrap_or_else(|e| e.into_inner());
     if app.get_webview_window(PROMPT_LABEL).is_none() {
         PROMPT_READY.store(false, Ordering::Release);
         let c = prompt_window_config(crate::profile::IS_DEV);
@@ -1091,6 +1093,67 @@ fn hide_prompt(app: &AppHandle, restore: bool) {
     if restore && had_focus {
         restore_foreground(prev);
     }
+    // Windows: a prompt that was shown once and only hidden can still come out as an empty white box in a
+    // screenshot while the capture shield is off. So it doesn't stay around: the next request makes a new one.
+    if cfg!(windows) {
+        close_prompt_later(app);
+    }
+}
+
+/// How long a hidden prompt is kept, for a request that follows right away.
+const PROMPT_IDLE_CLOSE: Duration = Duration::from_millis(1500);
+/// Which hide is the latest one: only its timer may close the window.
+static HIDE_GEN: AtomicU64 = AtomicU64::new(0);
+/// The prompt page still has a timer of its own to run until then (`now_ms`); see `autofill_prompt_keep`.
+static KEEP_UNTIL: AtomicU64 = AtomicU64::new(0);
+/// Longest the page may ask to be kept: the longest "Clear copied secrets after" is 2 minutes.
+const MAX_KEEP_MS: u64 = 125_000;
+
+/// Whether the hidden prompt may be closed now: nothing waits for it, no show is on, and no later hide
+/// has its own timer running (pure).
+pub fn may_close_prompt(waiting_requests: usize, asked: bool, latest_hide: bool) -> bool {
+    latest_hide && !asked && waiting_requests == 0
+}
+
+fn close_prompt_later(app: &AppHandle) {
+    let gen = HIDE_GEN.fetch_add(1, Ordering::AcqRel) + 1;
+    let app = app.clone();
+    // Off the main thread: it waits for the main thread to finish closing the window.
+    std::thread::spawn(move || {
+        std::thread::sleep(PROMPT_IDLE_CLOSE);
+        while HIDE_GEN.load(Ordering::Acquire) == gen && now_ms() < KEEP_UNTIL.load(Ordering::Acquire) {
+            std::thread::sleep(Duration::from_secs(1));
+        }
+        let _no_create = PROMPT_WINDOW.lock().unwrap_or_else(|e| e.into_inner());
+        let waiting = pending().lock().unwrap_or_else(|e| e.into_inner()).len();
+        let latest = HIDE_GEN.load(Ordering::Acquire) == gen;
+        if may_close_prompt(waiting, SHOW_ASKED.load(Ordering::Acquire), latest) {
+            destroy_prompt(&app);
+        }
+    });
+}
+
+/// Destroys the prompt window and waits (briefly) until it is gone. Call with `PROMPT_WINDOW` held, and
+/// never on the main thread.
+fn destroy_prompt(app: &AppHandle) {
+    let Some(w) = app.get_webview_window(PROMPT_LABEL) else { return };
+    crate::window_log::log("autofill prompt closed (idle)");
+    let _ = w.destroy();
+    for _ in 0..100 {
+        if app.get_webview_window(PROMPT_LABEL).is_none() {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    // A new window may get the same handle: its capture protection must be applied again.
+    crate::capture_shield::forget(PROMPT_LABEL);
+}
+
+/// The prompt page has to stay loaded for `ms` more (its own timer wipes a copied secret when the native
+/// copy wasn't available).
+#[tauri::command]
+pub fn autofill_prompt_keep(ms: u64) {
+    KEEP_UNTIL.fetch_max(now_ms() + ms.min(MAX_KEEP_MS), Ordering::AcqRel);
 }
 
 /// Takes the prompt window out of the way before the main window asks instead: it is always on top, so a leftover
@@ -2070,6 +2133,14 @@ mod tests {
         // On screen although never asked for (a blank box), even with a request waiting.
         assert!(!prompt_guard_step(true, false, 1, &mut n));
         assert!(prompt_guard_step(true, false, 1, &mut n));
+    }
+
+    #[test]
+    fn a_hidden_prompt_is_closed_only_when_nothing_needs_it() {
+        assert!(may_close_prompt(0, false, true));
+        assert!(!may_close_prompt(1, false, true)); // a request waits
+        assert!(!may_close_prompt(0, true, true)); // on screen again
+        assert!(!may_close_prompt(0, false, false)); // hidden again later: that timer decides
     }
 
     #[test]
