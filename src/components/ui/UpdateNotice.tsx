@@ -13,6 +13,9 @@ export const UPDATE_LATER_MS = 4 * 60 * 60 * 1000;
  * "A new version is available", as a card over the app: the small pill in the title bar was easy to miss. It takes
  * no focus and blocks nothing. "Later" (or ×) puts it away for a few hours; a restart, or a newer version, shows
  * it again. The pill stays the whole time.
+ *
+ * It sits below every dialog (they start at z-50): above one, a click on it would open the update dialog behind
+ * that dialog, with the focus on a button nobody can see.
  */
 export function UpdateNotice() {
   const { status, version, dialogOpen } = useUpdater();
@@ -31,7 +34,7 @@ export function UpdateNotice() {
 
   return (
     <section aria-labelledby="update-notice-title" data-update-notice=""
-             className="fixed right-4 top-12 z-[900] w-[20rem] max-w-[calc(100vw-2rem)] rounded-xl border border-[var(--color-border)] bg-[var(--color-bg)] p-4 text-[var(--color-text)] shadow-[0_8px_30px_rgb(0_0_0/0.18),0_1px_3px_rgb(0_0_0/0.1)]">
+             className="fixed right-4 top-12 z-[45] w-[20rem] max-w-[calc(100vw-2rem)] rounded-xl border border-[var(--color-border)] bg-[var(--color-bg)] p-4 text-[var(--color-text)] shadow-[0_8px_30px_rgb(0_0_0/0.18),0_1px_3px_rgb(0_0_0/0.1)]">
       <div className="flex items-center gap-3">
         <img src={logoUrl} alt="" className="h-9 w-9 shrink-0 select-none" draggable={false} />
         <div className="min-w-0 flex-1">

@@ -27,6 +27,8 @@ it("shows when an update is available, goes away on Later, and asks again after 
   expect(card()).toBeNull();
   await set({ status: "available", version: "9.0.0" });
   expect(card()?.textContent).toContain("Update available");
+  // Below every dialog backdrop (z-50 and up), so it can't be clicked over one.
+  expect(Number(/z-\[(\d+)\]/.exec(card()!.className)![1])).toBeLessThan(50);
   expect(card()?.textContent).toContain("new version 9.0.0");
   await act(async () => { button("Update now").click(); });
   expect(openDialog).toHaveBeenCalledTimes(1);
