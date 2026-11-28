@@ -70,8 +70,10 @@ export type PromptState =
   | { stage: "passkeyCreate"; job: PasskeyCreateJob; logins: LoginMatch[]; pick: number; excluded: boolean; busy: boolean }
   /** Sign in with one of this RP's saved passkeys. */
   | { stage: "passkeyGet"; job: PasskeyGetJob; passkeys: PasskeyMatch[]; pick: number; busy: boolean }
-  /** A fill from a page that imitates a saved site. Already answered `no_match`; only informs the user. */
-  // The request stays unanswered while this is up: Notiq's window is only shown for a request that still waits.
+  /**
+   * A fill from a page that imitates a saved site; it only informs the user. The request stays unanswered while
+   * this is up (Notiq's window is only shown for a request that still waits) and gets `no_match` when closed.
+   */
   | { stage: "warning"; job: FillJob; host: string; lookalike: Lookalike };
 
 export type PromptEvent =
