@@ -404,13 +404,13 @@ describe("SshEntryEditor layout", () => {
     expect(document.querySelectorAll('button[aria-label="Open in terminal"]')).toHaveLength(1);
     expect([...q("[data-section-nav=rail]")!.querySelectorAll("button")].map((b) => b.textContent)).toEqual(["Connection", "Sign in", "Server overview", "Custom fields", "Advanced", "Attachments"]);
     expect(q("[data-section-nav=tabs]")).toBeNull();
-    expect(q("[data-status-banner]")!.textContent).toBe("Ready to connect");
+    expect(q("[data-panel=connection] [data-status]")!.textContent).toBe("Ready to connect");
   });
 
-  it("the banner says what is missing", async () => {
+  it("the Connection card's badge says what is missing", async () => {
     await wideAt(1000);
     await typeInto(q<HTMLInputElement>("#ssh-host")!, "");
-    expect(q("[data-status-banner]")!.textContent).toBe("Add a host");
-    expect(q("[data-status-banner]")!.getAttribute("data-status-banner")).toBe("warn");
+    expect(q("[data-status]")!.textContent).toBe("Add a host");
+    expect(q("[data-status]")!.getAttribute("data-status")).toBe("warn");
   });
 });

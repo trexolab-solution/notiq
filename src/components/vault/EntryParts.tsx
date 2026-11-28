@@ -72,8 +72,9 @@ export function EntryLayout({ tab, children }: { tab: Tab; children: React.React
       <div ref={rootRef} data-tour="editor" className="relative flex-1 min-h-0 flex bg-[var(--color-editor-bg)]">
         {/* `data-entry-drop`: the area files can be dropped on to attach them (AttachmentsPanel), and the
             positioned box its drop highlight is drawn over. */}
+        {/* `data-entry-mode="view"` is also what styles the fields as values (styles/vault.css). */}
         <div data-entry-drop="" data-entry-mode={readOnly ? "view" : "edit"}
-             className={`relative flex-1 min-w-0 flex flex-col ${readOnly ? viewModeFields : ""}`}>
+             className="relative flex-1 min-w-0 flex flex-col">
           {/* `@container`: the parts below size themselves by this area's width (it shrinks when History is open
               or the tab is narrow), not the window's. */}
           <div className="@container flex-1 min-h-0 overflow-y-auto"
@@ -88,9 +89,6 @@ export function EntryLayout({ tab, children }: { tab: Tab; children: React.React
     </EntryContext.Provider>
   );
 }
-
-/** In view mode the fields read as values, not boxes to type in: no fill, and no example text posing as a value. */
-const viewModeFields = "[&_input[readonly]]:!bg-transparent [&_textarea[readonly]]:!bg-transparent [&_input[readonly]]:cursor-default [&_textarea[readonly]]:cursor-default [&_input[readonly]::placeholder]:text-transparent [&_textarea[readonly]::placeholder]:text-transparent";
 
 /** View mode: "Edit". Edit mode: "Cancel" (which asks before dropping unsaved changes) and "Save". */
 function EntryModeButtons({ tab }: { tab: Tab }) {
@@ -250,16 +248,16 @@ export function Section({ title, hint, aside, children }: { title: string; hint?
   );
 }
 
-/** One line that says whether the entry is ready to use, or what is missing. */
-export function StatusBanner({ ok, children }: { ok: boolean; children: React.ReactNode }) {
+/** A badge for a card's heading row: whether the entry is ready to use, or what is still missing. */
+export function StatusBadge({ ok, children }: { ok: boolean; children: React.ReactNode }) {
   const Icon = ok ? CircleCheck : TriangleAlert;
   return (
-    <div role="status" data-status-banner={ok ? "ok" : "warn"}
-         className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-medium ${ok
+    <div role="status" data-status={ok ? "ok" : "warn"}
+         className={`inline-flex shrink-0 items-center gap-1.5 h-6 rounded-full border px-2.5 text-[11px] font-medium ${ok
            ? "border-[var(--color-success)]/30 bg-[var(--color-success)]/10 text-[var(--color-success)]"
            : "border-[var(--color-warning)]/40 bg-[var(--color-warning)]/10 text-[var(--color-warning)]"}`}>
-      <Icon size={14} className="shrink-0" aria-hidden />
-      <span className="min-w-0">{children}</span>
+      <Icon size={12} className="shrink-0" aria-hidden />
+      <span className="whitespace-nowrap">{children}</span>
     </div>
   );
 }
@@ -350,12 +348,11 @@ export const DOCK_WIDTH = 1100;
  * (hidden) while another is shown, so drafts, reveals and drops are not lost on a switch.
  *
  * `side` is a short summary or action box (e.g. an SSH command): a sticky column on the right when wide, a bar
- * pinned to the bottom when narrow. `banner` is a status line above the shown section.
+ * pinned to the bottom when narrow.
  */
-export function SectionedForm({ header, panels, banner, side, footer }: {
+export function SectionedForm({ header, panels, side, footer }: {
   header: React.ReactNode;
   panels: FormPanel[];
-  banner?: React.ReactNode;
   side?: (wide: boolean) => React.ReactNode;
   footer?: React.ReactNode;
 }) {
@@ -399,7 +396,6 @@ export function SectionedForm({ header, panels, banner, side, footer }: {
             </div>
           )}
           <div className={wide ? "flex-1 min-w-0 max-w-2xl flex flex-col gap-6" : "contents"}>
-            {banner}
             {panels.map((p) => (p.dock ? (
               roomy ? null : <div key={p.id} ref={setSectionSlot} data-panel={p.id} hidden={p.id !== current} />
             ) : (

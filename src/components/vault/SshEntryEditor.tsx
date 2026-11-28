@@ -14,7 +14,7 @@ import { CopyIconButton } from "./CopyIconButton";
 import { CustomFieldsEditor } from "./CustomFieldsEditor";
 import { AttachmentsPanel } from "./AttachmentsPanel";
 import { ServerOverview } from "./ServerOverview";
-import { EntryHeader, EntryLayout, FieldRow as Row, fieldLabel, RevealButton, SaveHint, Section, SectionedForm, Segmented, StatusBanner, SubGroup, textArea } from "./EntryParts";
+import { EntryHeader, EntryLayout, FieldRow as Row, fieldLabel, RevealButton, SaveHint, Section, SectionedForm, Segmented, StatusBadge, SubGroup, textArea } from "./EntryParts";
 import { reinsert, RowIconButton, useAnnouncer, useListFocus, useUndoToast } from "./ListEditor";
 import { ImportErrors, KeyFactsRow, KeyFileList, KeyViewerDialog, useKeyFacts, type ImportError } from "./SshKeyParts";
 import { GenerateKeyDialog } from "./GenerateKeyDialog";
@@ -339,12 +339,11 @@ function SshEntryEditorInner({ tab }: { tab: Tab }) {
     <EntryLayout tab={tab}>
       <SectionedForm
         header={<EntryHeader icon={Terminal} title="SSH / server" tab={tab} />}
-        banner={<StatusBanner ok={!missing}>{missing || "Ready to connect"}</StatusBanner>}
         side={commandBox}
         footer={<SaveHint />}
         panels={[
           { id: "connection", label: "Connection", content: (<>
-        <Section title="Connection">
+        <Section title="Connection" aside={<StatusBadge ok={!missing}>{missing || "Ready to connect"}</StatusBadge>}>
           <div>
             <label className={fieldLabel} htmlFor="ssh-title">Name</label>
             <Input id="ssh-title" readOnly={readOnly} value={entry.title} placeholder="e.g. Production VPS"

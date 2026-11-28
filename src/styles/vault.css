@@ -291,3 +291,16 @@ button.vt-footer-row:focus-visible { outline: 2px solid color-mix(in srgb, var(-
   background: var(--color-danger); color: #fff;
 }
 .vt-tag-confirm:disabled { opacity: 0.6; cursor: default; }
+
+/* Entry view mode: a field reads as a stored value on a hairline, not as a box to type in. Clicking one
+   (to select and copy) must not look like editing, so it gets none of the edit focus: no accent border,
+   ring or outline. The line only darkens, which also shows keyboard focus. Unlayered, so these win over
+   the fields' Tailwind classes and the global :focus-visible ring. */
+[data-entry-mode="view"] :is(input[readonly], textarea[readonly]) {
+  background: transparent; border-color: transparent; border-bottom-color: var(--color-border); border-radius: 0;
+  box-shadow: none; outline: none; cursor: default; resize: none;
+}
+[data-entry-mode="view"] :is(input[readonly], textarea[readonly])::placeholder { color: transparent; }
+[data-entry-mode="view"] :is(input[readonly], textarea[readonly]):is(:focus, :focus-visible) {
+  border-color: transparent; border-bottom-color: var(--color-text-muted); box-shadow: none; outline: none;
+}
