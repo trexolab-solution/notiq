@@ -15,6 +15,7 @@ import { parseUnknownHost, sftpErrorMessage, type UnknownHost } from "../../lib/
 import { sshLabel, sshMethods } from "../../lib/sshConnect";
 import { getLastSshAuth } from "../../lib/sshLastAuth";
 import type { SshAuth } from "../../lib/sshEntry";
+import { closeParkedOverviews, KEEPALIVE_MS, parkOverview, takeOverview } from "../../lib/overviewKeepAlive";
 import type { AuthPreference } from "../../lib/sshPreferredAuth";
 import {
   describeHistory, formatBytes, HISTORY, OVERVIEW_BUSY, overviewClose, overviewOpen, overviewPoll, percentOf,
@@ -33,7 +34,7 @@ export const AUTO_DELAY_MS = 600;
  * can get the address blocked by the server). For this run of the app.
  */
 const heldPaths = new Set<string>();
-export const clearHeldOverviews = (): void => { heldPaths.clear(); pendingOpens.clear(); };
+export const clearHeldOverviews = (): void => { heldPaths.clear(); pendingOpens.clear(); closeParkedOverviews(); };
 /** Sign-ins still under way, also those whose panel has gone: no second one is started beside them. */
 const pendingOpens = new Map<string, Promise<void>>();
 
@@ -264,8 +265,9 @@ function Skeleton() {
  * "Server overview" section of a saved SSH entry: CPU, memory, swap and disks with graphs; the basics are behind the
  * "i" button. Once in view it connects by itself with the only saved sign-in method, the preferred one or the one last
  * used; after a failure it waits for a click. An unknown host key is never accepted without the user.
- * It reads the server only while shown in the active tab, one reading at a time, and closes the connection when
- * hidden, when the entry changes or closes, and when the vault locks.
+ * Once connected it stays connected: while it is not shown (another section or tab, a minimised window) it reads
+ * only now and then to keep the session (lib/overviewKeepAlive holds it when the form is unmounted). The connection
+ * closes when the tab closes, the entry changes, the vault locks or Notiq is hidden to the tray.
  */
 export function ServerOverview({ tab, name, fields, pref }: { tab: Tab; name: string; fields: Record<string, string>; pref: AuthPreference }) {
   const rootRef = useRef<HTMLDivElement>(null);
@@ -295,6 +297,8 @@ export function ServerOverview({ tab, name, fields, pref }: { tab: Tab; name: st
   const inFlight = useRef(false);
   const pathRef = useRef(tab.filePath);
   pathRef.current = tab.filePath;
+  const visibleRef = useRef(visible);
+  visibleRef.current = visible;
 
   /** Stops reading and closes the connection (nothing to do when there is none). */
   const stop = useCallback(() => {
@@ -308,6 +312,7 @@ export function ServerOverview({ tab, name, fields, pref }: { tab: Tab; name: st
   const poll = useCallback(async () => {
     const id = sid.current;
     if (!id || inFlight.current) return;
+    if (timer.current) { clearTimeout(timer.current); timer.current = null; }
     inFlight.current = true;
     let next: number | null = POLL_MS;
     try {
@@ -332,7 +337,9 @@ export function ServerOverview({ tab, name, fields, pref }: { tab: Tab; name: st
       if (m !== OVERVIEW_BUSY) { next = null; stop(); heldPaths.add(pathRef.current ?? ""); setPhase({ kind: "failed", message: m }); }
     } finally {
       inFlight.current = false;
-      if (next !== null && sid.current === id) timer.current = setTimeout(() => { void poll(); }, next);
+      if (next !== null && sid.current === id) {
+        timer.current = setTimeout(() => { void poll(); }, visibleRef.current ? next : KEEPALIVE_MS);
+      }
     }
   }, [stop]);
 
@@ -376,15 +383,47 @@ export function ServerOverview({ tab, name, fields, pref }: { tab: Tab; name: st
     else setChoosing(true);
   };
 
-  // Hidden (another section, another tab, window in the background) or the entry changed: stop and close.
+  // What the form takes with it when it goes away while connected, and gets back when it returns.
+  const kept = useRef({ live: false, content: tab.content, reading, cpu, mem, updated });
+  kept.current = { live: phase.kind === "live", content: tab.content, reading, cpu, mem, updated };
+  useEffect(() => {
+    const parkedSession = takeOverview(tab.id, pathRef.current, kept.current.content);
+    if (parkedSession) {
+      sid.current = parkedSession.sid;
+      setReading(parkedSession.reading); setCpu(parkedSession.cpu); setMem(parkedSession.mem); setUpdated(parkedSession.updated);
+      setPhase({ kind: "live" });
+      void poll();
+    }
+    return () => {
+      const k = kept.current;
+      const id = sid.current;
+      const path = pathRef.current;
+      if (!id || !k.live || !path) { stop(); return; } // nothing, or only a sign-in still under way
+      if (timer.current) { clearTimeout(timer.current); timer.current = null; }
+      sid.current = 0;
+      parkOverview(tab.id, { sid: id, path, content: k.content, reading: k.reading, cpu: k.cpu, mem: k.mem, updated: k.updated });
+    };
+  }, [tab.id, poll, stop]);
+
+  // Not allowed any more (unsaved changes, vault locked, details missing): close.
   const canRun = visible && !blocked;
   useEffect(() => {
-    if (canRun) return;
-    if (stop()) {
-      setPhase({ kind: "stopped", why: !visible ? "Paused while this section wasn't shown." : blocked ?? "Stopped." });
-    }
-    setChoosing(false);
-  }, [canRun, visible, blocked, stop]);
+    if (!blocked) return;
+    if (stop()) setPhase({ kind: "stopped", why: blocked });
+  }, [blocked, stop]);
+  useEffect(() => { if (!canRun) setChoosing(false); }, [canRun]);
+
+  // Shown again: read at once. Out of view: only often enough to keep the session.
+  const wasVisible = useRef(visible);
+  useEffect(() => {
+    if (wasVisible.current === visible) return;
+    wasVisible.current = visible;
+    if (!sid.current || !timer.current) return; // not connected, or a reading is under way and will set the pace
+    clearTimeout(timer.current);
+    timer.current = null;
+    if (visible) void poll();
+    else timer.current = setTimeout(() => { void poll(); }, KEEPALIVE_MS);
+  }, [visible, poll]);
 
   // Hidden to the tray: the page isn't always told it is hidden, so the app's own event stops it too.
   const inTray = useRef(false);
@@ -423,9 +462,6 @@ export function ServerOverview({ tab, name, fields, pref }: { tab: Tab; name: st
     setReading(null); setCpu([]); setMem([]); setUpdated(null);
     setPhase({ kind: "idle" });
   }, [tab.filePath, stop]);
-  // The tab closed (or the editor went away): close the connection.
-  useEffect(() => () => { stop(); }, [stop]);
-
   // Connect by itself when it comes into view (with two methods saved and none used yet, the first Connect asks).
   // Declared after the effects that close and reset.
   const lastUsed = getLastSshAuth(tab.filePath);
@@ -547,7 +583,7 @@ export function ServerOverview({ tab, name, fields, pref }: { tab: Tab; name: st
   return (
     <div ref={rootRef} className="contents">
       <Section title="Server overview" aside={aside}
-               hint={statusLine ?? (place === "side" ? undefined : "Read over SSH while this section is open; it disconnects when you leave it.")}>
+               hint={statusLine ?? (place === "side" ? undefined : "Read over SSH. It stays connected until you close this tab, lock the vault or hide Notiq.")}>
         {body}
       </Section>
       {choosing && (

@@ -17,6 +17,8 @@ vi.mock("../../lib/toast", () => ({ toast: { info: vi.fn(), error: vi.fn(), succ
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const { ServerOverview, POLL_MS, AUTO_DELAY_MS, clearHeldOverviews } = await import("./ServerOverview");
+const { KEEPALIVE_MS } = await import("../../lib/overviewKeepAlive");
+const FIRST_REREAD = POLL_MS;
 const { useAppStore } = await import("../../store");
 const { useVaultStore } = await import("../../store/vaultStore");
 type Tab = import("../../types").Tab;
@@ -71,10 +73,11 @@ function backend(next: () => Reading | Promise<Reading> = () => reading(), open:
 beforeEach(() => {
   vi.useFakeTimers();
   invoke.mockReset();
-  clearHeldOverviews();
   windowOnScreen = true;
   localStorage.clear();
   backend();
+  clearHeldOverviews(); // after backend(): closing a kept session calls it
+  invoke.mockClear(); // that close belongs to the test before
   fields = PASSWORD_ONLY;
   pref = "ask";
   useVaultStore.setState({ unlocked: true });
@@ -170,7 +173,7 @@ describe("ServerOverview", () => {
     await act(async () => { useAppStore.setState({ activeTabId: "t1" }); });
     await flush(AUTO_DELAY_MS * 3);
     expect(calls("server_overview_open")).toHaveLength(1);
-    expect(byText("Connect")).toBeTruthy();
+    expect(byText("Try again")).toBeTruthy(); // the sign-in went on while away, and its failure is shown
   });
 
   it("doesn't connect by itself while the window is not on screen, even if the page isn't told", async () => {
@@ -283,33 +286,58 @@ describe("ServerOverview", () => {
     expect(calls("server_overview_poll")).toHaveLength(2);
   });
 
-  it("closes the connection while the section is hidden, and connects again when it is back", async () => {
+  it("stays connected while the section is hidden, reading only now and then", async () => {
     await render();
     await flush(AUTO_DELAY_MS);
-    const id = (calls("server_overview_open")[0][1] as { id: number }).id;
+    await flush(FIRST_REREAD);
     await act(async () => { panel.hidden = true; });
     await flush();
-    expect(calls("server_overview_close").map((c) => (c[1] as { id: number }).id)).toEqual([id]);
     const polls = calls("server_overview_poll").length;
-    expect(document.body.textContent).toContain("Paused while this section wasn't shown.");
     await flush(POLL_MS * 4);
     expect(calls("server_overview_poll")).toHaveLength(polls);
+    await flush(KEEPALIVE_MS);
+    expect(calls("server_overview_poll")).toHaveLength(polls + 1);
     await act(async () => { panel.hidden = false; });
-    await flush(AUTO_DELAY_MS);
-    expect(calls("server_overview_open")).toHaveLength(2);
+    await flush();
+    expect(calls("server_overview_poll")).toHaveLength(polls + 2);
+    expect(calls("server_overview_open")).toHaveLength(1);
+    expect(calls("server_overview_close")).toHaveLength(0);
   });
 
-  it("closes when another tab becomes active, and when the tab closes", async () => {
+  /** The form goes away (another tab is shown) and a new one comes. */
+  const leave = () => { act(() => root.unmount()); root = createRoot(host); };
+
+  it("keeps the connection when the form goes away, and takes it back without signing in again", async () => {
     await render();
     await flush(AUTO_DELAY_MS);
-    await act(async () => { useAppStore.setState({ activeTabId: "other" }); });
+    leave();
     await flush();
-    expect(calls("server_overview_close")).toHaveLength(1);
-    await act(async () => { useAppStore.setState({ activeTabId: "t1" }); });
+    const polls = calls("server_overview_poll").length;
+    await flush(KEEPALIVE_MS);
+    expect(calls("server_overview_poll")).toHaveLength(polls + 1);
+    await render();
+    await flush(AUTO_DELAY_MS * 3);
+    expect(q("[data-overview]")).toBeTruthy();
+    expect(q("[data-overview-status]")?.textContent).toContain("Live");
+    expect(calls("server_overview_open")).toHaveLength(1);
+    expect(calls("server_overview_close")).toHaveLength(0);
+  });
+
+  it.each([
+    ["the tab closes", () => { useAppStore.setState({ tabs: [] }); }],
+    ["the vault locks", () => { useVaultStore.setState({ unlocked: false }); }],
+    ["the entry changes", () => { useAppStore.setState({ tabs: [makeTab({ content: "changed" })] }); }],
+  ])("closes a connection kept for a form that is away when %s", async (_what, happen) => {
+    await render();
     await flush(AUTO_DELAY_MS);
-    act(() => root.unmount());
-    root = createRoot(host);
-    expect(calls("server_overview_close")).toHaveLength(2);
+    leave();
+    await flush();
+    expect(calls("server_overview_close")).toHaveLength(0);
+    await act(async () => { happen(); });
+    expect(calls("server_overview_close")).toHaveLength(1);
+    const polls = calls("server_overview_poll").length;
+    await flush(KEEPALIVE_MS * 2);
+    expect(calls("server_overview_poll")).toHaveLength(polls);
   });
 
   it("closes and forgets the readings when the vault locks", async () => {

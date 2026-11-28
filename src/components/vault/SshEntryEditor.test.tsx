@@ -97,6 +97,8 @@ async function typeInto(el: HTMLInputElement | HTMLTextAreaElement, value: strin
   await flush();
 }
 
+const { closeParkedOverviews } = await import("../../lib/overviewKeepAlive");
+
 beforeEach(() => {
   vi.useFakeTimers();
   dialogOpen.mockReset(); copySecret.mockClear(); toastInfo.mockReset();
@@ -108,6 +110,7 @@ beforeEach(() => {
     "C:/keys/photo.bin": "\0\0binary",
   };
   useVaultStore.setState({ unlocked: true });
+  closeParkedOverviews(); // a connection kept by the test before
   vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
     const box = this.hasAttribute("data-drop-zone") ? [0, 0, 400, 80] : this.hasAttribute("data-entry-drop") ? [0, 0, 800, 600] : [0, 0, 0, 0];
     const [left, top, right, bottom] = box;
@@ -321,7 +324,7 @@ describe("SshEntryEditor", () => {
 
 describe("SshEntryEditor layout", () => {
   for (const from of ["narrow from the start", "narrowed from very wide"] as const) {
-    it(`${from}: leaving the overview section closes its connection and stops the reading`, async () => {
+    it(`${from}: leaving the overview section keeps its connection and stops the frequent reading`, async () => {
       let width = from === "narrow from the start" ? 1000 : 1400;
       const watchers: (() => void)[] = [];
       vi.stubGlobal("ResizeObserver", class { constructor(cb: () => void) { watchers.push(cb); } observe() {} disconnect() {} unobserve() {} });
@@ -346,7 +349,7 @@ describe("SshEntryEditor layout", () => {
         await click(section("Connection"));
       }
       expect(q('[data-panel="overview"]')!.hidden).toBe(true);
-      expect(calls("server_overview_close")).toBe(1);
+      expect(calls("server_overview_close")).toBe(0);
       const polls = calls("server_overview_poll");
       await act(async () => { await vi.advanceTimersByTimeAsync(12_000); });
       expect(calls("server_overview_poll")).toBe(polls);
