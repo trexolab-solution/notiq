@@ -3,7 +3,7 @@ import { SettingRow } from "../SettingRow";
 import { SettingsGroup } from "../SettingsGroup";
 import { Toggle } from "../Toggle";
 import { Button } from "../Button";
-import { enable, disable, isEnabled } from "../../../lib/autostart";
+import { setAutostart as saveAutostart, isEnabled } from "../../../lib/autostart";
 import { toast } from "../../../lib/toast";
 import { GENERAL_INDEX, indexProps } from "./sectionIndexes";
 import type { SettingMeta } from "../../../lib/settingsIndex";
@@ -27,11 +27,11 @@ export const GeneralSection = React.memo(function GeneralSection() {
 
   const handleAutostartToggle = async (next: boolean) => {
     if (busy) return;
+    if (import.meta.env.DEV) { toast.info("A development build doesn't change what starts with Windows"); return; }
     setBusy(true);
     setAutostart(next); // optimistic
     try {
-      if (next) await enable();
-      else      await disable();
+      await saveAutostart(next);
     } catch (err) {
       console.error("autostart toggle failed", err);
       toast.error("Could not change auto-start setting");

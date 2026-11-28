@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 
 import { useAppStore } from "../store";
-import { bootstrapAutostart } from "../lib/autostart";
+import { ensureAutostart } from "../lib/autostart";
 import { sessionLoaded } from "./useSession";
 import { isTourCompleted, wasUpdated, recordSeenVersion } from "../lib/firstRun";
 import { readFileEntry, type FileEntry } from "../lib/fileOps";
@@ -58,8 +58,8 @@ export function useAppStartup({
     });
   }, [addTab]);
 
-  // Bootstrap auto-start on the very first launch of an installed build.
-  useEffect(() => { bootstrapAutostart(); }, []);
+  // Launch at sign-in: made sure of on the first launch of every version (an update), unless the user turned it off.
+  useEffect(() => { void ensureAutostart(); }, []);
 
   // Auto-check for app updates shortly after startup and then every hour (toggle in
   // Settings → About) — the app can stay in the tray for days. No-ops outside Tauri;

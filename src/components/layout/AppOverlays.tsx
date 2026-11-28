@@ -5,6 +5,7 @@ import { CommandPalette, type Command } from "../ui/CommandPalette";
 import { GlobalSearch } from "../ui/GlobalSearch";
 import { ConfirmDialog } from "../ui/ConfirmDialog";
 import { UpdateDialog } from "../ui/UpdateDialog";
+import { UpdateNotice } from "../ui/UpdateNotice";
 import { FileSelectionModal } from "../ui/FileSelectionModal";
 import { ToastProvider } from "../ui/Toast";
 import { VaultDialog } from "../vault/VaultDialog";
@@ -145,6 +146,7 @@ export function AppOverlays({
         )
       )}
 
+      <UpdateNotice />
       <UpdateDialog />
 
       <VaultDialog />
