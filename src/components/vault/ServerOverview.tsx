@@ -30,7 +30,7 @@ export const AUTO_DELAY_MS = 600;
 
 /**
  * Entries that are not to be connected again without a click: the sign-in or the reading failed (trying over and over
- * can get the address blocked by the server), or the user pressed Disconnect. For this run of the app.
+ * can get the address blocked by the server). For this run of the app.
  */
 const heldPaths = new Set<string>();
 export const clearHeldOverviews = (): void => { heldPaths.clear(); pendingOpens.clear(); };
@@ -46,7 +46,9 @@ type Phase =
   | { kind: "failed"; message: string }
   | { kind: "unsupported"; system: string };
 
-const TONE_BAR = { ok: "var(--color-primary)", warn: "var(--color-warning)", bad: "var(--color-danger)" } as const;
+const TONE_BAR = { ok: "var(--color-success)", warn: "var(--color-warning)", bad: "var(--color-danger)" } as const;
+/** One quiet tile per measure, inside the section's card. */
+const TILE = "flex flex-col min-w-0 rounded-lg bg-[var(--color-bg)]/60 border border-[var(--color-border)]/60 p-3";
 
 /** Whether the form section holding `ref` is the one shown, and the window is not minimised or in the background. */
 function usePanelShown(ref: React.RefObject<HTMLElement | null>, at: HTMLElement | null): boolean {
@@ -100,7 +102,7 @@ function Sparkline({ values, label, color }: { values: readonly number[]; label:
 function UsageBar({ label, pct, text, parts }: { label: string; pct: number; text: string; parts: { pct: number; color: string; faint?: boolean }[] }) {
   return (
     <div role="meter" aria-label={label} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(pct)} aria-valuetext={text}
-         className="flex h-2 w-full overflow-hidden rounded-full bg-[var(--color-bg-tertiary)]">
+         className="flex h-1.5 w-full overflow-hidden rounded-full bg-[var(--color-bg-tertiary)]">
       {parts.map((p, i) => (
         <div key={i} className="h-full transition-[width] duration-500 motion-reduce:transition-none"
              style={{ width: `${Math.max(0, Math.min(100, p.pct))}%`, background: p.color, opacity: p.faint ? 0.35 : 1 }} />
@@ -109,21 +111,39 @@ function UsageBar({ label, pct, text, parts }: { label: string; pct: number; tex
   );
 }
 
-function Card({ icon: Icon, title, value, sub, children }: {
+function TileTitle({ icon: Icon, title }: { icon: typeof Cpu; title: string }) {
+  return (
+    <h3 className="flex items-center gap-1.5 min-w-0 text-[11px] font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">
+      <Icon size={13} aria-hidden className="shrink-0" />
+      <span className="truncate">{title}</span>
+    </h3>
+  );
+}
+
+function Card({ icon, title, value, sub, children }: {
   icon: typeof Cpu; title: string; value: React.ReactNode; sub?: React.ReactNode; children: React.ReactNode;
 }) {
   return (
-    <div className="flex flex-col gap-2 min-w-0 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)]/40 p-3">
-      <div className="min-w-0">
-        <div className="flex items-center gap-2 min-w-0">
-          <Icon size={14} aria-hidden className="shrink-0 text-[var(--color-text-muted)]" />
-          <h3 className="flex-1 min-w-0 truncate text-xs font-medium text-[var(--color-text-muted)]">{title}</h3>
-          <p className="shrink-0 text-base font-semibold leading-tight tabular-nums">{value}</p>
+    <div className={`${TILE} gap-2.5`}>
+      <div className="flex items-start gap-3 min-w-0">
+        <div className="flex-1 min-w-0 flex flex-col gap-1">
+          <TileTitle icon={icon} title={title} />
+          {sub && <p className="text-xs text-[var(--color-text-muted)] tabular-nums truncate">{sub}</p>}
         </div>
-        {sub && <p className="mt-0.5 text-[11px] text-[var(--color-text-muted)] tabular-nums truncate">{sub}</p>}
+        <p className="shrink-0 text-xl font-semibold leading-none tabular-nums">{value}</p>
       </div>
       {children}
     </div>
+  );
+}
+
+/** One entry of a bar's legend: the dot repeats the colour of its part. */
+function Legend({ color, faint, children }: { color: string; faint?: boolean; children: React.ReactNode }) {
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <span aria-hidden className="h-1.5 w-1.5 rounded-full" style={{ background: color, opacity: faint ? 0.35 : 1 }} />
+      {children}
+    </span>
   );
 }
 
@@ -133,16 +153,18 @@ function DiskRow({ disk }: { disk: ServerDisk }) {
   const text = `${formatBytes(disk.used)} of ${formatBytes(disk.total)} used, ${formatBytes(disk.available)} free`;
   const meta = [disk.fsType, disk.device].filter(Boolean).join(" · ");
   return (
-    <li className="flex flex-col gap-1.5 min-w-0" data-disk={disk.mount}>
-      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 min-w-0">
-        <span className="font-mono text-[13px] truncate max-w-full" title={disk.mount}>{disk.mount}</span>
-        {meta && <span className="flex-1 min-w-[6rem] text-[11px] text-[var(--color-text-muted)] truncate" title={meta}>{meta}</span>}
-        <span className="ml-auto shrink-0 text-xs tabular-nums">
-          <span className="font-medium" style={tone === "ok" ? undefined : { color: TONE_BAR[tone] }}>{Math.round(pct)}%</span>
-          <span className="text-[var(--color-text-muted)]"> · {formatBytes(disk.used)} of {formatBytes(disk.total)}</span>
+    <li className="flex flex-col gap-1.5 min-w-0 py-2.5 first:pt-0 last:pb-0" data-disk={disk.mount}>
+      <div className="flex items-baseline gap-2 min-w-0">
+        <span className="flex-1 min-w-0 truncate font-mono text-[13px] font-medium" title={disk.mount}>{disk.mount}</span>
+        <span className="shrink-0 text-[13px] font-semibold tabular-nums" style={tone === "ok" ? undefined : { color: TONE_BAR[tone] }}>
+          {Math.round(pct)}%
         </span>
       </div>
       <UsageBar label={`Disk ${disk.mount}`} pct={pct} text={text} parts={[{ pct, color: TONE_BAR[tone] }]} />
+      <div className="flex items-baseline gap-3 min-w-0 text-[11px] text-[var(--color-text-muted)]">
+        <span className="shrink-0 tabular-nums">{formatBytes(disk.used)} of {formatBytes(disk.total)}</span>
+        {meta && <span className="flex-1 min-w-0 truncate text-right" title={meta}>{meta}</span>}
+      </div>
     </li>
   );
 }
@@ -171,8 +193,10 @@ function Dashboard({ r, cpu, mem, stale }: { r: ServerReading; cpu: number[]; me
               <UsageBar label="Memory" pct={memPct}
                         text={`${formatBytes(m.used)} used, ${formatBytes(m.cached)} cache, ${formatBytes(m.available)} available of ${formatBytes(m.total)}`}
                         parts={[{ pct: memPct, color: "var(--color-accent)" }, { pct: cachePct, color: "var(--color-accent)", faint: true }]} />
-              <p className="flex flex-wrap gap-x-3 text-[11px] text-[var(--color-text-muted)] tabular-nums">
-                <span>Cache {formatBytes(m.cached)}</span><span>Available {formatBytes(m.available)}</span>
+              <p className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-[var(--color-text-muted)] tabular-nums">
+                <Legend color="var(--color-accent)">Used {formatBytes(m.used)}</Legend>
+                <Legend color="var(--color-accent)" faint>Cache {formatBytes(m.cached)}</Legend>
+                <span className="ml-auto">Available {formatBytes(m.available)}</span>
               </p>
             </div>
           )}
@@ -191,12 +215,10 @@ function Dashboard({ r, cpu, mem, stale }: { r: ServerReading; cpu: number[]; me
         </Card>
       </div>
 
-      <div className="flex flex-col gap-2.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)]/40 p-3">
-        <h3 className="flex items-center gap-2 text-xs font-medium text-[var(--color-text-muted)]">
-          <HardDrive size={15} aria-hidden /> Disks
-        </h3>
+      <div className={`${TILE} gap-2.5`}>
+        <TileTitle icon={HardDrive} title="Disks" />
         {r.disks.length ? (
-          <ul className="flex flex-col gap-2.5" aria-label="Disk usage">
+          <ul className="flex flex-col divide-y divide-[var(--color-border)]/60" aria-label="Disk usage">
             {r.disks.map((d, i) => <DiskRow key={`${d.mount}-${i}`} disk={d} />)}
           </ul>
         ) : <p className="text-xs text-[var(--color-text-muted)]">The server reported no disks.</p>}
@@ -211,11 +233,11 @@ const Bone = ({ className }: { className: string }) => <div className={`${BONE} 
 
 function SkeletonCard({ bar }: { bar?: boolean }) {
   return (
-    <div className="flex flex-col gap-2 min-w-0 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)]/40 p-3">
+    <div className={`${TILE} gap-2.5`}>
       <div className="flex items-center gap-2"><Bone className="h-3.5 w-3.5 shrink-0" /><Bone className="h-3 w-16" /><Bone className="ml-auto h-4 w-10" /></div>
       <Bone className="h-2.5 w-3/4" />
       <Bone className="h-11 w-full" />
-      {bar && <Bone className="h-2 w-full !rounded-full" />}
+      {bar && <Bone className="h-1.5 w-full !rounded-full" />}
     </div>
   );
 }
@@ -225,7 +247,7 @@ function Skeleton() {
   return (
     <div className="flex flex-col gap-3" aria-hidden data-overview-skeleton="">
       <div className="grid grid-cols-1 @md:grid-cols-2 gap-3"><SkeletonCard /><SkeletonCard bar /></div>
-      <div className="flex flex-col gap-2.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)]/40 p-3">
+      <div className={`${TILE} gap-2.5`}>
         <Bone className="h-3 w-14" />
         {[0, 1].map((i) => (
           <div key={i} className="flex flex-col gap-2">
@@ -241,7 +263,7 @@ function Skeleton() {
 /**
  * "Server overview" section of a saved SSH entry: CPU, memory, swap and disks with graphs; the basics are behind the
  * "i" button. Once in view it connects by itself with the only saved sign-in method, the preferred one or the one last
- * used; after a failure or Disconnect it waits for a click. An unknown host key is never accepted without the user.
+ * used; after a failure it waits for a click. An unknown host key is never accepted without the user.
  * It reads the server only while shown in the active tab, one reading at a time, and closes the connection when
  * hidden, when the entry changes or closes, and when the vault locks.
  */
@@ -441,22 +463,18 @@ export function ServerOverview({ tab, name, fields, pref }: { tab: Tab; name: st
   /** Said once per change of state (not on every reading). */
   const announce = live ? `Connected to ${label}` : connecting ? `Connecting to ${label}` : phase.kind === "stopped" ? "Disconnected" : "";
 
+  const statusLine = status ? (
+    <span className="inline-flex items-center gap-1.5 tabular-nums" data-overview-status="">
+      <span aria-hidden className={`h-1.5 w-1.5 rounded-full ${live ? "bg-[var(--color-success)] motion-safe:animate-pulse" : "bg-[var(--color-text-muted)]"}`} />
+      {status}
+    </span>
+  ) : null;
+
   const aside = (
-    <div className="flex items-center gap-2 shrink-0">
+    <div className="flex items-center gap-1.5 shrink-0">
       <span role="status" className="sr-only" data-overview-announce="">{announce}</span>
-      {status && (
-        <span className="inline-flex items-center gap-1.5 text-[11px] text-[var(--color-text-muted)] tabular-nums" data-overview-status="">
-          <span aria-hidden className={`h-1.5 w-1.5 rounded-full ${live ? "bg-[var(--color-success)] motion-safe:animate-pulse" : "bg-[var(--color-text-muted)]"}`} />
-          {status}
-        </span>
-      )}
       {reading && visible && <ServerDetailsButton reading={reading} />}
-      {live || phase.kind === "connecting" ? (
-        <Button size="sm" icon={<Unplug size={12} />} onClick={() => { stop(); heldPaths.add(tab.filePath ?? ""); setPhase({ kind: "stopped", why: "Disconnected." }); }}
-                className="border border-[var(--color-border)]">
-          Disconnect
-        </Button>
-      ) : !pending && (reading || phase.kind === "failed" || phase.kind === "unsupported") ? (
+      {!live && !connecting && (reading || phase.kind === "failed" || phase.kind === "unsupported") ? (
         <Button size="sm" icon={<RefreshCw size={12} />} disabled={!!blocked} title={blocked ?? undefined} onClick={start}
                 className="border border-[var(--color-border)]">
           {phase.kind === "failed" ? "Try again" : "Connect"}
@@ -529,7 +547,7 @@ export function ServerOverview({ tab, name, fields, pref }: { tab: Tab; name: st
   return (
     <div ref={rootRef} className="contents">
       <Section title="Server overview" aside={aside}
-               hint={place === "side" ? undefined : "Read over SSH while this section is open; it disconnects when you leave it."}>
+               hint={statusLine ?? (place === "side" ? undefined : "Read over SSH while this section is open; it disconnects when you leave it.")}>
         {body}
       </Section>
       {choosing && (

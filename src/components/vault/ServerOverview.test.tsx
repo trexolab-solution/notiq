@@ -131,7 +131,7 @@ describe("ServerOverview", () => {
     expect(calls("server_overview_open")[0][1]).toMatchObject({ auth: "password" });
   });
 
-  it("after a failed sign-in or Disconnect, doesn't try again until asked (or the entry is changed)", async () => {
+  it("after a failed sign-in, doesn't try again by itself (until the entry is changed)", async () => {
     backend(undefined, () => { throw "Permission denied (password) for root."; });
     const reopen = async () => {
       act(() => root.unmount());
@@ -150,12 +150,8 @@ describe("ServerOverview", () => {
     await act(async () => { useAppStore.setState({ tabs: [makeTab()] }); });
     await flush(AUTO_DELAY_MS);
     expect(calls("server_overview_open")).toHaveLength(2);
-
-    await click(byText("Disconnect"));
-    await reopen();
-    expect(calls("server_overview_open")).toHaveLength(2);
-    await click(byText("Connect"));
-    expect(calls("server_overview_open")).toHaveLength(3);
+    // There is no button to disconnect: leaving the section does that.
+    expect(byText("Disconnect")).toBeNull();
   });
 
   it("remembers a sign-in that failed after you left, and starts no second one beside it", async () => {
