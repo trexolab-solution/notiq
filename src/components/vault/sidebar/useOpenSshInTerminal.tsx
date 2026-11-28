@@ -7,12 +7,13 @@ import { parseSecret } from "../../../lib/secretEntry";
 import { sshLabel, sshMethods, type SshTarget } from "../../../lib/sshConnect";
 import { requestSshSession } from "../../../lib/sshTerminalRequest";
 import { toast } from "../../../lib/toast";
+import { preferredAuth } from "../../../lib/sshPreferredAuth";
 import type { SshAuth } from "../../../lib/sshEntry";
 
 /**
  * "Open in terminal" for a saved SSH entry picked in the vault tree: reads the entry (the vault must be
- * unlocked), starts the session straight away when it has one sign-in method, and asks which one to use
- * when it has both a private key and a password. Render `dialog` somewhere in the tree.
+ * unlocked), starts the session straight away when it has one sign-in method or a preferred one, and asks
+ * which one to use when it has both a private key and a password and no preference. Render `dialog` somewhere in the tree.
  * `start` says where the chosen server goes: the terminal (default) or the file manager.
  */
 export function useOpenSshInTerminal(root: string, start: (t: SshTarget) => void = requestSshSession): { open: (rel: string) => Promise<void>; dialog: ReactNode } {
@@ -28,7 +29,8 @@ export function useOpenSshInTerminal(root: string, start: (t: SshTarget) => void
       if (!label) { toast.error(`“${name}” has no host saved yet`); return; }
       const methods = sshMethods(entry.fields);
       if (methods.length === 0) { toast.error(`“${name}” has no private key or password saved`); return; }
-      if (methods.length === 1) { start({ path, auth: methods[0], title: name }); return; }
+      const auth = preferredAuth(path, methods);
+      if (auth) { start({ path, auth, title: name }); return; }
       setChoice({ path, name, label });
     } catch (e) {
       toast.error(vaultErrorMessage(e));

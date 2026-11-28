@@ -3,6 +3,7 @@ import { Server } from "lucide-react";
 import { Dialog, DialogBody, DialogFooter, DialogButton, DialogText } from "../ui/Dialog";
 import { SshAuthChoiceDialog } from "./SshAuthChoiceDialog";
 import { useVaultStore } from "../../store/vaultStore";
+import { preferredAuth } from "../../lib/sshPreferredAuth";
 import { vaultList, vaultReadFile, vaultErrorMessage } from "../../lib/vault";
 import { vaultRoot } from "../../lib/autofill";
 import { parseSecret } from "../../lib/secretEntry";
@@ -63,7 +64,8 @@ export function SshConnectDialog({ onConnect, onClose }: Props) {
     setError("");
     if (!row.label) { setError(`“${row.name}” has no host saved yet.`); return; }
     if (row.methods.length === 0) { setError(`“${row.name}” has no private key or password saved.`); return; }
-    if (row.methods.length === 1) { connect(row, row.methods[0]); return; }
+    const auth = preferredAuth(row.path, row.methods);
+    if (auth) { connect(row, auth); return; }
     setChoose(row);
   };
 

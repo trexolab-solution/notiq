@@ -1,8 +1,10 @@
-import type { KeyboardEvent } from "react";
+import { useState, type KeyboardEvent } from "react";
 import { KeyRound, Lock, Server } from "lucide-react";
 import { Dialog, DialogBody, DialogFooter, DialogButton } from "../ui/Dialog";
 import type { SshAuth } from "../../lib/sshEntry";
 import { getLastSshAuth, setLastSshAuth } from "../../lib/sshLastAuth";
+import { setAuthPreference } from "../../lib/sshPreferredAuth";
+import { openSshSignInSettings } from "../../lib/openSshSignIn";
 
 const optionBtn =
   "w-full text-left px-3 py-2 rounded-md border border-[var(--color-border)] cursor-pointer " +
@@ -23,7 +25,10 @@ interface Props {
   name: string;
   /** `user@host` shown under the question. */
   label: string;
-  /** Path of the saved server: the method picked is remembered for it and offered first next time. */
+  /**
+   * Path of the saved server: the method picked is remembered for it and offered first next time. With it, the
+   * dialog also offers "always use my pick" and a way to the entry's Sign in section.
+   */
   entryKey?: string;
   onPick: (auth: SshAuth) => void;
   /** Dialog dismissed (Escape, ×). */
@@ -39,7 +44,12 @@ interface Props {
  */
 export function SshAuthChoiceDialog({ name, label, entryKey, onPick, onClose, onBack }: Props) {
   const last = getLastSshAuth(entryKey);
-  const pick = (auth: SshAuth) => { setLastSshAuth(entryKey, auth); onPick(auth); };
+  const [always, setAlways] = useState(false);
+  const pick = (auth: SshAuth) => {
+    setLastSshAuth(entryKey, auth);
+    if (always) setAuthPreference(entryKey, auth);
+    onPick(auth);
+  };
   const first = last === "password" ? "password" : "key";
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     if (e.ctrlKey || e.altKey || e.metaKey) return;
@@ -71,6 +81,21 @@ export function SshAuthChoiceDialog({ name, label, entryKey, onPick, onClose, on
             </button>
           ))}
         </div>
+        {entryKey && (
+          <div className="mt-3 flex flex-col gap-1.5 rounded-md border border-[var(--color-border)] px-3 py-2.5">
+            <label className="flex items-center gap-2.5 text-[13px] cursor-pointer">
+              <input type="checkbox" checked={always} onChange={(e) => setAlways(e.target.checked)} className="accent-[var(--color-primary)]" />
+              Always use my pick for this server
+            </label>
+            <p className="text-[11px] text-[var(--color-text-muted)]">
+              Kept on this device only. Change it any time in the entry, under Sign in.{" "}
+              <button type="button" className="cursor-pointer text-[var(--color-primary)] hover:underline"
+                      onClick={() => { onClose(); void openSshSignInSettings(entryKey); }}>
+                Open entry
+              </button>
+            </p>
+          </div>
+        )}
         <p className="mt-3 text-[11px] text-[var(--color-text-muted)]">↑ ↓ to move · Enter to sign in · Esc to close</p>
       </DialogBody>
       {onBack && (

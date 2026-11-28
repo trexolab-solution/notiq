@@ -31,7 +31,7 @@ import { fileNameOf } from "../../lib/attachmentLimits";
 import { parseSecret, serializeSecret, type SecretEntry } from "../../lib/secretEntry";
 import { analyzeKey, normalizeKey, portError, sshCommand, type SshAuth } from "../../lib/sshEntry";
 import { keysMatch } from "../../lib/sshKeyInfo";
-import { getAuthPreference, setAuthPreference, type AuthPreference } from "../../lib/sshPreferredAuth";
+import { setAuthPreference, useAuthPreference, type AuthPreference } from "../../lib/sshPreferredAuth";
 import {
   byteLength, importSummary, MAX_KEY_FILE_BYTES, parseKeyFiles, rejectReason, roleOf, routeImport, serializeKeyFiles,
   type ImportInput, type KeyFile,
@@ -127,7 +127,7 @@ function SshEntryEditorInner({ tab }: { tab: Tab }) {
   // Viewing shows what is saved; choosing which methods to fill in is part of editing.
   const savedMode: SignInMode = sshMethods(f).length === 1 ? sshMethods(f)[0] : "both";
   const mode: SignInMode = readOnly ? savedMode : picked ?? savedMode;
-  const [pref, setPref] = useState<AuthPreference>(() => getAuthPreference(tab.filePath));
+  const pref = useAuthPreference(tab.filePath);
   const [viewing, setViewing] = useState<KeyFile | null>(null);
   // A viewed private key closes like any other revealed secret (timer, blur, session lock).
   const viewingSecret = !!viewing && roleOf(viewing.name, viewing.value) === "private";
@@ -545,14 +545,14 @@ function SshEntryEditorInner({ tab }: { tab: Tab }) {
             </SubGroup>
           )}
           {bothSaved && (
-            <fieldset className="flex flex-col gap-1.5 border-t border-[var(--color-border)] pt-5">
+            <fieldset id="ssh-pref" className="flex flex-col gap-1.5 border-t border-[var(--color-border)] pt-5">
               <legend className="sr-only">When both are saved</legend>
               <h3 className="text-sm font-semibold">When both are saved</h3>
               <div role="radiogroup" aria-label="Preferred sign-in method" className="flex flex-col">
                 {([["ask", "Ask each time"], ["key", "Prefer SSH key"], ["password", "Prefer password"]] as [AuthPreference, string][]).map(([v, label]) => (
                   <label key={v} className="flex items-center gap-2.5 min-h-8 text-[13px] cursor-pointer">
                     <input type="radio" name="ssh-pref" checked={pref === v} className="accent-[var(--color-primary)]"
-                           onChange={() => { setPref(v); setAuthPreference(tab.filePath, v); }} />
+                           onChange={() => setAuthPreference(tab.filePath, v)} />
                     {label}
                   </label>
                 ))}

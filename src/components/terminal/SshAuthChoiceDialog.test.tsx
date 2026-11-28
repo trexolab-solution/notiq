@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { SshAuthChoiceDialog } from "./SshAuthChoiceDialog";
+import { getAuthPreference, preferredAuth } from "../../lib/sshPreferredAuth";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -45,6 +46,25 @@ describe("SSH sign-in choice", () => {
     expect(onPick).toHaveBeenLastCalledWith("password");
     await press("1");
     expect(onPick).toHaveBeenLastCalledWith("key");
+  });
+
+  it("saves the pick as the preference only when asked to, and offers the way to change it later", async () => {
+    const onPick = await render({ entryKey: "C:/vault/a.nqv" });
+    await press("2");
+    expect(getAuthPreference("C:/vault/a.nqv")).toBe("ask");
+    await act(async () => { document.querySelector<HTMLInputElement>('input[type="checkbox"]')!.click(); });
+    await act(async () => { options()[0].click(); });
+    expect(onPick).toHaveBeenLastCalledWith("key");
+    expect(getAuthPreference("C:/vault/a.nqv")).toBe("key");
+    expect(document.body.textContent).toContain("under Sign in");
+    expect(preferredAuth("C:/vault/a.nqv", ["key", "password"])).toBe("key");
+    expect(preferredAuth("C:/vault/b.nqv", ["key", "password"])).toBeNull();
+    expect(preferredAuth("C:/vault/b.nqv", ["password"])).toBe("password");
+  });
+
+  it("offers no preference for a server that isn't a saved entry", async () => {
+    await render();
+    expect(document.querySelector('input[type="checkbox"]')).toBeNull();
   });
 
   it("keeps a Back button only when there is a step to go back to", async () => {

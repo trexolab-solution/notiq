@@ -1,3 +1,4 @@
+import { useSyncExternalStore } from "react";
 import type { SshAuth } from "./sshEntry";
 
 /**
@@ -32,5 +33,26 @@ export function setAuthPreference(path: string | undefined, pref: AuthPreference
     const keys = Object.keys(all);
     for (const k of keys.slice(0, Math.max(0, keys.length - MAX))) delete all[k];
     localStorage.setItem(KEY, JSON.stringify(all));
+    globalThis.window?.dispatchEvent(new Event(CHANGED));
   } catch { /* storage unavailable */ }
+}
+
+const CHANGED = "ssh-auth-preference-changed";
+
+/** A saved server's preference, followed live: the sign-in chooser can set it while the entry is open. */
+export function useAuthPreference(path: string | undefined): AuthPreference {
+  return useSyncExternalStore(
+    (changed) => {
+      window.addEventListener(CHANGED, changed);
+      return () => window.removeEventListener(CHANGED, changed);
+    },
+    () => getAuthPreference(path),
+  );
+}
+
+/** The method to sign in with without asking, or null when the user has to be asked. */
+export function preferredAuth(path: string | undefined, saved: readonly SshAuth[]): SshAuth | null {
+  if (saved.length === 1) return saved[0];
+  const pref = getAuthPreference(path);
+  return pref !== "ask" && saved.includes(pref) ? pref : null;
 }
