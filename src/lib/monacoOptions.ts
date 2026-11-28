@@ -76,7 +76,7 @@ export const STATIC_EDITOR_OPTIONS: editor.IStandaloneEditorConstructionOptions 
   scrollbar: {
     vertical: "visible",
     horizontal: "hidden",
-    verticalScrollbarSize: 5,
+    verticalScrollbarSize: 10, // the app's scrollbar lane (styles/scrollbars.css)
     useShadows: false,
   },
   foldingStrategy: "auto",

@@ -43,24 +43,6 @@ html, body, #root {
   color: inherit;
 }
 
-/* ── Scrollbars ───────────────────────────────────────────────────────────── */
-/* Firefox — scoped to app containers only, not Monaco (which manages its own) */
-html,
-.app-shell,
-.prose-scroll,
-.terminal-section {
-  scrollbar-width: thin;
-  scrollbar-color: var(--color-border) transparent;
-}
-/* Webkit (Chrome, Edge, Tauri) */
-::-webkit-scrollbar       { width: 4px; height: 4px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb {
-  background: var(--color-border);
-  border-radius: 99px;
-}
-::-webkit-scrollbar-thumb:hover { background: var(--color-text-muted); }
-
 /* ── Monaco background ────────────────────────────────────────────────────── */
 /* Force all Monaco surfaces to match the app's editor background token so the
    gutter and canvas blend seamlessly with each theme. */

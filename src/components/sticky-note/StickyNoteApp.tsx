@@ -244,7 +244,7 @@ export default function StickyNoteApp() {
             renderLineHighlight: "none",
             scrollBeyondLastLine: false,
             padding: { top: 4, bottom: 8 },
-            scrollbar: { verticalScrollbarSize: 6, horizontalScrollbarSize: 6, useShadows: false },
+            scrollbar: { verticalScrollbarSize: 10, horizontalScrollbarSize: 10, useShadows: false },
             contextmenu: false
           }}
         />

@@ -445,17 +445,6 @@ html.is-sticky-note #root {
 .snl-list {
   flex: 1;
   overflow-y: auto;
-  scrollbar-width: thin;
-  scrollbar-color: var(--color-border) transparent;
-}
-.snl-list::-webkit-scrollbar       { width: 4px; }
-.snl-list::-webkit-scrollbar-track { background: transparent; }
-.snl-list::-webkit-scrollbar-thumb {
-  background: var(--color-border);
-  border-radius: 99px;
-}
-.snl-list::-webkit-scrollbar-thumb:hover {
-  background: var(--color-text-muted);
 }
 
 /* ── Note row — mirrors .tab-item hover patterns ── */
