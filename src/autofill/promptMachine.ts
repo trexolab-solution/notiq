@@ -71,7 +71,8 @@ export type PromptState =
   /** Sign in with one of this RP's saved passkeys. */
   | { stage: "passkeyGet"; job: PasskeyGetJob; passkeys: PasskeyMatch[]; pick: number; busy: boolean }
   /** A fill from a page that imitates a saved site. Already answered `no_match`; only informs the user. */
-  | { stage: "warning"; host: string; lookalike: Lookalike };
+  // The request stays unanswered while this is up: Notiq's window is only shown for a request that still waits.
+  | { stage: "warning"; job: FillJob; host: string; lookalike: Lookalike };
 
 export type PromptEvent =
   | { type: "start"; job: Job; exists: boolean; unlocked: boolean; trusted: boolean }
@@ -229,8 +230,8 @@ export function step(state: PromptState, ev: PromptEvent): Step {
       if (!ev.matches.length) {
         if (!ev.lookalike) return end(reply(id, { error: "no_match" }));
         return {
-          state: { stage: "warning", host: job.req.host, lookalike: ev.lookalike },
-          effects: [reply(id, { error: "no_match" }), { kind: "show" }],
+          state: { stage: "warning", job, host: job.req.host, lookalike: ev.lookalike },
+          effects: [{ kind: "show" }],
         };
       }
       // A code-only fill (separate 2FA page) can only use logins that have a 2FA secret.
@@ -328,7 +329,7 @@ export function step(state: PromptState, ev: PromptEvent): Step {
     case "deny":
       switch (state.stage) {
         case "idle": return same(state);
-        case "warning": return end();
+        case "warning": return end(reply(state.job.req.id, { error: "no_match" }));
         // Esc / × while still locked: the vault stays locked, which is what the extension is told.
         case "locked": return state.busy ? same(state) : end(reply(state.job.req.id, { error: "locked" }));
         case "request": case "save": case "card": case "identity": case "passkeyCreate": case "passkeyGet":
@@ -339,7 +340,7 @@ export function step(state: PromptState, ev: PromptEvent): Step {
 
     case "vaultLocked":
       // Locking cancels an open request (nothing may be released from a locked vault).
-      if (state.stage === "checking" || state.stage === "request" || state.stage === "save" || state.stage === "card" || state.stage === "identity"
+      if (state.stage === "warning" || state.stage === "checking" || state.stage === "request" || state.stage === "save" || state.stage === "card" || state.stage === "identity"
         || state.stage === "passkeyCreate" || state.stage === "passkeyGet") {
         return end(reply(state.job.req.id, { error: "locked" }));
       }

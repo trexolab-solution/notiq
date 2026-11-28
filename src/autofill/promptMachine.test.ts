@@ -81,14 +81,31 @@ describe("prompt state machine: fill", () => {
     expect(replies(r.effects)).toEqual([{ error: "no_match" }]);
   });
 
-  it("a look-alike page gets no_match and a warning the user dismisses", () => {
-    let r = run(IDLE, start(fill()), { type: "scanned", matches: [], lookalike: { saved: "example.org", reason: "tld" } });
-    expect(replies(r.effects)).toEqual([{ error: "no_match" }]);
-    expect(kinds(r.effects)).toEqual(["scan", "reply", "show"]);
+  const lookalike = { saved: "example.org", reason: "tld" as const };
+
+  it("a look-alike page shows its warning while the request is still open, and answers when it is closed", () => {
+    let r = run(IDLE, start(fill()), { type: "scanned", matches: [], lookalike });
+    // The window is only shown while a request waits for an answer (`autofill_prompt_show` and the guard in
+    // autofill.rs hide it otherwise), so nothing may be answered before or with the show.
+    expect(kinds(r.effects)).toEqual(["scan", "show"]);
     expect(r.state.stage).toBe("warning");
-    expect(currentId(r.state)).toBeNull();
+    expect(currentId(r.state)).toBe(fill().req.id);
     r = run(r.state, { type: "deny" });
-    expect(kinds(r.effects)).toEqual(["finish"]);
+    expect(replies(r.effects)).toEqual([{ error: "no_match" }]);
+    expect(kinds(r.effects)).toEqual(["reply", "finish"]);
+    expect(r.state).toBe(IDLE);
+  });
+
+  it("a warning nobody closes ends with the request: a timeout drops it, a lock answers it", () => {
+    const open = () => run(IDLE, start(fill()), { type: "scanned", matches: [], lookalike }).state;
+    const timedOut = run(open(), { type: "cancel", id: fill().req.id });
+    expect(kinds(timedOut.effects)).toEqual(["finish"]);
+    expect(timedOut.state).toBe(IDLE);
+    const locked = run(open(), { type: "vaultLocked" });
+    expect(replies(locked.effects)).toEqual([{ error: "locked" }]);
+    expect(locked.state).toBe(IDLE);
+    // A failure reported late leaves the warning on screen.
+    expect(run(open(), { type: "failed" }).state.stage).toBe("warning");
   });
 
   it("a trusted site fills silently (no show)", () => {
