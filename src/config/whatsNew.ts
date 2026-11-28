@@ -13,31 +13,20 @@ import { APP_VERSION } from "./app";
  */
 export const WHATS_NEW = `# What's New in Notiq ${APP_VERSION}
 
-Smarter browser autofill, tidier vault forms and a server monitor that stays connected.
+A fix release for the autofill window, with a clearer update notice.
 
 ## 🌐 Browser autofill
 
-- Finds the email field on sign-in pages built without a form, such as **Google's**. A login needs a saved username to fill that step.
-- Tells **sign-up** forms from sign-ins. Their email field no longer offers a saved login.
-- A new **password card** suggests a strong password, with length and character settings.
-- A new icon in the field, sized to it and placed beside the page's own buttons.
+- The autofill window now also closes after requests it answers **without showing itself** (opening the extension popup, checking whether to offer Save, a trusted site).
+- Until Notiq needs to show it, the window is kept **off screen**. This is aimed at the empty white box some screenshots showed.
 
-## 🔐 Vault
+## 🔔 Updates
 
-- Entry forms and lock screens have a cleaner design. In view mode, clicking a field no longer looks like editing.
-- **Attachments** take drag and drop and browse in view mode too. Removing a file needs Edit.
-- Screenshot protection can be turned **off for 5 to 20 minutes**; it comes back by itself.
-- A change aimed at the empty white box in screenshots after autofill with that protection off.
-- Fixed: the window's **X** button now locks the vault (when "Lock when the window is closed" is on), ends trusted sites and disconnects servers.
+- A card now tells you when a new version is available. **Later** hides it for a few hours.
 
-## 🖥️ Servers
+## 🚀 Start with your computer
 
-- The server monitor **stays connected** when you switch tabs. It disconnects when you close the tab, lock the vault or hide Notiq. The Disconnect button is gone.
-- When a key and a password are both saved, choose "Always use my pick". The sidebar and Connect dialog now follow that choice.
-
-## 🎨 Look
-
-- One new scrollbar design across the app.
+- After each update Notiq makes sure it **launches at sign-in**, and repairs a startup entry that pointed somewhere else. This update turns it on even if you had turned it off before. To keep it off, switch it off in **Settings → General** (turning it off only in Windows doesn't last past an update).
 
 ---
 
