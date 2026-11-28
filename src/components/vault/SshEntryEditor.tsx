@@ -4,6 +4,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { readTextFile, stat } from "@tauri-apps/plugin-fs";
 import { Button } from "../ui/Button";
 import { Input } from "../ui/Input";
+import { Tooltip } from "../ui/Tooltip";
 import { ConfirmDialog } from "../ui/ConfirmDialog";
 import { DropZone } from "../ui/DropZone";
 import { useAppStore } from "../../store";
@@ -320,19 +321,52 @@ function SshEntryEditorInner({ tab }: { tab: Tab }) {
   const hiddenNote = mode === "password" && savedMethods.includes("key") ? "A private key is also saved. Choose SSH key or Both to see it."
     : mode === "key" && savedMethods.includes("password") ? "A password is also saved. Choose Password or Both to see it." : null;
 
-  const commandBox = (wide: boolean) => command ? (
-    <div className={wide ? "flex flex-col gap-2 rounded-lg p-3 bg-[var(--color-bg-secondary)] border border-[var(--color-border)]"
-      : "flex items-center gap-2 rounded-lg px-3 py-1.5 bg-[var(--color-bg-secondary)] border border-[var(--color-border)]"}>
-      <code className={wide ? "min-w-0 break-all text-xs font-mono" : "flex-1 min-w-0 truncate text-xs font-mono"}><span className="text-[var(--color-primary)]">$ </span>{command}</code>
-      <div className="flex items-center gap-1 shrink-0">
-        <CopyIconButton value={command} label="ssh command" />
-        <RowIconButton label="Open in terminal" icon={<SquareTerminal size={13} />}
-                       tooltip={why("terminal") ?? "Open in terminal"} disabled={blocked} onClick={openInTerminal} />
-        <RowIconButton label="Open file manager" icon={<FolderOpen size={13} />}
-                       tooltip={why("file manager") ?? "Open file manager"} disabled={blocked} onClick={() => openServer("files")} />
-      </div>
+  // The command in its own strip with Copy, then the two things to do with this server. Wide: a card in the
+  // column beside the form. Narrow: one row in the bar pinned to the bottom, where the buttons shrink to icons.
+  const serverAction = (wide: boolean, to: "terminal" | "files") => {
+    const terminal = to === "terminal";
+    const label = terminal ? "Open in terminal" : "Open file manager";
+    const Icon = terminal ? SquareTerminal : FolderOpen;
+    return (
+      <Tooltip content={why(terminal ? "terminal" : "file manager") ?? label}>
+        <Button size="sm" variant={terminal ? "primary" : "ghost"} aria-label={label} icon={<Icon size={14} />}
+                disabled={blocked} onClick={() => { if (terminal) openInTerminal(); else openServer("files"); }}
+                className={`justify-center shrink-0 ${wide ? "h-8 gap-1.5" : "h-8 w-8 !p-0"} ${terminal ? ""
+                  : "border border-[var(--color-border)] !text-[var(--color-text)]"}`}>
+          {wide ? (terminal ? "Terminal" : "File manager") : null}
+        </Button>
+      </Tooltip>
+    );
+  };
+  const commandStrip = (wide: boolean) => (
+    <div className={`flex gap-2 min-w-0 rounded-md border border-[var(--color-border)] bg-[var(--color-editor-bg)] pl-3 pr-1 py-1 ${wide ? "items-start" : "flex-1 items-center"}`}>
+      <code className={`flex-1 min-w-0 text-xs font-mono leading-5 py-1 ${wide ? "break-all" : "truncate"}`}>
+        <span aria-hidden className="select-none text-[var(--color-primary)]">$ </span>{command}
+      </code>
+      <CopyIconButton value={command ?? ""} label="ssh command" />
     </div>
-  ) : null;
+  );
+  const commandBox = (wide: boolean) => !command ? null : wide ? (
+    <section className="flex flex-col gap-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-secondary)]/25 p-4">
+      <h2 className="text-sm font-semibold">Quick connect</h2>
+      {commandStrip(true)}
+      <div className="grid grid-cols-2 gap-2 [&>*]:w-full [&_button]:w-full">
+        {serverAction(true, "terminal")}
+        {serverAction(true, "files")}
+      </div>
+      {blocked && why("terminal") && (
+        <p className="text-xs text-[var(--color-text-muted)]">
+          {tab.isDirty ? "Save this entry (Ctrl+S) to connect." : "Unlock the vault to connect."}
+        </p>
+      )}
+    </section>
+  ) : (
+    <div className="flex items-center gap-2">
+      {commandStrip(false)}
+      {serverAction(false, "terminal")}
+      {serverAction(false, "files")}
+    </div>
+  );
 
 
   return (
