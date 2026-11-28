@@ -366,6 +366,7 @@ function runContent({ incognito, allowed }) {
   const ctx = vm.createContext({ chrome, location, URL });
   vm.runInContext(SHARED, ctx);
   ctx.NotiqFill = {};
+  ctx.NotiqGen = { sanitize: () => ({}) }; // generator.js
   vm.runInContext(CONTENT, ctx);
   return { touched: () => touched, changed };
 }

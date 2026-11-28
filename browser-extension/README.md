@@ -75,7 +75,8 @@ Updating from 0.1: click the reload button on the extension's card. The browser 
   whole form (`autocomplete`, a confirm field, button and heading text, URL, forgot-password link, name and terms
   fields), so they need no `new-password` hint. Their email / username field gets no saved-login icon. Focusing an
   empty new-password field (or clicking its icon) shows a card with a suggested password, its strength, **Use this
-  password** and **New one**; it does not depend on "Suggest on field focus". **Use this password** fills the new
+  password** and **New one**, plus settings: a length slider (8–64), switches for a-z, A-Z, 0-9 and symbols, and **Avoid look-alikes**. They are the same settings as the toolbar popup's generator and are remembered; a site's own limits still win. The card does not depend on "Suggest on field focus".
+  **Use this password** fills the new
   password and its confirm field with a 20-character password (upper/lower/digits/symbols, no look-alikes like `I l 1 O 0`),
   made in the extension with `crypto.getRandomValues`. It follows the site's own limits: `maxlength` / `minlength`,
   the `passwordrules` attribute (`required`, `allowed`, `minlength`, `maxlength`, `max-consecutive`) and a simple

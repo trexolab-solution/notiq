@@ -31,7 +31,7 @@
   function main() {
   const NS = globalThis.NotiqShared; // shared.js, loaded just before this file
   const FK = globalThis.NotiqFill;   // fillkit.js, likewise
-  if (!NS || !FK) return;
+  if (!NS || !FK || !globalThis.NotiqGen) return; // generator.js too
 
   const isLocalHost = (h) => h === "localhost" || h === "127.0.0.1";
   const pageHost = () => String(location.hostname || "").toLowerCase();
@@ -420,7 +420,25 @@
   font: 12.5px/1.35 ui-monospace, Consolas, monospace; word-break: break-all; user-select: all; }
 .nq-mrow { display: flex; gap: 6px; padding: 4px 2px 2px; }
 .nq-mrow .nq-item { flex: 1; text-align: center; }
-.nq-menu.nq-card { width: 304px; max-height: 380px; padding: 10px; border-radius: 12px; }
+.nq-menu.nq-card { width: 312px; max-height: min(520px, calc(100vh - 16px)); padding: 10px; border-radius: 12px; }
+.nq-opts { display: flex; flex-direction: column; gap: 8px; margin: 2px 0 10px; padding: 10px; border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--nq-text) 12%, transparent); }
+.nq-len { display: flex; align-items: center; gap: 10px; font-size: 12px; font-weight: 600; cursor: default; }
+.nq-range { flex: 1; min-width: 0; height: 18px; margin: 0; cursor: pointer; accent-color: var(--nq-primary); }
+.nq-count { min-width: 28px; padding: 2px 0; border-radius: 6px; background: var(--nq-bg2); text-align: center;
+  font-variant-numeric: tabular-nums; }
+.nq-chips { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.nq-chip { all: initial; box-sizing: border-box; padding: 6px 0; border-radius: 7px; cursor: pointer; text-align: center;
+  font: 600 12px/1.2 ui-monospace, Consolas, monospace; color: var(--nq-muted);
+  border: 1px solid color-mix(in srgb, var(--nq-text) 18%, transparent); }
+.nq-chip[aria-pressed="true"] { color: var(--nq-text); border-color: var(--nq-primary); background: color-mix(in srgb, var(--nq-primary) 18%, transparent); }
+.nq-chip:disabled { cursor: default; }
+.nq-check { all: initial; display: flex; align-items: center; gap: 8px; cursor: pointer; color: var(--nq-text); font: 500 12px/1.3 var(--nq-font); }
+.nq-check::before { content: ""; box-sizing: border-box; flex: none; width: 14px; height: 14px; border-radius: 4px;
+  border: 1px solid color-mix(in srgb, var(--nq-text) 35%, transparent); }
+.nq-check[aria-pressed="true"]::before { content: "✓"; display: flex; align-items: center; justify-content: center;
+  border-color: var(--nq-primary); background: var(--nq-primary); color: var(--nq-on-primary); font: 700 10px/1 var(--nq-font); }
+.nq-chip:focus-visible, .nq-check:focus-visible, .nq-range:focus-visible { outline: 2px solid var(--nq-primary); outline-offset: 2px; }
 .nq-chead { display: flex; align-items: center; gap: 9px; padding: 0 2px 8px; }
 .nq-chead .nq-smark { width: 28px; height: 28px; border-radius: 8px; background: var(--nq-primary); color: var(--nq-on-primary); }
 .nq-chead .nq-smark svg { width: 19px; height: 19px; }
@@ -898,9 +916,11 @@
     const node = el("div", "nq-menu");
     node.setAttribute("role", "menu");
     node.setAttribute("aria-label", label);
-    node.addEventListener("mousedown", (e) => e.preventDefault());
+    // Focus stays in the page's field, except that dragging the length slider needs the mouse press.
+    node.addEventListener("mousedown", (e) => { if (!(e.target && e.target.type === "range")) e.preventDefault(); });
     node.addEventListener("keydown", (e) => {
       if (e.isTrusted !== true) return;
+      if (e.target && e.target.type === "range" && e.key !== "Escape") return; // arrows move the slider
       const items = menuItems(node);
       const at = items.indexOf(root.activeElement);
       const handled = { ArrowDown: () => focusItem(node, at + 1), ArrowUp: () => focusItem(node, at < 0 ? -1 : at - 1),
@@ -928,6 +948,77 @@
   const constraintsOf = (fields) => FK.mergeConstraints(fields.map((f) => ({
     maxLength: f.maxLength, minLength: f.minLength, rules: attr(f, "passwordrules"), pattern: attr(f, "pattern"),
   })));
+  // The user's generator settings (length, kinds of characters): the same ones as the toolbar popup's generator,
+  // in chrome.storage.local `genOptions`. The site's own limits still win over them.
+  const GEN = globalThis.NotiqGen;
+  let genOptions = GEN.sanitize(null);
+  const makePassword = (rules) => FK.generateFor(rules, {
+    length: genOptions.length, floor: Math.min(FK.MIN_LEN, genOptions.length), classes: GEN.pools(genOptions),
+  });
+  const saveGenOptions = () => {
+    try { chrome.storage.local.set({ genOptions }); } catch { /* the choice just isn't remembered */ }
+  };
+
+  // The card's settings: a length slider, one switch per kind of character and "no look-alikes".
+  const GEN_KINDS = [["lower", "a-z", "Lowercase letters"], ["upper", "A-Z", "Capital letters"],
+    ["digits", "0-9", "Numbers"], ["symbols", "!@#", "Symbols"]];
+  function generatorSettings(changed) {
+    const box = el("div", "nq-opts");
+    const lenRow = el("label", "nq-len");
+    lenRow.appendChild(el("span", "nq-olabel", "Length"));
+    const range = el("input", "nq-range");
+    range.type = "range";
+    range.min = String(GEN.MIN_LENGTH);
+    range.max = String(GEN.MAX_LENGTH);
+    range.setAttribute("aria-label", "Password length");
+    const count = el("span", "nq-count");
+    lenRow.appendChild(range);
+    lenRow.appendChild(count);
+    box.appendChild(lenRow);
+    const chips = el("div", "nq-chips");
+    chips.setAttribute("role", "group");
+    chips.setAttribute("aria-label", "Characters to use");
+    const toggle = (key, text, name, cls) => {
+      const b = el("button", cls, text);
+      b.type = "button";
+      b.title = name;
+      b.setAttribute("aria-label", name);
+      b.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (e.isTrusted !== true) return;
+        genOptions = GEN.sanitize({ ...genOptions, [key]: !genOptions[key] });
+        paint();
+        saveGenOptions();
+        changed();
+      });
+      return b;
+    };
+    const kinds = GEN_KINDS.map(([key, text, name]) => [key, toggle(key, text, name, "nq-chip")]);
+    for (const [, b] of kinds) chips.appendChild(b);
+    box.appendChild(chips);
+    const plain = toggle("avoidAmbiguous", "Avoid look-alikes (l I 1 O 0)", "Avoid look-alike characters", "nq-check");
+    box.appendChild(plain);
+    function paint() {
+      range.value = String(genOptions.length);
+      count.textContent = String(genOptions.length);
+      const on = GEN_KINDS.filter(([key]) => genOptions[key]);
+      for (const [key, b] of kinds) {
+        b.setAttribute("aria-pressed", genOptions[key] ? "true" : "false");
+        b.disabled = on.length === 1 && genOptions[key]; // one kind always stays on
+      }
+      plain.setAttribute("aria-pressed", genOptions.avoidAmbiguous ? "true" : "false");
+    }
+    range.addEventListener("input", (e) => {
+      if (e.isTrusted !== true) return;
+      genOptions = GEN.sanitize({ ...genOptions, length: range.value });
+      count.textContent = String(genOptions.length);
+      changed();
+    });
+    range.addEventListener("change", (e) => { if (e.isTrusted === true) saveGenOptions(); });
+    paint();
+    return box;
+  }
   // The password, coloured by kind (digits, symbols) so it can be read and checked.
   function paintPassword(box, pw) {
     box.textContent = "";
@@ -960,7 +1051,7 @@
     openMenu(field, "Notiq password options", (node) => {
       node.classList.add("nq-card");
       const rules = constraintsOf(info.targets);
-      let gen = FK.generateFor(rules);
+      let gen = makePassword(rules);
       node.appendChild(cardHead("Suggested strong password", "Made on this device"));
       const box = el("div", "nq-pw nq-preview");
       const meter = el("div", "nq-meter");
@@ -970,17 +1061,20 @@
         paintPassword(box, gen.password);
         const s = strengthOf(gen.password);
         meter.setAttribute("data-level", String(s.level));
-        meta.textContent = `${gen.password.length} characters · ${s.label}${gen.limited && !gen.fallback ? " · fits this site's rules" : ""}`;
+        // Said whenever the site's limits made it differ from the length asked for.
+        const fitted = gen.limited && !gen.fallback ? " · fits this site's rules" : "";
+        meta.textContent = `${gen.password.length} characters · ${s.label}${fitted}`;
       };
       show();
       node.appendChild(box);
       node.appendChild(meter);
       node.appendChild(meta);
+      node.appendChild(generatorSettings(() => { gen = makePassword(rules); show(); positionMenu(); }));
       const row = el("div", "nq-mrow");
       const use = menuItem("Use this password", null, () => generateInto(field, null, gen));
       use.classList.add("nq-main");
       row.appendChild(use);
-      row.appendChild(menuItem("New one", null, () => { gen = FK.generateFor(rules); show(); }));
+      row.appendChild(menuItem("New one", null, () => { gen = makePassword(rules); show(); }));
       node.appendChild(row);
       if (info.current) {
         const cur = info.current;
@@ -1015,7 +1109,7 @@
     const targets = only ? only.filter((i) => i.isConnected && shown(i) && !i.readOnly)
       : info ? info.targets.filter((i) => i.isConnected && usable(i)) : [];
     if (!targets.length || !menu) { closeMenu(true); setState(field, "error", TEXT.no_fields); return; }
-    let gen = preset || FK.generateFor(constraintsOf(targets));
+    let gen = preset || makePassword(constraintsOf(targets));
     let pw = gen.password;
     for (const t of targets) setValue(t, pw);
     // What the page kept must be exactly what we generated (a script may cut it to its own limit):
@@ -1024,7 +1118,7 @@
     if (kept.some((v) => v !== pw)) {
       const short = kept.find((v) => v !== pw) || "";
       if (short.length > 0 && short.length < pw.length) {
-        gen = FK.generateFor({ ...constraintsOf(targets), maxLength: short.length });
+        gen = makePassword({ ...constraintsOf(targets), maxLength: short.length });
         pw = gen.password;
         for (const t of targets) setValue(t, pw);
       }
@@ -2028,6 +2122,10 @@
   }
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== "local") return;
+    if (changes.genOptions) {
+      genOptions = GEN.sanitize(changes.genOptions.newValue);
+      if (Object.keys(changes).length === 1) return; // nothing on the page changes
+    }
     const s = {};
     for (const k of ["offerSave", "showIcon", "suggestOnFocus", "neverSave", "hiddenSites", "reuseTrusted", "theme"]) if (changes[k]) s[k] = changes[k].newValue;
     applySettings(s);
@@ -2103,7 +2201,8 @@
     window.navigation.addEventListener("navigatesuccess", onUrlMaybeChanged);
   }
 
-  chrome.storage.local.get({ offerSave: true, showIcon: true, suggestOnFocus: false, neverSave: [], hiddenSites: [], reuseTrusted: [], theme: null }, (s) => {
+  chrome.storage.local.get({ offerSave: true, showIcon: true, suggestOnFocus: false, neverSave: [], hiddenSites: [], reuseTrusted: [], theme: null, genOptions: null }, (s) => {
+    genOptions = GEN.sanitize(s && s.genOptions);
     applySettings(s || {});
     scan();
     schedulePending(300);

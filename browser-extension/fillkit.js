@@ -125,11 +125,18 @@
 
     // Alphabet: the site's allowed + required characters when it lists any, else ours.
     const listed = rules.allowed !== null || rules.required.length > 0;
-    let alphabet = listed ? uniq((rules.allowed || "") + rules.required.join("")) : DEFAULT_CLASSES.join("");
+    // The user's own choice of classes, when given (the in-page card's settings).
+    const own = o.classes && o.classes.length ? o.classes : DEFAULT_CLASSES;
+    let alphabet = listed ? uniq((rules.allowed || "") + rules.required.join("")) : own.join("");
+    if (listed && o.classes) {
+      // Narrowed to what the user chose, plus whatever the site insists on. If that leaves nothing, the site's list.
+      const wanted = own.join("") + rules.required.join("");
+      alphabet = Array.from(alphabet).filter((ch) => wanted.includes(ch)).join("") || alphabet;
+    }
     if (pat && pat.allowed !== null) alphabet = Array.from(alphabet).filter((ch) => pat.allowed.includes(ch)).join("");
     const fit = (set) => Array.from(set).filter((ch) => alphabet.includes(ch)).join("");
     // Required classes: the site's, else one of each of our classes it allows.
-    let required = (rules.required.length ? rules.required : DEFAULT_CLASSES).map(fit);
+    let required = (rules.required.length ? rules.required : own).map(fit);
     const siteRequiredLost = rules.required.length && required.some((s) => !s);
     required = required.filter(Boolean);
 

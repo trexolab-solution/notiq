@@ -475,6 +475,30 @@ try {
   check("'Use this password' fills exactly the suggestion shown", (await P(`document.getElementById("up-pass").value`)) === second);
   check("the card sends nothing to Notiq", (await calls()).length === 0);
   await key("Escape", "Escape", 27);
+  // The card's settings: length by keyboard on the slider, then a kind of character switched off.
+  await resetState({ suggestOnFocus: false });
+  await load(`http://localhost:${PORT}/test-pages/signup-plain.html`);
+  await clickId("up-pass");
+  await waitFor(menuInfo, 1500);
+  const spot = (sel) => inShadow(`function () { const e = this.querySelector(${JSON.stringify(sel)}); if (!e) return null; const r = e.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2, v: e.value, on: e.getAttribute("aria-pressed") }; }`);
+  const slider = await spot(".nq-range");
+  await mouseClick(slider.x, slider.y);
+  const mid = Number((await spot(".nq-range")).v);
+  await key("ArrowRight", "ArrowRight", 39);
+  await sleep(200);
+  const longer = await preview();
+  check("settings: the slider is draggable and moves with the arrow keys; the suggestion follows its length",
+    Number((await spot(".nq-range")).v) === mid + 1 && longer && longer.length === mid + 1, JSON.stringify({ mid, len: longer && longer.length }));
+  const sym = await spot('.nq-chip[aria-label="Symbols"]');
+  await mouseClick(sym.x, sym.y);
+  await sleep(250);
+  const noSym = await preview();
+  check("settings: switching symbols off leaves letters and numbers only, and the card stays open",
+    noSym && /^[A-Za-z0-9]+$/.test(noSym) && !!(await menuInfo()), String(noSym && noSym.length));
+  const kept = (await local()).genOptions;
+  check("settings are remembered for next time and the popup", kept && kept.symbols === false && kept.length === mid + 1, JSON.stringify(kept));
+  await resetState({ suggestOnFocus: false });
+  await load(`http://localhost:${PORT}/test-pages/signup-plain.html`);
   await clickId("dv-pass");
   await waitFor(menuInfo, 1500);
   await cdp("Input.insertText", { text: "x" }, page);

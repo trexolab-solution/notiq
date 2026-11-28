@@ -233,3 +233,23 @@ test("sign-up or sign-in: the whole form decides, not just the password field", 
   for (const [name, s] of Object.entries(signups)) assert.equal(FK.isSignup(s), true, `${name}: ${FK.signupScore(s)}`);
   for (const [name, s] of Object.entries(signins)) assert.equal(FK.isSignup(s), false, `${name}: ${FK.signupScore(s)}`);
 });
+
+test("the user's settings shape the password, and the site's rules still win", () => {
+  const lower = "abcdefghjkmnpqrstuvwxyz", digits = "23456789";
+  const mine = { length: 10, floor: 10, classes: [lower, digits] };
+  for (const r of many({}).slice(0, 1)) assert.equal(r.password.length, 20); // no settings: as before
+  for (let i = 0; i < 30; i++) {
+    const r = FK.generateFor({}, mine);
+    assert.equal(r.password.length, 10);
+    assert.match(r.password, /^[a-z2-9]+$/);
+    assert.match(r.password, /[a-z]/); assert.match(r.password, /[2-9]/);
+    assert.equal(r.limited, false);
+    // A shorter site limit wins over the chosen length.
+    const short = FK.generateFor({ maxLength: 8 }, mine);
+    assert.equal(short.password.length, 8);
+    assert.equal(short.limited, true);
+    // A class the site requires is used even though the user left it off.
+    const strict = FK.generateFor({ rules: "required: lower; required: upper; required: digit" }, mine);
+    assert.match(strict.password, /[A-Z]/);
+  }
+});
