@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react'
 import { Minus, X } from 'lucide-react'
 import { appWin } from '../../lib/tauriWindow'
 import { Tooltip } from '../ui/Tooltip'
-import { maybeShowTrayNotice } from './trayNotice'
 
 function MaximizeIcon() {
   return (
@@ -23,7 +22,11 @@ function RestoreIcon() {
   )
 }
 
-/** `onClose` replaces the default (hide to the tray), for windows that really close, like the file manager's. */
+/**
+ * `onClose` replaces the default, for windows that really close, like the file manager's. The default asks the main
+ * window to close: the backend turns that into "to the tray" and says so (`vault-window-hidden`), which is what locks
+ * the vault, ends trusted sites and closes server connections. Hiding it from here would skip all of that.
+ */
 export function WindowControls({ onClose }: { onClose?: () => void } = {}) {
   const [maximized, setMaximized] = useState(false)
 
@@ -56,7 +59,7 @@ export function WindowControls({ onClose }: { onClose?: () => void } = {}) {
         </button>
       </Tooltip>
       <Tooltip content="Close" delay={800}>
-        <button className="win-btn win-btn--close" aria-label="Close" onClick={() => { if (onClose) onClose(); else { win.hide(); maybeShowTrayNotice() } }}>
+        <button className="win-btn win-btn--close" aria-label="Close" onClick={() => { if (onClose) onClose(); else void win.close() }}>
           <X size={11} strokeWidth={1.8} />
         </button>
       </Tooltip>

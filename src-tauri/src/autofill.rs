@@ -970,7 +970,8 @@ fn wait_for(flag: &AtomicBool, limit: Duration) -> bool {
 //
 // Approval happens in a small, separate, always-on-top window (label `autofill-prompt`, route
 // `#/autofill-prompt`): the main window is never raised. The window is created hidden on the first
-// request and then kept alive (hidden) so the per-site trust window kept in its JS survives. Its JS
+// request. On Windows it is closed again shortly after it is hidden, unless its page asked to be kept: it
+// holds the per-site trust window in its JS, and the fallback clipboard wipe timer. Its JS
 // decides whether the user is needed at all: a trusted site, no match or an unchanged save is
 // answered without the window ever being shown. Only when it needs the user does it call
 // `autofill_prompt_show`; after the answer it calls `autofill_prompt_hide`, which hands the focus
@@ -1104,10 +1105,10 @@ fn hide_prompt(app: &AppHandle, restore: bool) {
 const PROMPT_IDLE_CLOSE: Duration = Duration::from_millis(1500);
 /// Which hide is the latest one: only its timer may close the window.
 static HIDE_GEN: AtomicU64 = AtomicU64::new(0);
-/// The prompt page still has a timer of its own to run until then (`now_ms`); see `autofill_prompt_keep`.
+/// The prompt page holds something that lasts until then (`now_ms`); see `autofill_prompt_keep`.
 static KEEP_UNTIL: AtomicU64 = AtomicU64::new(0);
-/// Longest the page may ask to be kept: the longest "Clear copied secrets after" is 2 minutes.
-const MAX_KEEP_MS: u64 = 125_000;
+/// Longest the page may ask to be kept: a trusted site lasts 5 minutes, the longest clipboard wipe 2.
+const MAX_KEEP_MS: u64 = 302_000;
 
 /// Whether the hidden prompt may be closed now: nothing waits for it, no show is on, and no later hide
 /// has its own timer running (pure).
@@ -1149,8 +1150,8 @@ fn destroy_prompt(app: &AppHandle) {
     crate::capture_shield::forget(PROMPT_LABEL);
 }
 
-/// The prompt page has to stay loaded for `ms` more (its own timer wipes a copied secret when the native
-/// copy wasn't available).
+/// The prompt page has to stay loaded for `ms` more: a site was just trusted for a while, or its own timer
+/// has to wipe a copied secret because the native copy wasn't available.
 #[tauri::command]
 pub fn autofill_prompt_keep(ms: u64) {
     KEEP_UNTIL.fetch_max(now_ms() + ms.min(MAX_KEEP_MS), Ordering::AcqRel);

@@ -19,7 +19,7 @@ import { CheckingStage, PasskeyCreateStage, PasskeyGetStage, SaveStage, WarningS
  * This window stays hidden unless it needs the user: a trusted site, no match or an unchanged save
  * is answered silently. Otherwise it sizes itself to its content, asks Rust to show it (centred,
  * always on top, focused), and after the answer hides again and hands the focus back to the browser.
- * The window lives for the whole session (hidden) so the 5-minute trust windows survive.
+ * An idle window is closed after it hides, except while a 5-minute trust window needs this page.
  *
  * The request queue and state machine are in ./prompt/usePromptMachine; each stage's view is in ./prompt.
  */

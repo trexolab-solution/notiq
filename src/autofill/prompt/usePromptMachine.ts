@@ -129,7 +129,11 @@ export function usePromptMachine() {
         return;
       case "release":
         try {
-          if (e.trustHost) trustHost(e.trustHost);
+          if (e.trustHost) {
+            const until = trustHost(e.trustHost);
+            // The trust lives in this page: the hidden window must not be closed while it lasts.
+            void Promise.resolve(invoke("autofill_prompt_keep", { ms: until - Date.now() + 1000 })).catch(() => {});
+          }
           await reply(e.id, e.copy ? await copyForExtension(e.match, e.copy) : await fillReply(e.match, e.intent));
         } catch {
           await reply(e.id, { error: "failed" });
