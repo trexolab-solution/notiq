@@ -1,9 +1,23 @@
 import { useEffect, useState } from "react";
-import { Lock } from "lucide-react";
-import { Button } from "../ui/Button";
+import { CreditCard, FileLock2, IdCard, KeyRound, ListChecks, Terminal, Wifi, type LucideIcon } from "lucide-react";
+import { LockHero } from "./LockHero";
 import { useVaultStore } from "../../store/vaultStore";
 import { useAppStore } from "../../store";
+import { SECRET_KINDS } from "../../lib/secretEntry";
+import { LOGIN_EXT } from "../../lib/loginEntry";
+import { CODES_EXT } from "../../lib/recoveryCodes";
 import type { Tab } from "../../types";
+
+const ICONS: Record<string, LucideIcon> = {
+  [LOGIN_EXT]: KeyRound, [CODES_EXT]: ListChecks,
+  ssh: Terminal, secret: KeyRound, card: CreditCard, wifi: Wifi, identity: IdCard,
+};
+
+/** What the locked item is, from its kind alone (nothing is decrypted to find out). */
+function kindOf(ext: string | undefined): { label: string; icon: LucideIcon } {
+  const label = ext === LOGIN_EXT ? "Login" : ext === CODES_EXT ? "Recovery codes" : (ext && SECRET_KINDS[ext]?.label) || "Encrypted note";
+  return { label, icon: (ext && ICONS[ext]) || FileLock2 };
+}
 
 /** Shown in place of the editor while a `.nqv` tab is locked. Shows no content. */
 export function LockedNoteView({ tab }: { tab: Tab }) {
@@ -28,29 +42,21 @@ export function LockedNoteView({ tab }: { tab: Tab }) {
     }
   };
 
+  const { label, icon: KindIcon } = kindOf(tab.vaultExt);
+  const title = tab.title.replace(/\.nqv$/i, "");
+
   return (
     <div
       data-tour="editor"
-      className="flex-1 flex flex-col items-center justify-center gap-5 select-none bg-[var(--color-editor-bg)]"
+      className="flex-1 min-h-0 overflow-y-auto flex p-8 select-none bg-[var(--color-editor-bg)]"
     >
-      <div
-        className="flex items-center justify-center w-14 h-14 rounded-2xl"
-        style={{
-          background: "color-mix(in srgb, var(--color-primary) 12%, var(--color-bg-secondary))",
-          color: "var(--color-primary)",
-        }}
-      >
-        <Lock size={24} strokeWidth={1.5} />
-      </div>
-      <div className="text-center">
-        <p className="text-sm font-semibold mb-1 text-[var(--color-text)]">{tab.title}</p>
-        <p className="text-xs mb-4 text-[var(--color-text-muted)]">
-          This note is locked. Enter your master password to open it.
-        </p>
-        <Button variant="primary" size="sm" icon={<Lock size={13} />} onClick={unlock} loading={busy} loadingText="Unlocking…" autoFocus>
-          Unlock
-        </Button>
-      </div>
+      {/* `m-auto`: centred, and still scrollable from the top in a very short window. */}
+      <section aria-labelledby={`locked-${tab.id}`} className="m-auto w-full flex justify-center">
+        <LockHero icon={KindIcon} badge eyebrow={label} title={title} titleId={`locked-${tab.id}`}
+                  text="Unlock your vault to open this item." action="Unlock vault"
+                  onUnlock={() => { void unlock(); }} busy={busy} autoFocus
+                  note="Its contents stay encrypted until you unlock." />
+      </section>
     </div>
   );
 }

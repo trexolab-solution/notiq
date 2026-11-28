@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { Cloud, Lock, LockOpen, ShieldCheck } from "lucide-react";
+import { Cloud, Lock, ShieldCheck } from "lucide-react";
+import { LockHero } from "./LockHero";
 import { useVaultStore } from "../../store/vaultStore";
 import { useVaultItems } from "./sidebar/useVaultItems";
 import { PanelHeader } from "./sidebar/PanelHeader";
@@ -52,24 +53,11 @@ const SECONDARY_BTN = "inline-flex items-center justify-center gap-1.5 px-3 py-1
 
 function LockedState() {
   return (
-    <div className="flex flex-col items-center gap-5 w-full max-w-[232px]" data-testid="vault-locked">
-      <span className="grid place-items-center w-12 h-12 rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-secondary)] text-[var(--color-primary)]" aria-hidden>
-        <Lock size={20} strokeWidth={1.75} />
-      </span>
-      <div className="flex flex-col gap-1.5">
-        <h2 className="text-sm font-semibold text-[var(--color-text)]">Unlock to see your secrets</h2>
-        <p className="text-xs leading-relaxed text-[var(--color-text-muted)]">
-          Your logins, SSH keys and notes open with your master password.
-        </p>
-      </div>
-      <button type="button" className={`${PRIMARY_BTN} w-full inline-flex items-center justify-center gap-2 py-2`}
-              onClick={() => void useVaultStore.getState().ensureUnlocked()}>
-        <LockOpen size={14} aria-hidden /> Unlock
-      </button>
-      <p className="flex items-start gap-1.5 text-left text-[11px] leading-snug text-[var(--color-text-muted)]">
-        <ShieldCheck size={13} className="shrink-0 mt-px" aria-hidden />
-        Names, tags and contents stay encrypted on this device until you unlock.
-      </p>
+    <div className="flex justify-center w-full" data-testid="vault-locked">
+      <LockHero icon={Lock} title="Unlock to see your secrets" action="Unlock"
+                text="Your logins, SSH keys and notes open with your master password."
+                onUnlock={() => { void useVaultStore.getState().ensureUnlocked(); }}
+                note="Names, tags and contents stay encrypted on this device until you unlock." />
     </div>
   );
 }
