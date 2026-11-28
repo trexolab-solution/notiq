@@ -1073,6 +1073,7 @@ fn ensure_prompt(app: &AppHandle) -> Result<(), String> {
         if let Some(w) = app.get_webview_window(PROMPT_LABEL) {
             // A hidden window with a hidden webview: nothing renders until a show (see `set_webview_visible`).
             crate::quick_search::set_webview_visible(&w, false);
+            park_off_screen(&w);
         }
         crate::capture_shield::refresh(app);
         crate::window_log::log("autofill prompt created (hidden)");
@@ -1090,15 +1091,31 @@ fn hide_prompt(app: &AppHandle, restore: bool) {
     let _ = w.hide();
     // The webview goes with the window: a hidden Chromium surface is stale, and showing it again could flash blank / white.
     crate::quick_search::set_webview_visible(&w, false);
+    park_off_screen(&w);
     let prev = take_prev_foreground();
     if restore && had_focus {
         restore_foreground(prev);
     }
-    // Windows: a prompt that was shown once and only hidden can still come out as an empty white box in a
-    // screenshot while the capture shield is off. So it doesn't stay around: the next request makes a new one.
+    // Windows: a prompt that is only hidden can still come out as an empty white box in a screenshot while the
+    // capture shield is off. So it doesn't stay around: the next request makes a new one.
     if cfg!(windows) {
         close_prompt_later(app);
     }
+}
+
+/// Where the prompt waits while nobody asked to see it: far outside every monitor, so that whatever makes the
+/// hidden window come out (it has shown up as an empty white box) draws it where it can't be seen. Only moved,
+/// never resized: the page remembers the size it last set. `autofill_prompt_show` brings it back to a monitor.
+const PARKED_AT: (i32, i32) = (-32000, -32000);
+
+fn park_off_screen(w: &tauri::WebviewWindow) {
+    let _ = w.set_position(tauri::PhysicalPosition::new(PARKED_AT.0, PARKED_AT.1));
+}
+
+/// Whether a finished request has to arrange the closing of the prompt itself (pure). One that was shown ends with
+/// a hide, which does it; one answered without showing never hides. One asked by the main window left no prompt.
+pub fn answered_unseen(show_asked: bool, used_fallback: bool) -> bool {
+    !show_asked && !used_fallback
 }
 
 /// How long a hidden prompt is kept, for a request that follows right away.
@@ -1183,6 +1200,8 @@ fn await_ui(app: &AppHandle, event: &str, mut payload: Value, allow_fallback: bo
         p.insert(id.clone(), tx);
     }
 
+    // The kind of request only: never the site or anything from it.
+    crate::window_log::log(&format!("autofill request {event}"));
     let routed = ensure_prompt(app).and_then(|()| app.emit_to(PROMPT_LABEL, event, payload.clone()).map_err(|e| e.to_string()));
     if routed.is_err() {
         discard_prompt(app);
@@ -1215,8 +1234,15 @@ fn await_ui(app: &AppHandle, event: &str, mut payload: Value, allow_fallback: bo
         }
         json!({ "error": "timeout" })
     });
+    let used_fallback = fallback.is_some();
     if let Some(f) = fallback {
         f.finish();
+    }
+    // A save check, the popup's list, a trusted site: answered without a show, so no hide will follow. Without
+    // this the window they created would live until Notiq quits.
+    if cfg!(windows) && answered_unseen(SHOW_ASKED.load(Ordering::Acquire), used_fallback) {
+        crate::window_log::log(&format!("autofill request {event} ended with the prompt not on screen"));
+        close_prompt_later(app);
     }
     reply
 }
@@ -2134,6 +2160,18 @@ mod tests {
         // On screen although never asked for (a blank box), even with a request waiting.
         assert!(!prompt_guard_step(true, false, 1, &mut n));
         assert!(prompt_guard_step(true, false, 1, &mut n));
+    }
+
+    #[test]
+    fn a_request_answered_without_a_show_closes_the_prompt_itself() {
+        assert!(answered_unseen(false, false)); // save check, list, trusted site
+        assert!(!answered_unseen(true, false)); // on screen: its hide closes it
+        assert!(!answered_unseen(false, true)); // the main window asked instead
+    }
+
+    #[test]
+    fn the_parked_prompt_is_outside_any_monitor_layout() {
+        assert!(PARKED_AT.0 <= -16_000 && PARKED_AT.1 <= -16_000);
     }
 
     #[test]
