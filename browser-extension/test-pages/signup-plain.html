@@ -1,0 +1,47 @@
+<!doctype html>
+<!--
+  Sign-up forms with no autocomplete hints and one password field, next to a plain
+  login that has a "Create account" side button. The sign-ups must get the password
+  card and no saved-login icon on the email; the login must stay a login.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Notiq test page: plain forms</title>
+<style>
+  body { margin: 0; padding: 16px; font: 15px/1.45 system-ui, sans-serif; }
+  form, .box { width: 360px; margin: 0 0 24px; }
+  input { box-sizing: border-box; width: 100%; height: 40px; margin-bottom: 8px; font: inherit; }
+</style>
+</head>
+<body>
+  <form id="plain-up">
+    <h2>Create your account</h2>
+    <input id="up-email" name="email" type="email">
+    <input id="up-pass" name="password" type="password">
+    <button type="submit">Sign up</button>
+  </form>
+
+  <!-- the same without a <form> -->
+  <div class="box">
+    <h2>Register</h2>
+    <div>
+      <input id="dv-email" name="email" type="email">
+      <input id="dv-pass" name="password" type="password">
+      <button type="button">Create account</button>
+    </div>
+  </div>
+
+  <form id="plain-in">
+    <h2>Welcome back</h2>
+    <input id="in-email" name="email" type="email">
+    <input id="in-pass" name="password" type="password">
+    <a href="#">Forgot password?</a>
+    <button type="submit">Sign in</button>
+    <button type="button">Create account</button>
+  </form>
+<script>
+  for (const f of document.forms) f.addEventListener("submit", (e) => e.preventDefault());
+</script>
+</body>
+</html>

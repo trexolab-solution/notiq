@@ -386,8 +386,40 @@
     return out;
   }
 
+  // ---------- sign-up or sign-in? ----------
+  // Many sign-up forms carry no autocomplete="new-password" and have one password
+  // field, so the field alone can't tell. The whole form is weighed instead: its
+  // buttons, heading, name, URL and the other things it asks for. Each side counts
+  // once per signal, so a signal naming both ("Sign in or register") cancels out.
+  const SIGNUP_AT = 3;
+  const NEW_PW_TEXT = /new.?pass|confirm|repeat|retype|re-?enter|verify|pass(word)?.?2|(create|choose|set)( an?| your)?( new| strong)?.?pass/i;
+  const UP_BUTTON = /\bsign.?up\b|\bregist(er|ration|rieren)\b|\bcreate( an?| my| your)?( new| free)? (account|profile)\b|\bjoin( now| us| free)?$|\bget started\b|\bstart( your)?( free)? trial\b/i;
+  const IN_BUTTON = /^\W*(log.?[io]n|sign.?in|anmelden)\b/i;
+  const UP_NAME = /sign.?up|regist|create.?(an.?)?account|new.?account|enrol|\bjoin\b/i;
+  const IN_NAME = /log.?[io]n|sign.?in/i;
+  const FORGOT = /forgot|forgotten|reset( your| my)? password|(trouble|problem|help) (signing|logging) ?in|passwort vergessen/i;
+  const REMEMBER = /remember me|keep me (signed|logged) in|stay (signed|logged) in/i;
+  const TERMS = /\bagree\b|\bterms\b|privacy policy/i;
+
+  // s: { autocomplete: [tokens], hint, newPasswords (visible, not "current"), buttons: [submit texts], formName,
+  //      path, headings, links, checks, nameField, confirmEmail } — every part optional.
+  function signupScore(s) {
+    const any = (re, v) => [].concat(v || []).some((t) => re.test(String(t).trim()));
+    const sides = (up, down, v, plus, minus) => (any(up, v) ? plus : 0) - (any(down, v) ? minus : 0);
+    const ac = s.autocomplete || [];
+    return (ac.includes("new-password") ? 4 : 0) - (ac.includes("current-password") ? 6 : 0) +
+      (any(NEW_PW_TEXT, s.hint) ? 4 : 0) + (s.newPasswords >= 2 ? 5 : 0) +
+      sides(UP_BUTTON, IN_BUTTON, s.buttons, 4, 4) +
+      sides(UP_NAME, IN_NAME, s.formName, 3, 3) +
+      sides(UP_NAME, IN_NAME, s.path, 3, 2) +
+      sides(UP_NAME, IN_NAME, s.headings, 3, 3) -
+      (any(FORGOT, s.links) ? 4 : 0) - (any(REMEMBER, s.checks) ? 2 : 0) +
+      (any(TERMS, s.checks) ? 2 : 0) + (s.nameField ? 2 : 0) + (s.confirmEmail ? 2 : 0);
+  }
+  const isSignup = (s) => signupScore(s) >= SIGNUP_AT;
+
   const api = Object.freeze({
-    DEFAULT_LEN, MIN_LEN, DEFAULT_CLASSES,
+    DEFAULT_LEN, MIN_LEN, DEFAULT_CLASSES, signupScore, isSignup,
     parsePasswordRules, simplePattern, planPassword, drawPassword, generateFor, mergeConstraints,
     deepQuery, shadowRoots, deepActive, parentAcross,
     nameTokens, nameKey, customFillable, describeField, matchCustomFields,

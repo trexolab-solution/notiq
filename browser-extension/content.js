@@ -72,6 +72,7 @@
     timeout: "No answer from Notiq in time.",
     not_https: "Autofill only works on secure (https) pages.",
     no_fields: "Couldn't find a login form on this page.",
+    no_username: "This login has no username saved. Add it in Notiq.",
     bad_request: "Notiq couldn't read this login.",
     expired: "This save offer expired.",
     busy: "Notiq is already waiting for your approval.",
@@ -86,7 +87,7 @@
   const SAVE_TEXT = { saved: "Saved to Notiq", updated: "Password updated in Notiq", unchanged: "Already saved" };
   const RETRYABLE = new Set(["locked", "timeout", "app_not_running", "no_host", "no_reply", "busy"]);
 
-  const ICON = 18, MIN_W = 120, MIN_H = 16;
+  const ICON_MIN = 14, ICON_MAX = 28, MIN_W = 120, MIN_H = 16;
   const MAX_PW = 1024, MAX_USER = 512;
   const USER_TTL = 5 * 60 * 1000, BAR_IDLE = 25 * 1000, DEDUPE_MS = 3000;
   const LOGIN_PATH = /login|signin|sign-in|sso|auth/i;
@@ -206,18 +207,67 @@
 
   // Sign-up / change-password detection.
   const isCurrentPw = (i) => isPassword(i) && (acOf(i).includes("current-password") || CURRENT_HINT.test(hintOf(i)));
+  // The part of the page that makes up `field`'s form: the <form>, else the closest
+  // ancestor that has a button (not the whole body).
+  function areaOf(field) {
+    if (field.form) return field.form;
+    let n = FK.parentAcross(field);
+    for (let i = 0; n && n.nodeType === 1 && i < 8; i++, n = FK.parentAcross(n)) {
+      if (n === document.body || n === document.documentElement) break;
+      if (deepAll(n, 'button, input[type="submit"]').some((b) => shown(b))) return n;
+    }
+    return scopeOf(field);
+  }
+  const textsOf = (nodes, max = 20) => Array.from(nodes).slice(0, max)
+    .map((n) => String(n.value && n.tagName === "INPUT" ? n.value : n.textContent || attr(n, "aria-label")).replace(/\s+/g, " ").trim().slice(0, 160));
+  const labelTextOf = (i) => [attr(i, "aria-label"), ...textsOf(i.labels || [], 3)];
+  const NAME_FIELD = /(first|last|full|given|family).?name|^name$/i;
+  // What the form around `field` says about itself (see NotiqFill.signupScore).
+  function formSignals(field, newPasswords) {
+    const area = areaOf(field);
+    const all = (sel) => deepAll(area, sel);
+    // Submit buttons only: a "Create account" side button on a sign-in form is not its action.
+    const buttons = all('button, input[type="submit"]').filter((b) => shown(b) && (!field.form || b.type === "submit"));
+    let headings = textsOf(all("h1, h2, h3, legend"), 4);
+    if (!headings.length) headings = [...textsOf(document.querySelectorAll("h1"), 1), document.title];
+    const near = area.parentElement && area.parentElement !== document.documentElement && area.parentElement !== document.body ? area.parentElement : area;
+    const inputs = inputsIn(area);
+    return {
+      autocomplete: acOf(field),
+      hint: [hintOf(field), ...labelTextOf(field)],
+      newPasswords,
+      buttons: textsOf(buttons, 6),
+      formName: area.nodeType === 1 ? `${attr(area, "id")} ${attr(area, "name")} ${attr(area, "class")} ${attr(area, "action").split("?")[0]}` : "",
+      path: location.pathname,
+      headings,
+      links: textsOf(deepAll(near, 'a, button, [role="button"]'), 30),
+      checks: inputs.filter((i) => typeOf(i) === "checkbox").flatMap((i) => labelTextOf(i)),
+      nameField: inputs.some((i) => isTextual(i) && shown(i) &&
+        (acOf(i).some((t) => ["name", "given-name", "family-name"].includes(t)) || NAME_FIELD.test(i.name || i.id || ""))),
+      confirmEmail: inputs.some((i) => isTextual(i) && /(confirm|repeat|retype|verify).{0,8}e?-?mail/i.test(hintOf(i))),
+    };
+  }
+
   // For a "new password" field: the fields a generated password goes into (the
   // new one and any confirm field in the same form) and the current-password
   // field if the form has one. null for ordinary login password fields.
   function newPasswordInfo(field) {
     if (!isPassword(field) || isCurrentPw(field)) return null;
     const pws = inputsIn(scopeOf(field)).filter((i) => isPassword(i) && usable(i));
-    const isNew = acOf(field).includes("new-password") || NEW_HINT.test(hintOf(field)) || pws.length >= 2;
-    if (!isNew) return null;
-    const targets = pws.filter((i) => !isCurrentPw(i));
+    let current = pws.find(isCurrentPw) || null;
+    // Old + new + confirm with nothing marking the old one: it is the first.
+    if (!current && pws.length >= 3) current = pws[0];
+    if (field === current) return null;
+    const others = pws.filter((i) => i !== current);
+    // With a current-password field beside it, a second field that is marked new is a change form.
+    const marked = acOf(field).includes("new-password") || NEW_HINT.test(hintOf(field));
+    if (!(current && (marked || others.length >= 2)) && !FK.isSignup(formSignals(field, others.length))) return null;
+    const targets = others.slice();
     if (!targets.includes(field)) targets.unshift(field);
-    return { targets, current: pws.find(isCurrentPw) || null };
+    return { targets, current };
   }
+  // A username / email field that belongs to a sign-up step with no password yet.
+  const signupStep = (field) => FK.isSignup({ ...formSignals(field, 0), autocomplete: [] });
 
   // Split one-time-code boxes: 4–8 consecutive single-character inputs, at
   // least one of which says it takes a code / digits.
@@ -263,6 +313,8 @@
     for (const pw of inputsIn(document)) {
       if (!isPassword(pw) || !usable(pw) || cardKindOf(pw)) continue; // a masked CVC field is not a login
       out.add(pw);
+      // Creating or changing a password: a saved login doesn't belong in the other fields.
+      if (newPasswordInfo(pw)) continue;
       for (const i of inputsIn(scopeOf(pw))) if (i !== pw && isUserLike(i) && usable(i)) out.add(i);
     }
     // Username-first flows: the only text field of a form on a login-looking URL.
@@ -271,7 +323,13 @@
         const ins = inputsIn(form);
         if (ins.some((i) => isPassword(i) && shown(i))) continue;
         const texts = ins.filter((i) => isTextual(i) && shown(i));
-        if (texts.length === 1 && isUserLike(texts[0]) && usable(texts[0])) out.add(texts[0]);
+        if (texts.length === 1 && isUserLike(texts[0]) && usable(texts[0]) && !signupStep(texts[0])) out.add(texts[0]);
+      }
+      // The same step built without a <form> (Google): only a field that declares itself the
+      // username, and only when it is the single one and no password field is showing.
+      if (!anyVisiblePassword()) {
+        const named = inputsIn(document).filter((i) => !i.form && isTextual(i) && !isOtp(i) && acOf(i).includes("username") && shown(i));
+        if (named.length === 1 && usable(named[0]) && !signupStep(named[0])) out.add(named[0]);
       }
     }
     return out;
@@ -291,23 +349,30 @@
   --nq-primary-hover: color-mix(in srgb, var(--nq-primary) 86%, var(--nq-text));
   color: var(--nq-text); font: 13px/1.4 var(--nq-font); }
 .nq-root[data-nq-mode="light"] { --nq-shadow: 0 10px 28px color-mix(in srgb, #0f172a 16%, transparent), 0 1px 3px color-mix(in srgb, #0f172a 14%, transparent); }
-.nq-wrap { position: fixed; width: ${ICON}px; height: ${ICON}px; pointer-events: none; }
+.nq-wrap { position: fixed; pointer-events: none; }
 .nq-icon { all: initial; box-sizing: border-box; position: absolute; inset: 0; width: 100%; height: 100%;
-  display: flex; align-items: center; justify-content: center; border-radius: 5px; cursor: pointer;
-  pointer-events: auto; background: var(--nq-bg2); color: var(--nq-primary); opacity: .94;
-  box-shadow: 0 0 0 1px var(--nq-ring), 0 1px 3px color-mix(in srgb, #000 30%, transparent); transition: opacity .15s, transform .15s; }
+  display: flex; align-items: center; justify-content: center; border-radius: 30%; cursor: pointer; pointer-events: auto;
+  background: linear-gradient(145deg, color-mix(in srgb, var(--nq-primary) 88%, #fff), var(--nq-primary) 55%, color-mix(in srgb, var(--nq-primary) 84%, #000));
+  color: var(--nq-on-primary); opacity: .86;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, #fff 18%, transparent), 0 1px 2px color-mix(in srgb, #000 28%, transparent);
+  transition: opacity .15s, transform .15s, box-shadow .15s; animation: nq-pop .18s ease-out; }
+.active .nq-icon, .waiting .nq-icon, .done .nq-icon, .error .nq-icon { opacity: 1; }
+.active .nq-icon { box-shadow: inset 0 0 0 1px color-mix(in srgb, #fff 18%, transparent), 0 0 0 3px color-mix(in srgb, var(--nq-primary) 24%, transparent), 0 1px 3px color-mix(in srgb, #000 28%, transparent); }
 .nq-icon:hover { opacity: 1; transform: scale(1.08); }
+.nq-icon:active { transform: scale(.94); }
 .nq-icon:focus-visible { outline: 2px solid var(--nq-primary); outline-offset: 2px; }
-.nq-icon svg { width: 12px; height: 12px; display: block; }
+.nq-icon svg { width: 68%; height: 68%; display: block; }
 .nq-spin { display: none; width: 9px; height: 9px; border-radius: 50%; border: 2px solid color-mix(in srgb, var(--nq-primary) 30%, transparent);
   border-top-color: var(--nq-primary); animation: nq-rot .8s linear infinite; }
+.nq-icon .nq-spin { box-sizing: border-box; width: 58%; height: 58%;
+  border-color: color-mix(in srgb, var(--nq-on-primary) 35%, transparent); border-top-color: var(--nq-on-primary); }
 .nq-ok, .nq-err { display: none !important; }
-.waiting .nq-key, .done .nq-key, .error .nq-key { display: none; }
+.waiting .nq-mark, .done .nq-mark, .error .nq-mark { display: none; }
 .waiting .nq-spin { display: block; }
 .done .nq-ok, .error .nq-err { display: block !important; }
-.done .nq-icon { color: var(--nq-success); }
-.error .nq-icon { color: var(--nq-danger); box-shadow: 0 0 0 1px color-mix(in srgb, var(--nq-danger) 70%, transparent), 0 1px 3px color-mix(in srgb, #000 30%, transparent); }
-.nq-tip { display: none; position: absolute; top: ${ICON + 6}px; right: 0; width: max-content; max-width: 240px;
+.done .nq-icon { background: var(--nq-success); color: var(--nq-bg); }
+.error .nq-icon { background: var(--nq-danger); color: var(--nq-bg); }
+.nq-tip { display: none; position: absolute; top: calc(100% + 6px); right: 0; width: max-content; max-width: 240px;
   padding: 6px 9px; border-radius: 7px; background: var(--nq-bg); color: var(--nq-text); border: 1px solid var(--nq-line);
   font: 500 12px/1.35 var(--nq-font); box-shadow: var(--nq-shadow); }
 .has-tip .nq-tip { display: block; }
@@ -355,6 +420,28 @@
   font: 12.5px/1.35 ui-monospace, Consolas, monospace; word-break: break-all; user-select: all; }
 .nq-mrow { display: flex; gap: 6px; padding: 4px 2px 2px; }
 .nq-mrow .nq-item { flex: 1; text-align: center; }
+.nq-menu.nq-card { width: 304px; max-height: 380px; padding: 10px; border-radius: 12px; }
+.nq-chead { display: flex; align-items: center; gap: 9px; padding: 0 2px 8px; }
+.nq-chead .nq-smark { width: 28px; height: 28px; border-radius: 8px; background: var(--nq-primary); color: var(--nq-on-primary); }
+.nq-chead .nq-smark svg { width: 19px; height: 19px; }
+.nq-ctext { min-width: 0; }
+.nq-ctext .nq-isub { margin-top: 0; }
+.nq-card .nq-pw { margin: 0 0 8px; padding: 10px 11px; border: 1px solid var(--nq-line); border-radius: 8px; letter-spacing: .02em;
+  font-size: 14px; text-align: center; }
+.nq-pw-num { color: var(--nq-primary); }
+.nq-pw-sym { color: var(--nq-success); }
+.nq-meter { display: flex; gap: 4px; padding: 0 1px; }
+.nq-meter i { flex: 1; height: 4px; border-radius: 2px; background: color-mix(in srgb, var(--nq-text) 14%, transparent); transition: background .2s; }
+.nq-meter[data-level="0"] i:nth-child(-n+1) { background: var(--nq-danger); }
+.nq-meter[data-level="1"] i:nth-child(-n+2) { background: color-mix(in srgb, var(--nq-danger) 45%, var(--nq-success)); }
+.nq-meter[data-level="2"] i:nth-child(-n+3), .nq-meter[data-level="3"] i { background: var(--nq-success); }
+.nq-meta { padding: 5px 2px 6px; font-size: 11.5px; color: var(--nq-muted); }
+.nq-card .nq-mrow { padding: 2px 0 0; }
+.nq-card .nq-mrow .nq-item { border: 1px solid color-mix(in srgb, var(--nq-text) 18%, transparent); border-radius: 8px; }
+.nq-card .nq-mrow .nq-main { flex: 2; background: var(--nq-primary); border-color: var(--nq-primary); color: var(--nq-on-primary); }
+.nq-card .nq-mrow .nq-main:hover, .nq-card .nq-mrow .nq-main:focus { background: var(--nq-primary-hover); }
+.nq-card .nq-mrow .nq-main:focus-visible { box-shadow: 0 0 0 2px var(--nq-bg), 0 0 0 4px var(--nq-primary); }
+.nq-card .nq-mstatus { padding: 2px 2px 8px; }
 .nq-suggest { box-sizing: border-box; position: fixed; pointer-events: auto; padding: 4px; border-radius: 10px;
   background: var(--nq-bg); color: var(--nq-text); border: 1px solid var(--nq-line); box-shadow: var(--nq-shadow);
   animation: nq-in .14s ease-out; }
@@ -375,11 +462,13 @@
 .nq-btn.nq-danger { background: var(--nq-danger); border-color: var(--nq-danger); color: var(--nq-bg); }
 .nq-btn.nq-danger:hover { background: color-mix(in srgb, var(--nq-danger) 86%, var(--nq-text)); border-color: transparent; }
 @keyframes nq-rot { to { transform: rotate(360deg); } }
+@keyframes nq-pop { from { transform: scale(.6); } to { transform: none; } }
 @keyframes nq-in { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) {
   .nq-icon, .nq-bar, .nq-bar.out, .nq-menu, .nq-suggest { animation: none !important; transition: none !important; }
   .nq-icon:hover { transform: none; }
   .nq-spin { animation: none !important; border-color: var(--nq-primary); border-style: dotted; }
+  .nq-icon .nq-spin { border-color: var(--nq-on-primary); }
 }`;
 
   let shadowHost = null, root = null, layer = null;
@@ -440,6 +529,8 @@
     return s;
   }
   const KEY = ["C7.5,15.5,4.5", "M10.7 12.3 20 3", "M16.5 6.5l3 3", "M14 9l2 2"];
+  // The field icon: Notiq's "n".
+  const MARK = ["M7 17.5v-11", "M7 11c1.2-2.8 3.2-4.5 5.6-4.5 2.8 0 4.4 2 4.4 5.2v5.8"];
   const el = (tag, cls, text) => {
     const e = document.createElement(tag);
     if (cls) e.className = cls;
@@ -462,7 +553,9 @@
     btn.tabIndex = -1; // keyboard users have Alt+Shift+L; don't hijack the page's tab order
     btn.title = iconLabel(field);
     btn.setAttribute("aria-label", btn.title);
-    btn.appendChild(svg("nq-key", KEY));
+    const mark = svg("nq-mark", MARK);
+    mark.setAttribute("stroke-width", "3.2");
+    btn.appendChild(mark);
     btn.appendChild(el("span", "nq-spin"));
     btn.appendChild(svg("nq-ok", ["M5 12.5l4.5 4.5L19 7.5"]));
     btn.appendChild(svg("nq-err", ["M12 6v8", "M12 18v.5"]));
@@ -504,7 +597,8 @@
     const ic = icons.get(field);
     if (!ic) return;
     clearTimeout(ic.timer);
-    ic.wrap.className = `nq-wrap ${state}${text ? " has-tip" : ""}`;
+    const focused = ic.wrap.classList.contains("active") ? " active" : ""; // keep the focus highlight
+    ic.wrap.className = `nq-wrap ${state}${text ? " has-tip" : ""}${focused}`;
     ic.tip.textContent = text || "";
     const label = iconLabel(field);
     ic.btn.title = label;
@@ -520,8 +614,53 @@
     rafPending = true;
     requestAnimationFrame(() => { rafPending = false; positionAll(); });
   }
+  // The icon grows with the field (about half its height) and keeps the same gap to the
+  // right edge as above and below, so it looks centred in short and tall fields alike.
+  function iconBox(height) {
+    const size = Math.max(ICON_MIN, Math.min(ICON_MAX, Math.round(height * 0.27) * 2, Math.floor(height) - 2));
+    return { size, inset: Math.round(Math.max(4, Math.min(12, (height - size) / 2))) };
+  }
+  const holds = (a, b) => {
+    for (let n = b, i = 0; n && i < 64; i++, n = FK.parentAcross(n)) if (n === a) return true;
+    return false;
+  };
+  // The page's own control drawn inside the field's right end (show password, clear,
+  // another extension's button) at this point, or null. Something wide is a label or
+  // an overlay, not a control. pointer-events:none decorations can't be hit-tested.
+  function blockerAt(field, r, x, y) {
+    const tree = field.getRootNode();
+    if (!tree || typeof tree.elementsFromPoint !== "function") return null;
+    const top = tree.elementsFromPoint(x, y).find((n) => n !== shadowHost);
+    if (!top || holds(top, field)) return null;
+    const maxW = Math.max(64, r.height * 1.5), maxH = r.height + 12;
+    let box = null;
+    for (let n = top, i = 0; n && n.nodeType === 1 && i < 5 && !holds(n, field); i++, n = FK.parentAcross(n)) {
+      const b = n.getBoundingClientRect();
+      if (b.width > maxW || b.height > maxH) break;
+      if (b.width >= 8 && b.height >= 8) box = b;
+    }
+    return box && box.left > r.left + r.width / 2 ? box : null;
+  }
+  // Left edge for the icon: the right inside edge, moved left past anything already there.
+  function iconLeft(field, r, size, inset) {
+    const home = r.right - size - inset;
+    const y = r.top + r.height / 2;
+    let left = home;
+    for (let tries = 0; tries < 4; tries++) {
+      let block = null;
+      for (const x of [left + 2, left + size / 2, left + size - 2]) {
+        const b = blockerAt(field, r, x, y);
+        if (b && (!block || b.left < block.left)) block = b;
+      }
+      if (!block) return left;
+      left = Math.min(block.left - size - 4, left - 4);
+      if (left < r.left + r.width * 0.4) break; // no room: stay at the edge
+    }
+    return home;
+  }
   function positionAll() {
     const vw = window.innerWidth, vh = window.innerHeight;
+    const focus = activeField();
     for (const [field, ic] of Array.from(icons)) {
       if (!field.isConnected) { removeIcon(field); continue; }
       const boxes = codeFields.get(field);
@@ -529,12 +668,15 @@
       const minW = boxes ? 1 : codeFields.has(field) ? CODE_MIN_W : MIN_W;
       const onScreen = r.width >= minW && r.height >= MIN_H && r.bottom > 0 && r.top < vh && r.right > 0 && r.left < vw;
       if (!onScreen) { ic.wrap.style.display = "none"; continue; }
-      const size = Math.max(12, Math.min(ICON, r.height - 4));
-      const pad = Math.min(8, Math.max(3, (r.height - size) / 2));
+      const { size, inset } = iconBox(r.height);
       ic.wrap.style.display = "block";
       ic.wrap.style.width = ic.wrap.style.height = `${size}px`;
+      ic.wrap.classList.toggle("active", boxes ? boxes.includes(focus) : field === focus);
       // Split boxes are too small to hold it: it goes just after the last box (inside the viewport).
-      const left = boxes ? Math.min(vw - size - 2, r.right + 6) : r.right - size - pad;
+      let left;
+      if (boxes) left = Math.min(vw - size - 2, r.right + 6);
+      else if (getComputedStyle(field).direction === "rtl") left = r.left + inset;
+      else left = iconLeft(field, r, size, inset);
       ic.wrap.style.left = `${Math.round(left)}px`;
       ic.wrap.style.top = `${Math.round(r.top + (r.height - size) / 2)}px`;
     }
@@ -599,8 +741,15 @@
     try { f.focus(opts); } finally { quiet--; }
   }
   const viewport = () => ({ width: window.innerWidth, height: window.innerHeight });
+  // An empty new-password field gets the password card instead of "Fill with Notiq". It
+  // holds nothing from the vault, so it doesn't wait for "Suggest on field focus".
+  function offerPassword(field) {
+    if (!icons.has(field) || !iconsOn() || filling || dismissedFields.has(field) || typedField === field || field.value) return;
+    if (!menu || menu.field !== field) openNewPasswordMenu(field, newPasswordInfo(field), true);
+  }
   function maybeSuggest(field) {
     if (quiet || !isInput(field)) return;
+    if (isPassword(field) && newPasswordInfo(field)) { hideSuggest(); offerPassword(field); return; }
     const ok = NS.shouldSuggest({
       showIcon: iconsOn(), suggestOnFocus: settings.suggestOnFocus, detected: icons.has(field) && !codeFields.has(field),
       dismissed: dismissedFields.has(field), menuOpen: !!menu, filling, typed: typedField === field,
@@ -680,6 +829,7 @@
     schedulePosition();
     if (t === shadowHost) return; // focus moved into our own UI
     if (suggest && suggest.field !== t) hideSuggest();
+    if (menu && menu.auto && menu.field !== t && !quiet) closeMenu(false);
     if (quiet || !isInput(t)) return;
     typedField = null;
     if (icons.has(t)) { pendingFocus = null; maybeSuggest(t); } else pendingFocus = t;
@@ -691,6 +841,7 @@
     typedField = t; // typing means the user isn't after the suggestion
     if (isPassword(t)) typedPasswords.add(t);
     if (suggest && suggest.field === t) hideSuggest();
+    if (menu && menu.auto && menu.field === t) closeMenu(false);
   }
 
   // ---------- small menu next to an icon (generator, account chooser) ----------
@@ -713,7 +864,8 @@
     if (r.bottom < 0 || r.top > vh || r.right < 0 || r.left > vw) { node.style.display = "none"; return; }
     node.style.display = "block";
     const w = node.offsetWidth, h = node.offsetHeight;
-    const left = Math.max(8, Math.min(vw - w - 8, r.right - w));
+    // A card lines up with the field's start; a small menu with the icon at its end.
+    const left = Math.max(8, Math.min(vw - w - 8, node.classList.contains("nq-card") ? r.left : r.right - w));
     let top = r.bottom + 4;
     if (top + h > vh - 8 && r.top - h - 4 >= 8) top = r.top - h - 4;
     node.style.left = `${Math.round(left)}px`;
@@ -739,7 +891,8 @@
     if (items.length) items[(k + items.length) % items.length].focus({ preventScroll: true });
   }
   // build(node) fills the menu; the first item gets keyboard focus.
-  function openMenu(field, label, build) {
+  // `auto`: opened by focusing the field, so focus stays there and typing or leaving closes it.
+  function openMenu(field, label, build, auto = false) {
     closeMenu(false);
     ensureRoot();
     const node = el("div", "nq-menu");
@@ -752,7 +905,7 @@
       const at = items.indexOf(root.activeElement);
       const handled = { ArrowDown: () => focusItem(node, at + 1), ArrowUp: () => focusItem(node, at < 0 ? -1 : at - 1),
         Home: () => focusItem(node, 0), End: () => focusItem(node, -1),
-        Escape: () => closeMenu(true), Tab: () => closeMenu(true) }[e.key];
+        Escape: () => { if (menu && menu.auto) dismissedFields.add(field); closeMenu(true); }, Tab: () => closeMenu(true) }[e.key];
       if (!handled) return;
       e.preventDefault();
       e.stopPropagation();
@@ -760,10 +913,10 @@
     });
     hideSuggest();
     layer.appendChild(node);
-    menu = { node, field, cleanup: null };
+    menu = { node, field, auto, cleanup: null };
     build(node);
     positionMenu();
-    focusItem(node, 0);
+    if (!auto) focusItem(node, 0);
   }
 
   // ---------- strong password generator (local only) ----------
@@ -775,17 +928,66 @@
   const constraintsOf = (fields) => FK.mergeConstraints(fields.map((f) => ({
     maxLength: f.maxLength, minLength: f.minLength, rules: attr(f, "passwordrules"), pattern: attr(f, "pattern"),
   })));
-  function openNewPasswordMenu(field, info) {
+  // The password, coloured by kind (digits, symbols) so it can be read and checked.
+  function paintPassword(box, pw) {
+    box.textContent = "";
+    for (const run of pw.match(/[A-Za-z]+|[0-9]+|[^A-Za-z0-9]+/g) || []) {
+      box.appendChild(el("span", /^[0-9]/.test(run) ? "nq-pw-num" : /^[A-Za-z]/.test(run) ? "" : "nq-pw-sym", run));
+    }
+  }
+  // 0–3 from the entropy of what was actually made (a short site limit shows as weaker).
+  function strengthOf(pw) {
+    const pool = (/[a-z]/.test(pw) ? 25 : 0) + (/[A-Z]/.test(pw) ? 24 : 0) + (/[0-9]/.test(pw) ? 8 : 0) + (/[^A-Za-z0-9]/.test(pw) ? 13 : 0);
+    const bits = pw.length * Math.log2(pool || 1);
+    const level = bits < 45 ? 0 : bits < 65 ? 1 : bits < 90 ? 2 : 3;
+    return { level, label: ["Weak", "Fair", "Strong", "Very strong"][level] };
+  }
+  const cardHead = (title, sub) => {
+    const head = el("div", "nq-chead");
+    const logo = el("span", "nq-smark");
+    const mark = svg("", MARK);
+    mark.setAttribute("stroke-width", "3.2");
+    logo.appendChild(mark);
+    const text = el("span", "nq-ctext");
+    text.appendChild(el("span", "nq-ititle", title));
+    text.appendChild(el("span", "nq-isub", sub));
+    head.appendChild(logo);
+    head.appendChild(text);
+    return head;
+  };
+  // The card for a new-password field: a ready password to read, use or replace.
+  function openNewPasswordMenu(field, info, auto = false) {
     openMenu(field, "Notiq password options", (node) => {
-      const plan = FK.planPassword(constraintsOf(info.targets));
-      const len = plan.impossible ? FK.DEFAULT_LEN : plan.length;
-      const sub = plan.limited && !plan.impossible ? `${len} characters (this site's limit), filled into this form` : `${len} characters, filled into this form`;
-      node.appendChild(menuItem("Generate strong password", sub, () => generateInto(field)));
+      node.classList.add("nq-card");
+      const rules = constraintsOf(info.targets);
+      let gen = FK.generateFor(rules);
+      node.appendChild(cardHead("Suggested strong password", "Made on this device"));
+      const box = el("div", "nq-pw nq-preview");
+      const meter = el("div", "nq-meter");
+      for (let i = 0; i < 4; i++) meter.appendChild(el("i"));
+      const meta = el("div", "nq-meta");
+      const show = () => {
+        paintPassword(box, gen.password);
+        const s = strengthOf(gen.password);
+        meter.setAttribute("data-level", String(s.level));
+        meta.textContent = `${gen.password.length} characters · ${s.label}${gen.limited && !gen.fallback ? " · fits this site's rules" : ""}`;
+      };
+      show();
+      node.appendChild(box);
+      node.appendChild(meter);
+      node.appendChild(meta);
+      const row = el("div", "nq-mrow");
+      const use = menuItem("Use this password", null, () => generateInto(field, null, gen));
+      use.classList.add("nq-main");
+      row.appendChild(use);
+      row.appendChild(menuItem("New one", null, () => { gen = FK.generateFor(rules); show(); }));
+      node.appendChild(row);
       if (info.current) {
         const cur = info.current;
         node.appendChild(menuItem("Fill saved login", "Asks Notiq for approval", () => { closeMenu(false); doFill(cur, field); }));
       }
-    });
+      menu.cleanup = () => { box.textContent = ""; gen = null; };
+    }, auto);
   }
 
   // ---------- the icon's own menu (right-click on the icon): fill, "Hide Notiq on this site" ----------
@@ -807,12 +1009,13 @@
     });
   }
   // `only`: the fields to fill instead of the field's form (the right-click menu's "Generate password").
-  function generateInto(field, only) {
+  // `preset`: the password the card showed.
+  function generateInto(field, only, preset) {
     const info = only ? null : newPasswordInfo(field);
     const targets = only ? only.filter((i) => i.isConnected && shown(i) && !i.readOnly)
       : info ? info.targets.filter((i) => i.isConnected && usable(i)) : [];
     if (!targets.length || !menu) { closeMenu(true); setState(field, "error", TEXT.no_fields); return; }
-    let gen = FK.generateFor(constraintsOf(targets));
+    let gen = preset || FK.generateFor(constraintsOf(targets));
     let pw = gen.password;
     for (const t of targets) setValue(t, pw);
     // What the page kept must be exactly what we generated (a script may cut it to its own limit):
@@ -837,7 +1040,10 @@
     // The password stays in this closure / the fields only: nothing is sent
     // until the user submits the form and the normal save offer runs.
     const node = menu.node;
+    if (menu.cleanup) menu.cleanup();
+    menu.auto = false; // from here it stays until Done / Esc
     node.textContent = "";
+    node.classList.add("nq-card");
     const status = el("div", "nq-mstatus", targets.length > 1 ? `Strong password filled in ${targets.length} fields` : "Strong password filled");
     status.setAttribute("role", "status");
     if (gen.fallback) {
@@ -851,12 +1057,13 @@
       const on = show.getAttribute("aria-pressed") !== "true";
       show.setAttribute("aria-pressed", on ? "true" : "false");
       show.firstChild.textContent = on ? "Hide" : "Show";
-      if (on && pw) { box.textContent = pw; node.insertBefore(box, row); } else { box.textContent = ""; box.remove(); }
+      if (on && pw) { paintPassword(box, pw); node.insertBefore(box, row); } else { box.textContent = ""; box.remove(); }
       positionMenu();
     });
     show.setAttribute("aria-pressed", "false");
     row.appendChild(show);
     row.appendChild(menuItem("Done", null, () => closeMenu(true)));
+    if (settings.offerSave && !only) status.appendChild(el("span", "nq-mnote", "Notiq will offer to save it when you submit."));
     node.appendChild(status);
     node.appendChild(row);
     menu.cleanup = () => { box.textContent = ""; pw = null; };
@@ -1007,7 +1214,8 @@
         fields: NS.validCustomFields(res.fields), host: res.host,
       }, field);
       if (step && !n) send({ type: "stepCancel" });
-      setState(field, n ? "done" : "error", n ? "Filled" : TEXT.no_fields);
+      const why = !isPassword(anchor) && !res.username ? TEXT.no_username : TEXT.no_fields;
+      setState(field, n ? "done" : "error", n ? "Filled" : why);
     } else {
       if (step && res.ok) send({ type: "stepCancel" });
       setState(field, "error", res.ok ? GENERIC : errText(res.error));
@@ -1484,6 +1692,17 @@
         return;
       }
     }
+    if (menu && menu.auto && realTarget(e) === menu.field) {
+      // The password card opened by itself: ArrowDown steps into it, Esc keeps it away.
+      if (e.key === "ArrowDown" && !e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
+        e.preventDefault();
+        e.stopPropagation();
+        focusItem(menu.node, 0);
+        return;
+      }
+      if (e.key === "Escape") dismissedFields.add(menu.field);
+      if (e.key === "Tab" || e.key === "Enter") closeMenu(false);
+    }
     if (e.key === "Escape" && menu) { closeMenu(true); return; }
     if (e.key === "Escape" && bar) { closeBar(true); return; }
     if (e.key === "Escape" && warn && realTarget(e) === shadowHost) { closeWarn(); return; }
@@ -1503,7 +1722,8 @@
   function onClick(e) {
     if (e.isTrusted !== true) return;
     const t = realTarget(e);
-    if (menu && t !== shadowHost) closeMenu(false); // click outside our UI closes the menu
+    // A click outside our UI closes the menu (not the click that focused the field and opened its card).
+    if (menu && t !== shadowHost && !(menu.auto && t === menu.field)) closeMenu(false);
     if (suggest && t !== shadowHost && t !== suggest.field) hideSuggest();
     if (!t || !t.closest || t === shadowHost) return;
     const b = t.closest('button, input[type="submit"], input[type="image"], input[type="button"], [role="button"]');
@@ -1875,6 +2095,9 @@
   window.addEventListener("blur", () => hideSuggest());
   window.addEventListener("scroll", schedulePosition, { capture: true, passive: true });
   window.addEventListener("resize", schedulePosition, { passive: true });
+  // Fields that move without changing size (sliding cards, fonts or images arriving).
+  for (const type of ["transitionend", "animationend", "load"]) document.addEventListener(type, schedulePosition, { capture: true, passive: true });
+  document.addEventListener("focusout", schedulePosition, true);
   window.addEventListener("popstate", onUrlMaybeChanged);
   if (window.navigation && typeof window.navigation.addEventListener === "function") {
     window.navigation.addEventListener("navigatesuccess", onUrlMaybeChanged);

@@ -233,6 +233,17 @@ test("toolbar fill on a username-only tab: username now, password held for the n
   }
 });
 
+test("toolbar fill: nothing to put in a username step because the login has no username", async () => {
+  for (const [username, hasPassword, error] of [["", false, "no_username"], ["", true, "no_fields"], ["alice", false, "no_fields"]]) {
+    const sw = boot((m) => (m.op === "fill" ? { ...CRED, username } : { error: "x" }));
+    sw.chrome.tabs.query = async () => [{ id: 7, url: "https://accounts.example.com/signin", active: true }];
+    sw.chrome.scripting.executeScript = async (o) => (o.func.name === "fillPage" ? [{ frameId: 0, result: 0 }]
+      : [{ frameId: 0, result: { origin: "https://accounts.example.com", top: true, ancestors: [], fields: true, password: hasPassword } }]);
+    assert.deepEqual(JSON.parse(JSON.stringify(await sw.ctx.fillActiveTab())), { error }, JSON.stringify({ username, hasPassword }));
+    assert.deepEqual(sw.steps(), []);
+  }
+});
+
 // ---------- vault lock state (ping) ----------
 test("stepFill asks Notiq first: a locked vault or a closed app drops every held password", async () => {
   for (const pingReply of [{ ...PING, locked: true }, { error: "app_not_running" }, { error: "no_reply" }]) {

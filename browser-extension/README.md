@@ -26,8 +26,9 @@ Updating from 0.1: click the reload button on the extension's card. The browser 
 "Read and change all your data on all websites" permission (see below) before the new version runs.
 
 ## Use
-- **Fill from the field:** on a login page a small gold Notiq key appears inside the username/email and password
-  fields. Click it, then press **Allow** in Notiq. The icon spins while Notiq waits for you, shows a check when the
+- **Fill from the field:** on a login page a small Notiq "n" button appears inside the username/email and password
+  fields (sized to the field, and placed beside any show-password button already there; it also works on
+  username steps built without a `<form>`, such as Google's). Click it, then press **Allow** in Notiq. The icon spins while Notiq waits for you, shows a check when the
   fields are filled, or a short message if something went wrong (vault locked, you declined, no saved login…).
 - **Suggestion on focus** (off by default; enable it in the popup): when you click or tab into a detected username/email/password field, a small
   **Fill with Notiq** button (with the `Alt+Shift+L` hint) appears under it. It shows no usernames or other vault
@@ -70,14 +71,17 @@ Updating from 0.1: click the reload button on the extension's card. The browser 
   the password). **Save** → approve in Notiq → "Saved to Notiq", "Password updated in Notiq" or "Already saved".
   **Not now** (or Esc, or 25 seconds without touching it) drops the offer; **Never for this site** stops offers
   for that site. Sign-up forms (`autocomplete="new-password"`) are offered too.
-- **Generate a strong password (sign-up / change-password):** on a new-password field (`autocomplete="new-password"`,
-  or a form with a confirm field) the icon opens a small menu: **Generate strong password** fills the new password
-  and its confirm field with a 20-character password (upper/lower/digits/symbols, no look-alikes like `I l 1 O 0`),
+- **Generate a strong password (sign-up / change-password):** sign-up forms are told apart from sign-ins by the
+  whole form (`autocomplete`, a confirm field, button and heading text, URL, forgot-password link, name and terms
+  fields), so they need no `new-password` hint. Their email / username field gets no saved-login icon. Focusing an
+  empty new-password field (or clicking its icon) shows a card with a suggested password, its strength, **Use this
+  password** and **New one**; it does not depend on "Suggest on field focus". **Use this password** fills the new
+  password and its confirm field with a 20-character password (upper/lower/digits/symbols, no look-alikes like `I l 1 O 0`),
   made in the extension with `crypto.getRandomValues`. It follows the site's own limits: `maxlength` / `minlength`,
   the `passwordrules` attribute (`required`, `allowed`, `minlength`, `maxlength`, `max-consecutive`) and a simple
   `pattern` (one character class with a length, e.g. `[A-Za-z0-9]{8,16}`; any pattern is still checked against the
   result). It then makes the longest password allowed up to 20 characters (never under 12 unless the site's maximum
-  is lower) from the allowed characters with every required class, and the menu says so. Rules that can't be met
+  is lower) from the allowed characters with every required class, and the card says so. Rules that can't be met
   fall back to the default password (still no longer than the site's maximum) with a warning. If a page script
   still changes the value, Notiq retries once at the length the page kept, or clears the fields with an error, so
   the saved password is always the one the site has. Nothing is sent anywhere at that point: once you submit the

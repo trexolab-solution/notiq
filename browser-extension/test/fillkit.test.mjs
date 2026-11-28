@@ -212,3 +212,24 @@ test("deepActive and parentAcross step through shadow roots", () => {
   assert.equal(FK.parentAcross(inp), host);
   assert.equal(FK.parentAcross(host), doc);
 });
+
+test("sign-up or sign-in: the whole form decides, not just the password field", () => {
+  const signups = {
+    "one unmarked password, 'Sign up' button": { buttons: ["Sign up"] },
+    "heading and URL say register": { headings: ["Create your account"], path: "/register", buttons: ["Continue"] },
+    "'Create a password' placeholder": { hint: ["password", "Create a password"] },
+    "autocomplete=new-password alone": { autocomplete: ["new-password"] },
+    "two new passwords": { newPasswords: 2, buttons: ["Continue"] },
+    "name field, terms box, 'Get started'": { nameField: true, checks: ["I agree to the Terms"], buttons: ["Get started"] },
+  };
+  const signins = {
+    "plain unmarked login": { newPasswords: 1, buttons: ["Next"] },
+    "new-password misused on a sign-in form": { autocomplete: ["new-password"], buttons: ["Sign in"] },
+    "current-password on a sign-up URL": { autocomplete: ["current-password"], path: "/signup", buttons: ["Continue"] },
+    "login with a forgot link and a register URL": { buttons: ["Log in"], links: ["Forgot password?", "Sign up"], path: "/account" },
+    "'Sign in or register' cancels out": { headings: ["Sign in or register"], buttons: ["Continue"] },
+    "'Sign-in' page with terms text": { checks: ["I agree to the terms"], buttons: ["Sign-in"] },
+  };
+  for (const [name, s] of Object.entries(signups)) assert.equal(FK.isSignup(s), true, `${name}: ${FK.signupScore(s)}`);
+  for (const [name, s] of Object.entries(signins)) assert.equal(FK.isSignup(s), false, `${name}: ${FK.signupScore(s)}`);
+});

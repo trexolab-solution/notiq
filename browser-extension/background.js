@@ -349,7 +349,9 @@ async function fillActiveTab(account) {
   const frames = (Array.isArray(out) ? out : []).filter((r) => r && r.result > 0).map((r) => r.frameId);
   if (frames.length && step) await armStep(tab.id, host, account, res);
   if (frames.length) notifyFilled(tab.id, host, step ? { ...res, password: "" } : res, frames);
-  return frames.length ? { ok: true, host, title: str(res.title, 200) } : { error: "no_fields" };
+  if (frames.length) return { ok: true, host, title: str(res.title, 200) };
+  // A username step and nothing to put in it: say that, not "no login form".
+  return { error: !res.username && !targets.some((r) => r.result.password === true) ? "no_username" : "no_fields" };
 }
 
 // ---------- requests from the in-page content script ----------

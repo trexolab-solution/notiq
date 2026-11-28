@@ -12,6 +12,7 @@ const TEXT = {
   timeout: "No answer from Notiq in time.",
   not_https: "Autofill only works on secure (https) pages.",
   no_fields: "Couldn't find a login form on this page.",
+  no_username: "This login has no username saved. Add it in Notiq.",
   stale: "That list of logins expired. Try again.",
   extension_outdated: "This version of Notiq needs a newer Notiq Autofill extension. Update the extension, then try again.",
 };

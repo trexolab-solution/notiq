@@ -98,6 +98,7 @@
     no_code: "No 2FA code saved for this login.",
     empty: "Nothing saved to copy.",
     no_fields: "Couldn't find a login form on this page.",
+    no_username: "This login has no username saved. Add it in Notiq.",
     not_https: "Autofill only works on secure (https) pages.",
     extension_outdated: "This version of Notiq needs a newer Notiq Autofill extension.",
     busy: "Notiq is busy with another request.",

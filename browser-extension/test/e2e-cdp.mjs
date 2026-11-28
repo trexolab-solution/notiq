@@ -260,8 +260,8 @@ try {
   check("overlay lives in a closed shadow root", s0 && s0.mode === "closed");
   check("page JS cannot see into the overlay", await P(`[...document.documentElement.children].filter(e => e.tagName === "DIV").every(d => d.shadowRoot === null)`));
   let ic = await icons();
-  // simple: email + password; twostep: username (username-first on /login path); signup: email + 2 passwords
-  check("detects login fields (simple 2 + two-step username 1 + signup 3 = 6 icons)", ic && ic.length === 6, JSON.stringify(ic && ic.length));
+  // simple: email + password; twostep: username (username-first on /login path); signup: the 2 new passwords only
+  check("detects login fields (simple 2 + two-step username 1 + sign-up passwords 2 = 5 icons)", ic && ic.length === 5, JSON.stringify(ic && ic.length));
   check("nothing sent to Notiq on page load", (await calls()).length === 0);
 
   // 2. Untrusted click on the icon does nothing
@@ -422,10 +422,10 @@ try {
   // 13. Dynamically added field (SPA)
   await load();
   await P(`(() => { const f = document.createElement("form"); f.id = "dyn"; f.innerHTML = '<input name="login" style="width:240px;height:30px"><input type="password" id="dynpw" style="width:240px;height:30px">'; document.querySelector("main").prepend(f); return true; })()`);
-  const n13 = await waitFor(async () => ((await icons()) || []).length === 8, 2000);
+  const n13 = await waitFor(async () => ((await icons()) || []).length === 7, 2000);
   check("icons added for dynamically inserted login fields", n13);
   await P(`document.getElementById("dyn").remove()`);
-  const n13b = await waitFor(async () => ((await icons()) || []).length === 6, 2000);
+  const n13b = await waitFor(async () => ((await icons()) || []).length === 5, 2000);
   check("icons removed when fields disappear", n13b);
 
   // 14. Message validation in the background (sent from an extension page opened in a tab)
@@ -452,6 +452,38 @@ try {
   const EXTRA = `http://localhost:${PORT}/test-pages/extra.html`;
   const LOOKALIKE = /[Il1O0o]/;
 
+  // Sign-up forms with no hints, next to a plain login
+  await resetState({ suggestOnFocus: false });
+  await load(`http://localhost:${PORT}/test-pages/signup-plain.html`);
+  const iconIds = async (ids) => { const out = []; for (const id of ids) if (await iconFor(id)) out.push(id); return out.join(","); };
+  const plainIcons = await iconIds(["up-email", "up-pass", "dv-email", "dv-pass", "in-email", "in-pass"]);
+  check("plain forms: sign-ups get an icon on the password only, the login on both fields", plainIcons === "up-pass,dv-pass,in-email,in-pass", plainIcons);
+  await clickId("up-pass");
+  const card = await waitFor(menuInfo, 1500);
+  const focused = () => P("document.activeElement && document.activeElement.id");
+  check("focusing an empty sign-up password shows the card, focus stays in the field",
+    card && card.items.map((i) => i.label).join() === "Use this password,New one" && (await focused()) === "up-pass", JSON.stringify(card));
+  const preview = () => inShadow(`function () { const b = this.querySelector(".nq-preview"); return b ? b.textContent : null; }`);
+  const first = await preview();
+  await mouseClick(card.items[1].x, card.items[1].y);
+  await sleep(250);
+  const second = await preview();
+  check("'New one' replaces the suggestion", first && second && first !== second);
+  const card2 = await menuInfo();
+  await mouseClick(card2.items[0].x, card2.items[0].y);
+  await sleep(350);
+  check("'Use this password' fills exactly the suggestion shown", (await P(`document.getElementById("up-pass").value`)) === second);
+  check("the card sends nothing to Notiq", (await calls()).length === 0);
+  await key("Escape", "Escape", 27);
+  await clickId("dv-pass");
+  await waitFor(menuInfo, 1500);
+  await cdp("Input.insertText", { text: "x" }, page);
+  await sleep(250);
+  check("typing closes the card", !(await menuInfo()));
+  await clickId("in-pass");
+  await sleep(600);
+  check("a login password never shows the password card", !(await menuInfo()));
+
   // 15. Password generator on a sign-up form
   await resetState();
   await mockNative(NATIVE);
@@ -459,10 +491,10 @@ try {
   let gi = await iconFor("u-pass");
   await mouseClick(gi.x, gi.y);
   let m15 = await waitFor(menuInfo, 1500);
-  check("new-password icon opens a role=menu with 'Generate strong password' only (sign-up: no 'Fill saved login')",
-    m15 && m15.role === "menu" && m15.items.length === 1 && m15.items[0].label === "Generate strong password" && m15.items[0].role === "menuitem",
+  check("new-password icon opens the password card: use / new one only (sign-up: no saved login)",
+    m15 && m15.role === "menu" && m15.items.length === 2 && m15.items[0].label === "Use this password" && m15.items[1].label === "New one" && m15.items[0].role === "menuitem",
     JSON.stringify(m15));
-  check("menu takes keyboard focus on its first item", m15 && m15.active && m15.active.startsWith("Generate strong password"), JSON.stringify(m15 && m15.active));
+  check("menu takes keyboard focus on its first item", m15 && m15.active && m15.active.startsWith("Use this password"), JSON.stringify(m15 && m15.active));
   check("opening the menu sends nothing to Notiq", (await calls()).length === 0);
   await key("Escape", "Escape", 27);
   await sleep(300);
@@ -524,7 +556,7 @@ try {
   gi = await iconFor("c-new");
   await mouseClick(gi.x, gi.y);
   const m16 = await waitFor(menuInfo, 1500);
-  check("change form menu offers Generate + 'Fill saved login'", m16 && m16.items.map((i) => i.label).join("|") === "Generate strong password|Fill saved login", JSON.stringify(m16 && m16.items));
+  check("change form card offers use / new one + 'Fill saved login'", m16 && m16.items.map((i) => i.label).join("|") === "Use this password|New one|Fill saved login", JSON.stringify(m16 && m16.items));
   await key("Escape", "Escape", 27);
   await typeInto("c-cur", "Old-Pw-1");
   await typeInto("c-new", "New-Pw-22");
@@ -902,9 +934,9 @@ try {
   await waitFor(suggestInfo, 1500);
   const pageVars = () => inShadow(`function () { const r = this.querySelector(".nq-root"); const s = this.querySelector(".nq-suggest");
     return { bg: r.style.getPropertyValue("--nq-bg"), mode: r.getAttribute("data-nq-mode"), suggestBg: s ? getComputedStyle(s).backgroundColor : null,
-      iconColor: getComputedStyle(this.querySelector(".nq-icon")).color }; }`);
+      iconFill: getComputedStyle(this.querySelector(".nq-icon")).backgroundImage }; }`);
   const pv = await pageVars();
-  check("in-page UI (suggestion, icon) uses the app's theme", pv.bg === "#2e3440" && pv.mode === "dark" && pv.suggestBg === "rgb(46, 52, 64)" && pv.iconColor === "rgb(136, 192, 208)", JSON.stringify(pv));
+  check("in-page UI (suggestion, icon) uses the app's theme", pv.bg === "#2e3440" && pv.mode === "dark" && pv.suggestBg === "rgb(46, 52, 64)" && pv.iconFill.includes("136, 192, 208") || pv.iconFill.includes("0.533333 0.752941 0.815686"), JSON.stringify(pv));
   await SW(`chrome.storage.local.set({ theme: ${JSON.stringify(LIGHT)} }).then(() => true)`);
   const pvLive = await waitFor(async () => { const v = await pageVars(); return v.bg === "#f8fafc" && v; }, 1500);
   check("theme change applies live in the page", pvLive && pvLive.mode === "light" && pvLive.suggestBg === "rgb(248, 250, 252)", JSON.stringify(pvLive));
@@ -980,6 +1012,18 @@ try {
   check("SPA step: the lock state was checked (ping) before the hand-out", (await pings()).length >= 1);
   check("SPA step: held password gone after use, form not submitted", (await stepEntries()).length === 0 && spa && !spa.done);
   check("SPA step: the icon shows 'Filled'", !!(await waitFor(async () => (await icons()).some((i) => i.cls.includes("done") && i.tip === "Filled"), 1500)));
+
+  // The same step without a <form> (Google's sign-in page)
+  const FORMLESS = `http://localhost:${PORT}/test-pages/signin-formless.html`;
+  await resetState({ suggestOnFocus: false });
+  await load(FORMLESS);
+  check("formless username step: icon on the username field", (await icons()).length === 1);
+  const gUi = await iconFor("g-user");
+  if (gUi) await mouseClick(gUi.x, gUi.y);
+  check("formless username step: only the username goes in",
+    !!(await waitFor(() => P(`document.getElementById("g-user").value === "alice@example.com" && !document.querySelector('[name="hiddenPassword"]').value`), 3000)));
+  await load(`${FORMLESS}?two=1`);
+  check("formless page with two username fields: no guess, no icon", ((await icons()) || []).length === 0);
 
   // Next step is a new page on the same site
   await resetState({ suggestOnFocus: false });
@@ -1660,7 +1704,7 @@ try {
     await resetState();
     await mockNative(NATIVE);
     await load();
-    check("hide: 6 icons before", ((await icons()) || []).length === 6);
+    check("hide: 5 icons before", ((await icons()) || []).length === 5);
     const hi = await iconFor("s-pass");
     await cdp("Input.dispatchMouseEvent", { type: "mouseMoved", x: hi.x, y: hi.y }, page);
     await cdp("Input.dispatchMouseEvent", { type: "mousePressed", x: hi.x, y: hi.y, button: "right", clickCount: 1 }, page);
@@ -1686,7 +1730,7 @@ try {
     await sleep(6000); // the temporary progress icon goes away
     check("hide: the shortcut's temporary icon goes away", ((await icons()) || []).length === 0);
     await SW(`chrome.storage.local.set({ hiddenSites: [] }).then(() => true)`);
-    check("hide: removing the site (popup ×) brings the icons back", await waitFor(async () => ((await icons()) || []).length === 6, 2500));
+    check("hide: removing the site (popup ×) brings the icons back", await waitFor(async () => ((await icons()) || []).length === 5, 2500));
 
     // Toolbar fill (probeFrame + fillPage) into open shadow roots, run as the injection runs them.
     const PROBE = await SW("probeFrame.toString()");
