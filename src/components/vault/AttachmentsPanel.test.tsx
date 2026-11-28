@@ -65,7 +65,7 @@ async function render(files: Att[] = []) {
   stored = files;
   setEntryEditing(tab.id, true);
   await act(async () => { root.render(<EntryLayout tab={tab}><AttachmentsPanel tab={tab} /></EntryLayout>); });
-  await flush(); // the section starts unfolded
+  await flush();
 }
 
 beforeEach(() => {
@@ -94,18 +94,8 @@ afterEach(async () => {
   vi.useRealTimers();
 });
 
-describe("Attachments section", () => {
-  it("starts unfolded and can be folded", async () => {
-    await render();
-    const head = byText("Attachments");
-    expect(head.getAttribute("aria-expanded")).toBe("true");
-    await click(head);
-    expect(byText("Attachments").getAttribute("aria-expanded")).toBe("false");
-  });
-});
-
 describe("View mode", () => {
-  it("keeps open and save a copy, without browse or remove, and ignores drops", async () => {
+  it("keeps open, save a copy, browse and drop, but no remove", async () => {
     stored = [{ id: "a", name: "scan.png", mime: "image/png", size: MB, added: 0 }];
     setEntryEditing(tab.id, false);
     await act(async () => { root.render(<EntryLayout tab={tab}><AttachmentsPanel tab={tab} /></EntryLayout>); });
@@ -113,9 +103,21 @@ describe("View mode", () => {
     expect(btn("Open scan.png")).toBeTruthy();
     expect(btn("Save scan.png as")).toBeTruthy();
     expect(btn("Remove scan.png")).toBeNull();
-    expect(btn("Browse for files to attach")).toBeNull();
-    await act(async () => { expect(dropAt(["C:/x.txt"], { x: 10, y: 10 }, 1)).toBe(false); });
-    expect(attachAdd).not.toHaveBeenCalled();
+    expect(btn("Browse for files to attach")).toBeTruthy();
+    fsStat.mockResolvedValue({ size: 3, isDirectory: false });
+    await act(async () => { expect(dropAt(["C:/x.txt"], { x: 10, y: 10 }, 1)).toBe(true); });
+    await flush();
+    expect(attachAdd).toHaveBeenCalledTimes(1);
+    expect(btn("Remove x.txt")).toBeNull();
+  });
+
+  it("offers drag and drop and browse when there are no files yet", async () => {
+    stored = [];
+    setEntryEditing(tab.id, false);
+    await act(async () => { root.render(<EntryLayout tab={tab}><AttachmentsPanel tab={tab} /></EntryLayout>); });
+    await flush();
+    expect(document.querySelector("[data-empty]")?.textContent).toContain("Drag & drop files here, or browse");
+    expect(document.body.textContent).not.toContain("Press Edit to add");
   });
 });
 

@@ -56,13 +56,13 @@ function FieldRow({ id, field, index, count, error, lifted, sortDescribedBy, onS
 
   return (
     <li data-list-row {...sortable.rowProps}
-        className={`group flex items-start gap-1 pl-1 pr-2 py-2 ${listRowHoverClass} ${lifted || sortable.isDragging ? liftedRowClass : ""}`}>
-      <div className="h-8 flex items-center">
-        {readOnly ? <RowIconSpacer /> : (
+        className={`group flex items-start gap-1 ${readOnly ? "pl-0.5" : "pl-1"} pr-2 py-2 ${listRowHoverClass} ${lifted || sortable.isDragging ? liftedRowClass : ""}`}>
+      {!readOnly && (
+        <div className="h-8 flex items-center">
           <RowDragHandle label={`Reorder ${name}`} lifted={lifted} describedBy={sortDescribedBy}
                          onKeyDown={onSortKeyDown} handleProps={sortable.handleProps} />
-        )}
-      </div>
+        </div>
+      )}
       {/* Name and value side by side, so a list of fields reads like a table. */}
       <div className="flex-1 min-w-0 grid grid-cols-1 @md:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] gap-2 items-start">
         <div className="min-w-0">

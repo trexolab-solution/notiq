@@ -7,7 +7,7 @@ import { ConfirmDialog } from "../ui/ConfirmDialog";
 import { Tooltip } from "../ui/Tooltip";
 import { FileDropPrompt } from "../ui/FileDropPrompt";
 import { Spinner } from "../ui/Loading";
-import { CollapsibleSection } from "./EntryParts";
+import { Section } from "./EntryParts";
 import { useEntryReadOnly } from "./entryContext";
 import { setEntryEditing } from "../../lib/entryUi";
 import { AttachmentIcon, AttachmentPreview } from "./AttachmentPreview";
@@ -68,19 +68,19 @@ export function entryDisplayName(tab: Pick<Tab, "content" | "title">): string {
 }
 
 /**
- * Collapsible "Attachments (n)" section for a structured vault entry. Files are stored encrypted in the
- * vault. Files can be added with "browse" or dropped from the OS anywhere on the entry form (in Edit mode).
+ * The "Attachments" card of a structured vault entry. Files are stored encrypted in the vault. They can be added
+ * with "browse" or dropped from the OS anywhere on the entry form, in view mode too (adding is saved at once and
+ * changes no field); removing one needs Edit mode.
  * Keyed by tab so pending removals and Undo never carry over to another entry.
  */
-export function AttachmentsPanel({ tab, defaultOpen = true }: { tab: Tab; /** Whether the section starts unfolded (it does by default). */ defaultOpen?: boolean }) {
-  return <AttachmentsPanelInner key={tab.id} tab={tab} defaultOpen={defaultOpen} />;
+export function AttachmentsPanel({ tab }: { tab: Tab }) {
+  return <AttachmentsPanelInner key={tab.id} tab={tab} />;
 }
 
-function AttachmentsPanelInner({ tab, defaultOpen }: { tab: Tab; defaultOpen: boolean }) {
+function AttachmentsPanelInner({ tab }: { tab: Tab }) {
   const readOnly = useEntryReadOnly();
   const path = tab.filePath;
   const name = entryDisplayName(tab);
-  const [open_, setOpen] = useState(defaultOpen);
   const [list, setList] = useState<VaultAttachment[] | null>(null);
   const [vaultUsed, setVaultUsed] = useState<number | null>(null);
   const [jobs, setJobs] = useState<Job[]>([]);
@@ -102,7 +102,7 @@ function AttachmentsPanelInner({ tab, defaultOpen }: { tab: Tab; defaultOpen: bo
   const undoToast = useUndoToast();
   const unlocked = useVaultStore((s) => s.unlocked);
   const active = useAppStore((s) => s.activeTabId === tab.id);
-  const canDrop = !readOnly && unlocked && active && !tab.vaultLocked && isVaultPath(path);
+  const canDrop = unlocked && active && !tab.vaultLocked && isVaultPath(path);
 
   const reload = useCallback(async (): Promise<VaultAttachment[]> => {
     const p = pathOf(tab.id);
@@ -117,7 +117,7 @@ function AttachmentsPanelInner({ tab, defaultOpen }: { tab: Tab; defaultOpen: bo
   }, []);
 
   useEffect(() => { void reload(); }, [reload, path]);
-  useEffect(() => { if (open_) void reloadUsed(); }, [open_, reloadUsed]);
+  useEffect(() => { void reloadUsed(); }, [reloadUsed]);
 
   // ── Removal with Undo ──────────────────────────────────────────────────────
   // The backend wipes a removed file's data, so instead of keeping a decrypted copy around for Undo,
@@ -177,7 +177,6 @@ function AttachmentsPanelInner({ tab, defaultOpen }: { tab: Tab; defaultOpen: bo
     if (busyRef.current) { announce("Still adding files. Try again when that finishes."); return; }
     busyRef.current = true;
     setBusy(true);
-    setOpen(true);
     const stamp = Date.now();
     const batch: Job[] = paths.map((p, i) => ({ key: `${stamp}-${i}`, name: fileNameOf(p), status: "waiting" }));
     setJobs(batch); // replaces the errors of the previous add
@@ -300,19 +299,9 @@ function AttachmentsPanelInner({ tab, defaultOpen }: { tab: Tab; defaultOpen: bo
 
   return (
     <div ref={sectionRef} data-attachments="">
-      <CollapsibleSection id={`att-${tab.id}`} title={`Attachments (${n})`}
-                          summary={n ? formatBytes(entryBytes) : readOnly ? "No attachments" : "Drop files here to keep them encrypted with this entry"}
-                          open={open_} onToggle={() => setOpen((v) => !v)}>
-        <div ref={rootRef} role="group" aria-label={`Attachments of ${name}`} aria-describedby={readOnly ? undefined : hintId} aria-busy={busy || undefined}
+      <Section title={n ? `Attachments · ${n}` : "Attachments"} hint="Files stored encrypted inside the vault with this entry.">
+        <div ref={rootRef} role="group" aria-label={`Attachments of ${name}`} aria-describedby={hintId} aria-busy={busy || undefined}
              className="flex flex-col gap-2">
-          {readOnly && n === 0 && jobs.length === 0 && (
-            <div data-empty="" className="flex flex-col items-center gap-1 rounded-md border border-dashed border-[var(--color-border)] px-4 py-5 text-center">
-              <Paperclip size={18} aria-hidden className="text-[var(--color-text-muted)]" />
-              <p className="text-sm text-[var(--color-text)]">No attachments</p>
-              <p className="text-[11px] text-[var(--color-text-muted)]">Press Edit to add a file.</p>
-            </div>
-          )}
-
           {n > 0 && (
             <ul aria-label="Attached files" className="flex flex-col rounded-md border border-[var(--color-border)] divide-y divide-[var(--color-border)]">
               {visible.map((a, i) => {
@@ -376,14 +365,13 @@ function AttachmentsPanelInner({ tab, defaultOpen }: { tab: Tab; defaultOpen: bo
             </ul>
           )}
 
-          {!readOnly && (<>
           {/* One box for both ways in: drop files on it, or use "browse". */}
           <div data-empty={n === 0 && jobs.length === 0 ? "" : undefined}
                className="rounded-md border border-dashed border-[var(--color-border)] bg-[var(--color-bg-tertiary)]/40">
             <Tooltip content={full ? limitText : undefined}>
               <div>
                 <FileDropPrompt what="files" compact={n > 0} browseText={busy ? "adding…" : "browse"}
-                                hint={n === 0 ? "A scan, key file or document. It's stored encrypted inside the vault with this entry." : undefined}
+                                hint={n === 0 ? "A scan, key file or document." : undefined}
                                 buttonProps={{ "data-list-add": "", "aria-label": "Browse for files to attach", "aria-disabled": full || undefined,
                                                onClick: () => { if (!full) void pick(); } }} />
               </div>
@@ -396,10 +384,10 @@ function AttachmentsPanelInner({ tab, defaultOpen }: { tab: Tab; defaultOpen: bo
           </span>
           <p id={hintId} className="text-[11px] text-[var(--color-text-muted)]">
             You can also drop files from your computer anywhere on this entry. {ATTACHMENTS_SYNC_NOTE}
+            {readOnly && n > 0 && " Press Edit to remove a file."}
           </p>
-          </>)}
         </div>
-      </CollapsibleSection>
+      </Section>
       {region}
 
       {showDrop && createPortal(

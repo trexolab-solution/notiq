@@ -292,15 +292,53 @@ button.vt-footer-row:focus-visible { outline: 2px solid color-mix(in srgb, var(-
 }
 .vt-tag-confirm:disabled { opacity: 0.6; cursor: default; }
 
-/* Entry view mode: a field reads as a stored value on a hairline, not as a box to type in. Clicking one
-   (to select and copy) must not look like editing, so it gets none of the edit focus: no accent border,
-   ring or outline. The line only darkens, which also shows keyboard focus. Unlayered, so these win over
-   the fields' Tailwind classes and the global :focus-visible ring. */
-[data-entry-mode="view"] :is(input[readonly], textarea[readonly]) {
-  background: transparent; border-color: transparent; border-bottom-color: var(--color-border); border-radius: 0;
-  box-shadow: none; outline: none; cursor: default; resize: none;
+/* ── Entry forms: view mode ──────────────────────────────────────────────────
+   A stored value sits in a quiet filled box with no border. Clicking one (to select and copy) must not look
+   like editing: no accent border, ring or outline; only keyboard focus draws a neutral line. Unlayered, so
+   these win over the fields' Tailwind classes and the global :focus-visible ring. */
+[data-entry-mode="view"] :is(input:not([type="checkbox"], [type="radio"])[readonly], textarea[readonly]) {
+  background-color: color-mix(in srgb, var(--color-bg-tertiary) 55%, transparent);
+  border: 1px solid transparent; box-shadow: none; outline: none; cursor: default; resize: none;
 }
 [data-entry-mode="view"] :is(input[readonly], textarea[readonly])::placeholder { color: transparent; }
 [data-entry-mode="view"] :is(input[readonly], textarea[readonly]):is(:focus, :focus-visible) {
-  border-color: transparent; border-bottom-color: var(--color-text-muted); box-shadow: none; outline: none;
+  border-color: transparent; box-shadow: none; outline: none;
+}
+[data-entry-mode="view"] :is(input[readonly], textarea[readonly]):focus-visible:not(:active) {
+  border-color: color-mix(in srgb, var(--color-text-muted) 55%, transparent);
+}
+/* As tall as what it holds: no half-empty boxes. */
+[data-entry-mode="view"] textarea[readonly] { field-sizing: content; min-height: 36px; max-height: 320px; }
+/* Nothing stored: a dash, so the box doesn't look like it failed to load. */
+[data-entry-mode="view"] :is(input[readonly][value=""], textarea[readonly]:empty) {
+  background-image: linear-gradient(var(--color-text-muted), var(--color-text-muted));
+  background-repeat: no-repeat; background-size: 10px 1px; background-position: 10px 50%;
+}
+/* Rows of a list (custom fields, websites) already have a box around them. */
+[data-entry-mode="view"] [data-list-row] input[readonly] { background-color: transparent; }
+/* A value chosen from a list or a box that was ticked reads as a value, not as something switched off. */
+[data-entry-mode="view"] [data-panel] button[aria-haspopup]:disabled {
+  opacity: 1 !important; cursor: default !important; border-color: transparent !important;
+  background: color-mix(in srgb, var(--color-bg-tertiary) 55%, transparent) !important;
+}
+[data-entry-mode="view"] [data-panel] button[aria-haspopup]:disabled svg { visibility: hidden; }
+
+/* ── A field as a card (SshEntryEditor `KeyField`) ─────────────────────────
+   The card is the box; the field inside has none of its own. */
+.vt-key-card :is(textarea, input) {
+  display: block; width: 100%; min-width: 0; margin: 0; padding: 10px 12px;
+  border: 0; border-radius: 0; background: transparent; box-shadow: none; outline: none;
+}
+.vt-key-card :is(textarea, input):not([readonly]):focus {
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--color-primary) 55%, transparent);
+}
+[data-entry-mode="view"] .vt-key-card :is(textarea, input)[readonly] {
+  border: 0; background-color: transparent;
+}
+[data-entry-mode="view"] .vt-key-card :is(textarea, input)[readonly]:focus-visible:not(:active) {
+  box-shadow: inset 0 0 0 1px var(--color-text-muted);
+}
+/* A hidden key is a wall of dots: two lines of it say enough. */
+.vt-key-card textarea[data-masked][readonly] {
+  field-sizing: fixed; height: 56px; min-height: 0; overflow: hidden; resize: none;
 }

@@ -38,20 +38,23 @@ import {
 } from "../../lib/sshKeyImport";
 import type { Tab } from "../../types";
 
-/** A key textarea with its label and actions on one line above it, and status / facts below. */
+/**
+ * One secret (a password or a key) as a card: its name and actions in the head, the value, and what is known
+ * about it underneath. The field inside has no box of its own (styles/vault.css).
+ */
 function KeyField({ id, text, hint, actions, children, footer }: {
   id: string; text: string; hint?: string; actions: React.ReactNode; children: React.ReactNode; footer?: React.ReactNode;
 }) {
   return (
-    <div className="flex flex-col gap-1.5" data-key-field={id}>
-      <div className="flex items-end gap-2 min-h-7">
-        <label className={`${fieldLabel} !mb-0 flex-1 min-w-0 pb-1`} htmlFor={id}>
-          {text}{hint && <span className="ml-1.5 opacity-70">{hint}</span>}
+    <div className="vt-key-card flex flex-col rounded-lg border border-[var(--color-border)] overflow-hidden" data-key-field={id}>
+      <div className="flex items-center gap-2 min-h-10 pl-3 pr-1.5 py-1 border-b border-[var(--color-border)] bg-[var(--color-bg-secondary)]/40">
+        <label className="flex-1 min-w-0 text-xs font-semibold" htmlFor={id}>
+          {text}{hint && <span className="ml-1.5 font-normal text-[var(--color-text-muted)]">{hint}</span>}
         </label>
         <div className="flex items-center gap-1 shrink-0">{actions}</div>
       </div>
       {children}
-      {footer}
+      {footer && <div className="flex flex-col gap-2 px-3 py-2.5 border-t border-[var(--color-border)] bg-[var(--color-bg-secondary)]/40">{footer}</div>}
     </div>
   );
 }
@@ -417,17 +420,15 @@ function SshEntryEditorInner({ tab }: { tab: Tab }) {
           )}
           {hiddenNote && <p className="text-xs text-[var(--color-text-muted)]" data-hidden-note="">{hiddenNote}</p>}
           {mode !== "key" && (
-            <SubGroup title="Password" hint="Used when you sign in with a password.">
-              <Row htmlFor="ssh-pass" text="Password" hideLabel
-                   actions={<>
-                     <RevealButton shown={showPass} onToggle={() => setShowPass((v) => !v)} name="password" />
-                     <CopyIconButton value={f.password ?? ""} label="password" />
-                   </>}>
-                <Input id="ssh-pass" readOnly={readOnly} type={showPass ? "text" : "password"} value={f.password ?? ""}
-                       autoComplete="off" spellCheck={false} className="font-mono"
-                       onChange={(e) => setField("password", e.target.value)} />
-              </Row>
-            </SubGroup>
+            <KeyField id="ssh-pass" text="Password" hint="· used when you sign in with a password"
+                      actions={<>
+                        <RevealButton shown={showPass} onToggle={() => setShowPass((v) => !v)} name="password" />
+                        <CopyIconButton value={f.password ?? ""} label="password" />
+                      </>}>
+              <Input id="ssh-pass" readOnly={readOnly} type={showPass ? "text" : "password"} value={f.password ?? ""}
+                     autoComplete="off" spellCheck={false} className="font-mono"
+                     onChange={(e) => setField("password", e.target.value)} />
+            </KeyField>
 
           )}
           {mode !== "password" && (
@@ -524,7 +525,8 @@ function SshEntryEditorInner({ tab }: { tab: Tab }) {
                             ) : match === true ? (
                               <StatusLine tone="ok" icon={CircleCheck}>Matches the private key</StatusLine>
                             ) : null}
-                            {pub.facts && pub.facts.side === "public" && <KeyFactsRow facts={pub.facts} fingerprint={pub.fingerprint} name="Public key" />}
+                            {/* A matching public key has the private key's type and fingerprint, shown just above. */}
+                            {pub.facts && pub.facts.side === "public" && match !== true && <KeyFactsRow facts={pub.facts} fingerprint={pub.fingerprint} name="Public key" />}
                           </>)}>
                   <textarea id="ssh-pub" readOnly={readOnly} rows={3} value={f.publicKey ?? ""} spellCheck={false} autoComplete="off"
                             placeholder="ssh-ed25519 AAAA… user@host"
@@ -548,9 +550,11 @@ function SshEntryEditorInner({ tab }: { tab: Tab }) {
             <fieldset id="ssh-pref" className="flex flex-col gap-1.5 border-t border-[var(--color-border)] pt-5">
               <legend className="sr-only">When both are saved</legend>
               <h3 className="text-sm font-semibold">When both are saved</h3>
-              <div role="radiogroup" aria-label="Preferred sign-in method" className="flex flex-col">
+              <div role="radiogroup" aria-label="Preferred sign-in method" className="grid grid-cols-1 @md:grid-cols-3 gap-2">
                 {([["ask", "Ask each time"], ["key", "Prefer SSH key"], ["password", "Prefer password"]] as [AuthPreference, string][]).map(([v, label]) => (
-                  <label key={v} className="flex items-center gap-2.5 min-h-8 text-[13px] cursor-pointer">
+                  <label key={v} className={`flex items-center gap-2 min-h-10 rounded-lg border px-2.5 text-[13px] whitespace-nowrap cursor-pointer transition-colors ${pref === v
+                    ? "border-[var(--color-primary)] bg-[var(--color-primary)]/10 font-medium"
+                    : "border-[var(--color-border)] hover:bg-[var(--color-bg-tertiary)]/60"}`}>
                     <input type="radio" name="ssh-pref" checked={pref === v} className="accent-[var(--color-primary)]"
                            onChange={() => setAuthPreference(tab.filePath, v)} />
                     {label}

@@ -24,9 +24,15 @@ export function useKeyFacts(text: string): { facts: KeyFacts | null; fingerprint
   return { facts, fingerprint: fp && facts?.blob === fp.blob ? fp.value : null };
 }
 
-const chip = "inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] leading-4 border border-[var(--color-border)] bg-[var(--color-bg-secondary)] text-[var(--color-text-muted)]";
+/** One fact: its name in the left column, the value beside it. */
+function Fact({ term, children }: { term: string; children: React.ReactNode }) {
+  return (<>
+    <dt className="text-[var(--color-text-muted)]">{term}</dt>
+    <dd className="m-0 min-w-0">{children}</dd>
+  </>);
+}
 
-/** Type · size, format, encryption, comment and fingerprint as a row of small facts. */
+/** Type and size, format, encryption, comment and fingerprint as a small aligned list. */
 export function KeyFactsRow({ facts, fingerprint, name, compact }: {
   facts: KeyFacts; fingerprint: string | null; name: string;
   /** Leave out format and encryption (the field's status line already says them). */
@@ -34,21 +40,22 @@ export function KeyFactsRow({ facts, fingerprint, name, compact }: {
 }) {
   const typeText = [facts.type, facts.bits ? `${facts.bits}-bit` : null].filter(Boolean).join(" · ");
   return (
-    <ul aria-label={`${name} details`} className="flex flex-wrap items-center gap-1.5" data-key-facts="">
-      {typeText && <li className={`${chip} font-medium text-[var(--color-text)]`}>{typeText}</li>}
-      {!compact && <li className={chip}>{facts.format}</li>}
+    <dl aria-label={`${name} details`} className="m-0 grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-4 gap-y-1 text-xs" data-key-facts="">
+      {typeText && <Fact term="Type">{typeText}</Fact>}
+      {!compact && <Fact term="Format">{facts.format}</Fact>}
       {!compact && facts.side === "private" && facts.encrypted !== null && (
-        <li className={chip}>{facts.encrypted ? "Passphrase protected" : "Not encrypted"}</li>
+        <Fact term="Passphrase">{facts.encrypted ? "Passphrase protected" : "Not encrypted"}</Fact>
       )}
-      {facts.comment && <li className={`${chip} max-w-[220px]`}><span className="truncate">{facts.comment}</span></li>}
+      {facts.comment && <Fact term="Comment"><span className="block truncate" title={facts.comment}>{facts.comment}</span></Fact>}
       {fingerprint && (
-        <li className={`${chip} !pr-0.5 max-w-full`}>
-          <span className="sr-only">Fingerprint </span>
-          <code className="font-mono truncate">{fingerprint}</code>
-          <CopyIconButton value={fingerprint} label={`${name} fingerprint`} className="!h-5 !w-5 !p-0 justify-center" />
-        </li>
+        <Fact term="Fingerprint">
+          <span className="flex items-center gap-1 min-w-0">
+            <code className="min-w-0 truncate font-mono text-[11px]" title={fingerprint}>{fingerprint}</code>
+            <CopyIconButton value={fingerprint} label={`${name} fingerprint`} className="!h-6 !w-6 !p-0 justify-center shrink-0" />
+          </span>
+        </Fact>
       )}
-    </ul>
+    </dl>
   );
 }
 
