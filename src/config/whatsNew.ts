@@ -13,20 +13,16 @@ import { APP_VERSION } from "./app";
  */
 export const WHATS_NEW = `# What's New in Notiq ${APP_VERSION}
 
-A fix release for the autofill window, with a clearer update notice.
+A security fix for browser autofill.
 
-## 🌐 Browser autofill
+## 🛡️ Look-alike site warning
 
-- The autofill window now also closes after requests it answers **without showing itself** (opening the extension popup, checking whether to offer Save, a trusted site).
-- Until Notiq needs to show it, the window is kept **off screen**. This is aimed at the empty white box some screenshots showed.
+- When a page **looks like a site you have a login for** but isn't it, Notiq now shows its warning. Before this update the warning did not stay on screen. Nothing was filled on such a page then either.
+- Close the warning (**OK**, **×** or **Esc**) and the browser is told there is no login for this page.
 
-## 🔔 Updates
+## 💡 What to do when you see it
 
-- A card now tells you when a new version is available. **Later** hides it for a few hours.
-
-## 🚀 Start with your computer
-
-- After each update Notiq makes sure it **launches at sign-in**, and repairs a startup entry that pointed somewhere else. This update turns it on even if you had turned it off before. To keep it off, switch it off in **Settings → General** (turning it off only in Windows doesn't last past an update).
+- Check the page's address carefully before you type a password there.
 
 ---
 
