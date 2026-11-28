@@ -141,7 +141,7 @@ kbd {
   :root:not([data-theme="dark"]) .theme-toggle .moon { display: none; }
 }
 /* narrow: nav drops to its own scrollable row */
-@media (max-width: 940px) {
+@media (max-width: 1100px) {
   .head-in { flex-wrap: wrap; height: auto; padding-top: 10px; row-gap: 4px; }
   .nav {
     order: 3; flex-basis: 100%; margin: 0 calc(-1 * var(--gutter)); padding: 0 var(--gutter) 6px; overflow-x: auto; scrollbar-width: none;

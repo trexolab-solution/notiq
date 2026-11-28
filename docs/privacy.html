@@ -52,7 +52,7 @@
   <div class="sealed-field doc-head-wrap">
     <div class="container doc-head">
       <h1>Privacy policy</h1>
-      <p class="meta">Last updated: 1 November 2026 · App: Notiq · Developer: TrexoLab</p>
+      <p class="meta">Last updated: 28 November 2026 · App: Notiq · Developer: TrexoLab</p>
     </div>
   </div>
   <div class="container doc-layout">
@@ -63,6 +63,11 @@
         <li><a href="#vault-sync-optional">Vault Sync (optional)</a></li>
         <li><a href="#google-user-data">Google user data</a></li>
         <li><a href="#optional-ai-features">Optional AI features</a></li>
+        <li><a href="#optional-breach-check">Breached-password check</a></li>
+        <li><a href="#ssh-and-server-monitor">SSH and server monitor</a></li>
+        <li><a href="#webdav-sharing">WebDAV sharing</a></li>
+        <li><a href="#passkeys-and-autofill">Autofill and passkeys</a></li>
+        <li><a href="#shared-items">Sharing vault items</a></li>
         <li><a href="#what-we-can-see">What we can see</a></li>
         <li><a href="#children">Children</a></li>
         <li><a href="#changes-and-contact">Changes and contact</a></li>
@@ -81,7 +86,7 @@
     </ul>
 
     <h2 id="vault-sync-optional">Vault Sync (optional)</h2>
-    <p>Vault Sync is optional and off by default. It syncs your <strong>vault only</strong>. Your plain notes are never synced. In version 0.9.0 the only storage option is Google Drive.</p>
+    <p>Vault Sync is optional and off by default. It syncs your <strong>vault only</strong>. Your plain notes are never synced. The only storage option today is Google Drive.</p>
     <p>You can turn it on in Settings → Vault → Sync. If you never connect it, Notiq sends nothing to Google.</p>
 
     <h2 id="google-user-data">Google user data</h2>
@@ -113,6 +118,19 @@
 
     <h2 id="optional-breach-check">Optional breached-password check</h2>
     <p>Vault Health can check whether your saved passwords appear in known data breaches. It is off by default and is the only network request Vault Health ever makes. When you turn it on, Notiq computes a SHA-1 hash of each password on your device and sends only the first 5 characters of that hash to the Have I Been Pwned Pwned Passwords service (<code>api.pwnedpasswords.com</code>). The service returns a list of matching hash endings and Notiq compares them locally, so neither your passwords nor their full hashes ever leave your device. Nothing is sent while the check is off.</p>
+
+    <h2 id="ssh-and-server-monitor">SSH terminal, file manager and server monitor</h2>
+    <p>Notiq connects to the servers you choose, directly from your computer (or through the jump host you set for a server), using the sign-in details saved in your vault. Server host keys that you confirm are remembered on your computer.</p>
+    <p>The server monitor on a saved SSH entry connects by itself while it is in view, using your preferred sign-in method, the one you used last, or the only one saved. It runs one fixed read-only command on the server every few seconds to show CPU, memory, disk and system details. After a failed sign-in or <strong>Disconnect</strong> it waits for you. It disconnects when it goes out of view, when you edit the entry or when the vault locks. The developers receive nothing.</p>
+
+    <h2 id="webdav-sharing">WebDAV sharing to your phone</h2>
+    <p>WebDAV sharing is off until you start it. It serves the one folder you pick on your local network, and every request needs the user name and password. It stops when you stop it or close Notiq. The password is not saved to disk. With <strong>Use HTTPS</strong> the connection is encrypted with a certificate Notiq makes; the certificate and its key are kept in the app's data folder. Without HTTPS the connection is plain HTTP, so use it only on a network you trust.</p>
+
+    <h2 id="passkeys-and-autofill">Browser autofill and passkeys</h2>
+    <p>The browser extension talks to the Notiq app on the same computer. Passkeys (experimental) are saved on a login in your encrypted vault; the private key is never given to the extension or the website. Backups and Vault Sync include them as part of the encrypted vault. See the <a href="extension-privacy.html">extension privacy policy</a>.</p>
+
+    <h2 id="shared-items">Sharing vault items</h2>
+    <p>When you share chosen items, Notiq writes a separate encrypted file protected by a password you set for it. Notiq does not send the file anywhere; you decide how to give it to someone.</p>
 
     <h2 id="what-we-can-see">What we can see</h2>
     <p>Nothing. The developers have no access to your notes, your vault or your Google Drive.</p>

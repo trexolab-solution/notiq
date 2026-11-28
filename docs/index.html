@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Notiq: Markdown Editor with Encrypted Vault | Offline, Open Source</title>
+<title>Notiq: Offline Markdown Editor with Encrypted Vault</title>
 <meta name="description" content="Free, open-source desktop Markdown editor with a whiteboard and an encrypted vault for passwords and SSH keys. No account, no telemetry.">
 <meta name="robots" content="index,follow,max-image-preview:large">
 <meta name="author" content="TrexoLab">
@@ -67,7 +67,9 @@
         "WebDAV sharing: open a folder of your computer on your phone over Wi-Fi",
         "Share chosen vault items with someone: their own password, an import limit, and items that remove themselves",
         "Two-step (TOTP) codes",
-        "Browser autofill extension",
+        "Browser autofill extension, with experimental passkey support",
+        "Server monitor for Linux servers on saved SSH entries: CPU, memory, swap and disks",
+        "Vault items open read-only until you press Edit",
         "Optional end-to-end encrypted sync to Google Drive",
         "Works offline, no account, no telemetry"
       ],
@@ -142,7 +144,7 @@
                 "name": "Can Notiq fill my passwords in the browser?",
                 "acceptedAnswer": {
                     "@type": "Answer",
-                    "text": "Yes. The Notiq Autofill extension for Chrome, Edge, Brave and Firefox fills and saves logins with your vault. Every fill and every save is approved inside Notiq, and passwords never leave your computer."
+                    "text": "Yes. The Notiq Autofill extension for Chrome, Edge, Brave and Firefox fills and saves logins with your vault. Every fill and every save is approved inside Notiq, and passwords never leave your computer. It can also save and use passkeys (experimental). The extension is not in a browser store yet, so you load it from the folder that ships with Notiq."
                 }
             },
             {
@@ -443,6 +445,7 @@ Build a **reading tracker** that works offline.
         <li><b>Star and rename</b><span>Starred items float to the top. Double-click a name to rename.</span></li>
         <li><b>Recycle Bin</b><span>Restore anything, or delete it forever. Emptied automatically after 30 days.</span></li>
         <li><b>Search</b><span>Find entries by name or tag, inside the vault only.</span></li>
+        <li><b>Read-only until you edit</b><span>A saved item opens for viewing and copying. Press Edit to change it.</span></li>
       </ul>
     </div>
     <noscript><p class="noscript">The interactive vault explorer needs JavaScript. In the app: a folder tree with tags, stars, rename, drag-and-drop moves, search, and a Recycle Bin with a 30-day purge.</p></noscript>
@@ -456,11 +459,11 @@ Build a **reading tracker** that works offline.
       <h2 id="cred-title">Forms built for logins, servers and keys</h2>
       <p>Each entry type has a form shaped around what you store in it, so a server keeps its host and key and a login keeps its 2-step secret.</p>
       <dl class="kinds">
-        <div><dt><svg class="i k-login" aria-hidden="true"><use href="#i-login"/></svg>Login</dt><dd>Password generator, live 2-step (TOTP) codes, one-click copy.</dd></div>
+        <div><dt><svg class="i k-login" aria-hidden="true"><use href="#i-login"/></svg>Login</dt><dd>Password generator, live 2-step (TOTP) codes, one-click copy, and the account’s recovery codes kept inside the login.</dd></div>
         <div><dt><svg class="i k-ssh" aria-hidden="true"><use href="#i-ssh"/></svg>SSH / server</dt><dd>Checks the key, can generate a new one, and opens the server in Notiq’s own terminal or file manager.</dd></div>
         <div><dt><svg class="i k-secret" aria-hidden="true"><use href="#i-secret"/></svg>API key / secret</dt><dd>Tokens and keys, hidden until you ask.</dd></div>
         <div><dt><svg class="i k-note" aria-hidden="true"><use href="#i-note"/></svg>Secure note</dt><dd>Full Markdown, sealed like everything else.</dd></div>
-        <div><dt><svg class="i k-id" aria-hidden="true"><use href="#i-idcard"/></svg>Identity, card, Wi-Fi, recovery codes</dt><dd>Name and address for checkout forms, cards, network passwords and one-time codes.</dd></div>
+        <div><dt><svg class="i k-id" aria-hidden="true"><use href="#i-idcard"/></svg>Identity, card, Wi-Fi, recovery codes</dt><dd>Name and address for checkout forms, cards, network passwords, and a list for one-time codes that don’t belong to a login.</dd></div>
       </dl>
       <p>Every copy button confirms with a check, then clears the clipboard after 30 seconds. You can pick 15 s, 1 min, 2 min or Never instead.</p>
       <p class="try">Try it: copy a field, generate a password, paste a sample key.</p>
@@ -583,11 +586,27 @@ Build a **reading tracker** that works offline.
   </div>
 </section>
 
+<!-- ═════════════ SHARE ITEMS ═════════════ -->
+<section class="band band-alt" id="share" aria-labelledby="share-title">
+  <div class="container">
+    <div class="section-head">
+      <h2 id="share-title">Share a few vault items, not your whole vault</h2>
+      <p>Pick the notes or folders someone needs. Notiq makes a separate share file with its own password, and the receiver imports it into their own Notiq vault.</p>
+    </div>
+    <ul class="spec spec-2">
+      <li><svg class="i" aria-hidden="true"><use href="#i-lock"/></svg><div><h3>Its own password</h3><p>Not your master password. Send it separately from the file; Notiq doesn’t keep it.</p></div></li>
+      <li><svg class="i" aria-hidden="true"><use href="#i-list"/></svg><div><h3>Only what you pick</h3><p>History, the Recycle Bin, tags and stars stay behind. Attachments go only if you ask.</p></div></li>
+      <li><svg class="i" aria-hidden="true"><use href="#i-timer"/></svg><div><h3>Your limits</h3><p>Set how many times it can be imported and how long it works. The file can be deleted after its last import.</p></div></li>
+      <li><svg class="i" aria-hidden="true"><use href="#i-trash"/></svg><div><h3>Items that remove themselves</h3><p>Imported items can be removed after a set time or on a date. Notiq applies this rule; it can’t take back what the receiver already copied.</p></div></li>
+    </ul>
+  </div>
+</section>
+
 <!-- ═════════════ SERVERS ═════════════ -->
 <section class="band band-alt" id="servers" aria-labelledby="servers-title">
   <div class="container split-grid flip">
     <div class="copy">
-      <h2 id="servers-title">Open a saved server in a terminal or a file manager</h2>
+      <h2 id="servers-title">Open, browse and watch your saved servers</h2>
       <p>Notiq has its own SSH client, so there is nothing to install. Pick a server from the vault and it signs in with the key or password you saved: in the terminal, or in a file manager over SFTP.</p>
       <ul class="ticks">
         <li>Browse, edit and save files on the server without leaving Notiq</li>
@@ -596,6 +615,7 @@ Build a **reading tracker** that works offline.
         <li>Deleted items go to the server’s Trash first, so you can restore them</li>
         <li>Replace or keep both when a name is taken; it reconnects by itself if the link drops</li>
         <li>Host keys are confirmed once and remembered, and a changed key is refused</li>
+        <li><b>Server monitor for Linux servers:</b> a saved SSH entry shows CPU and load, memory, swap and disks with live graphs, plus host name, system, kernel, uptime and processor. While in view it signs in by itself and runs one fixed read-only command; after a failed sign-in or <b>Disconnect</b> it waits for you</li>
       </ul>
     </div>
     <div>
@@ -726,7 +746,7 @@ f2 6e 0d 84 b7 19 c5 2a 70 eb 4f 13 9a d8 66 05
   <div class="container">
     <div class="section-head">
       <h2 id="sync-title">Use one vault on all your PCs, sealed before it leaves</h2>
-      <p>Vault Sync, new in 0.9.0, keeps your vault in step through your own Google Drive. It is off until you turn it on, it syncs the vault only (never your plain notes), and everything is encrypted on your PC before upload.</p>
+      <p>Vault Sync keeps your vault in step through your own Google Drive. It is off until you turn it on, it syncs the vault only (never your plain notes), and everything is encrypted on your PC before upload.</p>
     </div>
 
     <div class="sync-map" role="img" aria-label="Diagram: this PC and your other PC each upload an encrypted copy of the vault to Notiq's own app folder in your Google Drive. The folder holds vault metadata, one encrypted snapshot per device and encrypted attachments. Notiq cannot see the other files in your Drive.">
@@ -773,7 +793,7 @@ f2 6e 0d 84 b7 19 c5 2a 70 eb 4f 13 9a d8 66 05
   <div class="container">
     <div class="section-head">
       <h2 id="af-title">Fill logins in your browser, approved in Notiq</h2>
-      <p>Notiq Autofill 0.8.2 for Chrome, Edge, Brave and Firefox works with your vault through a local bridge on your computer. Passwords never leave it: the vault must be unlocked, and every fill and every save is approved in Notiq.</p>
+      <p>Notiq Autofill 0.9.0 for Chrome, Edge, Brave and Firefox works with your vault through a local bridge on your computer. Passwords never leave it: the vault must be unlocked, and every fill and every save is approved in Notiq.</p>
     </div>
 
     <div class="af-layout">
@@ -843,9 +863,10 @@ f2 6e 0d 84 b7 19 c5 2a 70 eb 4f 13 9a d8 66 05
         <li><svg class="i" aria-hidden="true"><use href="#i-pointer"/></svg><div><h3>Right-click menu</h3><p>Fill login · Fill 2FA code · Fill identity · Generate password.</p></div></li>
         <li><svg class="i" aria-hidden="true"><use href="#i-idcard"/></svg><div><h3>Identities and custom fields</h3><p>Name, email, phone and address go into address and checkout forms. A login’s custom fields, like a bank’s Customer ID, fill fields with the same name.</p></div></li>
         <li><svg class="i" aria-hidden="true"><use href="#i-ban"/></svg><div><h3>Look-alike sites refused</h3><p>A request from an address like <code>paypa1.com</code> is refused and reported inside Notiq.</p></div></li>
+        <li><svg class="i" aria-hidden="true"><use href="#i-secret"/></svg><div><h3>Passkeys (experimental)</h3><p>Save and use passkeys with your vault. It is on by default, Notiq asks every time, and the private key stays in your vault. You can turn it off in the extension.</p></div></li>
       </ul>
     </div>
-    <p class="af-more">The extension ships inside Notiq: open <b>Settings → Vault → Browser autofill</b> to install it. Read the <a href="extension-privacy.html">extension privacy policy</a>.</p>
+    <p class="af-more">The extension is not in a browser store yet. It ships inside Notiq: open <b>Settings → Vault → Browser autofill</b> and follow the steps (Chrome, Edge and Brave: <b>Developer mode → Load unpacked</b>; Firefox: a temporary add-on from the release package). Read the <a href="extension-privacy.html">extension privacy policy</a>.</p>
   </div>
 </section>
 
@@ -914,7 +935,7 @@ nothing to commit, working tree clean
     <ul class="extras" aria-label="Also included">
       <li><svg class="i" aria-hidden="true"><use href="#i-cmd"/></svg><span><b>Command palette</b> <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>P</kbd></span></li>
       <li><svg class="i" aria-hidden="true"><use href="#i-sticky"/></svg><span><b>Sticky notes</b> that float above other windows</span></li>
-      <li><svg class="i" aria-hidden="true"><use href="#i-palette"/></svg><span><b>18 themes</b>, light and dark</span></li>
+      <li><svg class="i" aria-hidden="true"><use href="#i-palette"/></svg><span><b>18 themes</b>, light and dark, including GitHub Light, Paper and Graphite</span></li>
       <li><svg class="i" aria-hidden="true"><use href="#i-command"/></svg><span><b>Windows, Linux and macOS</b> from one codebase (macOS builds from source)</span></li>
     </ul>
   </div>
@@ -929,7 +950,7 @@ nothing to commit, working tree clean
     <details class="faq-item"><summary>How is the vault encrypted?</summary><p>Your master password is stretched with Argon2id (64 MiB, 3 passes) into a key that wraps a random 256-bit vault key. The database is sealed with XChaCha20-Poly1305 using a fresh random nonce on every save.</p></details>
     <details class="faq-item"><summary>Does Notiq work offline?</summary><p>Yes. Notiq is local-first: the editor, whiteboard and vault all work without an internet connection. Network access is only used for the features you turn on, such as vault sync, update checks or AI.</p></details>
     <details class="faq-item"><summary>Which systems does Notiq run on?</summary><p>Windows (.exe and .msi installers) and Linux (AppImage, .deb and .rpm). There is no macOS installer yet; macOS can be built from source.</p></details>
-    <details class="faq-item"><summary>Can Notiq fill my passwords in the browser?</summary><p>Yes. The Notiq Autofill extension for Chrome, Edge, Brave and Firefox fills and saves logins with your vault. Every fill and every save is approved inside Notiq, and passwords never leave your computer.</p></details>
+    <details class="faq-item"><summary>Can Notiq fill my passwords in the browser?</summary><p>Yes. The Notiq Autofill extension for Chrome, Edge, Brave and Firefox fills and saves logins with your vault. Every fill and every save is approved inside Notiq, and passwords never leave your computer. It can also save and use passkeys (experimental). The extension is not in a browser store yet, so you load it from the folder that ships with Notiq.</p></details>
     <details class="faq-item"><summary>Can I import passwords from another password manager?</summary><p>Yes. You can import logins from Chrome, Edge, Brave, Bitwarden or KeePass CSV files, or any CSV with a column mapping, with a preview and duplicate handling.</p></details>
     <details class="faq-item"><summary>What if I forget my master password?</summary><p>When you create the vault you get a recovery key, shown once, that unlocks the same vault. If you lose both the master password and the recovery key, the vault cannot be recovered.</p></details>
   </div>
@@ -942,6 +963,7 @@ nothing to commit, working tree clean
       <h2 id="dl-title">Download Notiq</h2>
       <p>Free and open source (MIT). No account, no telemetry.</p>
       <p class="dl-more">All builds and release notes are on <a href="https://github.com/trexolab-solution/notiq/releases/latest">GitHub Releases</a>. Notiq checks GitHub for a new release on launch and every hour, and updates itself in-app; you can turn that off in <b>Settings → Updates</b>.</p>
+      <p class="dl-more">The Windows installers are not code-signed, so Windows SmartScreen may warn you when you run one. The browser extension is not in a browser store yet.</p>
     </div>
     <ul class="os-list">
       <li><a class="os" data-os="windows" href="https://github.com/trexolab-solution/notiq/releases/latest">
@@ -949,7 +971,7 @@ nothing to commit, working tree clean
         <span class="os-name">Windows</span><span class="os-sub">.exe and .msi installers</span>
         <span class="os-go"><span class="os-you">Your system</span><svg class="i" aria-hidden="true"><use href="#i-download"/></svg></span>
       </a></li>
-      <li><a class="os" data-os="macos" href="https://github.com/trexolab-solution/notiq#build-for-production">
+      <li><a class="os" data-os="macos" href="https://github.com/trexolab-solution/notiq#build-from-source">
         <svg class="i os-ic" aria-hidden="true"><use href="#i-command"/></svg>
         <span class="os-name">macOS</span><span class="os-sub">No installer yet: build from source</span>
         <span class="os-go"><span class="os-you">Your system</span><svg class="i" aria-hidden="true"><use href="#i-download"/></svg></span>

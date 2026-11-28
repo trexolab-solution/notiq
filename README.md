@@ -27,7 +27,7 @@
 
 ## What it is
 
-Notiq is a desktop app for notes, secrets and servers that you want to keep on your own machine. Write Markdown in the editor engine behind VS Code, keep passwords, SSH keys and private notes in one encrypted vault, and open your servers in a built-in terminal and file manager. It starts in under a second and works offline.
+Notiq is a desktop app for notes, secrets and servers that you want to keep on your own machine. Write Markdown in the editor engine behind VS Code, keep passwords, SSH keys and private notes in one encrypted vault, and open your servers in a built-in terminal and file manager. It works offline.
 
 ## Highlights
 
@@ -48,8 +48,8 @@ See all of it, with demos, on the [website](https://trexolab-solution.github.io/
 
 Get the latest installer from the [releases page](https://github.com/trexolab-solution/notiq/releases/latest):
 
-- **Windows** — installer (`.exe`)
-- **Linux** — AppImage or `.deb`
+- **Windows** — installer (`.exe` or `.msi`)
+- **Linux** — AppImage, `.deb` or `.rpm`
 - **macOS** — build from source (see below)
 
 Notiq updates itself from the same releases page (**Settings → Updates**).
